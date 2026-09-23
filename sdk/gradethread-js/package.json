@@ -5,9 +5,13 @@
   "license": "MIT",
   "author": "Pearson Media LLC",
   "homepage": "https://gradethread.com/developers",
+  "bugs": {
+    "url": "https://gradethread.com/developers",
+    "email": "support@gradethread.com"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/dj-pearson/GradeThread",
+    "url": "git+https://github.com/dj-pearson/GradeThread.git",
     "directory": "sdk/gradethread-js"
   },
   "type": "module",
@@ -17,7 +21,8 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -25,7 +30,9 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "prepack": "npm run build"
+    "test": "node --test",
+    "prepack": "npm run build",
+    "pretest": "npm run build"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
@@ -42,5 +49,10 @@
   "engines": {
     "node": ">=20"
   },
-  "sideEffects": false
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  }
 }

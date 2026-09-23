@@ -8,6 +8,7 @@ Zero dependencies. Works in Node 20+ and the browser.
 
 ## Install
 
+<!-- sdk-install:start (generated from src/lib/sdk-release.ts) -->
 The SDK is not published to npm yet, and the GradeThread repository is
 private, so there is no install command that works for an outside customer
 today. Until it is published, call the HTTP API directly: the endpoints,
@@ -18,6 +19,7 @@ and we'll let you know when the package is available.
 
 Once it is published this becomes `npm install @gradethread/sdk`, and the
 examples below work unchanged.
+<!-- sdk-install:end -->
 
 ## Quick start
 

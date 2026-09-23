@@ -29,6 +29,17 @@ describe("@gradethread/sdk package", () => {
     expect(pkg.files).not.toContain("src");
   });
 
+  // .github/workflows/sdk-publish.yml publishes a scoped package with
+  // provenance; a scoped package defaults to private and the first publish
+  // fails with 402 without access: public.
+  it("publishes publicly with provenance, from the repo it names", () => {
+    expect(pkg.name).toBe("@gradethread/sdk");
+    expect(pkg.publishConfig).toMatchObject({ access: "public", provenance: true });
+    expect(pkg.repository.url).toContain("github.com/dj-pearson/GradeThread");
+    expect(pkg.repository.directory).toBe("sdk/gradethread-js");
+    expect(pkg.version).toMatch(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/);
+  });
+
   it("compiles, and Node imports it by name", { timeout: 60_000 }, () => {
     const installed = join(work, "node_modules/@gradethread/sdk");
     mkdirSync(installed, { recursive: true });
@@ -58,5 +69,21 @@ describe("@gradethread/sdk package", () => {
     expect(groups).toEqual(
       expect.arrayContaining(["grades", "items", "listings", "sales", "usage", "priceGuide", "sandbox", "webhook"]),
     );
+  });
+
+  // sdk/gradethread-js/test/*.test.mjs is what `npm test` runs in the package,
+  // and sdk-publish.yml runs it before every publish. Running it here as well,
+  // against the dist compiled above, means a PR that breaks it goes red in
+  // ordinary CI instead of on release day.
+  it("passes its own node --test suite against the built dist", { timeout: 60_000 }, () => {
+    const installed = join(work, "node_modules/@gradethread/sdk");
+    expect(existsSync(join(installed, pkg.main)), "the compile test above must run first").toBe(true);
+    cpSync(join(SDK, "test"), join(installed, "test"), { recursive: true });
+    const out = execFileSync(process.execPath, ["--test", "--test-reporter=tap"], {
+      cwd: installed,
+      encoding: "utf8",
+    });
+    expect(out).toMatch(/^# fail 0$/m);
+    expect(out).toMatch(/^# pass [1-9]\d*$/m);
   });
 });

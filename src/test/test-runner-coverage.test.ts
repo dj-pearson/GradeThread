@@ -146,6 +146,18 @@ const RUNNERS: Runner[] = [
     ],
   },
   {
+    // The SDK package's own `node --test` suite. sdk-publish.yml runs it before
+    // every publish, and src/test/sdk-build.test.ts runs it on every PR against
+    // the dist it compiles, which is why the web vitest lane is its invoker.
+    name: "node --test (sdk/gradethread-js)",
+    claims: (p) => /^sdk\/gradethread-js\/test\/.*\.test\.mjs$/.test(p),
+    invokedBy: [
+      { in: LANE, needle: "npm run test:coverage" },
+      { in: CI, needle: "npm run test:coverage" },
+      { in: CI, needle: "Test the built package (sdk/gradethread-js/test)" },
+    ],
+  },
+  {
     // playwright.config.ts `testDir: "./e2e"`.
     name: "playwright",
     claims: (p) => /^e2e\/.*\.spec\.ts$/.test(p),

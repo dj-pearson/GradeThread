@@ -10,6 +10,7 @@ import {
 } from "@/components/marketing/marketing-layout";
 import { HelpCategoryLink } from "@/components/marketing/help-category-link";
 import { FLIPDESK_PLANS } from "@/lib/constants";
+import { SDK_INSTALL_COMMAND, SDK_PUBLISHED, SDK_SUPPORT_MAILTO } from "@/lib/sdk-release";
 
 // US-9126: the Claude connector.
 //
@@ -197,12 +198,11 @@ const PRICE_GUIDE_EXAMPLE = `curl https://functions.gradethread.com/api/v1/price
 #                    "valueLowCents": 6500, "valueMedianCents": 8200,
 #                    "valueHighCents": 9800, "sellThrough": 0.78 }, ... ] } }`;
 
-// The package is not published yet (registry.npmjs.org answers 404 for the
-// name). This page used to give a `git clone` of the GradeThread repository
-// as the install path, but the repository is private, so that command fails
-// for every outside customer. Until the package is on npm the page says so and
-// points at the REST API and support. Add `npm install @gradethread/sdk` back
-// here once it is published.
+// Whether this page gives `npm install` or says the SDK is unpublished is
+// SDK_PUBLISHED in src/lib/sdk-release.ts, the same switch the SDK README reads.
+// The page used to give a `git clone` of the GradeThread repository as the
+// install path, but the repository is private, so that command fails for every
+// outside customer.
 const SDK_EXAMPLE = `import { GradeThread } from "@gradethread/sdk";
 
 const gt = new GradeThread({ apiKey: process.env.GRADETHREAD_API_KEY });
@@ -481,18 +481,28 @@ export function DevelopersPage() {
           sends an Idempotency-Key on every grade submission and retries rate
           limits and outages without charging twice.
         </p>
-        <p>
-          <strong>The SDK is not published yet.</strong> Until it is, call the
-          REST API directly with the examples above, or email{" "}
-          <a
-            href="mailto:support@gradethread.com?subject=JavaScript%20SDK%20access"
-            className="font-medium text-brand-navy hover:underline dark:text-foreground"
-          >
-            support@gradethread.com
-          </a>{" "}
-          and we'll let you know when it's available. Once it is, usage looks
-          like this:
-        </p>
+        {SDK_PUBLISHED ? (
+          <>
+            <p>Install it from npm:</p>
+            <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
+              <code>{SDK_INSTALL_COMMAND}</code>
+            </pre>
+            <p>Then:</p>
+          </>
+        ) : (
+          <p>
+            <strong>The SDK is not published yet.</strong> Until it is, call the
+            REST API directly with the examples above, or email{" "}
+            <a
+              href={SDK_SUPPORT_MAILTO}
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              support@gradethread.com
+            </a>{" "}
+            and we'll let you know when it's available. Once it is, usage looks
+            like this:
+          </p>
+        )}
         <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
           <code>{SDK_EXAMPLE}</code>
         </pre>

@@ -1,0 +1,135 @@
+name: SDK publish
+
+# Publishes sdk/gradethread-js to npm as @gradethread/sdk.
+#
+# Real publish: push a tag sdk-vX.Y.Z whose X.Y.Z equals the version in
+# sdk/gradethread-js/package.json. Rehearsal: run this workflow by hand with
+# dry_run left on, which builds, tests and runs `npm publish --dry-run`.
+# Runbook: vault/10-ops/publishing-the-sdk.md.
+#
+# NPM_TOKEN is a granular npm access token with publish rights on
+# @gradethread/sdk, stored as a GitHub Actions secret. Without it a real
+# publish skips with a notice instead of failing, so the workflow can land
+# before the npm org exists.
+
+on:
+  push:
+    tags:
+      - "sdk-v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run npm publish --dry-run instead of publishing"
+        type: boolean
+        required: false
+        default: true
+
+concurrency:
+  group: sdk-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # npm provenance signs with the workflow's OIDC token
+
+jobs:
+  publish:
+    name: Build, test and publish @gradethread/sdk
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: sdk/gradethread-js
+    env:
+      # A tag push is always a real publish; a manual run is a dry run unless
+      # the box is unticked.
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' && 'true' || 'false' }}
+      REPO_PRIVATE: ${{ github.event.repository.private && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            sdk/gradethread-js
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22, not the SDK's engines floor of 20: react-router-8-contract.test.ts
+          # holds every workflow in this repo at >= 22.
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+          cache-dependency-path: sdk/gradethread-js/package-lock.json
+
+      - name: Decide whether to publish
+        id: gate
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run: will build, test and run npm publish --dry-run."
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_NPM_TOKEN" != "true" ]; then
+            echo "::notice title=SDK publish skipped::NPM_TOKEN is not set. Add it under Settings > Secrets and variables > Actions, then re-push the tag. See vault/10-ops/publishing-the-sdk.md."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "::error::A real publish runs from an sdk-v* tag. Push the tag, or run this workflow with dry_run on."
+            exit 1
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check the tag matches package.json
+        if: steps.gate.outputs.go == 'true' && github.ref_type == 'tag'
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#sdk-v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME says $TAG_VERSION but sdk/gradethread-js/package.json says $PKG_VERSION."
+            exit 1
+          fi
+          echo "Tag and package.json agree on $PKG_VERSION."
+
+      - name: Install
+        if: steps.gate.outputs.go == 'true'
+        run: npm ci
+
+      - name: Build
+        if: steps.gate.outputs.go == 'true'
+        run: npm run build
+
+      - name: Test the built package (sdk/gradethread-js/test)
+        if: steps.gate.outputs.go == 'true'
+        run: npm test
+
+      - name: Refuse a version that is already on npm
+        if: steps.gate.outputs.go == 'true' && env.DRY_RUN != 'true'
+        run: |
+          NAME="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "::error::$NAME@$VERSION is already published. Bump the version in sdk/gradethread-js/package.json and tag again."
+            exit 1
+          fi
+
+      # npm refuses provenance from a private repository. package.json asks for
+      # it, so on a private repo it is switched off for this run only (the
+      # checkout is thrown away) and the run says so.
+      - name: Drop provenance on a private repository
+        if: steps.gate.outputs.go == 'true' && env.REPO_PRIVATE == 'true'
+        run: |
+          echo "::warning title=No provenance::${GITHUB_REPOSITORY} is private and npm only signs provenance for public repositories. Publishing without it."
+          npm pkg set publishConfig.provenance=false --json
+
+      - name: Publish (dry run)
+        if: steps.gate.outputs.go == 'true' && env.DRY_RUN == 'true'
+        run: npm publish --dry-run --access public
+
+      - name: Publish
+        if: steps.gate.outputs.go == 'true' && env.DRY_RUN != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ "$REPO_PRIVATE" = "true" ]; then
+            npm publish --access public
+          else
+            npm publish --provenance --access public
+          fi
