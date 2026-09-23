@@ -417,7 +417,7 @@ function IncludedGradesTable() {
           return (
             <div
               key={key}
-              className="rounded-md border border-border bg-background p-3 text-center"
+              className="bg-background p-3 text-center"
             >
               <div className="text-xs uppercase text-muted-foreground">
                 {plan.name}
@@ -954,7 +954,7 @@ export function LandingPage() {
               <li
                 key={stage.title}
                 data-flipdesk-panel
-                className="flipdesk-panel flex w-[80vw] max-w-[340px] flex-shrink-0 flex-col rounded-3xl border border-border/40 bg-card/60 p-6 shadow-sm glass-card sm:w-[340px]"
+                className="flipdesk-panel flex w-[80vw] max-w-[340px] flex-shrink-0 flex-col rounded-3xl border border-border/40 bg-card/60 p-6 glass-card sm:w-[340px]"
               >
                 <div className="mb-4 flex items-center justify-between">
                   <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-red/10 text-brand-red-text">
@@ -965,7 +965,7 @@ export function LandingPage() {
                   </span>
                 </div>
                 {/* Stylized product mock — a peek at the tool, not a real screenshot. */}
-                <div className="mb-4 rounded-xl border border-border/50 bg-background/70 p-3">
+                <div className="mb-4 bg-background/70 p-3">
                   <div className="mb-2 flex gap-1.5">
                     <span className="h-2 w-2 rounded-full bg-brand-red/50" />
                     <span className="h-2 w-2 rounded-full bg-amber-400/60" />
