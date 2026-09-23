@@ -540,7 +540,7 @@ function SampleCertificatePreview() {
             data-cert-ring
             className="flex h-24 w-24 flex-shrink-0 items-center justify-center rounded-full border-4 border-emerald-500"
           >
-            <span data-cert-score className="text-3xl font-bold text-emerald-500">
+            <span data-cert-score className="text-3xl font-bold text-grade-green-text">
               {SAMPLE_CERT.overallScore.toFixed(1)}
             </span>
           </div>
@@ -572,7 +572,7 @@ function SampleCertificatePreview() {
                       ({(factor.weight * 100).toFixed(0)}%)
                     </span>
                   </span>
-                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span data-cert-factor-score className="font-semibold text-grade-green-text">
                     {score.toFixed(1)}
                   </span>
                 </div>
