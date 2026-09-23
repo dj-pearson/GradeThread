@@ -121,7 +121,6 @@ import {
   // module so they can be unit-tested without importing this whole page.
   TABS,
   TO_LIST_STATUSES,
-  DRAFT_LIKE_STATUSES,
   UNLISTED_FILTERS,
   UNLISTED_FILTER_LABELS,
   tabSupportsSelection,
@@ -141,6 +140,7 @@ import {
   writeLastInventoryTab,
 } from "@/pages/flipdesk/inventory-last-tab";
 import { listingIdsOf, selectedRowsFrom } from "@/pages/flipdesk/listings-selection";
+import { keepRowsAcrossKeys, tabCountsFrom } from "@/pages/flipdesk/listings-tab-counts";
 import {
   listingPageArgs,
   usePageRowDetails,
@@ -632,6 +632,7 @@ export function FlipdeskListingsPage() {
     isLoading,
     isError,
     isFetching,
+    isPlaceholderData,
     refetch,
   } = useQuery<ListingPageResult>({
     queryKey: listingsPageKey,
@@ -639,7 +640,12 @@ export function FlipdeskListingsPage() {
     // A page's worth of rows is cheap to refetch and stale rows here are the
     // expensive kind, so the previous entry stays visible while the next one
     // loads rather than blanking the table on every keystroke or page click.
-    placeholderData: (prev) => prev,
+    //
+    // INV-11: but ONLY within the same tab. Keeping the Active tab's rows on
+    // screen under "Sold" rendered live listings with Sold-only actions on
+    // them. A tab switch shows the skeleton instead.
+    placeholderData: (prev, prevQuery) =>
+      keepRowsAcrossKeys(prevQuery?.queryKey, listingsPageKey) ? prev : undefined,
     // US-2174 (replaces the US-735 reasoning).
     //
     // The old 15-minute window was justified by "mutations invalidate items_full
@@ -742,47 +748,9 @@ export function FlipdeskListingsPage() {
   // of each view recomputing the totals.
   const { data: statusCounts } = useInventoryStatusCounts();
 
-  const tabCounts = useMemo(() => {
-    const counts: Record<TabId, number> = {
-      all: 0,
-      unlisted: 0,
-      // US-3195: aged is not a status, so the server-side status grouping cannot
-      // count it and this stays -1, which the badge reads as "no number" rather
-      // than as "none". A permanent 0 on a tab holding forty dead listings is
-      // worse than no badge, which is the same judgement the fallback below
-      // already makes about page-limited counts.
-      aged: -1,
-      active: 0,
-      sold: 0,
-      shipped: 0,
-      returned: 0,
-      archived: 0,
-    };
-    // Prefer the server-side grouped count (decoupled from the loaded rows);
-    // fall back to counting the loaded set if the RPC hasn't resolved yet.
-    if (statusCounts && Object.keys(statusCounts).length > 0) {
-      let all = 0;
-      for (const [st, n] of Object.entries(statusCounts)) {
-        // US-1483: archived items are excluded from the All tab.
-        if ((st as ItemStatus) !== "archived") all += n;
-        if (DRAFT_LIKE_STATUSES.has(st as ItemStatus)) counts.unlisted += n;
-      }
-      counts.all = all;
-      counts.active = statusCounts.listed ?? 0;
-      counts.sold = statusCounts.sold ?? 0;
-      counts.shipped = statusCounts.shipped ?? 0;
-      counts.returned = statusCounts.returned ?? 0;
-      counts.archived = statusCounts.archived ?? 0;
-      return counts;
-    }
-    // US-2168: the old fallback counted the LOADED rows while statusCounts was
-    // in flight. That was sound when "loaded" meant the whole account; it is
-    // actively wrong now that it means one page, because it would badge every
-    // tab with a number no larger than the page size — "3" next to a tab
-    // holding 137 items. Zeros are the honest placeholder: obviously
-    // not-yet-known, rather than confidently wrong for the second it shows.
-    return counts;
-  }, [statusCounts]);
+  // INV-11: null while the grouped count loads or when it failed, and the badge
+  // shows nothing for null. A 0 on every tab for that second read as "empty".
+  const tabCounts = useMemo(() => tabCountsFrom(statusCounts), [statusCounts]);
 
   const activeTab = TABS.find((t) => t.id === tab) ?? TABS[0]!;
 
@@ -1185,12 +1153,12 @@ export function FlipdeskListingsPage() {
               {t.label}
               {/* US-3195: a negative count means the number is not knowable
                   from the server-side status grouping, so no badge is shown. */}
-              {tabCounts[t.id] >= 0 && (
+              {tabCounts[t.id] != null && (
                 <Badge
                   variant={tab === t.id ? "default" : "secondary"}
                   className="px-1.5 py-0 text-[10px] tabular-nums"
                 >
-                  {tabCounts[t.id].toLocaleString()}
+                  {tabCounts[t.id]!.toLocaleString()}
                 </Badge>
               )}
             </TabsTrigger>
@@ -1563,87 +1531,96 @@ export function FlipdeskListingsPage() {
                   )}
                 </div>
               )}
-              {/* Mobile: card list (the wide table is unusable on a phone). */}
-              <div className="md:hidden">
-                {selectable && (
-                  <label className="flex cursor-pointer items-center gap-2 border-b px-4 py-2">
-                    <input
-                      type="checkbox"
-                      checked={allOnPageSelected}
-                      onChange={toggleSelectAll}
-                      className="h-4 w-4 cursor-pointer"
-                      aria-label="Select all on page"
-                    />
-                    <span className="text-xs text-muted-foreground">
-                      {selected.size > 0
-                        ? `${selected.size} selected`
-                        : "Select all on page"}
-                    </span>
-                  </label>
-                )}
-                <ItemCardList
-                  items={pageRows}
-                  onOpen={setDetailItem}
+              {/* INV-11: while a same-tab refetch shows the previous rows, they
+                  are dimmed and inert, so nothing can be selected or acted on
+                  until the fresh page arrives. */}
+              <div
+                aria-busy={isPlaceholderData || undefined}
+                inert={isPlaceholderData || undefined}
+                className={cn(isPlaceholderData && "opacity-60 transition-opacity")}
+              >
+                {/* Mobile: card list (the wide table is unusable on a phone). */}
+                <div className="md:hidden">
+                  {selectable && (
+                    <label className="flex cursor-pointer items-center gap-2 border-b px-4 py-2">
+                      <input
+                        type="checkbox"
+                        checked={allOnPageSelected}
+                        onChange={toggleSelectAll}
+                        className="h-4 w-4 cursor-pointer"
+                        aria-label="Select all on page"
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        {selected.size > 0
+                          ? `${selected.size} selected`
+                          : "Select all on page"}
+                      </span>
+                    </label>
+                  )}
+                  <ItemCardList
+                    items={pageRows}
+                    onOpen={setDetailItem}
+                    selectable={selectable}
+                    selectedIds={selected}
+                    onToggleSelect={toggleSelected}
+                    onQuickEdit={setQuickEditItem}
+                    // US-3122: the phone list shows the sourcer while the page is
+                    // ordered by it, the same rule the desktop column follows.
+                    showSourcer={columnSort?.field === "sourced_by"}
+                  />
+                </div>
+                {/* US-2173 AC3: the desktop table is its own component now. The
+                    US-733 virtualization decision stays here — the hook must be
+                    created on every render, and this component is not mounted on
+                    mobile — so its output is passed down rather than computed
+                    there. */}
+                <ListingsTable
+                  pageRows={pageRows}
+                  tab={tab}
+                  isActive={isActive}
+                  isAged={isAgedTab}
+                  isUnlisted={isUnlisted}
+                  isShipped={isShipped}
+                  isSold={isSold}
                   selectable={selectable}
-                  selectedIds={selected}
-                  onToggleSelect={toggleSelected}
+                  selected={selected}
+                  allOnPageSelected={allOnPageSelected}
+                  toggleSelected={toggleSelected}
+                  toggleSelectAll={toggleSelectAll}
+                  columnSort={columnSort}
+                  toggleColumnSort={toggleColumnSort}
+                  tableScrollRef={tableScrollRef}
+                  virtualize={virtualize}
+                  virtualItems={virtualItems}
+                  rowVirtualizer={rowVirtualizer}
+                  vPadTop={vPadTop}
+                  vPadBottom={vPadBottom}
+                  platformsByItem={platformsByItem}
+                  draftMetaByItem={draftMetaByItem}
+                  publishIssuesByItem={publishIssuesByItem}
+                  coverByItem={coverByItem}
+                  metricsByItem={metricsByItem}
+                  qualityByListing={qualityByListing}
+                  scoreById={scoreById}
+                  buyerCounts={buyerCounts}
+                  updateTracking={updateTracking}
+                  updateListingPrice={updateListingPrice}
+                  updateItemStatus={updateItemStatus}
+                  updateItemMoney={updateItemMoney}
+                  updateItemNotes={updateItemNotes}
                   onQuickEdit={setQuickEditItem}
-                  // US-3122: the phone list shows the sourcer while the page is
-                  // ordered by it, the same rule the desktop column follows.
-                  showSourcer={columnSort?.field === "sourced_by"}
+                  markDelivered={markDelivered}
+                  setPublishItem={setPublishItem}
+                  setMarkListedItem={setMarkListedItem}
+                  setRecordSaleItem={setRecordSaleItem}
+                  setShipItem={setShipItem}
+                  setEndTarget={setEndTarget}
+                  setDeleteTarget={setDeleteTarget}
+                  canDelete={canDeleteItems}
+                  ebayConnection={ebayConnection}
+                  navigate={navigate}
                 />
               </div>
-              {/* US-2173 AC3: the desktop table is its own component now. The
-                  US-733 virtualization decision stays here — the hook must be
-                  created on every render, and this component is not mounted on
-                  mobile — so its output is passed down rather than computed
-                  there. */}
-              <ListingsTable
-                pageRows={pageRows}
-                tab={tab}
-                isActive={isActive}
-                isAged={isAgedTab}
-                isUnlisted={isUnlisted}
-                isShipped={isShipped}
-                isSold={isSold}
-                selectable={selectable}
-                selected={selected}
-                allOnPageSelected={allOnPageSelected}
-                toggleSelected={toggleSelected}
-                toggleSelectAll={toggleSelectAll}
-                columnSort={columnSort}
-                toggleColumnSort={toggleColumnSort}
-                tableScrollRef={tableScrollRef}
-                virtualize={virtualize}
-                virtualItems={virtualItems}
-                rowVirtualizer={rowVirtualizer}
-                vPadTop={vPadTop}
-                vPadBottom={vPadBottom}
-                platformsByItem={platformsByItem}
-                draftMetaByItem={draftMetaByItem}
-                publishIssuesByItem={publishIssuesByItem}
-                coverByItem={coverByItem}
-                metricsByItem={metricsByItem}
-                qualityByListing={qualityByListing}
-                scoreById={scoreById}
-                buyerCounts={buyerCounts}
-                updateTracking={updateTracking}
-                updateListingPrice={updateListingPrice}
-                updateItemStatus={updateItemStatus}
-                updateItemMoney={updateItemMoney}
-                updateItemNotes={updateItemNotes}
-                onQuickEdit={setQuickEditItem}
-                markDelivered={markDelivered}
-                setPublishItem={setPublishItem}
-                setMarkListedItem={setMarkListedItem}
-                setRecordSaleItem={setRecordSaleItem}
-                setShipItem={setShipItem}
-                setEndTarget={setEndTarget}
-                setDeleteTarget={setDeleteTarget}
-                canDelete={canDeleteItems}
-                ebayConnection={ebayConnection}
-                navigate={navigate}
-              />
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-xs">
                 <div className="flex items-center gap-2">
@@ -1698,7 +1675,12 @@ export function FlipdeskListingsPage() {
       </Card>
 
       {selectable && selected.size > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+        <div
+          className="fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80"
+          // INV-11: no bulk action while the rows under it are placeholders.
+          inert={isPlaceholderData || undefined}
+          aria-busy={isPlaceholderData || undefined}
+        >
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
             <div className="text-sm font-semibold text-brand-navy dark:text-foreground">
               {selected.size} selected
