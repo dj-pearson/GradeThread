@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { clearLayoutMirrors } from "@/lib/dashboard-layout-mirror";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/query-client";
 import { captureException } from "@/lib/sentry";
@@ -257,6 +258,8 @@ function initAuth() {
       // INV-2: nor may their inventory selection, which a bulk action would
       // otherwise send straight to an UPDATE.
       useInventorySelection.getState().clear();
+      // Nor may their dashboard layout mirror paint first for the next user.
+      clearLayoutMirrors();
       s.reset();
     }
   });

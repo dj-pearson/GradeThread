@@ -16,18 +16,18 @@ const MIGRATION = readFileSync(
 );
 
 describe("dashboard layout persistence", () => {
-  it("mirrors the layout under gt:dashboard-layout:<surface>", () => {
-    expect(HOOK).toContain('const MIRROR_PREFIX = "gt:dashboard-layout:"');
-    expect(HOOK).toContain("`${MIRROR_PREFIX}${surface}`");
+  it("mirrors the layout per user through the lib helpers", () => {
+    expect(HOOK).toContain("readLayoutMirror(userId, surface)");
+    expect(HOOK).toContain("writeLayoutMirror(user?.id, surface,");
   });
 
   it("normalizes the mirrored copy instead of trusting it", () => {
-    expect(HOOK).toMatch(/readMirrorDocument\(surface\);\s*\n\s*if \(mirrored\) return normalize\(/);
+    expect(HOOK).toMatch(/readLayoutMirror\(userId, surface\);\s*\n\s*if \(mirrored\) return normalize\(/);
   });
 
   it("resolves a read error to a layout rather than an error state", () => {
     expect(HOOK).toContain(
-      "if (error) return fallbackLayout(surface, registry, persona, {});",
+      "if (error) return fallbackLayout(user?.id, surface, registry, persona, {});",
     );
     // The one place that rethrows is the SAVE, which must fail loudly. It has
     // to sit after mutationFn, i.e. below the read.
