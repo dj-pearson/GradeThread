@@ -275,7 +275,7 @@ export function MoneyOverviewPage() {
     <div className="space-y-4">
       {/* money.md action 6. First, because every figure below is read from
           the ledger this says is behind. Renders nothing when it agrees. */}
-      <LedgerDriftBanner periodStart={fiscal.from} />
+      <LedgerDriftBanner periodStart={fiscal.from} periodEnd={fiscal.to} />
 
       {/* THE TWO A SELLER CAN ACT ON TODAY. AC4 puts them first, and they are
           set larger and bordered, because an identical grid of four says every

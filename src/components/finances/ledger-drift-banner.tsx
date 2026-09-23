@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCents } from "@/lib/ledger-math";
+import { ymd } from "@/lib/tax-profile";
 import {
   ensureLedgerBuilt,
   fetchLedgerReconciliation,
@@ -27,6 +28,14 @@ import {
 // is strictly the caller's own. For anyone who belongs to another seller's
 // workspace the two can never agree, and a rebuild cannot fix it, so the check
 // would be a permanent false alarm.
+//
+// IT HAS NO END DATE. ledger_reconciliation(p_period_start) compares from the
+// start of the period through today, whatever the page is showing. On a range
+// that is still open that is the same thing; on a custom range that ended in
+// the past it is not, and the old copy ("Since <start>") let a seller read a
+// gap in last week's sales as a gap in the quarter on screen. The copy now
+// says "through today", and on a closed past range says outright that the
+// check reaches past the period shown. Adding an end date is a migration.
 
 function longDate(ymd: string): string {
   const date = new Date(
@@ -41,7 +50,14 @@ function longDate(ymd: string): string {
   });
 }
 
-export function LedgerDriftBanner({ periodStart }: { periodStart: string }) {
+export function LedgerDriftBanner({
+  periodStart,
+  periodEnd,
+}: {
+  periodStart: string;
+  /** Exclusive end of the period on screen (YYYY-MM-DD), for the copy only. */
+  periodEnd?: string;
+}) {
   const user = useAuthStore((s) => s.user);
   const workspaces = useAuthStore((s) => s.workspaces);
   const qc = useQueryClient();
@@ -67,6 +83,10 @@ export function LedgerDriftBanner({ periodStart }: { periodStart: string }) {
   // figures themselves have their own error states.
   if (!data || data.agrees) return null;
 
+  // Exclusive end: a period ending today or earlier has no day left in it
+  // from today on, so the check covers dates the page is not showing.
+  const endsBeforeToday = periodEnd != null && periodEnd <= ymd(new Date());
+
   async function rebuild() {
     setRebuilding(true);
     try {
@@ -87,7 +107,7 @@ export function LedgerDriftBanner({ periodStart }: { periodStart: string }) {
         <div className="min-w-0 flex-1 space-y-1">
           <p className="text-sm font-semibold">Your books are out of date</p>
           <p className="max-w-prose text-[13px] leading-relaxed text-muted-foreground">
-            Since {longDate(periodStart)}, your sales add up to{" "}
+            From {longDate(periodStart)} through today, your sales add up to{" "}
             <span className="font-medium tabular-nums text-foreground">
               {formatCents(data.dashboard_net_cents)}
             </span>{" "}
@@ -95,7 +115,14 @@ export function LedgerDriftBanner({ periodStart }: { periodStart: string }) {
             <span className="font-medium tabular-nums text-foreground">
               {formatCents(data.ledger_sale_net_cents)}
             </span>
-            . The figures on this page come from your books. Rebuild them to
+            .{" "}
+            {endsBeforeToday && (
+              <>
+                This check always runs through today, so it covers sales after
+                the period on screen, and the gap may be in those.{" "}
+              </>
+            )}
+            The figures on this page come from your books. Rebuild them to
             catch up. If this is still here after a rebuild, tell support.
           </p>
         </div>

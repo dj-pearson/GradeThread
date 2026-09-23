@@ -1,6 +1,4 @@
 import { act } from "react";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -64,11 +62,11 @@ afterEach(async () => {
   container.remove();
 });
 
-async function render() {
+async function render(periodEnd?: string) {
   await act(async () =>
     root.render(
       <QueryClientProvider client={client}>
-        <LedgerDriftBanner periodStart="2026-01-01" />
+        <LedgerDriftBanner periodStart="2026-01-01" periodEnd={periodEnd} />
       </QueryClientProvider>,
     ),
   );
@@ -136,13 +134,38 @@ describe("LedgerDriftBanner", () => {
   });
 });
 
-describe("LedgerDriftBanner placement", () => {
-  const pages = join(__dirname, "..", "..", "pages", "flipdesk");
-  it.each([
-    ["pnl.tsx", "range.from"],
-    ["money-overview.tsx", "fiscal.from"],
-  ])("%s shows it for the period on screen", (file, period) => {
-    const src = readFileSync(join(pages, file), "utf8");
-    expect(src).toContain(`<LedgerDriftBanner periodStart={${period}} />`);
+// ledger_reconciliation takes a start and no end: it always compares through
+// today. The copy has to say so, and on a range that has already closed it has
+// to say the check reaches past it. Placement (which period each page hands
+// the banner) is rendered in src/pages/flipdesk/__tests__/ledger-drift-placement.test.tsx.
+describe("LedgerDriftBanner copy for the period it cannot bound", () => {
+  const PAST_NOTE = "covers sales after the period on screen";
+
+  it("says the comparison runs through today", async () => {
+    await render("2099-01-01");
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("through today"),
+    );
+    expect(container.textContent).not.toMatch(/^Since /m);
+  });
+
+  it("an open range gets no past-range note", async () => {
+    await render("2099-01-01");
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Your books are out of date"),
+    );
+    expect(container.textContent).not.toContain(PAST_NOTE);
+  });
+
+  it("a range that ended in the past says the check reaches beyond it", async () => {
+    await render("2025-04-01");
+    await vi.waitFor(() => expect(container.textContent).toContain(PAST_NOTE));
+  });
+
+  it("a range ending today (exclusive) is already closed", async () => {
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    await render(today);
+    await vi.waitFor(() => expect(container.textContent).toContain(PAST_NOTE));
   });
 });
