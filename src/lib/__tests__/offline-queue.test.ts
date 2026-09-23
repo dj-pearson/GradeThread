@@ -86,30 +86,59 @@ describe("flushIntakeQueue", () => {
     expect(first.file.name).toBe("a.jpg");
   });
 
-  it("keeps a failed photo queued and retries only it, without re-creating the source", async () => {
+  it("an item whose row saved is synced, not failed, while its photo retries", async () => {
     await enqueueIntake(payload, {
       newSourceName: "Bins",
       photos: [photo("a.jpg", 0), photo("b.jpg", 1)],
     });
     uploadItemPhoto.mockImplementation(async ({ file }: { file: File }) => {
-      if (file.name === "b.jpg") throw new Error("network down");
+      if (file.name === "b.jpg") throw new Error("upload refused");
       return {};
     });
 
     const first = await flushIntakeQueue();
-    expect(first).toMatchObject({ synced: 0, failed: 1, firstError: "network down" });
+    // The row exists; calling it failed sends the seller to enter it again.
+    expect(first).toMatchObject({
+      synced: 1,
+      failed: 0,
+      firstError: null,
+      photosPending: 1,
+      firstPhotoError: "upload refused",
+    });
     expect(await queuedIntakeCount()).toBe(1);
 
     uploadItemPhoto.mockReset();
     uploadItemPhoto.mockResolvedValue({});
     rpc.mockClear();
+    upsert.mockClear();
     const second = await flushIntakeQueue();
-    expect(second).toMatchObject({ synced: 1, failed: 0 });
+    // Only the photo was left, so the item is not counted a second time.
+    expect(second).toMatchObject({ synced: 0, failed: 0, photosPending: 0 });
     expect(uploadItemPhoto).toHaveBeenCalledTimes(1);
     expect((uploadItemPhoto.mock.calls[0]![0] as { file: File }).file.name).toBe("b.jpg");
-    // The source was resolved on the first pass and stored on the payload.
+    // The item row and the source were settled on the first pass.
     expect(rpc).not.toHaveBeenCalled();
-    expect((upsert.mock.calls[upsert.mock.calls.length - 1]![0] as { source_id: string }).source_id).toBe("src-new");
+    expect(upsert).not.toHaveBeenCalled();
+    expect(await queuedIntakeCount()).toBe(0);
+  });
+
+  it("retries a photo under the same photoId every time", async () => {
+    await enqueueIntake(payload, { photos: [photo("a.jpg", 0), photo("b.jpg", 1)] });
+    uploadItemPhoto.mockRejectedValue(new Error("upload refused"));
+    await flushIntakeQueue();
+    await flushIntakeQueue();
+
+    const ids = uploadItemPhoto.mock.calls.map(
+      (c) => (c[0] as { file: File; photoId: string }),
+    );
+    const byName = (n: string) => ids.filter((c) => c.file.name === n).map((c) => c.photoId);
+    const a = byName("a.jpg");
+    const b = byName("b.jpg");
+    expect(a).toHaveLength(2);
+    expect(a[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(a[1]).toBe(a[0]);
+    expect(b[1]).toBe(b[0]);
+    expect(b[0]).not.toBe(a[0]);
   });
 
   it("gives up on a photo that never uploads and reports it", async () => {
@@ -119,8 +148,40 @@ describe("flushIntakeQueue", () => {
     let last = await flushIntakeQueue();
     for (let i = 1; i < MAX_PHOTO_ATTEMPTS; i++) last = await flushIntakeQueue();
 
-    expect(last).toMatchObject({ synced: 1, photosDropped: 1 });
+    expect(last).toMatchObject({ synced: 0, failed: 0, photosDropped: 1, photosPending: 0 });
     expect(await queuedIntakeCount()).toBe(0);
+  });
+
+  it("does not spend an attempt when the network dropped before the upload", async () => {
+    await enqueueIntake(payload, { photos: [photo("a.jpg", 0)] });
+    uploadItemPhoto.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    for (let i = 0; i < MAX_PHOTO_ATTEMPTS + 2; i++) {
+      const res = await flushIntakeQueue();
+      expect(res).toMatchObject({ photosDropped: 0, photosPending: 1 });
+    }
+    expect(await queuedIntakeCount()).toBe(1);
+
+    // A real refusal still counts from zero after all that.
+    uploadItemPhoto.mockRejectedValue(new Error("not an image"));
+    for (let i = 0; i < MAX_PHOTO_ATTEMPTS - 1; i++) await flushIntakeQueue();
+    expect(await queuedIntakeCount()).toBe(1);
+    expect(await flushIntakeQueue()).toMatchObject({ photosDropped: 1 });
+  });
+
+  it("does not try the upload at all while the device is offline", async () => {
+    await enqueueIntake(payload, { photos: [photo("b.jpg", 0)] });
+    const onLine = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    try {
+      for (let i = 0; i < MAX_PHOTO_ATTEMPTS + 1; i++) {
+        expect(await flushIntakeQueue()).toMatchObject({ photosPending: 1, photosDropped: 0 });
+      }
+      expect(uploadItemPhoto).not.toHaveBeenCalled();
+    } finally {
+      onLine.mockRestore();
+    }
+    expect(await flushIntakeQueue()).toMatchObject({ photosPending: 0 });
+    expect(uploadItemPhoto).toHaveBeenCalledTimes(1);
   });
 
   it("leaves the item queued when the source RPC fails", async () => {

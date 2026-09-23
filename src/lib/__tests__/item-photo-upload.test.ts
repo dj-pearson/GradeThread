@@ -10,6 +10,8 @@ const h = vi.hoisted(() => ({
   uploads: [] as Array<{ path: string; body: unknown }>,
   removed: [] as string[][],
   insertError: null as unknown,
+  uploadError: null as unknown,
+  inserted: [] as Array<Record<string, unknown>>,
   compress: vi.fn(),
 }));
 
@@ -17,7 +19,7 @@ vi.mock("@/lib/supabase", () => {
   const bucket = {
     upload: async (path: string, body: unknown) => {
       h.uploads.push({ path, body });
-      return { data: { path }, error: null };
+      return { data: { path }, error: h.uploadError };
     },
     getPublicUrl: (path: string) => ({
       data: { publicUrl: `https://cdn.example/${path}` },
@@ -31,7 +33,10 @@ vi.mock("@/lib/supabase", () => {
     supabase: {
       storage: { from: () => bucket },
       from: () => ({
-        insert: async () => ({ data: null, error: h.insertError }),
+        insert: async (row: Record<string, unknown>) => {
+          h.inserted.push(row);
+          return { data: null, error: h.insertError };
+        },
       }),
     },
   };
@@ -68,6 +73,8 @@ beforeEach(() => {
   h.uploads.length = 0;
   h.removed.length = 0;
   h.insertError = null;
+  h.uploadError = null;
+  h.inserted.length = 0;
   h.compress.mockReset();
 });
 
@@ -128,5 +135,66 @@ describe("a failed row insert removes what was just uploaded", () => {
     expect(uploadedPaths).toHaveLength(2); // full image + thumbnail
     expect(h.removed).toHaveLength(1);
     expect([...h.removed[0]!].sort()).toEqual([...uploadedPaths].sort());
+  });
+});
+
+// The offline intake queue retries a photo on every flush. With a photoId the
+// path and the row id are fixed, so a retry after a lost response finds its own
+// upload rather than adding a second copy of the photo.
+describe("a photoId makes a retry idempotent", () => {
+  const PHOTO_ID = "11111111-2222-3333-4444-555555555555";
+  function encodes() {
+    h.compress.mockResolvedValue({
+      blob: new Blob([new Uint8Array([9, 9, 9])], { type: "image/webp" }),
+      width: 10,
+      height: 10,
+    });
+  }
+
+  it("derives the storage path and the row id from the photoId", async () => {
+    encodes();
+    await uploadItemPhoto({ ...baseInput, file: original(), photoId: PHOTO_ID });
+    await uploadItemPhoto({ ...baseInput, file: original(), photoId: PHOTO_ID });
+    expect(h.uploads.map((u) => u.path)).toEqual([
+      `owner-1/item-1/front_${PHOTO_ID}.webp`,
+      `owner-1/item-1/thumbs/front_${PHOTO_ID}.webp`,
+      `owner-1/item-1/front_${PHOTO_ID}.webp`,
+      `owner-1/item-1/thumbs/front_${PHOTO_ID}.webp`,
+    ]);
+    expect(h.inserted.map((r) => r.id)).toEqual([PHOTO_ID, PHOTO_ID]);
+  });
+
+  it("an object and a row left by an earlier attempt count as success, and are kept", async () => {
+    encodes();
+    h.uploadError = { statusCode: "409", message: "The resource already exists" };
+    h.insertError = {
+      code: "23505",
+      message: 'duplicate key value violates unique constraint "item_photos_pkey"',
+    };
+    await expect(
+      uploadItemPhoto({ ...baseInput, file: original(), photoId: PHOTO_ID }),
+    ).resolves.toMatchObject({ storedSize: 3 });
+    expect(h.removed).toHaveLength(0);
+  });
+
+  it("without a photoId the same answers are still failures", async () => {
+    encodes();
+    h.uploadError = { statusCode: "409", message: "The resource already exists" };
+    await expect(
+      uploadItemPhoto({ ...baseInput, file: original() }),
+    ).rejects.toMatchObject({ statusCode: "409" });
+    expect(h.inserted).toHaveLength(0);
+  });
+
+  it("a unique violation on some other constraint is not taken as already done", async () => {
+    encodes();
+    h.insertError = {
+      code: "23505",
+      message: 'duplicate key value violates unique constraint "something_else"',
+    };
+    await expect(
+      uploadItemPhoto({ ...baseInput, file: original(), photoId: PHOTO_ID }),
+    ).rejects.toBe(h.insertError);
+    expect(h.removed).toHaveLength(1);
   });
 });

@@ -35,6 +35,12 @@ export function validateStatusChange(
   // earned by has_required_photos, which is a front AND a back photo. Without
   // this a card with zero photos could be dragged here, and batch advance
   // sends Photographed cards straight into paid bulk grading.
+  //
+  // The gate does not look at direction, and a BACKWARD drag (say Drafted back
+  // to Photographed after the photos were deleted) is blocked too. That is on
+  // purpose: the column promises the photos exist, and batch advance would send
+  // the card on to paid grading with nothing to grade. Move it to Measured, or
+  // add the photos first.
   if (next === "photographed" && item.has_required_photos !== true) {
     return "Add a front and back photo before moving to Photographed.";
   }
