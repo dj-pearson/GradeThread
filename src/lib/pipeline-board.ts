@@ -5,7 +5,12 @@
 
 import { FLIPDESK_PIPELINE, ITEM_STATUS_LABELS } from "@/lib/constants";
 import { validateStatusChange } from "@/lib/pipeline-rules";
-import { encodeQuery, type FilterQuery, type FilterRule } from "@/lib/item-filter";
+import {
+  encodeQuery,
+  evalQuery,
+  type FilterQuery,
+  type FilterRule,
+} from "@/lib/item-filter";
 import type { ItemCategory, ItemStatus } from "@/types/database";
 import type { ItemListRow } from "@/lib/item-list-columns";
 
@@ -81,6 +86,32 @@ export function boardFiltersActive(f: BoardFilters): boolean {
 
 function rule(field: FilterRule["field"], op: FilterRule["op"], value: string): FilterRule {
   return { id: `board-${field}`, field, op, value };
+}
+
+// The brand and source quick facets. The "+N more" link below carries each
+// one to the table as an `eq` rule, and evalRule compares `eq`
+// case-insensitively, so the board has to match the same way: an exact `!==`
+// here showed only "Nike" on the board while the link opened "Nike" and "nike"
+// together, and the count above the link did not match the list it opened.
+export function matchesBoardFacet(
+  it: ItemListRow,
+  field: "brand" | "source",
+  selected: string,
+): boolean {
+  if (selected === "all") return true;
+  return evalQuery(it, { combinator: "and", rules: [rule(field, "eq", selected)] });
+}
+
+// The facet menu. Spellings that differ only in case are one entry, since the
+// facet cannot tell them apart; the first one seen names it.
+export function boardFacetOptions(values: Iterable<string | null | undefined>): string[] {
+  const byKey = new Map<string, string>();
+  for (const v of values) {
+    if (!v) continue;
+    const key = v.toLowerCase();
+    if (!byKey.has(key)) byKey.set(key, v);
+  }
+  return Array.from(byKey.values()).sort();
 }
 
 // The "+N more" link under a capped column. It used to be a bare

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   boardFiltersActive,
+  boardFacetOptions,
   boardMoreLink,
+  matchesBoardFacet,
   planBatchAdvance,
   type BoardFilters,
 } from "@/lib/pipeline-board";
@@ -138,5 +140,42 @@ describe("boardFiltersActive", () => {
         filterQuery: { combinator: "and", rules: [{ id: "r", field: "size", op: "eq", value: "L" }] },
       }),
     ).toBe(true);
+  });
+});
+
+describe("brand and source facets match the rule the +N more link carries", () => {
+  const rows = [
+    item({ id: "a", brand: "Nike", source_name: "Goodwill bins" }),
+    item({ id: "b", brand: "nike", source_name: "GOODWILL BINS" }),
+    item({ id: "c", brand: "Adidas", source_name: "Estate sale" }),
+    item({ id: "d", brand: null, source_name: null }),
+  ];
+
+  it("keeps on the board exactly the rows the table link would show", () => {
+    for (const [field, selected] of [
+      ["brand", "Nike"],
+      ["brand", "NIKE"],
+      ["source", "Goodwill bins"],
+    ] as const) {
+      const f = { ...NO_FILTERS, [field]: selected };
+      const { searchParams } = new URL(boardMoreLink("cataloged", f), "https://x.test");
+      const carried = decodeQuery(searchParams.get("filter")!)!;
+      const board = rows.filter((r) => matchesBoardFacet(r, field, selected)).map((r) => r.id);
+      const table = rows.filter((r) => evalQuery(r, carried)).map((r) => r.id);
+      expect(board).toEqual(table);
+      expect(board).toEqual(["a", "b"]);
+    }
+  });
+
+  it("passes everything when the facet is 'all'", () => {
+    expect(rows.every((r) => matchesBoardFacet(r, "brand", "all"))).toBe(true);
+  });
+
+  it("lists one menu entry per spelling the facet can tell apart", () => {
+    expect(boardFacetOptions(rows.map((r) => r.brand))).toEqual(["Adidas", "Nike"]);
+    expect(boardFacetOptions(rows.map((r) => r.source_name))).toEqual([
+      "Estate sale",
+      "Goodwill bins",
+    ]);
   });
 });

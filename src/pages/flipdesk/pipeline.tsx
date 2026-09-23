@@ -89,6 +89,8 @@ import { validateStatusChange } from "@/lib/pipeline-rules";
 import {
   boardFiltersActive,
   boardMoreLink,
+  boardFacetOptions,
+  matchesBoardFacet,
   type BatchResult,
   type BoardFilters,
 } from "@/lib/pipeline-board";
@@ -270,17 +272,15 @@ export function FlipdeskPipelinePage() {
   // WIP-limit check measures real pressure even when a filter hides cards.
   const { data: statusCounts } = useInventoryStatusCounts();
 
-  const brands = useMemo(() => {
-    const set = new Set<string>();
-    for (const it of items) if (it.brand) set.add(it.brand);
-    return Array.from(set).sort();
-  }, [items]);
+  const brands = useMemo(
+    () => boardFacetOptions(items.map((it) => it.brand)),
+    [items],
+  );
 
-  const sources = useMemo(() => {
-    const set = new Set<string>();
-    for (const it of items) if (it.source_name) set.add(it.source_name);
-    return Array.from(set).sort();
-  }, [items]);
+  const sources = useMemo(
+    () => boardFacetOptions(items.map((it) => it.source_name)),
+    [items],
+  );
 
   const groups = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -296,8 +296,9 @@ export function FlipdeskPipelinePage() {
       ) {
         continue;
       }
-      if (brandFilter !== "all" && it.brand !== brandFilter) continue;
-      if (sourceFilter !== "all" && it.source_name !== sourceFilter) continue;
+      // Same case-insensitive equality as the carried table rule.
+      if (!matchesBoardFacet(it, "brand", brandFilter)) continue;
+      if (!matchesBoardFacet(it, "source", sourceFilter)) continue;
       if (q) {
         const hay = [it.item_title, it.brand, it.style, it.item_number]
           .filter(Boolean)
