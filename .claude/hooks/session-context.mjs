@@ -41,12 +41,18 @@ const info = (s) => lines.push(`• ${s}`);
 // The US-1108 triple means the newest migration file's NNNNN and
 // EXPECTED_SCHEMA_VERSION must match. A mismatch is a real bug in flight, not a
 // style nit — the edge boot guard fails the deploy on it.
+// Held state comes from supabase/held-migrations.json, the registry the push
+// gate reads, not from PENDING_MIGRATIONS.md headings: a heading regex is what
+// the gate recorded missing a held migration seven times. Newest first, which
+// is the order PENDING_MIGRATIONS.md lists them in.
 const held = safe(() => {
-  const md = readFileSync(p("PENDING_MIGRATIONS.md"), "utf8");
-  // Emoji-agnostic: any "## … HELD: NNNNN_name.sql" heading.
-  return [...md.matchAll(/^##.*?HELD:\s*(\d{5})_(\S+?)\.sql/gim)].map(
-    (m) => `${m[1]}_${m[2]}`,
+  const registry = JSON.parse(
+    readFileSync(p("supabase", "held-migrations.json"), "utf8"),
   );
+  return registry.held
+    .map((h) => h.file.replace(/\.sql$/, ""))
+    .sort()
+    .reverse();
 }, []);
 
 const newestMigration = safe(() => {

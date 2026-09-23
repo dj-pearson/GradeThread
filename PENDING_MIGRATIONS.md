@@ -183,7 +183,7 @@ it). No client-side (browser) code reads the new tables.
 (it is in the generated COOLIFY.md table). Without it, the first attempt still
 happens but no retry ever does. Uses the existing `EDGE_ENCRYPTION_KEY`.
 
-## HELD: 00829_close_period_figures_caller_only.sql (SECURITY - closing figures covered every seller)
+## HELD: 00829_close_period_figures_caller_only.sql (security - closing figures covered every seller)
 
 **What it does.** `CREATE OR REPLACE` of `close_period`, same signature. The
 `closing_figures` ledger and COGS blocks are computed inline with
@@ -6179,11 +6179,12 @@ held-migration gate reads; the section is what a person reads.
 ### Adding a held migration
 
 Add `{ "version": "NNNNN", "file": "NNNNN_name.sql", "story": "US-####",
-"held_since": "YYYY-MM-DD" }` to the `held` array in
-`supabase/held-migrations.json`. Then add one
+"held_since": "YYYY-MM-DD", "what": "short title" }` to the `held` array in
+`supabase/held-migrations.json`. The gate, the session-start hook and
+`docs/operator-worklist.md` all read that entry. Then add one
 `## ⏳ HELD: NNNNN_name.sql (US-#### short title, YYYY-MM-DD)` heading here —
-the shape still matters, `.claude/hooks/session-context.mjs` parses it to warn at
-the start of every session — and say:
+the shape still matters, `scripts/held-migrations-registry.test.mjs` parses it
+to check it against the registry — and say:
 
 - **Apply order.** Which migration it must follow, and why if that isn't obvious.
 - **What it does**, in one paragraph. Objects created or altered.

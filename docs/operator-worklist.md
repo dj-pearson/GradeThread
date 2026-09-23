@@ -1,6 +1,6 @@
 # What the backlog is waiting on you for
 
-Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 160 of 276 open stories carry at least one OPERATOR criterion — a step only you can take.
+Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 170 of 272 open stories carry at least one OPERATOR criterion — a step only you can take.
 
 This is not a list of blocked work. Most of these stories have buildable criteria before the operator step, and several were finished this session right up to it. It is a list of the last mile.
 
@@ -8,7 +8,22 @@ This is not a list of blocked work. Most of these stories have buildable criteri
 
 Computed from PENDING_MIGRATIONS.md and the criteria below, so it is right on the day you read it. Everything under this heading is two sittings, and it is the two that move the most stories.
 
-**1. Redeploy the edge on Coolify.** Its boot guard expects the schema version the migrations above just set, so this follows them rather than leading. That one deploy is the precondition for **5 stories** whose remaining step is a measurement taken afterwards, not separate work: US-3146, US-3149, US-3147, US-3148, US-3028.
+**1. Apply the 10 held migrations, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
+
+- `00823_imported_sales_shipped.sql` — US-3465 — old imported sales out of the Ship queue
+- `00824_get_or_create_source_tenant_scope.sql` — security - a signed-in user could write another seller's sources
+- `00825_api_keys_no_client_writes.sql` — security - a key owner could raise their own API tier and clear their quota
+- `00826_close_period_rebuilds_ledger.sql` — money - closing a period froze stale ledger figures
+- `00827_listings_publish_attempts.sql` — marketplaces - cap scheduled-publish retries
+- `00828_ledger_rebuild_skips_closed_periods.sql` — money plan action 3 - a rebuild must not move a closed period
+- `00829_close_period_figures_caller_only.sql` — security - closing figures covered every seller
+- `00830_account_webhooks.sql` — extensions-api plan actions 2+3 - customer webhook secret, one delivery per account, durable retries
+- `00831_source_item_counts.sql` — flipdesk-inventory plan action 7 - Sources page counts items in SQL
+- `00832_one_ebay_draft_per_item.sql` — marketplaces plan action 3 - one AutoLister eBay draft per item
+
+   Applying them and flipping each heading to `## ✅ APPLIED:` with a date is also what clears `node scripts/held-migration-gate.mjs --ci`, which CI runs first and which fails on any branch carrying a held migration. Until then a pull request from a branch that has one cannot go green, however good the rest of it is.
+
+**2. Redeploy the edge on Coolify.** Its boot guard expects the schema version the migrations above just set, so this follows them rather than leading. That one deploy is the precondition for **6 stories** whose remaining step is a measurement taken afterwards, not separate work: US-3457, US-3146, US-3149, US-3147, US-3148, US-3028.
 
 ---
 
@@ -17,9 +32,9 @@ Computed from PENDING_MIGRATIONS.md and the criteria below, so it is right on th
 Most of these are not separate sittings. Grouped by what you need open:
 
 - **Somewhere else (read the step)** — 63 steps
-- **Coolify, or a deploy + env change** — 25 steps
-- **Production database (psql or the Supabase SQL editor)** — 25 steps
-- **A marketplace account, logged in** — 23 steps
+- **Coolify, or a deploy + env change** — 29 steps
+- **Production database (psql or the Supabase SQL editor)** — 27 steps
+- **A marketplace account, logged in** — 27 steps
 - **A lawyer** — 11 steps
 - **A grading run that costs real money** — 8 steps
 - **A decision, with nothing to open** — 4 steps
@@ -426,6 +441,12 @@ priority 1
 
 apply 00725 to prod (it now carries disputes_access_denied too), NOTIFY pgrst, then redeploy the edge.
 
+### US-3457 — A trial user cannot buy the plan they are trialing: every trial CTA lands on a disabled 'Current plan' button
+
+priority 1
+
+after deploy, sign up a fresh seller on prod, open Account > Billing, press Add card, and confirm Stripe Checkout opens showing the remaining trial days.
+
 ### US-3362 — The eBay pull matches SKUs on the wrong column, so an item's own listing arrives as an orphan and never detects as unsold
 
 priority 6
@@ -498,6 +519,12 @@ priority 35
 
 confirm the retention actually configured on the infrastructure logs the row may be about - Sentry, Cloudflare and the Coolify host. Nothing in this repo can read those, and if the row is only about them then there is no code change to make.
 
+### US-3015 — EasyPost as the second label provider, on seller-billed sub-accounts so we never touch the postage money
+
+priority 46
+
+apply 00816 to prod, NOTIFY pgrst 'reload schema', then set EASYPOST_API_KEY (the partner production key) on the Coolify edge and redeploy. IN THAT ORDER - the key is what switches the path on, and switching it on before the columns exist is the one ordering that breaks. Then buy one real label on a non-eBay sale and confirm the rate, the tracking number and the recorded shipping_cost, since no EasyPost call has ever been made against the real API.
+
 ### US-2811 — A shoe's size never reaches the grade: the chain breaks in three places
 
 priority 59
@@ -564,6 +591,18 @@ priority unranked
 
 apply at partnernetwork.ebay.com for an eBay Partner Network (EPN) publisher account naming gradethread.com and the FlipDesk app as the properties, create one campaign for FlipDesk sourcing, and store the campaign id in Coolify as EBAY_EPN_CAMPAIGN_ID (reference only, value never written to the repo); vault/10-ops/env-reference.md gains the row and the runbook note says approval typically takes days and needs a live site with real traffic
 
+### US-3464 — Buyer-message inbox reads eBay messages (parser dropped every one)
+
+priority unranked
+
+after edge redeploy, the Messages tab on /dashboard/flipdesk/offers lists real eBay buyer questions from the last 30 days
+
+### US-3466 — Sold & Shipping: read eBay's real status fields, return buttons follow eBay, tracking import
+
+priority unranked
+
+after edge redeploy, the old INR case and closed return leave the open lists
+
 ## Production database (psql or the Supabase SQL editor)
 
 ### US-3112 — eBay compliance: extension attribution, and stop calling APIs we cannot use
@@ -583,12 +622,6 @@ apply the blog_posts seo_title/seo_description update to prod (10 rows) - blog m
 priority 5
 
 this whole story is prod reads (AC1-AC8). Most of it is already written up as scripts/prod-diagnostics-console.sql, which is read-only and was executed against a real database with ON_ERROR_STOP=1 so it cannot fail your session on a wrong column name. Run it and paste the output back into this story.
-
-### US-2727 — listings.listed_at is NOT NULL but the code writes null for a draft, so the extension writeback INSERT has never succeeded
-
-priority 5
-
-apply 00634 to prod, then NOTIFY pgrst, 'reload schema', then retry one Send to extension and confirm a 200.
 
 ### US-3312 — Two brand_knowledge notes are wrong in prod: Zara's false auth-gate caveat and Urban Outfitters' CA-versus-RN trap
 
@@ -674,6 +707,18 @@ priority 70
 
 run section 27 of scripts/prod-diagnostics-console.sql (AC5), which decides whether this story gets built at all. It counts submissions stuck in needs_photos by which required photo is missing. READ IT WITH ITS LIMIT: quality_feedback is nulled the moment a grade is produced, so this measures who is STUCK NOW, not how often it has happened - it undercounts by every seller who added the photo and succeeded. If 'label' is far ahead of front and back, the tagless case is real and worth building; if the three are level, it is ordinary incomplete uploads and the fix is upload-time guidance rather than a grading change.
 
+### US-3166 — Worth My Time: R1 01/12 - Store seller work preferences
+
+priority 100
+
+apply 00817 to prod after 00816, then NOTIFY pgrst 'reload schema'. Readback queries are in PENDING_MIGRATIONS.md. Nothing in the SPA reads this table yet, so there is no deploy-order risk in either direction.
+
+### US-3167 — Worth My Time: R1 02/12 - Store work sessions and task history
+
+priority 101
+
+apply 00818 to prod after 00817, then NOTIFY pgrst 'reload schema'. Readback queries are in PENDING_MIGRATIONS.md; the third one checks the item FK is SET NULL rather than CASCADE, which is the difference between tombstoning a seller's work history and deleting it.
+
 ### US-1968 — bulkMigrateListing — bring a seller's existing eBay (Trading) listings under management
 
 priority 1968
@@ -716,6 +761,12 @@ priority unranked
 
 run scripts/aspect-value-coverage.ts against prod once the cache is warm, and fold any reported misses into the family tables
 
+### US-3465 — Ship tab: take old imported sales (no marketplace order) out of the queue
+
+priority unranked
+
+apply 00823 with npm run migrate:prod, then run the eBay full history sync; the Ship tab count drops from 208
+
 ## A marketplace account, logged in
 
 ### US-3367 — Cross-listing: List everywhere in one click through the paced queue, and delist every sibling when a sale is recorded
@@ -723,6 +774,12 @@ run scripts/aspect-value-coverage.ts against prod once the cache is warm, and fo
 priority 5
 
 set EXTENSION_ALLOWED_ORIGINS on the Coolify edge (US-2718 AC2), retry one Send to extension on Poshmark to close US-2727, and run one Record Sale with Sold on = Poshmark against a cross-listed test item and confirm the Mercari and Vinted delist rows appear in the extension queue and drain
+
+### US-3450 — One 'List on' panel in the composer: every channel, its state and one button, replacing the API-only Push-to card and the extension-only kit checklist
+
+priority 5
+
+on prod with the extension installed, list one draft to eBay and Poshmark from the panel and confirm the eBay dialog opens for the eBay half and a queue row appears for Poshmark
 
 ### US-2738 — Photos are reported as attached when the page never took them, because the file list was shadowed rather than assigned
 
@@ -735,6 +792,18 @@ open a live Poshmark listing form, run the extension's photo attach, and report 
 priority 8
 
 publish one Poshmark listing through the extension and report whether the price lands. This is AC6/AC11 and it is the only item left. The units bug is fixed (whole dollars, rounded to nearest, never below one step) and so is the reason nobody saw the real failure: the deep probe skipped priceDialog entirely, because its walker only pushed STRING values off the flow config and priceDialog is an OBJECT - so every report saying the Poshmark list flow probes clean was true of nine selectors and blind to three, including the one selectors.js openly records as inferred rather than read off the page. What is unproven is whether the units were the ONLY thing stopping the price. If it still fails, the banner text distinguishes the cases: 'could not set the price' means the dialog never opened, and that is a selector, not a number.
+
+### US-3454 — iOS: 'List on more marketplaces' on the item screen, one channel registry, and revise / relist on the phone
+
+priority 9
+
+on a device, open an item that did not come through AutoLister, tap List on more marketplaces, queue Poshmark, and confirm the queue row appears in the web Marketplaces page
+
+### US-3455 — iOS attended listing: fill the Poshmark or Mercari create form in a visible web view while the seller watches, then hand them the Post button
+
+priority 9
+
+on a device signed in to a Poshmark test account, list one garment end to end and confirm the listings row shows the Poshmark URL; record the App Review outcome in the vault note
 
 ### US-3060 — Verified badge on live listings: show the GradeThread certificate on the marketplace page every extension user is looking at
 
@@ -771,6 +840,12 @@ on Chrome 138+ with the on-device model downloaded, open a Poshmark listing with
 priority 19
 
 load extension-unified unpacked in Chrome and Firefox, open one listing and one search page on each of eBay, Poshmark, Grailed, Mercari, Depop and Vinted, and record (screenshot per site, light and dark) that the overlay ring, tier, factor bars, signal rows, pin and alert controls, the owner-listing collapsed bar and the search badges render without site CSS bleed; file any miss as its own story before shipping.
+
+### US-3456 — Bulk cross-list: select N items, choose channels, one button, paced through the queue
+
+priority 20
+
+run a 5-item bulk cross-list to eBay and Poshmark on prod and confirm 5 eBay publications and 5 queue rows
 
 ### US-3070 — Label reader from the context menu: right-click a tag photo, get brand, size, RN and style code
 

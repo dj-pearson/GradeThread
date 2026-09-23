@@ -4,6 +4,7 @@
     "`held` = a migration file in this tree whose SQL prod has not applied yet. Add an entry",
     "in the same commit as the migration; delete it in the same commit that flips the",
     "PENDING_MIGRATIONS.md heading to APPLIED. That file keeps the prose (what, risk, order).",
+    "`story` and `what` are what docs/operator-worklist.md prints for each entry.",
     "`parked` = a finished migration that lives on a side branch only, not in this tree.",
     "scripts/check-held-branches.mjs asks the remote whether each `branch` exists.",
     "scripts/held-migrations-registry.test.mjs fails when this file and the HELD headings",
@@ -14,61 +15,71 @@
       "version": "00823",
       "file": "00823_imported_sales_shipped.sql",
       "story": "US-3465",
-      "held_since": "2026-09-22"
+      "held_since": "2026-09-22",
+      "what": "old imported sales out of the Ship queue"
     },
     {
       "version": "00824",
       "file": "00824_get_or_create_source_tenant_scope.sql",
       "story": "security",
-      "held_since": "2026-09-23"
+      "held_since": "2026-09-23",
+      "what": "a signed-in user could write another seller's sources"
     },
     {
       "version": "00825",
       "file": "00825_api_keys_no_client_writes.sql",
       "story": "security",
-      "held_since": "2026-09-23"
+      "held_since": "2026-09-23",
+      "what": "a key owner could raise their own API tier and clear their quota"
     },
     {
       "version": "00826",
       "file": "00826_close_period_rebuilds_ledger.sql",
       "story": "money",
-      "held_since": "2026-09-23"
+      "held_since": "2026-09-23",
+      "what": "closing a period froze stale ledger figures"
     },
     {
       "version": "00827",
       "file": "00827_listings_publish_attempts.sql",
       "story": "marketplaces",
-      "held_since": "2026-09-23"
+      "held_since": "2026-09-23",
+      "what": "cap scheduled-publish retries"
     },
     {
       "version": "00828",
       "file": "00828_ledger_rebuild_skips_closed_periods.sql",
       "story": "money plan action 3",
-      "held_since": "2026-09-23"
+      "held_since": "2026-09-23",
+      "what": "a rebuild must not move a closed period"
     },
     {
       "version": "00829",
       "file": "00829_close_period_figures_caller_only.sql",
       "story": "security",
-      "held_since": "2026-09-23"
+      "held_since": "2026-09-23",
+      "what": "closing figures covered every seller"
     },
     {
       "version": "00830",
       "file": "00830_account_webhooks.sql",
       "story": "extensions-api plan actions 2+3",
-      "held_since": "2026-09-23"
+      "held_since": "2026-09-23",
+      "what": "customer webhook secret, one delivery per account, durable retries"
     },
     {
       "version": "00831",
       "file": "00831_source_item_counts.sql",
       "story": "flipdesk-inventory plan action 7",
-      "held_since": "2026-09-23"
+      "held_since": "2026-09-23",
+      "what": "Sources page counts items in SQL"
     },
     {
       "version": "00832",
       "file": "00832_one_ebay_draft_per_item.sql",
       "story": "marketplaces plan action 3",
-      "held_since": "2026-09-23"
+      "held_since": "2026-09-23",
+      "what": "one AutoLister eBay draft per item"
     }
   ],
   "parked": [

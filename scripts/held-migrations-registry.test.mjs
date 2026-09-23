@@ -144,6 +144,13 @@ describe("the committed registry", () => {
     }
   });
 
+  it("every held entry carries the story and what the operator worklist prints", () => {
+    for (const h of registry.held) {
+      expect(typeof h.story === "string" && h.story.length > 0, `${h.version} has no story`).toBe(true);
+      expect(typeof h.what === "string" && h.what.length > 0, `${h.version} has no what`).toBe(true);
+    }
+  });
+
   it("every parked entry names a branch and a migration that is NOT in this tree", () => {
     // Parked means "finished, on a side branch only". A parked version that has
     // landed in the tree belongs in `held` (or nowhere, once applied).
