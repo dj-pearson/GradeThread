@@ -15,8 +15,8 @@
 // PushChannel.UPDATES, and actions comes back empty. UPDATES is the
 // low-importance channel that PushCategory.kt's own comment says a seller mutes
 // when they want payout chatter gone. So a payment dispute and a case DEADLINE
-// currently arrive on the channel most likely to be muted, with no inline
-// action, on Android only.
+// arrived on the channel most likely to be muted, with no inline action, on
+// Android only, until US-3449 declared them.
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -33,27 +33,18 @@ import {
 
 /** Edge-sent categories a client does not declare, and why that stands today. */
 const KNOWN_CLIENT_GAPS = {
-  android: {
-    "cancellation.requested": "US-3356: Android declares 12 of the 14 shapes the edge sends and " +
-      "the 7 it misses are the whole post-sale case family. Fixing it is an Android change " +
-      "(PushCategory.kt plus its channel and action mapping) and is out of this story's scope; " +
-      "what this story owes is that the gap is visible rather than silent.",
-    "case.deadline": "Same Android gap. This is the sharpest of the seven: a case deadline is a " +
-      "clock, and it currently lands on the low-importance UPDATES channel.",
-    "case.opened": "Same Android gap.",
-    "dispute.opened": "Same Android gap. A payment dispute on the channel a seller mutes first.",
-    "inquiry.opened": "Same Android gap.",
-    "offer.responded": "Same Android gap. offer.received IS declared, so a seller gets the offer " +
-      "on SELLING and the reply on UPDATES.",
-    "return.opened": "Same Android gap.",
-  },
+  // US-3449 closed the seven post-sale gaps this used to list: PushCategory.kt
+  // now declares every category in contracts/push-contract.json. Leave the key
+  // so a new gap has somewhere to be named.
+  android: {},
   ios: {},
 };
 
 /** Categories a client declares that the edge never sends. */
 const CLIENT_ONLY = {
-  "grade.ready": "RAISED LOCALLY, not a hole: ios/GradeThread/Background/NewGradeNotifier.swift " +
-    "sets it on a notification the app schedules itself after a background refresh.",
+  "grade.ready": "RAISED LOCALLY on iOS, not a hole: ios/GradeThread/Background/NewGradeNotifier.swift " +
+    "sets it on a notification the app schedules itself after a background refresh. Android " +
+    "declares it too and raises nothing with it; there it is the same dead weight as aging.digest.",
   "aging.digest": "Declared by both clients and sent by nothing. Kept because the routing for it " +
     "already exists in NotificationDelegate; if no digest push is ever built, the declaration " +
     "should come out rather than this entry growing a second reason.",
