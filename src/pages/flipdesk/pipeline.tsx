@@ -87,6 +87,16 @@ import { cn } from "@/lib/utils";
 import { csvBlob, downloadBlob } from "@/lib/download";
 import { validateStatusChange } from "@/lib/pipeline-rules";
 import {
+  boardFiltersActive,
+  boardMoreLink,
+  nextPipelineStatus,
+  pipelineColumnFor,
+  planBatchAdvance,
+  type BatchResult,
+  type BoardFilters,
+} from "@/lib/pipeline-board";
+import { chunk } from "@/lib/chunk";
+import {
   useValidateGradingBulk,
   useSubmitGradingBulk,
   GRADING_TIER_COSTS,
@@ -119,9 +129,10 @@ import type { ItemListRow } from "@/lib/item-list-columns";
 import { HelpLink } from "@/components/help/help-link";
 
 const COLUMN_CAP = 50;
+// Ids per batch-advance UPDATE. Each uuid is ~37 URL bytes, so 100 keeps the
+// PostgREST request line well under common proxy limits.
+const BATCH_WRITE_SIZE = 100;
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-type BatchResult = { title: string; ok: boolean; detail: string };
 
 function fmtMoney(n: number | null | undefined): string | null {
   if (n == null || isNaN(n)) return null;
@@ -133,20 +144,6 @@ function daysSince(iso: string | null | undefined): number | null {
   const t = new Date(iso).getTime();
   if (isNaN(t)) return null;
   return Math.floor((Date.now() - t) / DAY_MS);
-}
-
-// US-1428: 'acquired' is a real early status with no column of its own, so an
-// item set to Acquired would silently vanish from the board. Surface it in the
-// Sourced column and treat it as sourced when advancing.
-function pipelineColumnFor(s: ItemStatus): ItemStatus {
-  return s === "acquired" ? "sourced" : s;
-}
-
-// The pipeline stage immediately after `s`, or null if `s` is last/off-pipeline.
-function nextPipelineStatus(s: ItemStatus): ItemStatus | null {
-  const idx = FLIPDESK_PIPELINE.findIndex((p) => p.status === pipelineColumnFor(s));
-  if (idx < 0 || idx >= FLIPDESK_PIPELINE.length - 1) return null;
-  return FLIPDESK_PIPELINE[idx + 1]?.status ?? null;
 }
 
 function csvCell(v: unknown): string {
@@ -327,6 +324,15 @@ export function FlipdeskPipelinePage() {
     sortColumn.dir,
   ]);
 
+  const boardFilters: BoardFilters = {
+    q: search,
+    category: categoryFilter,
+    brand: brandFilter,
+    source: sourceFilter,
+    filterQuery,
+  };
+  const filtersActive = boardFiltersActive(boardFilters);
+
   // Every item currently visible across the kanban columns (i.e. the whole
   // filtered set), flattened — backs the matching count + "select all" action.
   const matchingItems = useMemo(() => {
@@ -437,39 +443,38 @@ export function FlipdeskPipelinePage() {
     }
 
     setBatchRunning(true);
-    const results: BatchResult[] = [];
+    const plan = planBatchAdvance(toMove);
+    const results: BatchResult[] = [...plan.refused];
     try {
-      for (const it of toMove) {
-        const next = nextPipelineStatus(it.status);
-        if (!next) {
-          results.push({
-            title: it.item_title,
-            ok: false,
-            detail: `No next stage after ${ITEM_STATUS_LABELS[it.status]}`,
-          });
-          continue;
-        }
-        const reason = validateStatusChange(it, next);
-        if (reason) {
-          results.push({ title: it.item_title, ok: false, detail: reason });
-          continue;
-        }
-        const { error } = await supabase
-          .from("inventory_items")
-          .update({ status: next } as never)
-          .eq("id", it.id);
-        if (error) {
-          results.push({
-            title: it.item_title,
-            ok: false,
-            detail: error.message,
-          });
-        } else {
-          results.push({
-            title: it.item_title,
-            ok: true,
-            detail: `→ ${ITEM_STATUS_LABELS[next]}`,
-          });
+      // One UPDATE per target stage (chunked to keep the id list in the URL
+      // short) instead of one round trip per card.
+      for (const group of plan.groups) {
+        const label = ITEM_STATUS_LABELS[group.status];
+        for (const part of chunk(group.items, BATCH_WRITE_SIZE)) {
+          const { data, error } = await supabase
+            .from("inventory_items")
+            .update({ status: group.status } as never)
+            .in(
+              "id",
+              part.map((it) => it.id),
+            )
+            .select("id");
+          const updated = new Set(
+            ((data ?? []) as Array<{ id: string }>).map((r) => r.id),
+          );
+          for (const it of part) {
+            if (error) {
+              results.push({ title: it.item_title, ok: false, detail: error.message });
+            } else if (!updated.has(it.id)) {
+              results.push({
+                title: it.item_title,
+                ok: false,
+                detail: "Not updated. It may have been moved or deleted; refresh and try again.",
+              });
+            } else {
+              results.push({ title: it.item_title, ok: true, detail: `→ ${label}` });
+            }
+          }
         }
       }
       await qc.invalidateQueries({ queryKey: ["items_full"] });
@@ -817,6 +822,10 @@ export function FlipdeskPipelinePage() {
                           (statusCounts?.["acquired"] ?? 0)
                         : statusCounts?.[step.status] ?? colItems.length
                     }
+                    // Filtered: say how many of the stage's cards are shown, so
+                    // the badge agrees with the column. The WIP check still
+                    // reads the true stage total.
+                    shown={filtersActive ? colItems.length : undefined}
                     limit={wipLimits[step.status]}
                   >
                     {colItems.length === 0 ? (
@@ -836,7 +845,7 @@ export function FlipdeskPipelinePage() {
                         ))}
                         {overCap && (
                           <Link
-                            to={`/dashboard/flipdesk/items?status=${step.status}`}
+                            to={boardMoreLink(step.status, boardFilters)}
                             className="flex items-center justify-center rounded-md border border-dashed py-2 text-xs text-muted-foreground hover:bg-muted/40"
                           >
                             +{colItems.length - COLUMN_CAP} more
@@ -945,6 +954,7 @@ function DroppableColumn({
   label,
   nextAction,
   count,
+  shown,
   limit,
   children,
 }: {
@@ -952,6 +962,7 @@ function DroppableColumn({
   label: string;
   nextAction: string;
   count: number;
+  shown?: number;
   limit: number | undefined;
   children: React.ReactNode;
 }) {
@@ -974,7 +985,7 @@ function DroppableColumn({
               variant={overLimit ? "destructive" : "outline"}
               className="font-mono text-xs"
             >
-              {count}
+              {shown != null ? `${shown} of ${count}` : count}
               {limit != null ? `/${limit}` : ""}
             </Badge>
           </div>
