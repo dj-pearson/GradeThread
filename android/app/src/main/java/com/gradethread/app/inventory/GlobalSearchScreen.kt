@@ -18,6 +18,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
 import androidx.compose.ui.Modifier
@@ -90,7 +91,13 @@ fun GlobalSearchContent(
 
         when {
             state.tooShort ->
-                Hint(stringResource(R.string.search_keep_typing, GlobalSearch.MIN_QUERY_LENGTH))
+                Hint(
+                    pluralStringResource(
+                        R.plurals.search_keep_typing,
+                        GlobalSearch.MIN_QUERY_LENGTH,
+                        GlobalSearch.MIN_QUERY_LENGTH,
+                    ),
+                )
 
             state.query.isBlank() ->
                 Hint(stringResource(R.string.search_hint))

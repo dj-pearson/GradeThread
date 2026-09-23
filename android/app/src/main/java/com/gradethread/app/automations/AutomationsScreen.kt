@@ -217,8 +217,9 @@ fun AutomationsContent(
                     if (result.matches.size > 20) {
                         // Never a silent truncation: the count says what's hidden.
                         Text(
-                            stringResource(
-                                R.string.automations_and_more,
+                            pluralStringResource(
+                                R.plurals.automations_and_more,
+                                result.matches.size - 20,
                                 result.matches.size - 20,
                             ),
                             style = MaterialTheme.typography.bodySmall,

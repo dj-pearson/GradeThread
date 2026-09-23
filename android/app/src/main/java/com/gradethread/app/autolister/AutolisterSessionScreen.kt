@@ -298,8 +298,8 @@ fun AutolisterSessionContent(
                     Text(
                         stringResource(
                             R.string.autolister_waiting_row,
-                            waiting.photoCount,
-                            waiting.groupCount,
+                            pluralStringResource(R.plurals.photo_count, waiting.photoCount, waiting.photoCount),
+                            pluralStringResource(R.plurals.group_count, waiting.groupCount, waiting.groupCount),
                         ),
                         style = MaterialTheme.typography.bodyMedium,
                     )

@@ -110,9 +110,21 @@ fun InventoryEquityCard(
             Text(
                 stringResource(
                     R.string.equity_unvalued,
-                    aggregate.unvaluedCount,
-                    aggregate.unvaluedByReason.noGrade,
-                    aggregate.unvaluedByReason.noComps,
+                    pluralStringResource(
+                        R.plurals.equity_unvalued_items,
+                        aggregate.unvaluedCount,
+                        aggregate.unvaluedCount,
+                    ),
+                    pluralStringResource(
+                        R.plurals.equity_unvalued_no_grade,
+                        aggregate.unvaluedByReason.noGrade,
+                        aggregate.unvaluedByReason.noGrade,
+                    ),
+                    pluralStringResource(
+                        R.plurals.equity_unvalued_no_comps,
+                        aggregate.unvaluedByReason.noComps,
+                        aggregate.unvaluedByReason.noComps,
+                    ),
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

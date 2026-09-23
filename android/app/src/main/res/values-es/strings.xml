@@ -141,6 +141,46 @@
         <item quantity="many">%1$d de artículos</item>
         <item quantity="other">%1$d artículos</item>
     </plurals>
+    <plurals name="day_count">
+        <item quantity="one">%1$d día</item>
+        <item quantity="many">%1$d de días</item>
+        <item quantity="other">%1$d días</item>
+    </plurals>
+    <plurals name="credit_count">
+        <item quantity="one">%1$d crédito</item>
+        <item quantity="many">%1$d de créditos</item>
+        <item quantity="other">%1$d créditos</item>
+    </plurals>
+    <plurals name="seller_count">
+        <item quantity="one">%1$d vendedor</item>
+        <item quantity="many">%1$d de vendedores</item>
+        <item quantity="other">%1$d vendedores</item>
+    </plurals>
+    <plurals name="sold_count">
+        <item quantity="one">%1$d vendido</item>
+        <item quantity="many">%1$d vendidos</item>
+        <item quantity="other">%1$d vendidos</item>
+    </plurals>
+    <plurals name="listed_count">
+        <item quantity="one">%1$d publicado</item>
+        <item quantity="many">%1$d publicados</item>
+        <item quantity="other">%1$d publicados</item>
+    </plurals>
+    <plurals name="group_count">
+        <item quantity="one">%1$d grupo</item>
+        <item quantity="many">%1$d de grupos</item>
+        <item quantity="other">%1$d grupos</item>
+    </plurals>
+    <plurals name="scan_count">
+        <item quantity="one">%1$d escaneo</item>
+        <item quantity="many">%1$d de escaneos</item>
+        <item quantity="other">%1$d escaneos</item>
+    </plurals>
+    <plurals name="person_count">
+        <item quantity="one">%1$d persona</item>
+        <item quantity="many">%1$d de personas</item>
+        <item quantity="other">%1$d personas</item>
+    </plurals>
     <string name="analytics_analytics">Analíticas</string>
     <string name="analytics_apply">Aplicar</string>
     <string name="analytics_back">Atrás</string>
@@ -239,7 +279,7 @@
         <item quantity="other">%1$d artículos guardados más de 60 días (%2$s del costo).</item>
     </plurals>
     <string name="money_time_on_market_title">Tiempo en el mercado</string>
-    <string name="money_time_on_market_summary">Promedio de %1$d días para vender en %2$d ventas.</string>
+    <string name="money_time_on_market_summary">Promedio de %1$s para vender en %2$s.</string>
     <string name="money_days_to_sell_spoken">Días hasta la venta: %1$s</string>
     <string name="money_days_to_sell_spoken_item">%1$s, %2$d</string>
     <string name="money_roi_by_source">ROI por fuente</string>
@@ -247,7 +287,11 @@
     <string name="money_no_completed_sales">Aún no hay ventas completadas — los pedidos reembolsados y cancelados no cuentan aquí.</string>
     <string name="money_expenses_empty">Registra materiales, envío y software para que tu P&amp;L refleje lo que gastas de verdad.</string>
     <string name="money_empty_body">Cuando catalogues artículos y registres ventas, aquí verás tus ingresos, tu ganancia, tu flujo de caja y la antigüedad de tu inventario — calculado en tu dispositivo, así que funciona sin conexión.</string>
-    <string name="money_source_row_detail">%1$d/%2$d vendidos · gasto %3$s</string>
+    <plurals name="money_source_row_detail">
+        <item quantity="one">%1$d/%2$d vendido · gasto %3$s</item>
+        <item quantity="many">%1$d/%2$d vendidos · gasto %3$s</item>
+        <item quantity="other">%1$d/%2$d vendidos · gasto %3$s</item>
+    </plurals>
     <string name="money_sale_row_detail">%1$s · vendido %2$s · costo %3$s</string>
     <string name="settings_title">Ajustes</string>
     <string name="settings_signed_in">Sesión iniciada</string>
@@ -264,7 +308,17 @@
     <string name="settings_plan_loading">Cargando tu plan…</string>
     <string name="settings_plan_unavailable">Los detalles del plan no están disponibles sin conexión. Desliza hacia abajo para reintentar cuando tengas conexión.</string>
     <string name="settings_grading_credits">Créditos de calificación</string>
-    <string name="settings_credits_subtitle">%1$d disponibles · %2$d usados este mes</string>
+    <string name="settings_credits_subtitle">%1$s · %2$s</string>
+    <plurals name="settings_credits_available">
+        <item quantity="one">%1$d disponible</item>
+        <item quantity="many">%1$d disponibles</item>
+        <item quantity="other">%1$d disponibles</item>
+    </plurals>
+    <plurals name="settings_credits_used">
+        <item quantity="one">%1$d usado este mes</item>
+        <item quantity="many">%1$d usados este mes</item>
+        <item quantity="other">%1$d usados este mes</item>
+    </plurals>
     <string name="settings_ebay">eBay</string>
     <string name="settings_ebay_subtitle">Conecta o gestiona tus cuentas vinculadas</string>
     <string name="settings_show_cost">Mostrar costo y ganancia en las filas</string>
@@ -337,7 +391,11 @@
     <string name="analytics_sell_through">Tasa de venta %1$s</string>
     <string name="analytics_roi_title">¿Vale la pena calificar?</string>
     <string name="analytics_roi_subtitle">Calificados frente a no calificados, por precio de venta</string>
-    <string name="analytics_roi_not_enough">Aún no hay suficientes ventas para comparar (%1$d calificados, %2$d no).</string>
+    <plurals name="analytics_roi_not_enough">
+        <item quantity="one">Aún no hay suficientes ventas para comparar (%1$d calificado, %2$d no).</item>
+        <item quantity="many">Aún no hay suficientes ventas para comparar (%1$d calificados, %2$d no).</item>
+        <item quantity="other">Aún no hay suficientes ventas para comparar (%1$d calificados, %2$d no).</item>
+    </plurals>
     <string name="analytics_roi_more">Los artículos calificados dejaron %1$s más en promedio (%2$d vs %3$d).</string>
     <string name="analytics_roi_less">Los artículos calificados dejaron %1$s menos en promedio (%2$d vs %3$d).</string>
     <string name="automations_automations">Automatizaciones</string>
@@ -369,7 +427,11 @@
     <string name="automations_loading">Cargando…</string>
     <string name="automations_no_rules_yet">Todavía no hay reglas. Una regla vigila algo — una publicación que lleva 30 días, por ejemplo — y luego actúa.</string>
     <string name="automations_match_row">%1$s — %2$s</string>
-    <string name="automations_and_more">…y %1$d más.</string>
+    <plurals name="automations_and_more">
+        <item quantity="one">…y %1$d más.</item>
+        <item quantity="many">…y %1$d más.</item>
+        <item quantity="other">…y %1$d más.</item>
+    </plurals>
     <string name="automations_delete_rule">¿Eliminar \"%1$s\"?</string>
     <string name="automations_edit_rule">Editar regla</string>
     <string name="automations_field_days">Días</string>
@@ -412,7 +474,11 @@
     <string name="drafts_schedule">Programar</string>
     <string name="drafts_loading">Cargando…</string>
     <string name="drafts_empty">Todavía no hay borradores. Genéralos desde los artículos de tu inventario y aparecerán aquí para revisarlos antes de publicar nada.</string>
-    <string name="drafts_selected_of">%1$d de %2$d seleccionados</string>
+    <plurals name="drafts_selected_of">
+        <item quantity="one">%1$d de %2$d seleccionado</item>
+        <item quantity="many">%1$d de %2$d seleccionados</item>
+        <item quantity="other">%1$d de %2$d seleccionados</item>
+    </plurals>
     <string name="drafts_clear_all">Quitar todo</string>
 
     <!-- US-2964: la lista de secciones de la descripción. -->
@@ -804,7 +870,11 @@
     <string name="canvas_saved">Guardado</string>
     <string name="canvas_save_before_list">Guarda los cambios para publicar</string>
     <string name="prospect_intro">Fotografía el frente y la etiqueta de la marca. Averiguamos qué es, por cuánto se vende y si vale la pena comprarlo.</string>
-    <string name="prospect_photo_count">%1$d de %2$d fotos</string>
+    <plurals name="prospect_photo_count">
+        <item quantity="one">%1$d de %2$d foto</item>
+        <item quantity="many">%1$d de %2$d fotos</item>
+        <item quantity="other">%1$d de %2$d fotos</item>
+    </plurals>
     <string name="prospect_camera_denied">Activa el acceso a la cámara en Ajustes, o elige una foto de tu galería.</string>
     <string name="prospect_not_on_plan">No está en tu plan</string>
     <string name="prospect_failed">Eso no funcionó</string>
@@ -825,7 +895,12 @@
     <string name="graderequest_provisional">Puntuación provisional %1$s</string>
     <string name="graderequest_slow_body">Este está tardando más de lo normal. No se pierde nada — la calificación aparecerá en el artículo en cuanto esté lista.</string>
     <string name="graderequest_not_charged">No se te cobró.</string>
-    <string name="graderequest_balance">%1$d créditos · %2$d calificaciones incluidas restantes</string>
+    <string name="graderequest_balance">%1$s · %2$s</string>
+    <plurals name="graderequest_included_left">
+        <item quantity="one">%1$d calificación incluida restante</item>
+        <item quantity="many">%1$d de calificaciones incluidas restantes</item>
+        <item quantity="other">%1$d calificaciones incluidas restantes</item>
+    </plurals>
     <string name="graderequest_bullet">• %1$s</string>
     <string name="graderequest_included">Incluido</string>
     <string name="graderequest_tier_detail">%1$s · %2$s</string>
@@ -994,7 +1069,17 @@
         <item quantity="many">%1$d de artículos</item>
         <item quantity="other">%1$d artículos</item>
     </plurals>
-    <string name="bulkgrade_counts">%1$d listos · %2$d bloqueados · %3$d créditos</string>
+    <string name="bulkgrade_counts">%1$s · %2$s · %3$s</string>
+    <plurals name="bulkgrade_ready">
+        <item quantity="one">%1$d listo</item>
+        <item quantity="many">%1$d listos</item>
+        <item quantity="other">%1$d listos</item>
+    </plurals>
+    <plurals name="bulkgrade_blocked">
+        <item quantity="one">%1$d bloqueado</item>
+        <item quantity="many">%1$d bloqueados</item>
+        <item quantity="other">%1$d bloqueados</item>
+    </plurals>
     <plurals name="bulkgrade_blocked_count">
         <item quantity="one">%1$d no se enviará</item>
         <item quantity="many">%1$d no se enviarán</item>
@@ -1002,7 +1087,11 @@
     </plurals>
     <string name="bulkgrade_blocked_row">• %1$s — %2$s</string>
     <string name="bulkgrade_not_ready">no está listo</string>
-    <string name="bulkgrade_and_more">…y %1$d más</string>
+    <plurals name="bulkgrade_and_more">
+        <item quantity="one">…y %1$d más</item>
+        <item quantity="many">…y %1$d más</item>
+        <item quantity="other">…y %1$d más</item>
+    </plurals>
     <plurals name="bulkgrade_title">
         <item quantity="one">Calificar %1$d artículo</item>
         <item quantity="many">Calificar %1$d de artículos</item>
@@ -1029,14 +1118,23 @@
     <string name="promotion_promote">Promocionar</string>
     <string name="promotion_update_sale">Actualizar oferta</string>
     <string name="promotion_start_sale">Iniciar oferta</string>
-    <string name="community_privacy_note">Cada cifra se agrupa entre al menos %1$d vendedores. No se muestran los números de ningún vendedor en particular, incluidos los tuyos.</string>
+    <plurals name="community_privacy_note">
+        <item quantity="one">Cada cifra se agrupa entre al menos %1$d vendedor. No se muestran los números de ningún vendedor en particular, incluidos los tuyos.</item>
+        <item quantity="many">Cada cifra se agrupa entre al menos %1$d de vendedores. No se muestran los números de ningún vendedor en particular, incluidos los tuyos.</item>
+        <item quantity="other">Cada cifra se agrupa entre al menos %1$d vendedores. No se muestran los números de ningún vendedor en particular, incluidos los tuyos.</item>
+    </plurals>
     <string name="community_too_thin">Necesitamos más vendedores trabajando las mismas marcas y categorías para que estos números signifiquen algo. Vuelve pronto.</string>
     <string name="community_nothing_actionable">Tenemos datos de tus marcas y categorías, pero nada es lo bastante sólido para actuar hoy.</string>
     <string name="community_sell_through_spoken">Tasa de venta de la comunidad por marca: %1$s</string>
     <string name="community_pair_spoken_item">%1$s %2$s</string>
-    <string name="community_you_row">%1$d publicados · %2$d vendidos</string>
+    <string name="community_you_row">%1$s · %2$s</string>
     <string name="community_tap_to_see">Toca para ver tus artículos de %1$s</string>
-    <string name="community_brand_row">%1$d vendedores · %2$d de %3$d vendidos</string>
+    <string name="community_brand_row">%1$s · %2$s</string>
+    <plurals name="community_sold_of">
+        <item quantity="one">%1$d de %2$d vendido</item>
+        <item quantity="many">%1$d de %2$d vendidos</item>
+        <item quantity="other">%1$d de %2$d vendidos</item>
+    </plurals>
     <plurals name="community_trend_up">
         <item quantity="one">Ventas suben %1$s en 30 días · %2$d vendedor</item>
         <item quantity="many">Ventas suben %1$s en 30 días · %2$d de vendedores</item>
@@ -1047,7 +1145,12 @@
         <item quantity="many">Ventas bajan %1$s en 30 días · %2$d de vendedores</item>
         <item quantity="other">Ventas bajan %1$s en 30 días · %2$d vendedores</item>
     </plurals>
-    <string name="community_trend_flat">%1$d vendidos en 30 días · %2$d vendedores</string>
+    <string name="community_trend_flat">%1$s · %2$s</string>
+    <plurals name="community_sold_30d">
+        <item quantity="one">%1$d vendido en 30 días</item>
+        <item quantity="many">%1$d vendidos en 30 días</item>
+        <item quantity="other">%1$d vendidos en 30 días</item>
+    </plurals>
     <string name="photos_more">Más</string>
     <string name="photos_duplicate_item">Duplicar artículo</string>
     <string name="photos_share_certificate">Compartir certificado</string>
@@ -1094,7 +1197,11 @@
     <string name="photos_retag_all_types">Todos los tipos</string>
     <string name="photos_retag_old_tag">%1$s (etiqueta antigua)</string>
     <string name="photos_retag_current">✓</string>
-    <string name="search_keep_typing">Sigue escribiendo — mínimo %1$d caracteres.</string>
+    <plurals name="search_keep_typing">
+        <item quantity="one">Sigue escribiendo — mínimo %1$d carácter.</item>
+        <item quantity="many">Sigue escribiendo — mínimo %1$d de caracteres.</item>
+        <item quantity="other">Sigue escribiendo — mínimo %1$d caracteres.</item>
+    </plurals>
     <string name="search_hint">Busca por título, marca, SKU, talla, color, comprador o fuente.</string>
     <string name="search_searching">Buscando…</string>
     <string name="search_no_results">Nada coincidió con eso. Los resultados vienen de lo que está sincronizado en este dispositivo, así que un artículo muy nuevo puede que aún no esté aquí.</string>
@@ -1128,7 +1235,11 @@
     <string name="bulkpricing_reduce_by">Reducir en</string>
     <string name="bulkpricing_price_invalid">Ingresa un precio mayor que cero.</string>
     <string name="bulkpricing_reduction_invalid">Ingresa una reducción entre 1 y 99%.</string>
-    <string name="bulkpricing_selected_of">%1$d de %2$d seleccionados</string>
+    <plurals name="bulkpricing_selected_of">
+        <item quantity="one">%1$d de %2$d seleccionado</item>
+        <item quantity="many">%1$d de %2$d seleccionados</item>
+        <item quantity="other">%1$d de %2$d seleccionados</item>
+    </plurals>
     <string name="bulkpricing_empty">No hay publicaciones activas creadas por FlipDesk. Las publicaciones importadas de eBay se editan en eBay, así que no se les puede cambiar el precio aquí.</string>
     <string name="bulkpricing_pushing">Enviando a eBay…</string>
     <string name="bulkpricing_nothing_to_push">Nada que enviar</string>
@@ -1372,7 +1483,11 @@
     <string name="verified_handle_reserved">Ese identificador está reservado. Elige otro.</string>
     <string name="verified_display_name_label">Nombre visible</string>
     <string name="verified_bio_label">Biografía breve</string>
-    <string name="verified_bio_help">%1$d de %2$d caracteres</string>
+    <plurals name="verified_bio_help">
+        <item quantity="one">%1$d de %2$d carácter</item>
+        <item quantity="many">%1$d de %2$d caracteres</item>
+        <item quantity="other">%1$d de %2$d caracteres</item>
+    </plurals>
     <string name="verified_public_profile">Perfil público</string>
     <string name="verified_public_detail">Los compradores pueden abrir tu perfil y ver tu historial de calificaciones.</string>
     <string name="verified_public_needs_handle">Reclama primero un identificador. Tu perfil necesita una dirección antes de ser público.</string>
@@ -1391,7 +1506,11 @@
     <string name="payouts_deposit_not_local">el depósito aún no está en este dispositivo</string>
     <string name="payouts_syncing">Sincronizando…</string>
     <string name="payouts_sync_cta">Sincronizar y revisar de nuevo</string>
-    <string name="payouts_more_sales">…y %1$d más.</string>
+    <plurals name="payouts_more_sales">
+        <item quantity="one">…y %1$d más.</item>
+        <item quantity="many">…y %1$d más.</item>
+        <item quantity="other">…y %1$d más.</item>
+    </plurals>
     <plurals name="payouts_entry_summary">
         <item quantity="one">%1$d venta · registrada %2$s</item>
         <item quantity="many">%1$d de ventas · registradas %2$s</item>
@@ -1411,7 +1530,11 @@
         <item quantity="other">%1$d artículos seleccionados</item>
     </plurals>
     <string name="consignment_total_owed">%1$s por pagar</string>
-    <string name="bulk_more_failures">…y %1$d más</string>
+    <plurals name="bulk_more_failures">
+        <item quantity="one">…y %1$d más</item>
+        <item quantity="many">…y %1$d más</item>
+        <item quantity="other">…y %1$d más</item>
+    </plurals>
     <string name="consignment_title">Pagos de consignación</string>
     <string name="consignment_subtitle">Solo de ventas completadas. Los pedidos cancelados y reembolsados no cuentan.</string>
     <string name="consignment_heads_up">Aviso</string>
@@ -1425,7 +1548,11 @@
     <string name="aspects_no_category">Este artículo aún no tiene categoría de eBay. Busca comparables arriba para obtener una — los detalles son por categoría.</string>
     <string name="aspects_synced_with">Sincronizado con %1$s del artículo</string>
     <string name="aspects_comma_separated">Separado por comas</string>
-    <string name="aspects_truncated">eBay limita esto a %1$d caracteres — el resto se cortará.</string>
+    <plurals name="aspects_truncated">
+        <item quantity="one">eBay limita esto a %1$d carácter — el resto se cortará.</item>
+        <item quantity="many">eBay limita esto a %1$d de caracteres — el resto se cortará.</item>
+        <item quantity="other">eBay limita esto a %1$d caracteres — el resto se cortará.</item>
+    </plurals>
     <plurals name="consignment_row_summary">
         <item quantity="one">%1$d artículo · %2$s en ventas · %3$s en comisiones</item>
         <item quantity="many">%1$d de artículos · %2$s en ventas · %3$s en comisiones</item>
@@ -1436,7 +1563,11 @@
     <string name="aiextract_failed_title">La AI no pudo leer estas fotos</string>
     <string name="aiextract_failed_continue">Ir al artículo</string>
     <string name="aiextract_uploading">Guardando tus fotos…</string>
-    <string name="aiextract_uploaded_count">%1$d de %2$d subidas</string>
+    <plurals name="aiextract_uploaded_count">
+        <item quantity="one">%1$d de %2$d subida</item>
+        <item quantity="many">%1$d de %2$d subidas</item>
+        <item quantity="other">%1$d de %2$d subidas</item>
+    </plurals>
     <string name="aiextract_reading">Leyendo tus fotos…</string>
     <string name="aiextract_reading_sub">Esto tarda hasta un minuto.</string>
     <string name="aiextract_background">Terminar en segundo plano</string>
@@ -1475,7 +1606,11 @@
     <string name="specifics_required">%1$s (obligatorio)</string>
     <string name="specifics_choose_one">Elige uno</string>
     <string name="specifics_autofilled">Se llena al publicar con tus medidas: %1$s</string>
-    <string name="specifics_truncated">eBay corta los detalles del artículo en %1$d caracteres — este se acortará.</string>
+    <plurals name="specifics_truncated">
+        <item quantity="one">eBay corta los detalles del artículo en %1$d carácter — este se acortará.</item>
+        <item quantity="many">eBay corta los detalles del artículo en %1$d de caracteres — este se acortará.</item>
+        <item quantity="other">eBay corta los detalles del artículo en %1$d caracteres — este se acortará.</item>
+    </plurals>
     <plurals name="credits_needed">
         <item quantity="one">Esta calificación necesita %1$d crédito y tienes %2$d.</item>
         <item quantity="many">Esta calificación necesita %1$d de créditos y tienes %2$d.</item>
@@ -1554,7 +1689,11 @@
     <string name="barcode_point_camera">Apunta la cámara a un código de barras</string>
     <string name="intake_share_title">Agregar a GradeThread</string>
     <string name="intake_share_pick">Elige qué foto va en cada lugar. Puedes cambiarlo después.</string>
-    <string name="intake_share_capped">Usando las primeras %1$d de %2$d fotos.</string>
+    <plurals name="intake_share_capped">
+        <item quantity="one">Usando la primera %1$d de %2$d fotos.</item>
+        <item quantity="many">Usando las primeras %1$d de %2$d fotos.</item>
+        <item quantity="other">Usando las primeras %1$d de %2$d fotos.</item>
+    </plurals>
     <string name="plangate_upgrade">Mejorar</string>
     <string name="plangate_see_plans">Ver planes</string>
     <string name="plangate_not_now">Ahora no</string>
@@ -1647,7 +1786,7 @@
         <item quantity="other">Se enviaron %1$d fotos. Abre AutoLister en una computadora para recogerlas.</item>
     </plurals>
     <string name="autolister_waiting_header">Esperando una computadora</string>
-    <string name="autolister_waiting_row">%1$d fotos en %2$d grupos</string>
+    <string name="autolister_waiting_row">%1$s en %2$s</string>
     <string name="autolister_discard">Descartar</string>
     <string name="autolister_busy_importing">Subiendo la foto %1$d de %2$d</string>
     <string name="autolister_busy_proposing">Agrupando tus fotos</string>
@@ -1720,7 +1859,22 @@
     <!-- US-2414: eBay payout CSV import. -->
     <string name="payouts_import_cta">Importar un CSV de pagos</string>
     <string name="payouts_importing">Leyendo tu archivo…</string>
-    <string name="payouts_import_result">Se agregaron %1$d pagos. %2$d ya estaban aquí y %3$d líneas no eran pagos.</string>
+    <string name="payouts_import_result">%1$s %2$s y %3$s.</string>
+    <plurals name="payouts_import_added">
+        <item quantity="one">Se agregó %1$d pago.</item>
+        <item quantity="many">Se agregaron %1$d de pagos.</item>
+        <item quantity="other">Se agregaron %1$d pagos.</item>
+    </plurals>
+    <plurals name="payouts_import_already">
+        <item quantity="one">%1$d ya estaba aquí</item>
+        <item quantity="many">%1$d ya estaban aquí</item>
+        <item quantity="other">%1$d ya estaban aquí</item>
+    </plurals>
+    <plurals name="payouts_import_not_payouts">
+        <item quantity="one">%1$d línea no era un pago</item>
+        <item quantity="many">%1$d de líneas no eran pagos</item>
+        <item quantity="other">%1$d líneas no eran pagos</item>
+    </plurals>
     <!-- US-2489: the server-side payout matcher and its review queue. -->
     <string name="payouts_matcher_title">Emparejar depósitos con ventas</string>
     <string name="payouts_matcher_help">Esta parte necesita conexión. Le pide al servidor que empareje cada depósito con la venta que pagó y te deja lo que no tiene claro.</string>
@@ -1731,8 +1885,27 @@
         <item quantity="many">Faltan %1$d de depósitos por emparejar.</item>
         <item quantity="other">Faltan %1$d depósitos por emparejar.</item>
     </plurals>
-    <string name="payouts_queue_truncated">Mostrando %1$d de %2$d depósitos que faltan por emparejar.</string>
-    <string name="payouts_sweep_result">Se emparejaron %1$d. %2$d quedaron muy parejos y %3$d no tenían con qué emparejarse.</string>
+    <plurals name="payouts_queue_truncated">
+        <item quantity="one">Mostrando %1$d de %2$d depósito que falta por emparejar.</item>
+        <item quantity="many">Mostrando %1$d de %2$d depósitos que faltan por emparejar.</item>
+        <item quantity="other">Mostrando %1$d de %2$d depósitos que faltan por emparejar.</item>
+    </plurals>
+    <string name="payouts_sweep_result">%1$s %2$s y %3$s.</string>
+    <plurals name="payouts_sweep_matched">
+        <item quantity="one">Se emparejó %1$d.</item>
+        <item quantity="many">Se emparejaron %1$d.</item>
+        <item quantity="other">Se emparejaron %1$d.</item>
+    </plurals>
+    <plurals name="payouts_sweep_ambiguous">
+        <item quantity="one">%1$d quedó muy parejo</item>
+        <item quantity="many">%1$d quedaron muy parejos</item>
+        <item quantity="other">%1$d quedaron muy parejos</item>
+    </plurals>
+    <plurals name="payouts_sweep_no_candidates">
+        <item quantity="one">%1$d no tenía con qué emparejarse</item>
+        <item quantity="many">%1$d no tenían con qué emparejarse</item>
+        <item quantity="other">%1$d no tenían con qué emparejarse</item>
+    </plurals>
     <string name="payouts_no_candidates">Ninguna venta se parece a este depósito.</string>
     <string name="payouts_untitled_item">Artículo sin título</string>
     <string name="payouts_amount_unknown">Monto no registrado</string>
@@ -1754,7 +1927,22 @@
     <string name="equity_title">Cuánto vale tu inventario sin vender</string>
     <string name="equity_subtitle">Una cifra realista si tuvieras que venderlo ya, no lo que estás pidiendo.</string>
     <string name="equity_range">Entre %1$s y %2$s.</string>
-    <string name="equity_unvalued">%1$d artículos no tienen cifra: %2$d necesitan calificación y %3$d no tienen con qué compararse.</string>
+    <string name="equity_unvalued">%1$s: %2$s y %3$s.</string>
+    <plurals name="equity_unvalued_items">
+        <item quantity="one">%1$d artículo no tiene cifra</item>
+        <item quantity="many">%1$d de artículos no tienen cifra</item>
+        <item quantity="other">%1$d artículos no tienen cifra</item>
+    </plurals>
+    <plurals name="equity_unvalued_no_grade">
+        <item quantity="one">%1$d necesita calificación</item>
+        <item quantity="many">%1$d necesitan calificación</item>
+        <item quantity="other">%1$d necesitan calificación</item>
+    </plurals>
+    <plurals name="equity_unvalued_no_comps">
+        <item quantity="one">%1$d no tiene con qué compararse</item>
+        <item quantity="many">%1$d no tienen con qué compararse</item>
+        <item quantity="other">%1$d no tienen con qué compararse</item>
+    </plurals>
     <string name="equity_movement_up">Subió %1$s desde ayer.</string>
     <string name="equity_movement_down">Bajó %1$s desde ayer.</string>
     <string name="equity_by_category">Dónde está</string>
@@ -1776,10 +1964,25 @@
     <string name="stores_sort_recent">Más reciente</string>
     <string name="stores_money">Gastaste %1$s y recuperaste %2$s</string>
     <string name="stores_roi">%1$s%% de retorno sobre lo vendido</string>
-    <string name="stores_counts">%1$d artículos comprados, %2$d vendidos</string>
+    <string name="stores_counts">%1$s, %2$s</string>
+    <plurals name="stores_items_bought">
+        <item quantity="one">%1$d artículo comprado</item>
+        <item quantity="many">%1$d de artículos comprados</item>
+        <item quantity="other">%1$d artículos comprados</item>
+    </plurals>
     <string name="stores_empty">Todavía no hay nada. Asigna una fuente a un artículo y empezará a aparecer.</string>
     <string name="stores_truncated">Esta es una vista parcial, así que a una tienda le pueden faltar artículos.</string>
-    <string name="stores_unattributed">%1$d artículos no tienen tienda y %2$d visitas no se pudieron ubicar.</string>
+    <string name="stores_unattributed">%1$s y %2$s.</string>
+    <plurals name="stores_items_no_shop">
+        <item quantity="one">%1$d artículo no tiene tienda</item>
+        <item quantity="many">%1$d de artículos no tienen tienda</item>
+        <item quantity="other">%1$d artículos no tienen tienda</item>
+    </plurals>
+    <plurals name="stores_visits_unplaced">
+        <item quantity="one">%1$d visita no se pudo ubicar</item>
+        <item quantity="many">%1$d de visitas no se pudieron ubicar</item>
+        <item quantity="other">%1$d visitas no se pudieron ubicar</item>
+    </plurals>
     <string name="radar_title">Cerca de ti</string>
     <string name="radar_subtitle">Qué tiendas cerca de ti valen la visita.</string>
     <string name="radar_window_7d">7 días</string>
@@ -1806,7 +2009,7 @@
         <item quantity="many">%1$d comprados aquí</item>
         <item quantity="other">%1$d comprados aquí</item>
     </plurals>
-    <string name="radar_row_activity">%1$d escaneos, %2$d personas, %3$s</string>
+    <string name="radar_row_activity">%1$s, %2$s, %3$s</string>
     <string name="radar_row_nothing_shared">Tu tienda. Todavía no se comparte nada sobre este sitio.</string>
     <plurals name="radar_row_sourced">
         <item quantity="one">%1$d comprado aquí</item>
@@ -1834,7 +2037,7 @@
     <string name="radar_venue_floor">Todavía no han escaneado aquí suficientes personas como para contar algo de esta tienda sin dejar claro quiénes fueron. Las contribuciones son lo que cambia eso.</string>
     <string name="radar_venue_locked">El mapa compartido es una función Pro. Tus propias tiendas siguen en la lista en cualquier plan.</string>
     <string name="radar_venue_failed">No pudimos cargar esta tienda.</string>
-    <string name="radar_venue_activity">%1$d escaneos de %2$d personas</string>
+    <string name="radar_venue_activity">%1$s de %2$s</string>
     <string name="radar_venue_buy_rate">%1$d%% valían la compra</string>
     <string name="radar_venue_brands">Mezcla de marcas</string>
     <string name="radar_venue_brands_empty">Todavía no hay suficientes escaneos aquí para nombrar una marca.</string>

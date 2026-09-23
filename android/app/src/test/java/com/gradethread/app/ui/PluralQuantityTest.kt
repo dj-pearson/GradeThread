@@ -100,6 +100,63 @@ class PluralQuantityTest {
         )
     }
 
+    /**
+     * The 35 former PluralsCandidate strings (mobile plan action 7). A sentence
+     * with two counted nouns cannot be one <plurals>, so it became a template
+     * whose `%s` arguments are each their own plural. These pin the joined
+     * sentence at ONE, where every one of them used to read wrong.
+     */
+    @Test
+    fun formerBaselinedCountSentencesInflectAtOne() {
+        val e = res(en)
+        val s = res(es)
+
+        assertEquals("Added 1 payout.", e.getQuantityString(R.plurals.payouts_import_added, 1, 1))
+        assertEquals("Se agregó 1 pago.", s.getQuantityString(R.plurals.payouts_import_added, 1, 1))
+        assertEquals("Se agregaron 4 pagos.", s.getQuantityString(R.plurals.payouts_import_added, 4, 4))
+
+        assertEquals(
+            "Matched 1. 1 was too close to call, and 3 had nothing to match against.",
+            e.getString(
+                R.string.payouts_sweep_result,
+                e.getQuantityString(R.plurals.payouts_sweep_matched, 1, 1),
+                e.getQuantityString(R.plurals.payouts_sweep_ambiguous, 1, 1),
+                e.getQuantityString(R.plurals.payouts_sweep_no_candidates, 3, 3),
+            ),
+        )
+        assertEquals(
+            "Se emparejó 1. 1 quedó muy parejo y 3 no tenían con qué emparejarse.",
+            s.getString(
+                R.string.payouts_sweep_result,
+                s.getQuantityString(R.plurals.payouts_sweep_matched, 1, 1),
+                s.getQuantityString(R.plurals.payouts_sweep_ambiguous, 1, 1),
+                s.getQuantityString(R.plurals.payouts_sweep_no_candidates, 3, 3),
+            ),
+        )
+
+        assertEquals(
+            "Average 1 day to sell across 1 sale.",
+            e.getString(
+                R.string.money_time_on_market_summary,
+                e.getQuantityString(R.plurals.day_count, 1, 1),
+                e.getQuantityString(R.plurals.sale_count, 1, 1),
+            ),
+        )
+        assertEquals(
+            "1 crédito · 1 calificación incluida restante",
+            s.getString(
+                R.string.graderequest_balance,
+                s.getQuantityString(R.plurals.credit_count, 1, 1),
+                s.getQuantityString(R.plurals.graderequest_included_left, 1, 1),
+            ),
+        )
+
+        // English reads the same at every count here; Spanish agrees in number.
+        assertEquals("1 of 3 selected", e.getQuantityString(R.plurals.drafts_selected_of, 1, 1, 3))
+        assertEquals("1 de 3 seleccionado", s.getQuantityString(R.plurals.drafts_selected_of, 1, 1, 3))
+        assertEquals("2 de 3 seleccionados", s.getQuantityString(R.plurals.drafts_selected_of, 2, 2, 3))
+    }
+
     @Test
     fun zeroTakesTheOtherFormInBothLocales() {
         // Neither English nor Spanish has a `zero` category, so zero must fall to

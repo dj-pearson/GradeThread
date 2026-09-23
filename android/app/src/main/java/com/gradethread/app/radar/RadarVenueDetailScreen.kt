@@ -153,8 +153,12 @@ private fun ReadyDetail(detail: RadarVenueDetail) {
         Text(
             stringResource(
                 R.string.radar_venue_activity,
-                detail.network.scanCount,
-                detail.network.contributorCount,
+                pluralStringResource(R.plurals.scan_count, detail.network.scanCount, detail.network.scanCount),
+                pluralStringResource(
+                    R.plurals.person_count,
+                    detail.network.contributorCount,
+                    detail.network.contributorCount,
+                ),
             ),
             style = MaterialTheme.typography.bodyMedium,
         )

@@ -111,7 +111,7 @@
     <string name="import_unnamed_column">(unnamed column)</string>
     <string name="import_another">Import another</string>
     <string name="import_commit">Import %1$d</string>
-    <string name="import_row_skipped">Row %1$d skipped \u2014 %2$s</string>
+    <string name="import_row_skipped" tools:ignore="PluralsCandidate">Row %1$d skipped \u2014 %2$s</string>
     <string name="import_row_failed">Row %1$d: %2$s</string>
     <string name="import_row_preview">Row %1$d: %2$s</string>
 
@@ -159,6 +159,38 @@
     <plurals name="item_count">
         <item quantity="one">%1$d item</item>
         <item quantity="other">%1$d items</item>
+    </plurals>
+    <plurals name="day_count">
+        <item quantity="one">%1$d day</item>
+        <item quantity="other">%1$d days</item>
+    </plurals>
+    <plurals name="credit_count">
+        <item quantity="one">%1$d credit</item>
+        <item quantity="other">%1$d credits</item>
+    </plurals>
+    <plurals name="seller_count">
+        <item quantity="one">%1$d seller</item>
+        <item quantity="other">%1$d sellers</item>
+    </plurals>
+    <plurals name="sold_count">
+        <item quantity="one">%1$d sold</item>
+        <item quantity="other">%1$d sold</item>
+    </plurals>
+    <plurals name="listed_count">
+        <item quantity="one">%1$d listed</item>
+        <item quantity="other">%1$d listed</item>
+    </plurals>
+    <plurals name="group_count">
+        <item quantity="one">%1$d group</item>
+        <item quantity="other">%1$d groups</item>
+    </plurals>
+    <plurals name="scan_count">
+        <item quantity="one">%1$d scan</item>
+        <item quantity="other">%1$d scans</item>
+    </plurals>
+    <plurals name="person_count">
+        <item quantity="one">%1$d person</item>
+        <item quantity="other">%1$d people</item>
     </plurals>
 
     <!-- US-2368: batch-externalized UI text. -->
@@ -268,7 +300,7 @@
         <item quantity="other">%1$d items held 60+ days (%2$s of cost basis).</item>
     </plurals>
     <string name="money_time_on_market_title">Time on market</string>
-    <string name="money_time_on_market_summary">Average %1$d days to sell across %2$d sales.</string>
+    <string name="money_time_on_market_summary">Average %1$s to sell across %2$s.</string>
     <string name="money_days_to_sell_spoken">Days to sell: %1$s</string>
     <string name="money_days_to_sell_spoken_item">%1$s, %2$d</string>
     <string name="money_roi_by_source">ROI by source</string>
@@ -276,7 +308,10 @@
     <string name="money_no_completed_sales">No completed sales yet — refunded and cancelled orders don\'t count here.</string>
     <string name="money_expenses_empty">Record supplies, shipping and software so your P&amp;L reflects what you actually spend.</string>
     <string name="money_empty_body">Once you catalog items and record sales, your revenue, profit, cash flow and inventory aging appear here — computed on your device, so it works offline.</string>
-    <string name="money_source_row_detail">%1$d/%2$d sold · spend %3$s</string>
+    <plurals name="money_source_row_detail">
+        <item quantity="one">%1$d/%2$d sold \u00b7 spend %3$s</item>
+        <item quantity="other">%1$d/%2$d sold \u00b7 spend %3$s</item>
+    </plurals>
     <string name="money_sale_row_detail">%1$s · sold %2$s · cost %3$s</string>
 
     <!-- Settings. -->
@@ -295,7 +330,15 @@
     <string name="settings_plan_loading">Loading your plan…</string>
     <string name="settings_plan_unavailable">Plan details aren\'t available offline. Pull down to retry when you\'re online.</string>
     <string name="settings_grading_credits">Grading credits</string>
-    <string name="settings_credits_subtitle">%1$d available · %2$d used this month</string>
+    <string name="settings_credits_subtitle">%1$s \u00b7 %2$s</string>
+    <plurals name="settings_credits_available">
+        <item quantity="one">%1$d available</item>
+        <item quantity="other">%1$d available</item>
+    </plurals>
+    <plurals name="settings_credits_used">
+        <item quantity="one">%1$d used this month</item>
+        <item quantity="other">%1$d used this month</item>
+    </plurals>
     <string name="settings_ebay">eBay</string>
     <string name="settings_ebay_subtitle">Connect or manage your linked accounts</string>
     <string name="settings_show_cost">Show cost and profit on rows</string>
@@ -371,7 +414,10 @@
     <string name="analytics_sell_through">Sell-through %1$s</string>
     <string name="analytics_roi_title">Does grading pay?</string>
     <string name="analytics_roi_subtitle">Graded versus ungraded, by sale price</string>
-    <string name="analytics_roi_not_enough">Not enough sales yet to compare (%1$d graded, %2$d not).</string>
+    <plurals name="analytics_roi_not_enough">
+        <item quantity="one">Not enough sales yet to compare (%1$d graded, %2$d not).</item>
+        <item quantity="other">Not enough sales yet to compare (%1$d graded, %2$d not).</item>
+    </plurals>
     <!-- Two sentences, not one with a swapped verb: word order differs. -->
     <string name="analytics_roi_more">Graded items netted %1$s more on average (%2$d vs %3$d).</string>
     <string name="analytics_roi_less">Graded items netted %1$s less on average (%2$d vs %3$d).</string>
@@ -406,7 +452,10 @@
     <string name="automations_loading">Loading\u2026</string>
     <string name="automations_no_rules_yet">No rules yet. A rule watches for something \u2014 a listing sitting 30 days, say \u2014 and then acts on it.</string>
     <string name="automations_match_row">%1$s \u2014 %2$s</string>
-    <string name="automations_and_more">\u2026and %1$d more.</string>
+    <plurals name="automations_and_more">
+        <item quantity="one">\u2026and %1$d more.</item>
+        <item quantity="other">\u2026and %1$d more.</item>
+    </plurals>
     <string name="automations_delete_rule">Delete \"%1$s\"?</string>
     <string name="automations_edit_rule">Edit rule</string>
     <string name="automations_field_days">Days</string>
@@ -450,7 +499,10 @@
     <string name="drafts_schedule">Schedule</string>
     <string name="drafts_loading">Loading\u2026</string>
     <string name="drafts_empty">No drafts yet. Generate them from items in your inventory, and they land here for review before anything is published.</string>
-    <string name="drafts_selected_of">%1$d of %2$d selected</string>
+    <plurals name="drafts_selected_of">
+        <item quantity="one">%1$d of %2$d selected</item>
+        <item quantity="other">%1$d of %2$d selected</item>
+    </plurals>
     <string name="drafts_clear_all">Clear all</string>
 
     <!-- US-2964: the description block list. -->
@@ -863,7 +915,7 @@
     <string name="canvas_field_sourced_by">Sourced by</string>
     <string name="canvas_field_container">Container</string>
     <string name="canvas_field_location_bin">Location bin</string>
-    <string name="canvas_field_split_pct">Split % (optional)</string>
+    <string name="canvas_field_split_pct" tools:ignore="PluralsCandidate">Split % (optional)</string>
     <string name="canvas_field_description">Description</string>
     <string name="canvas_field_condition_notes">Condition notes</string>
     <string name="canvas_saved_offline">Saved on this device \u2014 it\'ll sync when you\'re back online.</string>
@@ -873,7 +925,10 @@
     <string name="canvas_save_before_list">Save your changes to list</string>
 
     <string name="prospect_intro">Photograph the front and the brand tag. We\'ll work out what it is, what it sells for, and whether it\'s worth buying.</string>
-    <string name="prospect_photo_count">%1$d of %2$d photos</string>
+    <plurals name="prospect_photo_count">
+        <item quantity="one">%1$d of %2$d photo</item>
+        <item quantity="other">%1$d of %2$d photos</item>
+    </plurals>
     <string name="prospect_camera_denied">Turn camera access on in Settings, or pick a photo from your library instead.</string>
     <string name="prospect_not_on_plan">Not on your plan</string>
     <string name="prospect_failed">That didn\'t work</string>
@@ -895,7 +950,11 @@
     <string name="graderequest_provisional">Provisional score %1$s</string>
     <string name="graderequest_slow_body">This one\'s taking longer than usual. Nothing is lost \u2014 the grade will appear on the item as soon as it\'s done.</string>
     <string name="graderequest_not_charged">You weren\'t charged.</string>
-    <string name="graderequest_balance">%1$d credits \u00b7 %2$d included grades left</string>
+    <string name="graderequest_balance">%1$s \u00b7 %2$s</string>
+    <plurals name="graderequest_included_left">
+        <item quantity="one">%1$d included grade left</item>
+        <item quantity="other">%1$d included grades left</item>
+    </plurals>
     <string name="graderequest_bullet">\u2022 %1$s</string>
     <string name="graderequest_included">Included</string>
     <string name="graderequest_tier_detail">%1$s \u00b7 %2$s</string>
@@ -977,7 +1036,7 @@
     <string name="aifill_will_undo">will be undone.</string>
     <string name="aifill_will_revert">Will revert to \"%1$s\"</string>
     <string name="aifill_will_clear">Will be cleared</string>
-    <string name="aifill_suggestion_spoken">%1$s: %2$s. %3$s. Confidence %4$d percent. %5$s</string>
+    <string name="aifill_suggestion_spoken" tools:ignore="PluralsCandidate">%1$s: %2$s. %3$s. Confidence %4$d percent. %5$s</string>
     <string name="aifill_accepted">accepted.</string>
     <string name="aifill_not_accepted">not accepted.</string>
     <string name="aifill_percent">\u0020\u0020%1$d%%</string>
@@ -1079,14 +1138,25 @@
         <item quantity="other">%1$d items</item>
     </plurals>
 
-    <string name="bulkgrade_counts">%1$d ready \u00b7 %2$d blocked \u00b7 %3$d credits</string>
+    <string name="bulkgrade_counts">%1$s \u00b7 %2$s \u00b7 %3$s</string>
+    <plurals name="bulkgrade_ready">
+        <item quantity="one">%1$d ready</item>
+        <item quantity="other">%1$d ready</item>
+    </plurals>
+    <plurals name="bulkgrade_blocked">
+        <item quantity="one">%1$d blocked</item>
+        <item quantity="other">%1$d blocked</item>
+    </plurals>
     <plurals name="bulkgrade_blocked_count">
         <item quantity="one">%1$d won\'t be submitted</item>
         <item quantity="other">%1$d won\'t be submitted</item>
     </plurals>
     <string name="bulkgrade_blocked_row">\u2022 %1$s \u2014 %2$s</string>
     <string name="bulkgrade_not_ready">not ready</string>
-    <string name="bulkgrade_and_more">\u2026and %1$d more</string>
+    <plurals name="bulkgrade_and_more">
+        <item quantity="one">\u2026and %1$d more</item>
+        <item quantity="other">\u2026and %1$d more</item>
+    </plurals>
     <plurals name="bulkgrade_title">
         <item quantity="one">Grade %1$d item</item>
         <item quantity="other">Grade %1$d items</item>
@@ -1111,14 +1181,21 @@
     <string name="promotion_update_sale">Update sale</string>
     <string name="promotion_start_sale">Start sale</string>
 
-    <string name="community_privacy_note">Every figure is pooled across at least %1$d sellers. No individual seller\'s numbers are shown, including yours.</string>
+    <plurals name="community_privacy_note">
+        <item quantity="one">Every figure is pooled across at least %1$d seller. No individual seller\'s numbers are shown, including yours.</item>
+        <item quantity="other">Every figure is pooled across at least %1$d sellers. No individual seller\'s numbers are shown, including yours.</item>
+    </plurals>
     <string name="community_too_thin">We need more sellers working the same brands and categories before these numbers mean anything. Check back soon.</string>
     <string name="community_nothing_actionable">We have data for your brands and categories, but nothing in it is strong enough to act on today.</string>
     <string name="community_sell_through_spoken">Community sell-through by brand: %1$s</string>
     <string name="community_pair_spoken_item">%1$s %2$s</string>
-    <string name="community_you_row">%1$d listed \u00b7 %2$d sold</string>
+    <string name="community_you_row">%1$s \u00b7 %2$s</string>
     <string name="community_tap_to_see">Tap to see your %1$s items</string>
-    <string name="community_brand_row">%1$d sellers \u00b7 %2$d of %3$d sold</string>
+    <string name="community_brand_row">%1$s \u00b7 %2$s</string>
+    <plurals name="community_sold_of">
+        <item quantity="one">%1$d of %2$d sold</item>
+        <item quantity="other">%1$d of %2$d sold</item>
+    </plurals>
     <plurals name="community_trend_up">
         <item quantity="one">Sales up %1$s over 30 days \u00b7 %2$d seller</item>
         <item quantity="other">Sales up %1$s over 30 days \u00b7 %2$d sellers</item>
@@ -1127,7 +1204,11 @@
         <item quantity="one">Sales down %1$s over 30 days \u00b7 %2$d seller</item>
         <item quantity="other">Sales down %1$s over 30 days \u00b7 %2$d sellers</item>
     </plurals>
-    <string name="community_trend_flat">%1$d sold in 30 days \u00b7 %2$d sellers</string>
+    <string name="community_trend_flat">%1$s \u00b7 %2$s</string>
+    <plurals name="community_sold_30d">
+        <item quantity="one">%1$d sold in 30 days</item>
+        <item quantity="other">%1$d sold in 30 days</item>
+    </plurals>
 
     <!-- US-2368: photos screen text. -->
     <string name="photos_more">More</string>
@@ -1186,7 +1267,10 @@
     <string name="photos_retag_old_tag">%1$s (old tag)</string>
     <string name="photos_retag_current">✓</string>
 
-    <string name="search_keep_typing">Keep typing \u2014 %1$d characters minimum.</string>
+    <plurals name="search_keep_typing">
+        <item quantity="one">Keep typing \u2014 %1$d character minimum.</item>
+        <item quantity="other">Keep typing \u2014 %1$d characters minimum.</item>
+    </plurals>
     <string name="search_hint">Search by title, brand, SKU, size, colour, buyer or source.</string>
     <string name="search_searching">Searching\u2026</string>
     <string name="search_no_results">Nothing matched that. Results come from what\'s synced to this device, so a very new item may not be here yet.</string>
@@ -1222,7 +1306,10 @@
     <string name="bulkpricing_reduce_by">Reduce by</string>
     <string name="bulkpricing_price_invalid">Enter a price greater than zero.</string>
     <string name="bulkpricing_reduction_invalid">Enter a reduction between 1 and 99%.</string>
-    <string name="bulkpricing_selected_of">%1$d of %2$d selected</string>
+    <plurals name="bulkpricing_selected_of">
+        <item quantity="one">%1$d of %2$d selected</item>
+        <item quantity="other">%1$d of %2$d selected</item>
+    </plurals>
     <string name="bulkpricing_empty">No live listings that FlipDesk published. Imported eBay listings are edited on eBay, so they can\'t be repriced here.</string>
     <string name="bulkpricing_pushing">Pushing to eBay\u2026</string>
     <string name="bulkpricing_nothing_to_push">Nothing to push</string>
@@ -1475,7 +1562,10 @@
     <string name="verified_handle_reserved">That handle is reserved. Pick another.</string>
     <string name="verified_display_name_label">Display name</string>
     <string name="verified_bio_label">Short bio</string>
-    <string name="verified_bio_help">%1$d of %2$d characters</string>
+    <plurals name="verified_bio_help">
+        <item quantity="one">%1$d of %2$d character</item>
+        <item quantity="other">%1$d of %2$d characters</item>
+    </plurals>
     <string name="verified_public_profile">Public profile</string>
     <string name="verified_public_detail">Buyers can open your profile and see your grading record.</string>
     <string name="verified_public_needs_handle">Claim a handle first. Your profile needs an address before it can go public.</string>
@@ -1494,7 +1584,10 @@
     <string name="payouts_deposit_not_local">deposit not on this device yet</string>
     <string name="payouts_syncing">Syncing\u2026</string>
     <string name="payouts_sync_cta">Sync and re-check</string>
-    <string name="payouts_more_sales">\u2026and %1$d more.</string>
+    <plurals name="payouts_more_sales">
+        <item quantity="one">\u2026and %1$d more.</item>
+        <item quantity="other">\u2026and %1$d more.</item>
+    </plurals>
     <plurals name="payouts_entry_summary">
         <item quantity="one">%1$d sale \u00b7 recorded %2$s</item>
         <item quantity="other">%1$d sales \u00b7 recorded %2$s</item>
@@ -1513,7 +1606,10 @@
         <item quantity="other">%1$d items selected</item>
     </plurals>
     <string name="consignment_total_owed">%1$s owed</string>
-    <string name="bulk_more_failures">\u2026and %1$d more</string>
+    <plurals name="bulk_more_failures">
+        <item quantity="one">\u2026and %1$d more</item>
+        <item quantity="other">\u2026and %1$d more</item>
+    </plurals>
     <string name="consignment_title">Consignment payouts</string>
     <string name="consignment_subtitle">From completed sales only. Cancelled and refunded orders don\'t count.</string>
     <string name="consignment_heads_up">Heads up</string>
@@ -1527,7 +1623,10 @@
     <string name="aspects_no_category">No eBay category on this item yet. Fetch comps above to resolve one \u2014 specifics are per-category.</string>
     <string name="aspects_synced_with">Synced with the item\'s %1$s</string>
     <string name="aspects_comma_separated">Comma-separated</string>
-    <string name="aspects_truncated">eBay caps this at %1$d characters \u2014 the rest will be cut.</string>
+    <plurals name="aspects_truncated">
+        <item quantity="one">eBay caps this at %1$d character \u2014 the rest will be cut.</item>
+        <item quantity="other">eBay caps this at %1$d characters \u2014 the rest will be cut.</item>
+    </plurals>
     <!-- One sentence, not three glued fragments: the count agreement and the
          separators both belong to the translator. -->
     <plurals name="consignment_row_summary">
@@ -1541,7 +1640,10 @@
     <string name="aiextract_failed_title">AI couldn\'t read these photos</string>
     <string name="aiextract_failed_continue">Continue to the item</string>
     <string name="aiextract_uploading">Saving your photos\u2026</string>
-    <string name="aiextract_uploaded_count">%1$d of %2$d uploaded</string>
+    <plurals name="aiextract_uploaded_count">
+        <item quantity="one">%1$d of %2$d uploaded</item>
+        <item quantity="other">%1$d of %2$d uploaded</item>
+    </plurals>
     <string name="aiextract_reading">Reading your photos\u2026</string>
     <string name="aiextract_reading_sub">This takes up to a minute.</string>
     <string name="aiextract_background">Finish in the background</string>
@@ -1579,7 +1681,10 @@
     <string name="specifics_required">%1$s (required)</string>
     <string name="specifics_choose_one">Choose one</string>
     <string name="specifics_autofilled">Filled at publish from your measurements: %1$s</string>
-    <string name="specifics_truncated">eBay cuts item specifics at %1$d characters \u2014 this one will be shortened.</string>
+    <plurals name="specifics_truncated">
+        <item quantity="one">eBay cuts item specifics at %1$d character \u2014 this one will be shortened.</item>
+        <item quantity="other">eBay cuts item specifics at %1$d characters \u2014 this one will be shortened.</item>
+    </plurals>
     <plurals name="credits_needed">
         <item quantity="one">This grade needs %1$d credit and you have %2$d.</item>
         <item quantity="other">This grade needs %1$d credits and you have %2$d.</item>
@@ -1664,7 +1769,10 @@
     <string name="barcode_point_camera">Point the camera at a barcode</string>
     <string name="intake_share_title">Add to GradeThread</string>
     <string name="intake_share_pick">Pick which shot goes where. You can change any of it later.</string>
-    <string name="intake_share_capped">Using the first %1$d of %2$d photos.</string>
+    <plurals name="intake_share_capped">
+        <item quantity="one">Using the first %1$d of %2$d photos.</item>
+        <item quantity="other">Using the first %1$d of %2$d photos.</item>
+    </plurals>
     <string name="plangate_upgrade">Upgrade</string>
     <string name="plangate_see_plans">See plans</string>
     <string name="plangate_not_now">Not now</string>
@@ -1750,7 +1858,7 @@
         <item quantity="other">Sent %1$d photos. Open AutoLister on a computer to pick them up.</item>
     </plurals>
     <string name="autolister_waiting_header">Waiting for a computer</string>
-    <string name="autolister_waiting_row">%1$d photos in %2$d groups</string>
+    <string name="autolister_waiting_row">%1$s in %2$s</string>
     <string name="autolister_discard">Throw away</string>
     <string name="autolister_busy_importing">Uploading photo %1$d of %2$d</string>
     <string name="autolister_busy_proposing">Grouping your photos</string>
@@ -1820,7 +1928,19 @@
     <!-- US-2414: eBay payout CSV import. -->
     <string name="payouts_import_cta">Import a payouts CSV</string>
     <string name="payouts_importing">Reading your file…</string>
-    <string name="payouts_import_result">Added %1$d payouts. %2$d were already here, and %3$d lines were not payouts.</string>
+    <string name="payouts_import_result">%1$s %2$s, and %3$s.</string>
+    <plurals name="payouts_import_added">
+        <item quantity="one">Added %1$d payout.</item>
+        <item quantity="other">Added %1$d payouts.</item>
+    </plurals>
+    <plurals name="payouts_import_already">
+        <item quantity="one">%1$d was already here</item>
+        <item quantity="other">%1$d were already here</item>
+    </plurals>
+    <plurals name="payouts_import_not_payouts">
+        <item quantity="one">%1$d line was not a payout</item>
+        <item quantity="other">%1$d lines were not payouts</item>
+    </plurals>
     <!-- US-2489: the server-side payout matcher and its review queue. -->
     <string name="payouts_matcher_title">Match deposits to sales</string>
     <string name="payouts_matcher_help">This part needs a connection. It asks the server to pair each deposit with the sale it paid for, and leaves anything it is not sure about for you.</string>
@@ -1830,8 +1950,23 @@
         <item quantity="one">%1$d deposit still needs matching.</item>
         <item quantity="other">%1$d deposits still need matching.</item>
     </plurals>
-    <string name="payouts_queue_truncated">Showing %1$d of %2$d deposits that still need matching.</string>
-    <string name="payouts_sweep_result">Matched %1$d. %2$d were too close to call, and %3$d had nothing to match against.</string>
+    <plurals name="payouts_queue_truncated">
+        <item quantity="one">Showing %1$d of %2$d deposit that still needs matching.</item>
+        <item quantity="other">Showing %1$d of %2$d deposits that still need matching.</item>
+    </plurals>
+    <string name="payouts_sweep_result">%1$s %2$s, and %3$s.</string>
+    <plurals name="payouts_sweep_matched">
+        <item quantity="one">Matched %1$d.</item>
+        <item quantity="other">Matched %1$d.</item>
+    </plurals>
+    <plurals name="payouts_sweep_ambiguous">
+        <item quantity="one">%1$d was too close to call</item>
+        <item quantity="other">%1$d were too close to call</item>
+    </plurals>
+    <plurals name="payouts_sweep_no_candidates">
+        <item quantity="one">%1$d had nothing to match against</item>
+        <item quantity="other">%1$d had nothing to match against</item>
+    </plurals>
     <string name="payouts_no_candidates">No sale looks like this deposit.</string>
     <string name="payouts_untitled_item">Untitled item</string>
     <string name="payouts_amount_unknown">Amount not recorded</string>
@@ -1853,7 +1988,19 @@
     <string name="equity_title">What your unsold stock is worth</string>
     <string name="equity_subtitle">A realistic figure if you had to move it, not what you are asking.</string>
     <string name="equity_range">Somewhere between %1$s and %2$s.</string>
-    <string name="equity_unvalued">%1$d items have no figure: %2$d need a grade, %3$d have nothing to compare against.</string>
+    <string name="equity_unvalued">%1$s: %2$s, %3$s.</string>
+    <plurals name="equity_unvalued_items">
+        <item quantity="one">%1$d item has no figure</item>
+        <item quantity="other">%1$d items have no figure</item>
+    </plurals>
+    <plurals name="equity_unvalued_no_grade">
+        <item quantity="one">%1$d needs a grade</item>
+        <item quantity="other">%1$d need a grade</item>
+    </plurals>
+    <plurals name="equity_unvalued_no_comps">
+        <item quantity="one">%1$d has nothing to compare against</item>
+        <item quantity="other">%1$d have nothing to compare against</item>
+    </plurals>
     <string name="equity_movement_up">Up %1$s since yesterday.</string>
     <string name="equity_movement_down">Down %1$s since yesterday.</string>
     <string name="equity_by_category">Where it sits</string>
@@ -1874,10 +2021,22 @@
     <string name="stores_sort_recent">Most recent</string>
     <string name="stores_money">Spent %1$s, made %2$s back</string>
     <string name="stores_roi">%1$s%% return on what sold</string>
-    <string name="stores_counts">%1$d items bought, %2$d sold</string>
+    <string name="stores_counts">%1$s, %2$s</string>
+    <plurals name="stores_items_bought">
+        <item quantity="one">%1$d item bought</item>
+        <item quantity="other">%1$d items bought</item>
+    </plurals>
     <string name="stores_empty">Nothing here yet. Add a source to an item and it will start showing up.</string>
     <string name="stores_truncated">This is a partial view, so a shop may be missing some items.</string>
-    <string name="stores_unattributed">%1$d items have no shop, and %2$d visits could not be placed.</string>
+    <string name="stores_unattributed">%1$s, and %2$s.</string>
+    <plurals name="stores_items_no_shop">
+        <item quantity="one">%1$d item has no shop</item>
+        <item quantity="other">%1$d items have no shop</item>
+    </plurals>
+    <plurals name="stores_visits_unplaced">
+        <item quantity="one">%1$d visit could not be placed</item>
+        <item quantity="other">%1$d visits could not be placed</item>
+    </plurals>
     <string name="radar_title">Nearby</string>
     <string name="radar_subtitle">Which shops near you are worth walking into.</string>
     <string name="radar_window_7d">7 days</string>
@@ -1902,7 +2061,7 @@
         <item quantity="one">%1$d bought here</item>
         <item quantity="other">%1$d bought here</item>
     </plurals>
-    <string name="radar_row_activity">%1$d scans, %2$d people, %3$s</string>
+    <string name="radar_row_activity">%1$s, %2$s, %3$s</string>
     <string name="radar_row_nothing_shared">Your store. Nothing shared about this place yet.</string>
     <plurals name="radar_row_sourced">
         <item quantity="one">%1$d sourced here</item>
@@ -1928,7 +2087,7 @@
     <string name="radar_venue_floor">Not enough people have scanned here yet for us to say anything about this shop without giving away who they were. Contributions are what change that.</string>
     <string name="radar_venue_locked">The shared map is a Pro feature. Your own stores stay on the list on every plan.</string>
     <string name="radar_venue_failed">We could not load this shop.</string>
-    <string name="radar_venue_activity">%1$d scans by %2$d people</string>
+    <string name="radar_venue_activity">%1$s by %2$s</string>
     <string name="radar_venue_buy_rate">%1$d%% were worth buying</string>
     <string name="radar_venue_brands">Brand mix</string>
     <string name="radar_venue_brands_empty">Not enough scans here to name a brand yet.</string>
