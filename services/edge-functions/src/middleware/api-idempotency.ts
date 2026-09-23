@@ -39,8 +39,39 @@ type IdempotencyEnv = {
   Variables: {
     userId: string;
     apiKeyId: string;
+    idempotencySideEffects?: boolean;
   };
 };
+
+/**
+ * Called by a handler immediately BEFORE the first step that can charge, so
+ * that a 5xx from there on is known to be ambiguous. See settleNonSuccess().
+ *
+ * Typed loosely on purpose: route files carry their own Env type, and this only
+ * needs the one variable, which the middleware reads back by the same name.
+ */
+export function markChargeMayHaveHappened(c: { set: unknown }): void {
+  (c.set as (key: string, value: unknown) => void)("idempotencySideEffects", true);
+}
+
+/**
+ * What to do with the claim when the handler answered non-2xx.
+ *
+ * A 4xx is the caller's to fix and a 5xx BEFORE any charge is safe to run again,
+ * so both release the claim and the retry is a real attempt. A 5xx AFTER the
+ * handler reached the charge is different: the credit debit may have committed
+ * even though the handler saw an error (a dropped connection to PostgREST after
+ * the RPC ran reads exactly like a failed RPC), and a released claim lets the
+ * SDK's automatic retry create a second submission and debit again. That 5xx is
+ * stored and replayed instead, so the retry gets the same answer and the
+ * customer settles it with a new key once they have checked their balance.
+ */
+export function settleNonSuccess(
+  status: number,
+  chargeMayHaveHappened: boolean,
+): "release" | "store" {
+  return status >= 500 && chargeMayHaveHappened ? "store" : "release";
+}
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -270,10 +301,29 @@ export const apiIdempotencyMiddleware = createMiddleware<IdempotencyEnv>(
         .eq("state", "in_progress");
     }
 
+    const complete = (status: number, body: unknown) =>
+      db
+        .from("api_idempotency_records")
+        .update({
+          state: "completed",
+          response_status: status,
+          response_body: body,
+          completed_at: new Date().toISOString(),
+        })
+        .eq("owner_user_id", userId)
+        .eq("endpoint", endpoint)
+        .eq("idempotency_key", rawKey);
+
     // ── Run the handler ────────────────────────────────────────────────────
     try {
       await next();
     } catch (err) {
+      if (c.get("idempotencySideEffects") === true) {
+        // Same reasoning as settleNonSuccess(): the charge may have landed, so
+        // a retry must replay this failure rather than run the handler again.
+        await complete(500, apiError("Internal server error", "INTERNAL_ERROR"));
+        throw err;
+      }
       // Release, so the client's retry is a real attempt rather than a 409
       // against a request that produced nothing.
       await release();
@@ -282,36 +332,32 @@ export const apiIdempotencyMiddleware = createMiddleware<IdempotencyEnv>(
 
     const status = c.res.status;
 
-    // Only SUCCESS is replayable. A 4xx should re-validate and a 5xx should
-    // genuinely retry, so both release the claim. Storing them would turn a
-    // transient failure into a permanent one for the life of the key.
+    // Success is replayable. A 4xx should re-validate and a 5xx before any
+    // charge should genuinely retry, so both release the claim. A 5xx after the
+    // handler reached the charge is stored instead (see settleNonSuccess).
     if (status < 200 || status >= 300) {
-      await release();
-      return;
+      if (settleNonSuccess(status, c.get("idempotencySideEffects") === true) === "release") {
+        await release();
+        return;
+      }
+      console.error(
+        `[idempotency] ${endpoint} answered ${status} after reaching the charge; ` +
+          `stored so a retry of key=${rawKey} user=${userId} replays instead of charging again`,
+      );
     }
 
     let body: unknown = null;
     try {
       body = await c.res.clone().json();
     } catch {
-      body = null; // non-JSON success; stored as null rather than guessed at.
+      body = null; // non-JSON response; stored as null rather than guessed at.
     }
 
-    const { error: finalizeErr } = await db
-      .from("api_idempotency_records")
-      .update({
-        state: "completed",
-        response_status: status,
-        response_body: body,
-        completed_at: new Date().toISOString(),
-      })
-      .eq("owner_user_id", userId)
-      .eq("endpoint", endpoint)
-      .eq("idempotency_key", rawKey);
+    const { error: finalizeErr } = await complete(status, body);
 
     if (finalizeErr) {
-      // The work is done and the client is getting its 2xx, so this cannot fail
-      // the request. It IS worth a loud line: a retry will now find a stale
+      // The response is already built (a 2xx, or a 5xx after the charge), so
+      // this cannot change it. It IS worth a loud line: a retry will now find a stale
       // in_progress row, wait out the TTL, take it over and re-run — which
       // charges again, which is the exact outcome this middleware exists to stop.
       console.error(

@@ -213,7 +213,11 @@ export class GradeThread {
     this.retryDelayMs = Math.max(0, options.retryDelayMs ?? 500);
   }
 
-  private shouldRetry(method: string, status: number, idempotent: boolean): boolean {
+  private shouldRetry(method: string, status: number, idempotent: boolean, replayed: boolean): boolean {
+    // A replayed answer is the stored result of an attempt that already ran.
+    // The API stores a 5xx only when the charge may have happened, so sending
+    // the same key again can only replay it; surface it instead.
+    if (replayed) return false;
     if (status === 429) return true;
     // 409 IDEMPOTENCY_IN_PROGRESS: the first attempt is still running.
     if (status === 409) return idempotent;
@@ -248,7 +252,8 @@ export class GradeThread {
         throw err;
       }
 
-      if (attempt < this.maxRetries && this.shouldRetry(method, res.status, idempotent)) {
+      const replayed = res.headers.get("idempotent-replay") === "true";
+      if (attempt < this.maxRetries && this.shouldRetry(method, res.status, idempotent, replayed)) {
         const wait = retryAfterMs(res.headers.get("retry-after"), Date.now()) ?? backoff;
         await res.body?.cancel().catch(() => {});
         await sleep(Math.min(wait, MAX_RETRY_DELAY_MS));

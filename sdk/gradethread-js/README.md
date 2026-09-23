@@ -107,6 +107,11 @@ The client retries up to `maxRetries` times (default 2):
 - a `5xx` or a network error, on reads and on the two keyed submissions only;
 - a `409 IDEMPOTENCY_IN_PROGRESS`, which means the first attempt is still running.
 
+A `5xx` that comes back with `Idempotent-Replay: true` is not retried. The API
+stores a `5xx` only when grading already reached the charge, so the same key
+can only replay it. Check `grades.list()` and your credit balance before
+submitting again with a new key.
+
 Other writes (`webhook.set`, `webhook.rotateSecret`, `sandbox.grades.create`)
 are not re-sent after a `5xx` or a dropped connection, since the first attempt
 may have landed. Set `maxRetries: 0` to turn retries off.
