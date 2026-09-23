@@ -40,7 +40,7 @@ summary: A listing eBay ended or removed used to stay "active" locally with End 
 > `matched_item_id` whose normalized title matches no local item becomes an
 > `inventory_items` row (`status: listed`) plus a `listing_origin: "ebay"`
 > `listings` row plus reference `item_photos`, and the orphan flips to
-> `matched` (`lib/ebay-orphan-adopt.ts`, capped at 1,000 per pass; a title
+> `matched` (`lib/ebay-orphan-adopt.ts`, capped at 1,000 per pass and, since 2026-09-23, at the plan's activeListings headroom, [[flipdesk-plan-gating]]; a title
 > match is held for the seller). The part that touches THIS note: both
 > active-listing passes now resolve a listing through `platform_listing_id`
 > when the SKU index cannot (`listedEbayItemToItemId`, built from the same

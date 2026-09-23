@@ -21,6 +21,7 @@ import {
 import { supabaseAdmin } from "./supabase.ts";
 import { mirrorEbayPhotos } from "./ebay-photo-sync.ts";
 import { ebayListingUrl, getCategoryName } from "./ebay-client.ts";
+import type { CapacityHeadroom } from "./plan-gate.ts";
 
 /**
  * Orphans adopted in one catalog pass. A pass with more waits for the next one
@@ -30,6 +31,31 @@ import { ebayListingUrl, getCategoryName } from "./ebay-client.ts";
  * already makes.
  */
 export const MAX_ORPHAN_ADOPTIONS_PER_SYNC = 1000;
+
+/**
+ * How many orphans one pass may turn into items for this owner.
+ *
+ * An adopted orphan is a new inventory item in status 'listed', which is what
+ * the activeListings cap counts, so adoption spends plan capacity exactly the
+ * way a closet import does (routes/flipdesk-closet-import.ts). Before this the
+ * sync adopted up to the per-pass bound with no reference to the plan at all:
+ * a Free account connecting an eBay store of 400 listings came out of its
+ * first pull holding 400 of 25 slots, without pressing anything.
+ *
+ * Trimmed rather than refused, like the closet import: the first `headroom`
+ * orphans become items and the rest stay 'unmatched' in flipdesk_ebay_listings,
+ * where the next pass picks them up if the seller frees a slot or upgrades.
+ * An unknown allowance (the users row did not load) adopts nothing this pass;
+ * that is never read as unlimited.
+ */
+export function orphanAdoptionCap(
+  headroom: CapacityHeadroom | null,
+  perPass: number = MAX_ORPHAN_ADOPTIONS_PER_SYNC,
+): number {
+  if (!headroom) return 0;
+  if (headroom.headroom === null) return perPass;
+  return Math.max(0, Math.min(perPass, headroom.headroom));
+}
 
 /** PostgREST sends `.in()` in the URL and a bulk insert in the body; both are chunked. */
 const CHUNK = 200;
