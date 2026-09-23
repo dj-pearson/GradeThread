@@ -74,6 +74,13 @@ export function InventoryViewSwitcher({ current }: Props) {
         // Drop the transient saved-view loader param so switching mode doesn't
         // re-apply a saved view on the destination view.
         next.delete("view");
+        // INV-12: page and size count rows in ONE mode's page size, so Table
+        // page 7 of 25 is some other set of rows in the Grid; each mode starts
+        // at its own first page. `status` is a one-shot deep link the Table
+        // has already turned into a tab.
+        next.delete("page");
+        next.delete("size");
+        next.delete("status");
         const qs = next.toString();
         const to = `/dashboard/flipdesk/inventory${qs ? `?${qs}` : ""}`;
         // Plain Link (not NavLink): all four modes share the same pathname and

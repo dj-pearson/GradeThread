@@ -33,6 +33,11 @@ async function mount(path: string) {
 }
 
 describe("remembered Inventory view", () => {
+  it("remembers the Unlisted chip and the Sold window (INV-12)", () => {
+    const params = new URLSearchParams("tab=sold&window=d30&show=ready&page=2&col=sale_price:desc");
+    expect(inventoryViewSearch(params)).toBe("tab=sold&show=ready&window=d30");
+    expect(inventoryViewKey("u", "o")).toContain(":v2:");
+  });
   it("keeps view settings without replaying a search, page or action", () => {
     const params = new URLSearchParams("mode=grid&sort=newest&tab=active&size=50&q=private&page=8&view=old&delist=1");
     expect(inventoryViewSearch(params)).toBe("mode=grid&sort=newest&tab=active&size=50");

@@ -131,7 +131,6 @@ import {
   resolveSortOption,
   sortOptionsForTab,
   sortRequestFor,
-  type ColumnSort,
 } from "@/pages/flipdesk/inventory-sort";
 import { SortMenu } from "@/components/flipdesk/sort-menu";
 import {
@@ -141,6 +140,12 @@ import {
 } from "@/pages/flipdesk/inventory-last-tab";
 import { listingIdsOf, selectedRowsFrom } from "@/pages/flipdesk/listings-selection";
 import { keepRowsAcrossKeys, tabCountsFrom } from "@/pages/flipdesk/listings-tab-counts";
+import {
+  formatHeaderSort,
+  nextHeaderSort,
+  parseHeaderSort,
+  resolveSoldWindow,
+} from "@/pages/flipdesk/listings-url-state";
 import {
   listingPageArgs,
   usePageRowDetails,
@@ -296,18 +301,15 @@ export function FlipdeskListingsPage() {
   // A clicked column header overrides the menu until the third click clears
   // it, or a menu pick replaces it. Kept separate from the menu so the seller
   // can take control of one column without losing the stage tab they're in.
-  const [headerSort, setHeaderSort] = useState<ColumnSort | null>(null);
+  // INV-12: in the URL (`?col=field:dir`) so it survives a trip into an item,
+  // validated against the sortable headers, and cleared by a tab change.
+  const [colParam, setColParam] = useUrlParamState("col", "");
+  const headerSort = useMemo(() => parseHeaderSort(colParam), [colParam]);
   function toggleColumnSort(field: keyof ItemFullRow) {
-    setHeaderSort((prev) =>
-      prev && prev.field === field
-        ? prev.dir === "asc"
-          ? { field, dir: "desc" }
-          : null // third click clears, revealing the menu's sort again
-        : { field, dir: "asc" },
-    );
+    setColParam(formatHeaderSort(nextHeaderSort(headerSort, field)));
   }
   function pickSort(id: string) {
-    setHeaderSort(null);
+    setColParam("");
     setSortParam(id);
   }
   // What the server is asked for: the header wins, then the menu's column,
@@ -319,7 +321,11 @@ export function FlipdeskListingsPage() {
   const sortedByLabel = headerSort
     ? `${String(headerSort.field).replace(/_/g, " ")} ${headerSort.dir === "asc" ? "ascending" : "descending"}`
     : sortOption.label.toLowerCase();
-  const [soldFilter, setSoldFilter] = useState<SoldFilter>("all");
+  // INV-12: the Sold window rides in `?window=` so it survives a trip into an
+  // item and back, like the Unlisted chip below.
+  const [windowParam, setWindowParam] = useUrlParamState("window", "all");
+  const soldFilter = resolveSoldWindow(windowParam);
+  const setSoldFilter = (f: SoldFilter) => setWindowParam(f);
   // The Unlisted tab's chip (Needs draft / Ready to publish / Needs review).
   // In the URL, unlike the Sold window, because the whole reason the two tabs
   // became one is a seller working through drafts and coming back: the chip
@@ -539,6 +545,10 @@ export function FlipdeskListingsPage() {
     // one, and the state.from round trip through an item then returned them to
     // the wrong tab. Measured on every tab click, page 1 included.
     if (tabChanged) next.delete("page");
+    // INV-12: a header sort belongs to the tab it was clicked on; the next
+    // tab has different columns. Cleared in this same write for the reason
+    // above.
+    if (tabChanged) next.delete("col");
     if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }

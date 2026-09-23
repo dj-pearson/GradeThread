@@ -759,7 +759,7 @@ export function FlipdeskPipelinePage() {
           (archived or personal){" "}
           {offPipelineCount === 1 ? "isn't" : "aren't"} shown on the board —{" "}
           <Link
-            to="/dashboard/flipdesk/inventory"
+            to="/dashboard/flipdesk/inventory?tab=archived"
             className="font-medium text-brand-red-text hover:underline"
           >
             view in inventory
