@@ -11,9 +11,14 @@
 // If this file ever grows behaviour of its own — a retry, a cache, a fallback —
 // that behaviour is now invisible to the limiter, and the per-image calls that
 // run under Promise.all stop being bounded. Put it in the limiter instead.
+//
+// One path cannot inherit the wrapper: a STREAMED call (US-3345's staggered
+// first photo), which the wrapper passes through unbounded. streamed() below
+// therefore calls runAiCall itself, so it is bounded the same way.
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient } from "./ai-config.ts";
+import { runAiCall } from "./ai-limiter.ts";
 import {
   type AiCallContext,
   type AiContentBlock,
@@ -100,13 +105,15 @@ export class AnthropicProvider implements AiProvider {
     // The feature context rides on the OPTIONS argument, which is how
     // ai-config's wrapper picks it up for captureAiUsage — passing it here keeps
     // the usage ledger populated exactly as the direct calls did.
-    const response = await (client.messages.create as unknown as (
-      b: unknown,
-      o?: unknown,
-    ) => Promise<Anthropic.Message>)(
-      body,
-      context ? { aiFeatureContext: context } : undefined,
-    );
+    const response = request.onFirstToken
+      ? await this.streamed(client, body, request.onFirstToken, context)
+      : await (client.messages.create as unknown as (
+        b: unknown,
+        o?: unknown,
+      ) => Promise<Anthropic.Message>)(
+        body,
+        context ? { aiFeatureContext: context } : undefined,
+      );
 
     // Concatenate every text block rather than taking the first. A single block
     // is the norm and was what the old call sites assumed, but a reply split
@@ -124,6 +131,47 @@ export class AnthropicProvider implements AiProvider {
       stopReason: normalizeStopReason(response.stop_reason),
       providerId: this.id,
     };
+  }
+
+  /**
+   * US-3345: the same request, streamed, so the caller can learn when
+   * generation began. Only the grading fan-out's FIRST call takes this path,
+   * and only with GRADING_CACHE_STAGGER on: a prompt-cache entry is readable
+   * once the request writing it has begun streaming, which is the moment
+   * photos 2..N can be released to read it.
+   *
+   * ai-config's limiter wrapper deliberately lets streaming calls through
+   * unbounded (it cannot await or retry an SSE body it hands back), so this
+   * call takes the limiter ITSELF: runAiCall gives it the same daily ceiling,
+   * concurrency slot and retry.ts backoff as the non-streamed calls beside it,
+   * and maxRetries 0 keeps retry.ts the only retry authority. A retry re-runs
+   * the whole stream; `onFirstToken` fires at most once across attempts.
+   * Nothing is written to ai_usage_events here, which matches the non-stream
+   * path for grading: it records per-grade usage itself (recordAiUsage) and
+   * carries no feature context, so the wrapper recorded nothing either.
+   */
+  private streamed(
+    client: Anthropic,
+    body: unknown,
+    onFirstToken: () => void,
+    context?: AiCallContext | null,
+  ): Promise<Anthropic.Message> {
+    let fired = false;
+    return runAiCall(async () => {
+      const stream = (client.messages.stream as unknown as (
+        b: unknown,
+        o?: unknown,
+      ) => {
+        on: (event: "streamEvent", listener: () => void) => unknown;
+        finalMessage: () => Promise<Anthropic.Message>;
+      })(body, { ...(context ? { aiFeatureContext: context } : {}), maxRetries: 0 });
+      stream.on("streamEvent", () => {
+        if (fired) return;
+        fired = true;
+        onFirstToken();
+      });
+      return await stream.finalMessage();
+    });
   }
 }
 

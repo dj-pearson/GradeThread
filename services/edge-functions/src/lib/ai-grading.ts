@@ -18,6 +18,7 @@ import {
 } from "./ai-config.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { applyScaleReferenceWording } from "./scale-reference.ts";
+import { applyLegibleWording } from "./label-legibility.ts";
 import {
   anchorLabel,
   REFERENCE_ANCHORS_ADDENDUM,
@@ -1462,6 +1463,11 @@ export async function analyzeImage(
   // parameter, because all eight call sites pass positionally. Undefined (and
   // the GRADING_PHOTO_ROLES gate off) leaves the prompt byte-identical.
   imageRole?: string | null,
+  // US-3345: the staggered fan-out's release signal (grading-cache-stagger.ts).
+  // Set only on the FIRST call of a staggered fan-out; it makes the provider
+  // stream so it can report when generation began. It is transport, not
+  // prompt: no byte the model reads changes, and no version suffix is earned.
+  onFirstToken?: () => void,
 ): Promise<PerImageAnalysis> {
   const startTime = Date.now();
   const imageSource = parseImageInput(imageUrl);
@@ -1537,6 +1543,24 @@ export async function analyzeImage(
   const blocks: PromptBlockOverrides = blockOverride
     ? { ...resolvedBlocks, ...blockOverride }
     : resolvedBlocks;
+  // US-3321: the v2 "legible" definition, flag-gated (GRADING_LEGIBLE_V2).
+  // Applied to the RESOLVED rules text, so an override that still carries the
+  // v1 clause gets it too, and one that does not is left alone and unstamped.
+  // `renderBlocks` is what goes on the wire; `blocks` stays what the registry
+  // resolved, so blockVersionSuffix below never reports a block override that
+  // no ai_prompt_versions row made. Off: renderBlocks === blocks, byte-identical.
+  const legibleWording = applyLegibleWording(
+    blocks.per_image_rules?.text ?? PER_IMAGE_RULES,
+  );
+  const renderBlocks: PromptBlockOverrides = legibleWording.applied
+    ? {
+      ...blocks,
+      per_image_rules: {
+        text: legibleWording.text,
+        versionName: blocks.per_image_rules?.versionName ?? "",
+      },
+    }
+    : blocks;
 
   // Cache the (static) system prompt so repeated per-image calls within a
   // submission — and across submissions inside the 5-min cache window —
@@ -1574,7 +1598,7 @@ export async function analyzeImage(
   const tailInSystem = schemaInSystemEnabled();
   if (tailInSystem) {
     systemBlocks.push({
-      text: perImageTailText(blocks),
+      text: perImageTailText(renderBlocks),
       cache: gradingCachingEnabled(),
     });
   }
@@ -1596,6 +1620,7 @@ export async function analyzeImage(
       jsonSchema: { name: "image_analysis", schema: outputConfig.format.schema },
       ...(outputConfig.effort ? { effort: outputConfig.effort } : {}),
       system: systemBlocks,
+      ...(onFirstToken ? { onFirstToken } : {}),
       messages: [
         {
           role: "user",
@@ -1609,7 +1634,7 @@ export async function analyzeImage(
                 garmentCategory,
                 styleHint,
                 baselineBlock,
-                blocks,
+                renderBlocks,
                 imageRole,
                 tailInSystem,
               ),
@@ -1764,16 +1789,18 @@ export async function analyzeImage(
       // reinterprets every version string ever recorded if it moves.
       // Byte-identical when nothing overrode: the suffix is "".
       //
-      // US-3150 appended "+sysschema" after +clean2, and US-3332 appends
-      // "+scale" after that. Appends only, so every recorded string keeps its
-      // meaning. The schema and the
+      // US-3150 appended "+sysschema" after +clean2, US-3332 appends
+      // "+scale" after that, and US-3321 "+legible2" after that. Appends only,
+      // so every recorded string keeps its meaning. The schema and the
       // rules are byte-identical either way, so nothing in blockVersionSuffix
       // can tell the two eras apart — only their ROLE moved, and a per-image
       // analysis that does not record which role it ran under is one that cannot
       // be excluded from an accuracy comparison across the flip.
       prompt_version: `${prompt.versionName}${blockVersionSuffix(blocks)}${
         perImageClean.applied ? "+clean2" : ""
-      }${tailInSystem ? "+sysschema" : ""}${perImageScale.applied ? "+scale" : ""}`,
+      }${tailInSystem ? "+sysschema" : ""}${perImageScale.applied ? "+scale" : ""}${
+        legibleWording.applied ? "+legible2" : ""
+      }`,
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;
@@ -1965,6 +1992,25 @@ export function selectLabelsForReread(
     if (illegible || noFiber) out.push({ image_type: r.image_type });
   }
   return out;
+}
+
+/**
+ * US-3322: the narrower pick a STANDARD grade re-reads. Only a label the first
+ * pass judged illegible, because that flag is what caps confidence at
+ * ILLEGIBLE_LABEL_CONFIDENCE_CAP and forces a human review. The no-fiber arm of
+ * {@link selectLabelsForReread} stays behind the paid Forensic gate: an empty
+ * fiber_content is common (most label photos are brand/size tags), so allowing
+ * it here would add a vision call to most grades rather than to the few that
+ * are about to be capped.
+ */
+export function selectIllegibleLabelsForReread(
+  results: PerImageAnalysis[],
+  maxRereads = 2,
+): RereadCandidate[] {
+  return results
+    .filter((r) => LABEL_IMAGE_TYPES.has(r.image_type) && r.quality?.legible === false)
+    .slice(0, maxRereads)
+    .map((r) => ({ image_type: r.image_type }));
 }
 
 /**
@@ -2755,6 +2801,10 @@ export function promptVersionSuffix(
     // US-3338. Optional and appended last: a per-image read of this grade ran
     // the fabric-zoom pass. Read off the per-image stamps, like scale.
     fabricZoom?: boolean;
+    // US-3321. Optional and appended last: a per-image read of this grade ran
+    // the v2 "legible" definition (GRADING_LEGIBLE_V2). Read off the per-image
+    // stamps, like scale, because the clause is in the per-image Rules block.
+    legible2?: boolean;
   },
 ): string {
   return (blocks.baseline ? "+baseline" : "") +
@@ -2767,7 +2817,8 @@ export function promptVersionSuffix(
     (blocks.schemaSystem ? "+sysschema" : "") +
     (blocks.scale ? "+scale" : "") +
     (blocks.anchors ? "+anchors" : "") +
-    (blocks.fabricZoom ? "+fabriczoom" : "");
+    (blocks.fabricZoom ? "+fabriczoom" : "") +
+    (blocks.legible2 ? "+legible2" : "");
 }
 
 /**
@@ -3172,6 +3223,10 @@ export async function compositeGrade(
   const fabricZoom = perImageResults.some((r) =>
     /\+fabriczoom(?:\+|$)/.test(r.prompt_version ?? "")
   );
+  // US-3321: same rule for the v2 legible definition.
+  const legible2 = perImageResults.some((r) =>
+    /\+legible2(?:\+|$)/.test(r.prompt_version ?? "")
+  );
 
   // US-3329: visible-cleanliness wording on the system prompt and on the
   // factor-weights sentence, flag-gated. Off = both untouched, no suffix.
@@ -3207,6 +3262,7 @@ export async function compositeGrade(
     scale,
     anchors: referenceAnchors.length > 0,
     fabricZoom,
+    legible2,
   });
 
   // US-2432: the other half of the attribution. promptVersion names the SYSTEM

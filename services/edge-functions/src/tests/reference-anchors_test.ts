@@ -257,7 +257,9 @@ Deno.test("the pipeline loads anchors only behind both locks, from the item's ow
     pipe,
     /const referenceAnchors = await referenceAnchorsActive\(\)\n\s+\? await loadReferenceAnchors\(\n\s+submission\.garment_category,\n\s+images\.map\(\(i\) => i\.storage_path\),\n\s+\)\n\s+: \[\];/,
   );
-  assert(pipe.includes("qualityGate.labelIllegible,\n      // US-3335: [] unless both locks are open -> byte-identical request.\n      referenceAnchors,\n    );"));
+  // US-3322: the label cap before the anchors is now computed from the merged
+  // reads rather than read off the gate.
+  assert(pipe.includes("      ),\n      // US-3335: [] unless both locks are open -> byte-identical request.\n      referenceAnchors,\n    );"));
   assert(pipe.includes('phase: "composite_reference_anchors", usage: compositeResult.anchor_usage'));
 });
 

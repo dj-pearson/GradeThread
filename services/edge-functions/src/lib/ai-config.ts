@@ -881,15 +881,23 @@ export function isCachingEnabled(): boolean {
  * -- WHY A SECOND SWITCH EXISTS ---------------------------------------------
  *
  * An Anthropic cache entry is readable only once the request that WRITES it has
- * begun streaming. grading-pipeline.ts fans out every per-image call for a
- * submission at once (.map() awaited under Promise.allSettled, bounded by
+ * begun streaming. By default grading-pipeline.ts fans out every per-image call
+ * for a submission at once (.map() awaited under Promise.allSettled, bounded by
  * AI_MAX_CONCURRENCY=8), so photos 1..N of one submission are in flight
  * together and none of them can read what the others are writing. Each pays the
  * 1.25x write premium and reads nothing back. The composite call is a single
- * call, so it has nothing to read either. The only read grading can ever get is
- * cross-submission, inside the 5-minute TTL, from a submission with the SAME
- * garment_type AND garment_category (both are resolved into system block 0, so
- * they are part of the cached prefix) AND the same prompt version.
+ * call, so it has nothing to read either. Without the stagger below, the only
+ * read grading can get is cross-submission, inside the 5-minute TTL.
+ *
+ * CORRECTED 2026-09-23: this said that read needs the SAME garment_type and
+ * garment_category because both resolve into system block 0. They do not. The
+ * per-image block 0 is the code-default system prompt for every garment; the
+ * type and category criteria are in the USER turn, after the image. It varies
+ * only with a scoped ai_prompt_versions row, a canary slice or a wording flag,
+ * so the per-image prefix is shared across ALL grades on one serving version
+ * (pinned in grading-cache-stagger_test.ts). The composite block 0 does carry
+ * the active few-shot exemplar block, which is per category, but only once an
+ * exemplar set is activated.
  *
  * If that cross-submission read effectively never happens, `cache: true` on the
  * grading blocks is a pure surcharge: 25 percent on 5,565 characters per photo
@@ -937,11 +945,16 @@ export function isCachingEnabled(): boolean {
  * requires of prompt text, and it gets no prompt_version suffix. That property
  * is asserted on the real request body in grading-cache-premium_test.ts.
  *
- * -- WHY THE FAN-OUT WAS NOT STAGGERED ---------------------------------------
+ * -- THE STAGGER, AND WHY IT IS A SEPARATE SWITCH ----------------------------
  *
- * See the note at the perImagePromises site in grading-pipeline.ts. Short
- * version: the grading call is NON-streaming, so "await the first token" is not
- * available and a stagger costs a whole vision call, not one round trip.
+ * GRADING_CACHE_STAGGER (grading-cache-stagger.ts, default OFF) is the other
+ * half: it streams photo 1 and releases 2..N at its first token, so they read
+ * the entry it wrote. That turns the in-grade writes into reads, and it only
+ * takes effect while this switch is on. It is a separate switch because it
+ * trades seller wait (photo 1's time to first token, logged as gate_ms on every
+ * grade) for the saving, which is the owner's call once gate_ms is read off
+ * real grades. The order of decisions: stagger on and read gate_ms plus the
+ * query above; if the wait is not worth the saving, stagger off AND this off.
  */
 export function gradingCachingEnabled(): boolean {
   const raw = (Deno.env.get("GRADING_ENABLE_CACHING") ?? "").trim();

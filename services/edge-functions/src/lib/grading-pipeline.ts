@@ -10,6 +10,7 @@ import {
   partitionImageResults,
   selectDefectsForZoom,
   selectImagesForAuthenticityReread,
+  selectIllegibleLabelsForReread,
   selectLabelsForReread,
   selectMacrosForReread,
   selectVerificationImages,
@@ -21,6 +22,10 @@ import {
   type VerificationImage,
 } from "./ai-grading.ts";
 import { DEFECT_WEIGHTS_VERSION } from "./defect-weighting.ts";
+import {
+  gradingCacheStaggerEnabled,
+  staggerFirstCall,
+} from "./grading-cache-stagger.ts";
 import {
   loadReferenceAnchors,
   referenceAnchorsActive,
@@ -260,7 +265,7 @@ async function cropDefectRegion(
   }
 }
 
-interface ZoomImageRow {
+export interface ZoomImageRow {
   image_type: string;
   storage_path: string;
   original_storage_path?: string | null;
@@ -378,6 +383,22 @@ async function reencodeOriginalForReread(
 }
 
 /**
+ * US-3322: which label re-read a grade gets. Paid Forensic keeps the full pass
+ * (labels, authenticity, macros). A standard grade gets the illegible-label
+ * re-read only when a label read came back illegible, since that flag caps the
+ * grade's confidence; otherwise nothing, and no extra vision call.
+ */
+export function labelRereadScope(
+  forensic: boolean,
+  perImageResults: PerImageAnalysis[],
+): "full" | "illegible_labels" | "none" {
+  if (forensic) return "full";
+  return selectIllegibleLabelsForReread(perImageResults).length > 0
+    ? "illegible_labels"
+    : "none";
+}
+
+/**
  * US-2154: high-res re-read of illegible labels (recover the fiber composition
  * that feeds the composite's fabric criteria) and possibly-manipulated photos
  * (sharpen the tamper tells before the grade is held for review). Re-reads the
@@ -386,21 +407,29 @@ async function reencodeOriginalForReread(
  * zoom: capped candidates, downloads cached/capped, and any failure leaves the
  * first-pass read intact — a re-read must never fail a paid grade.
  */
-async function runRereadPass(
+export async function runRereadPass(
   perImageResults: PerImageAnalysis[],
   images: ZoomImageRow[],
   submission: { garment_type: string; garment_category: string },
   styleHint: string[],
   bucketKey?: string,
   modelOverride?: string,
+  // US-3322: "illegible_labels" is the standard-grade scope. It re-reads ONLY a
+  // label the first pass called illegible, the one read that caps confidence,
+  // and skips the no-fiber, authenticity and macro arms, which stay paid
+  // Forensic work. "full" is the Forensic pass exactly as it was.
+  scope: "full" | "illegible_labels" = "full",
 ): Promise<PerImageAnalysis[]> {
-  const labelCands = selectLabelsForReread(perImageResults);
-  const authCands = selectImagesForAuthenticityReread(perImageResults);
+  const full = scope === "full";
+  const labelCands = full
+    ? selectLabelsForReread(perImageResults)
+    : selectIllegibleLabelsForReread(perImageResults);
+  const authCands = full ? selectImagesForAuthenticityReread(perImageResults) : [];
   // US-2135 AC2: a soft authenticity macro. Selected off the MEASURED sharpness
   // on the row rather than off anything the first pass said — see
   // selectMacrosForReread for why that is the only signal available here
   // without serialising a second vision call on the paid path.
-  const macroCands = selectMacrosForReread(images);
+  const macroCands = full ? selectMacrosForReread(images) : [];
   if (
     labelCands.length === 0 && authCands.length === 0 && macroCands.length === 0
   ) {
@@ -564,19 +593,28 @@ async function escalateGrade(
     });
 
     const imageData = await Promise.all(imageDataPromises);
-    const perImagePromises = imageData.map((img) =>
-      analyzeImage(
-        img.dataUri,
-        img.imageType,
-        submission.garment_type,
-        submission.garment_category,
-        styleHint,
-        undefined,
-        model,
-        submissionId,
-        baselineBlock,
-      )
-    );
+    // US-3345: same fan-out helper as the first pass, same flag. Staggered,
+    // photo 1 streams and 2..N wait for its first token so they read its cache
+    // write; off, a plain concurrent .map() exactly as before.
+    const perImagePromises = staggerFirstCall(
+      imageData,
+      (img, _i, onFirstToken) =>
+        analyzeImage(
+          img.dataUri,
+          img.imageType,
+          submission.garment_type,
+          submission.garment_category,
+          styleHint,
+          undefined,
+          model,
+          submissionId,
+          baselineBlock,
+          undefined,
+          undefined,
+          onFirstToken,
+        ),
+      gradingCacheStaggerEnabled(),
+    ).promises;
     const results = await Promise.allSettled(perImagePromises);
     return results.map((s, i): SettledImage => ({
       imageType: imageData[i].imageType,
@@ -610,6 +648,18 @@ async function escalateGrade(
       styleHint,
       submissionId,
       model,
+    ).catch(() => perImageResults);
+  } else if (labelRereadScope(false, perImageResults) === "illegible_labels") {
+    // US-3322: the same standard-grade label re-read as the first pass, so an
+    // escalated grade is not the one path where an illegible label skips it.
+    perImageResults = await runRereadPass(
+      perImageResults,
+      images,
+      submission,
+      styleHint,
+      submissionId,
+      model,
+      "illegible_labels",
     ).catch(() => perImageResults);
   }
 
@@ -1938,72 +1988,66 @@ export async function processSubmission(submissionId: string) {
       // --- Step 4: Run analyzeImage() on each image in parallel ---
       console.log(`[Pipeline] Running per-image analysis for ${imageData.length} images`);
 
-      // US-3345: THIS FAN-OUT IS WHY GRADING'S PROMPT CACHE NEVER READS.
+      // US-3345: THIS FAN-OUT DECIDES WHETHER GRADING'S PROMPT CACHE CAN READ.
       //
       // An Anthropic cache entry becomes readable only once the request that
-      // WRITES it has begun streaming. Every per-image call below is issued at
-      // once, so photos 1..N of one submission are in flight together and none
-      // of them can read what the others are writing: each pays the 1.25x write
-      // premium on the 5,565-character system prompt (cached since US-1067) and
-      // reads nothing back. The same is true of the escalation re-grade's
-      // fan-out in reanalyzeWithModel above.
+      // WRITES it has begun streaming. Issued all at once, photos 1..N of one
+      // submission are in flight together and none of them can read what the
+      // others are writing: each pays the 1.25x write premium on the
+      // 5,565-character system prompt (cached since US-1067) and reads nothing
+      // back. The escalation re-grade's fan-out in reanalyzeWithModel above has
+      // the same shape and goes through the same helper.
       //
-      // THIS WAS DELIBERATELY LEFT CONCURRENT, and the reason is the trade, not
-      // an oversight. Staggering would mean awaiting the first call before
-      // firing the rest. The grading call is NON-streaming
-      // (ai-provider-anthropic.ts uses client.messages.create, not .stream), so
-      // there is no first token to await: a stagger costs a WHOLE vision call
-      // of extra wall clock on a path where a seller has paid and is waiting,
-      // not one round trip. Trading seconds of a paid grade for roughly a cent
-      // is the owner's call, and it needs the per-call latency logged below
-      // plus the write/read ratio from ai_usage_events. Neither number could be
-      // taken from the dev box this was written on.
+      // GRADING_CACHE_STAGGER (default OFF, grading-cache-stagger.ts) sends
+      // photo 1 STREAMED, releases 2..N the moment its generation begins, and
+      // leaves 2..N concurrent. The added wait is photo 1's time to first token,
+      // once per grade, not a whole vision call: that was the objection that
+      // kept this concurrent before, and streaming only the first call is what
+      // removes it. A max_tokens:0 pre-warm was the other candidate and does
+      // not work here: max_tokens:0 is rejected alongside output_config.format,
+      // and the per-image call cannot drop its schema.
       //
-      // If you do stagger this, the cheaper shape is a max_tokens:0 pre-warm of
-      // the system blocks before the fan-out (one short round trip, no image,
-      // no generation) rather than serialising a real photo call. Note that
-      // max_tokens:0 is rejected alongside output_config.format, so the warm
-      // request must carry the system blocks WITHOUT the JSON schema.
+      // Off, this is byte-for-byte the concurrent fan-out it always was. The
+      // flag also does nothing unless gradingCachingEnabled() is on, since with
+      // no cache write there is nothing for 2..N to read.
       //
-      // The other half of the decision, and the switch that acts on it, is
-      // gradingCachingEnabled() in ai-config.ts.
-      //
-      // per_image_ms below is the measurement AC2 of US-3345 asked for, which
-      // the dev box could not take: element 0 is the call a stagger would
-      // serialise, so its value IS the added wall clock.
-      //
-      // analyzeImage has ALWAYS logged its own `latency_ms` per call, so the
-      // raw number was already in the container logs and always has been. What
-      // this line adds is the part that was missing: the submission id to
-      // correlate N concurrent per-image lines against, the fan-out wall clock
-      // to compare the stagger to, and the name of the quantity being decided.
-      // It is a log rather than an ai_usage_events column because grading
-      // records usage through recordAiUsage (the pre-US-894 path), whose rows
-      // leave latency_ms null.
+      // The log after the fan-out is the measurement US-3345 AC2 asks for:
+      // per_call_ms, fan_out_ms, stagger_ms (photo 1's full call, the old worst
+      // case) and gate_ms (what the stagger actually added, 0 when off). It is a
+      // log rather than an ai_usage_events column because grading records usage
+      // through recordAiUsage (the pre-US-894 path), whose rows leave
+      // latency_ms null.
       const perImageMs: number[] = new Array(imageData.length).fill(-1);
       const fanOutStartedAt = Date.now();
-      const perImagePromises = imageData.map((img, perImageIndex) => {
-        const callStartedAt = Date.now();
-        return analyzeImage(
-          img.dataUri,
-          img.imageType,
-          submission.garment_type,
-          submission.garment_category,
-          styleHint,
-          // US-896: no prompt override on the live path; submissionId is the
-          // stable canary bucket key so the whole submission resolves consistently.
-          undefined,
-          // US-1066: cheap first-pass model when the cascade is on (else default).
-          firstPassModel,
-          submissionId,
-          baselineBlock,
-          // US-2438: no per-block eval override on the live path.
-          undefined,
-          img.imageRole,
-        ).finally(() => {
-          perImageMs[perImageIndex] = Date.now() - callStartedAt;
-        });
-      });
+      const staggered = gradingCacheStaggerEnabled();
+      const fanOut = staggerFirstCall(
+        imageData,
+        (img, perImageIndex, onFirstToken) => {
+          const callStartedAt = Date.now();
+          return analyzeImage(
+            img.dataUri,
+            img.imageType,
+            submission.garment_type,
+            submission.garment_category,
+            styleHint,
+            // US-896: no prompt override on the live path; submissionId is the
+            // stable canary bucket key so the whole submission resolves consistently.
+            undefined,
+            // US-1066: cheap first-pass model when the cascade is on (else default).
+            firstPassModel,
+            submissionId,
+            baselineBlock,
+            // US-2438: no per-block eval override on the live path.
+            undefined,
+            img.imageRole,
+            onFirstToken,
+          ).finally(() => {
+            perImageMs[perImageIndex] = Date.now() - callStartedAt;
+          });
+        },
+        staggered,
+      );
+      const perImagePromises = fanOut.promises;
 
       // US-601: run the premium authenticity add-on (when purchased) in parallel
       // with per-image analysis, INSIDE this buffer slot so it reuses the same
@@ -2109,14 +2153,16 @@ export async function processSubmission(submissionId: string) {
         imageType: imageData[i].imageType,
         result: s.status === "fulfilled" ? s.value : null,
       }));
-      // US-3345 AC2, measured on every real grade from here on. stagger_ms is
-      // what serialising the FIRST call would add to the seller's wait; compare
-      // it against the ~1 cent per grade the cache read would save before
-      // changing the fan-out above.
+      // US-3345 AC2, measured on every real grade from here on. With the
+      // stagger off, gate_ms is 0 and stagger_ms (photo 1's whole call) is the
+      // upper bound on what turning it on could add. With it on, gate_ms is what
+      // it DID add: compare that against the cache reads it buys before leaving
+      // GRADING_CACHE_STAGGER on.
       console.log(
         `[Pipeline] per-image fan-out for submission ${submissionId} | ` +
           `calls=${perImageMs.length} | per_call_ms=[${perImageMs.join(",")}] | ` +
-          `fan_out_ms=${Date.now() - fanOutStartedAt} | stagger_ms=${perImageMs[0] ?? -1}`,
+          `fan_out_ms=${Date.now() - fanOutStartedAt} | stagger_ms=${perImageMs[0] ?? -1} | ` +
+          `staggered=${staggered} | gate_ms=${await fanOut.gateMs}`,
       );
       settled.forEach((s, i) => {
         if (s.status === "rejected") {
@@ -2589,6 +2635,28 @@ export async function processSubmission(submissionId: string) {
         );
         return perImageResults;
       });
+    } else if (labelRereadScope(false, perImageResults) === "illegible_labels") {
+      // US-3322: a STANDARD grade re-reads a label the first pass called
+      // illegible, and only that. Before this the re-read ran on paid Forensic
+      // alone, after the gate, so on every standard grade the flag that caps
+      // confidence at ILLEGIBLE_LABEL_CONFIDENCE_CAP reached the composite with
+      // no second look. One extra vision call, on the grades already headed for
+      // a capped confidence and a human review, which costs far more.
+      perImageResults = await runRereadPass(
+        perImageResults,
+        images as ZoomImageRow[],
+        submission,
+        styleHint,
+        submissionId,
+        firstPassModel,
+        "illegible_labels",
+      ).catch((err) => {
+        console.error(
+          `[Pipeline] label re-read error for submission ${submissionId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+        return perImageResults;
+      });
     }
 
     // --- Step 4d (US-3338): light zoom on the fabric close-up ---
@@ -2679,7 +2747,12 @@ export async function processSubmission(submissionId: string) {
       // US-3320: same for an unreadable label. The gate used to abstain on it,
       // which for a tagless garment (a Lululemon size dot, a heat-transfer
       // waistband) asked the seller for a photo that does not exist.
-      qualityGate.labelIllegible,
+      // US-3322: computed from the MERGED reads, after the re-read above, not
+      // from the gate's first-pass view. A label the sharper read could
+      // actually read carries no cap.
+      labelIllegibleFor(
+        perImageResults.map((r) => ({ image_type: r.image_type, quality: r.quality })),
+      ),
       // US-3335: [] unless both locks are open -> byte-identical request.
       referenceAnchors,
     );
