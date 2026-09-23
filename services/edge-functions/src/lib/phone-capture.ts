@@ -160,6 +160,21 @@ export function refuseCapture(
 }
 
 /**
+ * Is this insert error the (session_id, client_key) unique index, and nothing
+ * else?
+ *
+ * Only a 23505 means "a retry of this shot already landed". Anything else (a
+ * dropped connection, a check constraint, a missing column) means NO row was
+ * written, and answering ok to that tells the phone a photo saved that the
+ * desktop will never see.
+ */
+export function isDuplicateCaptureInsert(
+  err: { code?: string | null } | null | undefined,
+): boolean {
+  return err?.code === "23505";
+}
+
+/**
  * US-3162: which required shots this item still has no photo of.
  *
  * Takes both lists rather than reading either, so the required set stays the
