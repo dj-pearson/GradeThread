@@ -26,8 +26,9 @@ on:
     branches: [main]
   # On-demand: run it any time from the Actions tab to get a fresh SEO/CWV snapshot.
   workflow_dispatch: {}
-  # Weekly health snapshot of main (Mondays 09:00 UTC) — results land in the run's
-  # Job Summary so SEO/CWV trends are visible without opening a PR.
+  # Weekly run on main (Mondays 09:00 UTC). The static job's scores land in the
+  # run's Job Summary; the prod-ssr job's live-page scores are posted as a
+  # comment on the "Lighthouse weekly: live SSR pages" issue (see above).
   schedule:
     - cron: "0 9 * * 1"
 
@@ -231,16 +232,15 @@ jobs:
             const pathOf = (u) => { try { return new URL(u).pathname; } catch { return u; } };
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
 
-            const measured = new Map();
-            for (const r of Array.isArray(manifest) ? manifest : []) {
-              if (r.isRepresentativeRun === false || measured.has(r.url)) continue;
-              measured.set(r.url, r.summary || {});
-            }
-            const rows = wanted.map((u) => {
-              const s = measured.get(u);
+            // LHCI keys the manifest by the URL Lighthouse ended on, so a
+            // redirect (/help -> /help/) must not read as "not measured".
+            // matchManifest normalizes both sides; it is tested in
+            // src/test/lighthouse-config.test.ts.
+            const { matchManifest } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/lighthouse-prod-urls.mjs`);
+            const rows = matchManifest(wanted, manifest, links).map(({ url: u, measuredUrl, summary: s, report }) => {
               if (!s) return `| \`${pathOf(u)}\` | not measured | | | | |`;
-              const report = links[u] ? `[report](${links[u]})` : "";
-              return `| \`${pathOf(u)}\` | ${pct(s.performance)} | ${pct(s.seo)} | ${pct(s.accessibility)} | ${pct(s["best-practices"])} | ${report} |`;
+              const page = pathOf(measuredUrl) === pathOf(u) ? `\`${pathOf(u)}\`` : `\`${pathOf(u)}\` (as \`${pathOf(measuredUrl)}\`)`;
+              return `| ${page} | ${pct(s.performance)} | ${pct(s.seo)} | ${pct(s.accessibility)} | ${pct(s["best-practices"])} | ${report ? `[report](${report})` : ""} |`;
             });
             const noCert = !wanted.some((u) => pathOf(u).startsWith("/cert/"));
             const body = [

@@ -11,3 +11,19 @@ export function pickProdUrls(
   },
   base?: string,
 ): string[];
+export function lhUrlKey(u: string): string;
+export interface LhManifestRun {
+  url: string;
+  isRepresentativeRun?: boolean;
+  summary?: Record<string, number>;
+}
+export function matchManifest(
+  wanted: string[],
+  manifest: LhManifestRun[] | unknown,
+  links?: Record<string, string>,
+): Array<{
+  url: string;
+  measuredUrl: string | null;
+  summary: Record<string, number> | null;
+  report: string | null;
+}>;

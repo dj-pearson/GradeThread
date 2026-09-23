@@ -301,30 +301,30 @@ export function DevelopersPage() {
           <li>
             <strong className="text-foreground">Create an API key.</strong> In your
             dashboard under Account → API keys (Business plan), create a key and
-            grant only the scopes you need (<code className="rounded bg-muted px-1 py-0.5">submit</code>,{" "}
-            <code className="rounded bg-muted px-1 py-0.5">read</code>,{" "}
-            <code className="rounded bg-muted px-1 py-0.5">webhook_manage</code>). The
+            grant only the scopes you need (<code className="rounded bg-muted px-1 py-0.5 text-foreground">submit</code>,{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-foreground">read</code>,{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-foreground">webhook_manage</code>). The
             secret is shown once — store it safely. Rotate or revoke it anytime.
           </li>
           <li>
             <strong className="text-foreground">Try it free in the sandbox.</strong>{" "}
-            Call <code className="rounded bg-muted px-1 py-0.5">/api/v1/sandbox/grades</code>{" "}
+            Call <code className="rounded bg-muted px-1 py-0.5 text-foreground">/api/v1/sandbox/grades</code>{" "}
             (below) — deterministic sample grades, zero credits, same shapes as
             production.
           </li>
           <li>
             <strong className="text-foreground">Go live.</strong> Drop the{" "}
-            <code className="rounded bg-muted px-1 py-0.5">/sandbox</code> path, attach
+            <code className="rounded bg-muted px-1 py-0.5 text-foreground">/sandbox</code> path, attach
             real photos (front, back and label are required; a detail close-up is
             recommended), and submit to{" "}
-            <code className="rounded bg-muted px-1 py-0.5">/api/v1/grades</code>. Poll{" "}
-            <code className="rounded bg-muted px-1 py-0.5">/api/v1/grades/:id</code> or
+            <code className="rounded bg-muted px-1 py-0.5 text-foreground">/api/v1/grades</code>. Poll{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-foreground">/api/v1/grades/:id</code> or
             receive a webhook.
           </li>
           <li>
             <strong className="text-foreground">Scale up.</strong> Grade up to 50
             garments per call with{" "}
-            <code className="rounded bg-muted px-1 py-0.5">/api/v1/grades/batch</code>{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-foreground">/api/v1/grades/batch</code>{" "}
             and let webhooks push each result as it finishes.
           </li>
         </ol>
@@ -333,14 +333,14 @@ export function DevelopersPage() {
       <Section icon={KeyRound} title="Authentication">
         <p>
           Every request authenticates with an API key in the{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">X-API-Key</code> header.
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">X-API-Key</code> header.
           Keys are created in your dashboard under Account → API keys (Business
           plan), are shown once, and can be scoped to{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">read</code>,{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">submit</code>, and{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">webhook_manage</code>.
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">read</code>,{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">submit</code>, and{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">webhook_manage</code>.
           Rotate or revoke a key at any time. Base URL:{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">https://functions.gradethread.com</code>.
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">https://functions.gradethread.com</code>.
         </p>
       </Section>
 
@@ -369,7 +369,7 @@ export function DevelopersPage() {
         </div>
         <p>
           All responses share one envelope:{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">{`{ data, error, meta }`}</code>.
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">{`{ data, error, meta }`}</code>.
         </p>
         <p className="flex items-center gap-2">
           <FileJson className="h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
@@ -393,7 +393,7 @@ export function DevelopersPage() {
           Grade up to 50 garments in one call. The batch is durable and async:
           you get a batch id back immediately, each garment is graded and charged
           independently (partial success is fine), and a{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">grade.completed</code>{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">grade.completed</code>{" "}
           webhook fires per garment. Poll the batch-status endpoint for
           per-garment results. Every garment is validated the same way as a single
           grade — an invalid garment rejects the whole request up front. Prefer
@@ -407,16 +407,16 @@ export function DevelopersPage() {
       <Section icon={Webhook} title="Webhooks">
         <p>
           Set a webhook URL with{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">PATCH /api/v1/webhook</code>.
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">PATCH /api/v1/webhook</code>.
           There is one webhook per account, so each grade sends one{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">grade.completed</code>{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">grade.completed</code>{" "}
           event however many API keys you have. The first time you set a URL,
           the response includes a{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">signing_secret</code>{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">signing_secret</code>{" "}
           that starts with{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">whsec_</code>. Save it:
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">whsec_</code>. Save it:
           we show it once. Need a new one? Call{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">POST /api/v1/webhook/secret/rotate</code>.
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">POST /api/v1/webhook/secret/rotate</code>.
         </p>
         <p>
           Deliveries follow the{" "}
@@ -430,16 +430,16 @@ export function DevelopersPage() {
           </a>{" "}
           format, so their verification libraries work as-is. To check one by
           hand, take the base64 part of your secret after{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">whsec_</code>, decode
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">whsec_</code>, decode
           it, and compute an HMAC-SHA256 over{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">{"{webhook-id}.{webhook-timestamp}.{raw body}"}</code>.
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">{"{webhook-id}.{webhook-timestamp}.{raw body}"}</code>.
           Base64 it and compare with the value after{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">v1,</code> in{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">webhook-signature</code>.
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">v1,</code> in{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">webhook-signature</code>.
           Reject a timestamp more than five minutes old, and use{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">webhook-id</code> to
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">webhook-id</code> to
           ignore repeats. A failed delivery is retried for about 12 hours, and{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">GET /api/v1/webhook/deliveries</code>{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">GET /api/v1/webhook/deliveries</code>{" "}
           shows every attempt.
         </p>
         <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
@@ -496,8 +496,8 @@ export function DevelopersPage() {
         <p>
           Limits are enforced per API key in a 60-second sliding window, with
           separate budgets for reads (GET) and writes (POST/PATCH). Exceeding a
-          budget returns <code className="rounded bg-muted px-1.5 py-0.5">429</code>{" "}
-          with a <code className="rounded bg-muted px-1.5 py-0.5">retry_after_seconds</code>{" "}
+          budget returns <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">429</code>{" "}
+          with a <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">retry_after_seconds</code>{" "}
           hint. Live usage is shown on your dashboard.
         </p>
         <div className="overflow-x-auto rounded-lg border">
@@ -531,7 +531,7 @@ export function DevelopersPage() {
         <p>
           Render any grade certificate inside your own platform, under your brand.
           Set your company name, color, and logo in the dashboard and copy the
-          generated <code className="rounded bg-muted px-1.5 py-0.5">&lt;iframe&gt;</code>{" "}
+          generated <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">&lt;iframe&gt;</code>{" "}
           snippet — buyers see the grade in your brand with a small
           &quot;Verified by GradeThread&quot; trust mark.
         </p>
@@ -570,7 +570,7 @@ export function DevelopersPage() {
         <p>
           In the Claude web or desktop app: <strong>Settings → Connectors → Add
           custom connector</strong>, then paste{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">
             https://functions.gradethread.com/mcp
           </code>
           . Either way you will be sent to GradeThread to sign in and choose what
@@ -590,7 +590,7 @@ export function DevelopersPage() {
               {CONNECTOR_SCOPES.map((s) => (
                 <tr key={s.scope} className="border-b last:border-0">
                   <td className="py-2 pr-4 align-top">
-                    <code className="rounded bg-muted px-1.5 py-0.5">{s.scope}</code>
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">{s.scope}</code>
                   </td>
                   <td className="py-2 align-top">{s.grants}</td>
                 </tr>
@@ -618,7 +618,7 @@ export function DevelopersPage() {
               {CONNECTOR_TOOLS.map((t) => (
                 <tr key={t.name} className="border-b last:border-0">
                   <td className="py-2 pr-4 align-top">
-                    <code className="rounded bg-muted px-1.5 py-0.5">{t.name}</code>
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">{t.name}</code>
                   </td>
                   <td className="py-2 pr-4 align-top italic">{t.prompt}</td>
                   <td className="py-2 pr-4 align-top">{t.does}</td>

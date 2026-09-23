@@ -381,7 +381,7 @@ td{padding:6px 10px;border-bottom:1px solid #e5e5e5;font-size:13px}
         <>
           {/* money.md action 6. Above the statement for the same reason the
               review queue is: it says the numbers below may be wrong. */}
-          <LedgerDriftBanner periodStart={range.from} />
+          <LedgerDriftBanner periodStart={range.from} periodEnd={range.to} />
 
           <Card>
             <CardContent className="p-0">

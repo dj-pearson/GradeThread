@@ -11,6 +11,7 @@ import { buildAccountExport } from "@/lib/account-export";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { toastError } from "@/lib/toast-error";
 import { readStored } from "@/lib/safe-storage";
+import { useAccountExportStore } from "@/stores/account-export-store";
 
 const EXPORT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
@@ -19,13 +20,15 @@ const EXPORT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 export function DataSettingsTab() {
   const { user } = useAuth();
 
-  const [exporting, setExporting] = useState(false);
+  // In a store, not useState: switching Settings tabs unmounts this one, and
+  // the flag has to survive that or a second export can start mid-flight.
+  const exporting = useAccountExportStore((s) => s.exporting);
+  const exportStage = useAccountExportStore((s) => s.stage);
+  const exportPct = useAccountExportStore((s) => s.pct);
   const [filingRequest, setFilingRequest] = useState<"export" | "delete" | null>(null);
-  const [exportStage, setExportStage] = useState("");
-  const [exportPct, setExportPct] = useState(0);
 
   async function handleExportData() {
-    if (!user) return;
+    if (!user || useAccountExportStore.getState().exporting) return;
     const key = `gt-last-export-${user.id}`;
     const last = Number(readStored(key) ?? 0);
     const sinceLast = Date.now() - last;
@@ -39,13 +42,11 @@ export function DataSettingsTab() {
       return;
     }
 
-    setExporting(true);
-    setExportPct(0);
-    setExportStage("Starting…");
+    const store = useAccountExportStore.getState();
+    if (!store.begin()) return;
     try {
       const blob = await buildAccountExport((stage, pct) => {
-        setExportStage(stage);
-        setExportPct(pct);
+        store.progress(stage, pct);
       });
       localStorage.setItem(key, String(Date.now()));
 
@@ -58,7 +59,7 @@ export function DataSettingsTab() {
     } catch (err) {
       toastError(err, "Failed to export data.");
     } finally {
-      setExporting(false);
+      store.finish();
     }
   }
 
