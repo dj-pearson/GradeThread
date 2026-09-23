@@ -5,6 +5,7 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -22,8 +23,7 @@ import javax.inject.Singleton
 class AiFieldWriter @Inject constructor(private val client: SupabaseClient) {
 
     /** Active workspace, else self — matching IntakeRepository. */
-    private fun ownerId(): String? =
-        client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
+    private fun ownerId(): String? = client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
 
     /**
      * Apply the seller's confirmed review.
@@ -65,7 +65,7 @@ class AiFieldWriter @Inject constructor(private val client: SupabaseClient) {
                             existing = current.attributes,
                             updates = routed.attributes,
                             cleared = routed.cleared,
-                        ).mapValues { JsonPrimitive(it.value) },
+                        ),
                     ),
                 )
             }
@@ -76,7 +76,7 @@ class AiFieldWriter @Inject constructor(private val client: SupabaseClient) {
                         existing = current.aiFieldSources,
                         sources = sources,
                         noLongerAiAttributed = undone,
-                    ).mapValues { JsonPrimitive(it.value) },
+                    ),
                 ),
             )
             review.conditionSummary?.let { put("condition_summary", JsonPrimitive(it)) }
@@ -108,22 +108,21 @@ class AiFieldWriter @Inject constructor(private val client: SupabaseClient) {
      * read-then-write would race them and overwrite their words with a model
      * guess; a conditional UPDATE simply matches nothing in that case.
      */
-    suspend fun seedTitle(itemId: String, seed: String, replacing: String): Result<Unit> =
-        runCatching {
-            val owner = ownerId() ?: error("Not signed in")
-            if (seed.isBlank()) return@runCatching
-            client.from(TABLE).update(
-                JsonObject(mapOf("title" to JsonPrimitive(seed))),
-            ) {
-                filter {
-                    eq("id", itemId)
-                    // Tenant scope. Never act on an id from a response alone.
-                    eq("user_id", owner)
-                    eq("title", replacing)
-                }
+    suspend fun seedTitle(itemId: String, seed: String, replacing: String): Result<Unit> = runCatching {
+        val owner = ownerId() ?: error("Not signed in")
+        if (seed.isBlank()) return@runCatching
+        client.from(TABLE).update(
+            JsonObject(mapOf("title" to JsonPrimitive(seed))),
+        ) {
+            filter {
+                eq("id", itemId)
+                // Tenant scope. Never act on an id from a response alone.
+                eq("user_id", owner)
+                eq("title", replacing)
             }
-            Unit
         }
+        Unit
+    }
 
     /**
      * Read the jsonb documents we're about to merge into.
@@ -139,26 +138,39 @@ class AiFieldWriter @Inject constructor(private val client: SupabaseClient) {
             }
             limit(1)
         }.decodeList<AiItemRow>()
-        val row = rows.firstOrNull() ?: return CurrentJsonb()
-        return CurrentJsonb(
-            attributes = row.attributes.orEmpty().mapValues { it.value.toString().trim('"') },
-            aiFieldSources = row.aiFieldSources.orEmpty().mapValues { it.value.toString().trim('"') },
-        )
+        return rows.firstOrNull()?.toCurrentJsonb() ?: CurrentJsonb()
     }
-
-    private data class CurrentJsonb(
-        val attributes: Map<String, String> = emptyMap(),
-        val aiFieldSources: Map<String, String> = emptyMap(),
-    )
 
     private companion object {
         const val TABLE = "inventory_items"
     }
 }
 
+/**
+ * The jsonb documents [AiFieldWriter] merges into, as read.
+ *
+ * US-3360: the values stay JSON. Only the keys an apply writes are replaced;
+ * everything else is written back exactly as it came in.
+ */
+internal data class CurrentJsonb(
+    val attributes: Map<String, JsonElement> = emptyMap(),
+    val aiFieldSources: Map<String, JsonElement> = emptyMap(),
+)
+
+/**
+ * US-3360: this used to be `it.value.toString().trim('"')` for both columns,
+ * and the write re-emitted every entry as a JsonPrimitive. One Android apply
+ * flattened the provenance objects edge, web and iOS wrote (confidence and
+ * acceptance gone for good) and quoted every numeric or boolean attribute.
+ */
+internal fun AiItemRow.toCurrentJsonb(): CurrentJsonb = CurrentJsonb(
+    attributes = attributes.orEmpty(),
+    aiFieldSources = aiFieldSources.orEmpty(),
+)
+
 /** Narrow projection — only the jsonb documents the writer merges into. */
 @Serializable
-private data class AiItemRow(
+internal data class AiItemRow(
     val attributes: Map<String, kotlinx.serialization.json.JsonElement>? = null,
     @kotlinx.serialization.SerialName("ai_field_sources")
     val aiFieldSources: Map<String, kotlinx.serialization.json.JsonElement>? = null,
