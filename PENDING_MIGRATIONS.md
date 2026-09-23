@@ -72,6 +72,33 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00824_get_or_create_source_tenant_scope.sql (security - a signed-in user could write another seller's sources)
+
+**What it does.** `CREATE OR REPLACE` of `public.get_or_create_source`, same
+signature, same body as 00640, plus one check after the role guard: the caller
+must be the service role, the account owner (`p_user_id = auth.uid()`), or a
+`listing_manager`-or-higher member of that workspace. Anyone else gets 42501.
+No table change, no grant change, no REVOKE.
+
+**Why.** The function is SECURITY DEFINER and the browser passes `p_user_id`
+itself (intake, bulk intake). Before this, any signed-in account could insert a
+source into another seller's account, or look up one of their source names and
+get the row id back. Live on prod for every signed-in account.
+
+**Proved on a local Postgres 16 with all migrations applied:**
+`node scripts/check-source-tenant-scope.mjs --dsn ...` goes red before 00824
+(stranger ALLOWED, 1 planted row) and green after (stranger and viewer
+REFUSED_42501; owner, listing_manager and service role ALLOWED). Applied twice
+in a row with no error.
+
+**Risk: LOW.** Same signature, so existing grants stand. The only callers are
+the web intake pages, which pass the seller's own id or the workspace owner's
+id for a member; a viewer-role member calling it was already refused by the
+sources INSERT policy on the direct path.
+
+**Order.** Apply any time, BEFORE the edge redeploy (the boot guard expects
+00824). Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
+
 ## HELD: 00823_imported_sales_shipped.sql (US-3465 - old imported sales out of the Ship queue)
 
 **What it does.** One UPDATE on `public.sales`: sets `shipped_at` to the sale

@@ -616,6 +616,13 @@ if (on("db")) {
       "db: a dispute cannot name another seller's report (US-2670)",
       "node scripts/check-dispute-report-ownership.mjs",
     );
+    // 00824: get_or_create_source is SECURITY DEFINER, so RLS never sees it,
+    // and the browser hands it p_user_id. Both directions again: a stranger is
+    // refused, the owner and a listing_manager member still get through.
+    run(
+      "db: get_or_create_source is tenant-scoped (00824)",
+      "node scripts/check-source-tenant-scope.mjs",
+    );
     // US-3318: 00806 is the one held migration that rewrites seller data. This
     // runs its six worked examples against real rows and checks that
     // listing_price and platform_fields move together -- the composer reads the
