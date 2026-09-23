@@ -102,7 +102,7 @@ function startHere(rows) {
     return lines;
   }
   lines.push(
-    "Computed from PENDING_MIGRATIONS.md and the criteria below, so it is " +
+    "Computed from supabase/held-migrations.json and the criteria below, so it is " +
       "right on the day you read it. Everything under this heading is two " +
       "sittings, and it is the two that move the most stories.",
   );

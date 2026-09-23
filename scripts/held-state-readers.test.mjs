@@ -66,6 +66,9 @@ describe("operator-worklist.mjs reads the registry", () => {
       expect(block).toContain("- `00902_second_thing.sql` — money plan action 9 - the second thing");
       expect(block.indexOf("00901_")).toBeLessThan(block.indexOf("00902_"));
       expect(block, "a heading-only migration is not held").not.toContain("00900");
+      // The sentence saying where the list comes from names the registry.
+      expect(block).toContain("Computed from supabase/held-migrations.json and the criteria below");
+      expect(block).not.toContain("Computed from PENDING_MIGRATIONS.md");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
