@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useInventoryItemCount } from "@/hooks/use-inventory-item-count";
@@ -23,8 +22,9 @@ import {
 // auto-deploys on push while migration 00722 is applied to prod by hand, so
 // this read WILL hit a table that does not exist yet. A `42P01` must not take
 // the overview down: any read failure resolves to the last known layout, and
-// failing that to the persona default, which is a working board. There is no
-// error state on this query and nothing to retry.
+// failing that to the persona default, which is a working board. Any OTHER
+// read failure still paints the fallback, but reports isError and never
+// isFromServer, so Customize cannot save the fallback over the real layout.
 //
 // The last known layout is also mirrored to localStorage (per user, see
 // src/lib/dashboard-layout-mirror.ts) so the board paints
@@ -39,6 +39,11 @@ export function dashboardLayoutKey(
   surface: DashboardSurface,
 ) {
   return [TABLE, userId, surface] as const;
+}
+
+/** 42P01 (Postgres) or PGRST205 (PostgREST schema cache): the table is absent. */
+function isMissingTable(error: { code?: string } | null | undefined): boolean {
+  return error?.code === "42P01" || error?.code === "PGRST205";
 }
 
 /**
@@ -91,6 +96,10 @@ export interface DashboardLayoutResult {
   isLoading: boolean;
   /** True once the layout on screen came from the server. */
   isFromServer: boolean;
+  /** The server read failed; the board shows the fallback. */
+  isError: boolean;
+  /** Retry the server read. */
+  refetch: () => void;
 }
 
 export function useDashboardLayout(surface: DashboardSurface): DashboardLayoutResult {
@@ -114,8 +123,17 @@ export function useDashboardLayout(surface: DashboardSurface): DashboardLayoutRe
         .eq("surface", surface)
         .maybeSingle();
 
-      // Table absent, RLS surprise, offline: all the same answer here.
-      if (error) return fallbackLayout(user?.id, surface, registry, persona, {});
+      // The table not existing yet is a known deploy window (00722 is applied
+      // by hand), and there the fallback IS the answer. Anything else is a
+      // failed read: throw, so the query retries and reports isError, and so
+      // isFromServer stays false. Customize is disabled until it is true,
+      // because saving over a layout that was never read overwrites it.
+      if (error) {
+        if (isMissingTable(error)) {
+          return fallbackLayout(user?.id, surface, registry, persona, {});
+        }
+        throw error;
+      }
 
       const document = (data as { layout?: unknown } | null)?.layout ?? null;
       const widgets = normalize(document, registry, persona);
@@ -140,12 +158,14 @@ export function useDashboardLayout(surface: DashboardSurface): DashboardLayoutRe
     context,
     isLoading: query.isLoading,
     isFromServer: query.isSuccess && !query.isPlaceholderData,
+    isError: query.isError,
+    refetch: () => void query.refetch(),
   };
 }
 
 /**
  * Save a layout. Optimistic: the board shows the new order before the write
- * lands, and a failure puts the previous one back and says so.
+ * lands, and a failure puts the previous one back. The caller says so.
  */
 export function useSaveDashboardLayout(surface: DashboardSurface) {
   const user = useAuthStore((s) => s.user);
@@ -184,12 +204,13 @@ export function useSaveDashboardLayout(surface: DashboardSurface) {
       writeLayoutMirror(user?.id, surface, layoutDocument(next));
       return { previous };
     },
+    // No toast here: the caller keeps the seller's draft open on a failure
+    // and offers Retry, which only it can do.
     onError: (_error, _widgets, context) => {
       if (context?.previous) {
         queryClient.setQueryData(key, context.previous);
         writeLayoutMirror(user?.id, surface, layoutDocument(context.previous));
       }
-      toast.error("Could not save your layout. Your last saved one is back.");
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: key });

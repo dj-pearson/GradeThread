@@ -19,7 +19,7 @@
 // Neither alone is sufficient, which is why both are here.
 
 import { useEffect } from "react";
-import { useBlocker } from "react-router";
+import { useBlocker, type Location } from "react-router";
 
 export interface NavigationGuard {
   /** True when navigation was intercepted and the user must confirm. */
@@ -38,8 +38,22 @@ export interface NavigationGuard {
  *   is nothing at stake trains people to click through the dialog, which is how
  *   a guard stops working.
  */
-export function useNavigationGuard(shouldBlock: boolean): NavigationGuard {
-  const blocker = useBlocker(shouldBlock);
+export function useNavigationGuard(
+  shouldBlock: boolean,
+  /**
+   * Optional: which in-app navigations actually leave the work behind. A
+   * search-param change the page handles in place (the dashboard's ?range=)
+   * is not leaving, and blocking it offers "Discard changes" for nothing.
+   * Omitted, every navigation is blocked while shouldBlock is true.
+   */
+  isLeaving?: (current: Location, next: Location) => boolean,
+): NavigationGuard {
+  const blocker = useBlocker(
+    isLeaving
+      ? ({ currentLocation, nextLocation }) =>
+        shouldBlock && isLeaving(currentLocation, nextLocation)
+      : shouldBlock,
+  );
 
   useEffect(() => {
     if (!shouldBlock) return;

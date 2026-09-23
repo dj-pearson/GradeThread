@@ -1,4 +1,5 @@
 import { arrayMove } from "@dnd-kit/sortable";
+import type { Location } from "react-router";
 import {
   DEFAULT_PERSONA,
   LAYOUT_VERSION,
@@ -342,3 +343,12 @@ export function layoutDiff(
   return { moved, resized, hidden, added };
 }
 
+/**
+ * True when a navigation leaves this board: another page, or another ?view=.
+ * A ?range= change stays on the board, so the Customize leave guard ignores it.
+ */
+export function leavesBoard(current: Location, next: Location): boolean {
+  if (current.pathname !== next.pathname) return true;
+  const view = (l: Location) => new URLSearchParams(l.search).get("view");
+  return view(current) !== view(next);
+}

@@ -2,10 +2,13 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 import {
   DndContext,
   KeyboardSensor,
@@ -65,6 +68,7 @@ import {
   catalogGroups,
   hideWidget,
   layoutDiff,
+  leavesBoard,
   moveWidget,
   moveWidgetBy,
   resetLayout,
@@ -397,7 +401,9 @@ export function CustomizableWidgetBoard({
   const editing = draft !== null;
   const dirty = editing && !sameLayout(draft, saved.layout);
 
-  const guard = useNavigationGuard(dirty);
+  // Only a change of page or of ?view= leaves this board. Changing ?range=
+  // re-renders the same draft in place, so it must not offer to discard it.
+  const guard = useNavigationGuard(dirty, leavesBoard);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -475,17 +481,35 @@ export function CustomizableWidgetBoard({
     track("dashboard_layout_reset", { surface });
   }, [confirm, saved.registry, saved.persona, saved.context, surface]);
 
-  const handleDone = useCallback(() => {
+  const handleDone = useCallback(async () => {
     if (!draft) return;
+    // Nothing changed: leave edit mode without a write or an analytics event.
+    if (!dirty) {
+      stopEditing();
+      return;
+    }
     const counts = layoutDiff(saved.layout, draft);
-    save.mutate(draft);
+    try {
+      await save.mutateAsync(draft);
+    } catch {
+      // Keep edit mode and the draft: the seller's edits are still on screen,
+      // and Retry sends the same draft again.
+      toast.error("Could not save your layout. Your changes are still here.", {
+        action: { label: "Retry", onClick: () => void doneRef.current() },
+      });
+      return;
+    }
     track("dashboard_layout_saved", {
       surface,
       widget_count: draft.length,
       ...counts,
     });
     stopEditing();
-  }, [draft, saved.layout, save, surface, stopEditing]);
+  }, [draft, dirty, saved.layout, save, surface, stopEditing]);
+  const doneRef = useRef(handleDone);
+  useEffect(() => {
+    doneRef.current = handleDone;
+  }, [handleDone]);
 
   const entries = draft ?? saved.layout;
 
@@ -524,10 +548,27 @@ export function CustomizableWidgetBoard({
         subtitle={subtitle}
         actions={
           <>
-            {actions}
+            {/* Hidden while editing, like lead and the rail: the range picker
+                lives here, and the draft belongs to the board, not the range. */}
+            {editing ? null : actions}
             {editing ? null : (
-              <Button type="button" variant="outline" onClick={startEditing}>
-                <Settings2 className="mr-2 h-4 w-4" aria-hidden="true" />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={startEditing}
+                // Until the server has answered, the board shows a fallback;
+                // saving it would overwrite the real layout.
+                disabled={!saved.isFromServer}
+                aria-busy={!saved.isFromServer}
+              >
+                {saved.isFromServer
+                  ? <Settings2 className="mr-2 h-4 w-4" aria-hidden="true" />
+                  : (
+                    <span
+                      className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+                      aria-hidden="true"
+                    />
+                  )}
                 Customize
               </Button>
             )}
@@ -571,7 +612,20 @@ export function CustomizableWidgetBoard({
             <Button type="button" variant="ghost" size="sm" onClick={stopEditing}>
               Cancel
             </Button>
-            <Button type="button" size="sm" onClick={handleDone}>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void handleDone()}
+              disabled={save.isPending}
+            >
+              {save.isPending
+                ? (
+                  <span
+                    className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+                    aria-hidden="true"
+                  />
+                )
+                : null}
               Done
             </Button>
           </div>
