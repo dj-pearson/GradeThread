@@ -109,18 +109,167 @@ export async function fetchLedgerReconciliation(
 }
 
 /**
- * Make sure the ledger has been built at least once.
- *
- * Called before a books screen renders. It rebuilds only when the ledger is
- * EMPTY, so opening the P&L does not fire a full re-derivation on every visit;
- * a seller who wants a refresh after editing a sale presses the control for it.
+ * Every react-query key whose data is read out of ledger_entries. A rebuild
+ * changes all of them, so invalidating only the screen that pressed the button
+ * leaves the others showing the old books for their whole staleTime.
  */
-export async function ensureLedgerBuilt(): Promise<number> {
+export const LEDGER_QUERY_KEYS = [
+  "pnl-entries",
+  "money-overview-ledger",
+  "money-overview-calendar",
+  "estimated-tax-entries",
+] as const;
+
+type QueryInvalidator = {
+  invalidateQueries: (filters: { queryKey: readonly unknown[] }) => Promise<unknown>;
+};
+
+/** Mark every ledger-derived query stale. Call after rebuildMyLedger(). */
+export async function invalidateLedgerQueries(qc: QueryInvalidator): Promise<void> {
+  await Promise.all(
+    LEDGER_QUERY_KEYS.map((key) => qc.invalidateQueries({ queryKey: [key] })),
+  );
+}
+
+/**
+ * Seller-owned tables rebuild_ledger_for_user (00777) derives entries from,
+ * each with a trigger-maintained updated_at and a user_id to scope by. Two more
+ * inputs are read through their sale in newestLedgerSourceChange: shipments
+ * (no user_id) and inventory_items (acquired_price is the COGS line, and a
+ * seller often types the cost in after the item sells). mileage_rates is left
+ * out: it is a shared rate table, not a seller's row. listings.platform (which
+ * sales-tax branch applies) is also an input and is not watched.
+ */
+const LEDGER_SOURCE_TABLES = [
+  "sales",
+  "flipdesk_expenses",
+  "mileage_trips",
+  "home_office_years",
+  "ebay_payouts",
+] as const;
+
+// A narrowly-typed view for the freshness reads. ebay_payouts is missing from
+// the generated types, and a loop over table names defeats the typed builder.
+type StampRow = { updated_at?: string | null; created_at?: string | null };
+type NewestRowResult = PromiseLike<{
+  data: StampRow[] | null;
+  error: { message: string } | null;
+}>;
+type NewestRowQuery = {
+  eq: (col: string, v: string) => NewestRowQuery;
+  neq: (col: string, v: string) => NewestRowQuery;
+  order: (col: string, opts: { ascending: boolean }) => NewestRowQuery;
+  limit: (n: number) => NewestRowResult;
+};
+type FreshnessClient = {
+  from: (table: string) => { select: (cols: string) => NewestRowQuery };
+};
+
+function newestStamp(rows: StampRow[] | null, col: keyof StampRow): number | null {
+  const v = rows?.[0]?.[col];
+  if (!v) return null;
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? null : t;
+}
+
+/**
+ * When this seller's ledger inputs last changed, as epoch ms, or null when
+ * they have none. Scoped to the seller's own rows on purpose: RLS also lets a
+ * workspace member read the owner's sales, and the ledger is per user, so
+ * counting the owner's edits would mark a member's ledger stale on every visit.
+ */
+async function newestLedgerSourceChange(userId: string): Promise<number | null> {
+  const client = supabase as unknown as FreshnessClient;
+  const reads: NewestRowResult[] = LEDGER_SOURCE_TABLES.map((table) =>
+    client
+      .from(table)
+      .select("updated_at")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(1),
+  );
+  // A shipment belongs to a seller through its sale.
+  reads.push(
+    client
+      .from("shipments")
+      .select("updated_at, sales!inner(user_id)")
+      .eq("sales.user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(1),
+  );
+  // An item's cost becomes the sale's COGS entry. Read through the sale so a
+  // cost edit on a sold item counts, and edits to unsold items do not.
+  reads.push(
+    client
+      .from("inventory_items")
+      .select("updated_at, sales!inner(user_id)")
+      .eq("sales.user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(1),
+  );
+  let newest: number | null = null;
+  for (const { data, error } of await Promise.all(reads)) {
+    if (error) throw new Error(error.message);
+    const t = newestStamp(data, "updated_at");
+    if (t !== null && (newest === null || t > newest)) newest = t;
+  }
+  return newest;
+}
+
+/**
+ * Make sure the ledger is built and not older than the rows it derives from.
+ *
+ * Rebuilds when the ledger is EMPTY, or when any sale, expense, trip, home
+ * office year, shipment, payout or sold item changed after the last build. The last build
+ * is the newest derived entry's created_at: rebuild_ledger_for_user deletes and
+ * re-inserts every non-adjustment row, so that stamp is the build time.
+ * Adjustments are left out because a seller adds them by hand between builds.
+ *
+ * A deleted source row bumps no updated_at, so a deletion on its own is not
+ * seen here; the P&L rebuild button still covers it.
+ *
+ * Concurrent callers share one check. The Money overview mounts two ledger
+ * queries at once, and two overlapping rebuilds can collide on the
+ * natural-key index when the second re-inserts rows the first just wrote.
+ */
+export function ensureLedgerBuilt(): Promise<number> {
+  if (!ensureInFlight) {
+    ensureInFlight = ensureLedgerBuiltOnce().finally(() => {
+      ensureInFlight = null;
+    });
+  }
+  return ensureInFlight;
+}
+
+let ensureInFlight: Promise<number> | null = null;
+
+async function ensureLedgerBuiltOnce(): Promise<number> {
   const { count, error } = await supabase
     .from("ledger_entries")
     .select("id", { count: "exact", head: true });
   if (error) throw error;
-  if ((count ?? 0) > 0) return count ?? 0;
+  if ((count ?? 0) === 0) return rebuildMyLedger();
+
+  const { data: auth } = await supabase.auth.getSession();
+  const userId = auth.session?.user.id;
+  if (!userId) return count ?? 0;
+
+  const client = supabase as unknown as FreshnessClient;
+  const [built, changed] = await Promise.all([
+    client
+      .from("ledger_entries")
+      .select("created_at")
+      .eq("user_id", userId)
+      .neq("source_kind", "adjustment")
+      .order("created_at", { ascending: false })
+      .limit(1),
+    newestLedgerSourceChange(userId),
+  ]);
+  if (built.error) throw new Error(built.error.message);
+  const builtAt = newestStamp(built.data, "created_at");
+
+  if (changed === null) return count ?? 0;
+  if (builtAt !== null && changed <= builtAt) return count ?? 0;
   return rebuildMyLedger();
 }
 
