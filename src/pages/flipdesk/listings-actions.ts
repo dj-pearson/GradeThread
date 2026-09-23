@@ -240,6 +240,8 @@ export interface ListingsActionDeps {
   setBulkPublishProgress: (v: { done: number; total: number } | null) => void;
   /** US-2404: live counter while a chunked bulk resubmit runs. */
   setBulkReviseProgress: (v: { done: number; total: number } | null) => void;
+  /** INV-5: live counter while a chunked bulk End runs. Optional for tests. */
+  setBulkEndProgress?: (v: { done: number; total: number } | null) => void;
   setBulkDeleteProgress: (v: { done: number; total: number } | null) => void;
   setBulkDeleteOpen: (v: boolean) => void;
   setBulkStatusOpen: (v: boolean) => void;
@@ -266,7 +268,10 @@ export interface ListingsActionDeps {
     | { items: { listingId: string; price: number }[] },
     BulkPriceResponse
   >;
-  bulkEnd: MutationLike<{ listingIds: string[] }, BulkEndResponse>;
+  bulkEnd: MutationLike<
+    { listingIds: string[]; onProgress?: (done: number, total: number) => void },
+    BulkEndResponse
+  >;
   /** US-9203: relist a selection; eBay under its offer, extension rows queued. */
   bulkRelistApi: MutationLike<{ listingIds: string[] }, BulkRelistResponse>;
   bulkRevise: MutationLike<
@@ -301,6 +306,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
     bulkDropPct,
     setBulkPublishProgress,
     setBulkReviseProgress,
+    setBulkEndProgress,
     setBulkDeleteProgress,
     setBulkDeleteOpen,
     setBulkStatusOpen,
@@ -1229,7 +1235,10 @@ export function makeListingsActions(d: ListingsActionDeps) {
 
     setBusy(true);
     try {
-      const res = await bulkEnd.mutateAsync({ listingIds });
+      const res = await bulkEnd.mutateAsync({
+        listingIds,
+        onProgress: (done, total) => setBulkEndProgress?.({ done, total }),
+      });
       setSelected(new Set());
       // US-2162: a queued row is NOT ended — Poshmark/Mercari/Grailed have no
       // end API, so the Lister extension ends it in the seller's browser and
@@ -1260,6 +1269,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
       toastError(err, "Bulk end failed.");
     } finally {
       setBusy(false);
+      setBulkEndProgress?.(null);
     }
   }
   // US-2404: resubmit a SELECTION of live eBay listings — re-assert the saved

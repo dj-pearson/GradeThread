@@ -371,6 +371,11 @@ export function FlipdeskListingsPage() {
     done: number;
     total: number;
   } | null>(null);
+  // INV-5: bulk End is chunked to 100 per request, so it can report progress.
+  const [bulkEndProgress, setBulkEndProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   // Bulk hard-delete of the selected items — a discoverable list-level delete
   // (the per-row trash button lives in the far-right actions column, easy to
   // miss). Confirm dialog + per-item progress, mirroring bulk publish.
@@ -928,6 +933,7 @@ export function FlipdeskListingsPage() {
     bulkDropPct,
     setBulkPublishProgress,
     setBulkReviseProgress,
+    setBulkEndProgress,
     setBulkDeleteProgress,
     setBulkDeleteOpen,
     setBulkStatusOpen,
@@ -1899,7 +1905,9 @@ export function FlipdeskListingsPage() {
                     disabled={busy}
                   >
                     <XCircle className="mr-2 h-4 w-4" />
-                    End {selected.size}
+                    {bulkEndProgress
+                      ? `Ending ${bulkEndProgress.done}/${bulkEndProgress.total}…`
+                      : `End ${selected.size}`}
                   </Button>
                 </>
               ) : isAgedTab ? (
@@ -1964,7 +1972,9 @@ export function FlipdeskListingsPage() {
                     disabled={busy}
                   >
                     <XCircle className="mr-2 h-4 w-4" />
-                    End {selected.size}
+                    {bulkEndProgress
+                      ? `Ending ${bulkEndProgress.done}/${bulkEndProgress.total}…`
+                      : `End ${selected.size}`}
                   </Button>
                 </>
               ) : isSold ? (
