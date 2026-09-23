@@ -360,6 +360,16 @@ export function FlipdeskPipelinePage() {
     [items],
   );
 
+  const offPipelineAllArchived = useMemo(
+    () =>
+      items.every(
+        (i) =>
+          i.status === "archived" ||
+          FLIPDESK_PIPELINE.some((p) => p.status === pipelineColumnFor(i.status)),
+      ),
+    [items],
+  );
+
   function selectAllMatching() {
     setSelectedIds(new Set(matchingItems.map((it) => it.id)));
   }
@@ -750,7 +760,9 @@ export function FlipdeskPipelinePage() {
           (archived or personal){" "}
           {offPipelineCount === 1 ? "isn't" : "aren't"} shown on the board —{" "}
           <Link
-            to="/dashboard/flipdesk/inventory?tab=archived"
+            // Archived items have their own tab; personal (keeping /
+            // wearing) items only show under All, so a mixed set goes there.
+            to={`/dashboard/flipdesk/inventory?tab=${offPipelineAllArchived ? "archived" : "all"}`}
             className="font-medium text-brand-red-text hover:underline"
           >
             view in inventory

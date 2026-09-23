@@ -38,6 +38,11 @@ describe("remembered Inventory view", () => {
     expect(inventoryViewSearch(params)).toBe("tab=sold&show=ready&window=d30");
     expect(inventoryViewKey("u", "o")).toContain(":v2:");
   });
+  it("still reads a remembered view saved under the v1 key", () => {
+    localStorage.setItem("flipdesk:inventory:last-view:v1:old:shop", "mode=kanban&tab=active");
+    expect(readInventoryView(inventoryViewKey("old", "shop"))).toBe("mode=kanban&tab=active");
+    localStorage.removeItem("flipdesk:inventory:last-view:v1:old:shop");
+  });
   it("keeps view settings without replaying a search, page or action", () => {
     const params = new URLSearchParams("mode=grid&sort=newest&tab=active&size=50&q=private&page=8&view=old&delist=1");
     expect(inventoryViewSearch(params)).toBe("mode=grid&sort=newest&tab=active&size=50");

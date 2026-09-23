@@ -19,7 +19,10 @@ export function inventoryViewSearch(params: URLSearchParams): string {
 
 export function readInventoryView(key: string): string {
   try {
-    return inventoryViewSearch(new URLSearchParams(localStorage.getItem(key) ?? ""));
+    // A v1 entry still holds a valid mode/sort/tab/size/filter; read it once
+    // so moving the key to v2 does not reset every seller's remembered view.
+    const raw = localStorage.getItem(key) ?? localStorage.getItem(key.replace(":v2:", ":v1:")) ?? "";
+    return inventoryViewSearch(new URLSearchParams(raw));
   } catch { return ""; }
 }
 
