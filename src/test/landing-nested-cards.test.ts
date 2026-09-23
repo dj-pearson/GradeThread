@@ -73,4 +73,41 @@ describe("homepage has no card inside a card (web-growth action 3)", () => {
       expect(panel, file).not.toMatch(/(^|\s)shadow(-|\s|$)/);
     }
   });
+
+  // The craft floor: declare elevation once, border OR shadow. The case above
+  // proves the shadow is gone; this one proves the panel still has exactly one
+  // edge left, so "fixing" it by dropping both (or by swapping the shadow for a
+  // ring or drop-shadow) also fails.
+  it("the flipdesk-panel outer card declares elevation exactly once", () => {
+    const css = read("src/index.css").replace(/\/\*[\s\S]*?\*\//g, "");
+    const rule = /([^{}]*)\{([^{}]*)\}/g;
+    const overrideBodies: string[] = [];
+    for (let m = rule.exec(css); m; m = rule.exec(css)) {
+      const [, sel = "", body = ""] = m;
+      if (sel.split(",").some((x) => x.trim().endsWith(".flipdesk-panel.glass-card"))) {
+        overrideBodies.push(body);
+      }
+    }
+    expect(overrideBodies.length).toBeGreaterThan(0);
+    // The override only removes the shadow; the glass edge stays.
+    for (const body of overrideBodies) {
+      expect(body).toMatch(/box-shadow:\s*none/);
+      expect(body).not.toMatch(/(^|[;\s])border(-width)?\s*:/);
+      expect(body).not.toMatch(/filter\s*:[^;]*drop-shadow/);
+    }
+    for (const file of [
+      "src/pages/landing.tsx",
+      "src/components/marketing/flipdesk-pipeline-preview.tsx",
+    ]) {
+      const panel =
+        /className="(flipdesk-panel [^"]*)"/.exec(read(file))?.[1] ?? "";
+      const border = /(^|\s)border(\s|$)/.test(panel);
+      const shadow = /(^|\s)(shadow|ring|drop-shadow)(-|\s|$)/.test(panel);
+      expect({ file, border, shadow }).toEqual({
+        file,
+        border: true,
+        shadow: false,
+      });
+    }
+  });
 });
