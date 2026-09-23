@@ -121,6 +121,29 @@ export function describeFloorSkips(
   } current price: ${list}. That drop would have gone under the floor you set.`;
 }
 
+/**
+ * The bulk "create drafts" report for items that already had an eBay draft.
+ *
+ * 00832 allows one eBay draft per item, so a second insert answers 23505. That
+ * is not a failure the seller can act on (the draft they wanted exists), and
+ * "duplicate key value violates unique constraint" is not a sentence they
+ * should see. Names, trimmed the way describeFloorSkips trims them.
+ *
+ * Returns null when there were none.
+ */
+export function describeExistingDrafts(names: readonly string[], max = 5): string | null {
+  if (names.length === 0) return null;
+  const shown = names.slice(0, max).join(", ");
+  const rest = names.length - Math.min(names.length, max);
+  const list = rest > 0 ? `${shown} and ${rest} more` : shown;
+  return `${names.length} already had an eBay draft, so no second one was made: ${list}.`;
+}
+
+/** Postgres unique_violation: here, 00832's one-eBay-draft-per-item index. */
+function isUniqueViolation(err: unknown): boolean {
+  return (err as { code?: unknown } | null)?.code === "23505";
+}
+
 export interface ListingsActionDeps {
   /** For the post-write invalidate. Every handler ends with one. */
   qc: Pick<QueryClient, "invalidateQueries">;
@@ -302,6 +325,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
     if (selected.size === 0) return;
     setBusy(true);
     const errors: { message: string }[] = [];
+    const alreadyDrafted: string[] = [];
     let created = 0;
     for (const id of selected) {
       const it = items.find((i) => i.id === id);
@@ -324,13 +348,18 @@ export function makeListingsActions(d: ListingsActionDeps) {
         const { error: lErr } = await supabase
           .from("listings")
           .insert(listing as never);
-        if (lErr) throw lErr;
+        // The item already has its eBay draft (00832's unique index), most
+        // likely from AutoLister while its row still read undrafted. Keep that
+        // draft, and still move the item to drafted: that is now true of it.
+        const hadDraft = lErr != null && isUniqueViolation(lErr);
+        if (lErr && !hadDraft) throw lErr;
         const { error: uErr } = await supabase
           .from("inventory_items")
           .update({ status: "drafted" } as never)
           .eq("id", it.id);
         if (uErr) throw uErr;
-        created++;
+        if (hadDraft) alreadyDrafted.push(itemRowLabel(it));
+        else created++;
       } catch (err) {
         errors.push({
           message: err instanceof Error ? err.message : String(err),
@@ -340,12 +369,14 @@ export function makeListingsActions(d: ListingsActionDeps) {
     setBusy(false);
     setSelected(new Set());
     await qc.invalidateQueries({ queryKey: ["items_full"] });
+    const existing = describeExistingDrafts(alreadyDrafted);
     if (errors.length === 0) {
-      toast.success(`Created ${created} draft${created === 1 ? "" : "s"}.`);
+      const made = `Created ${created} draft${created === 1 ? "" : "s"}.`;
+      toast.success(existing ? `${made} ${existing}` : made);
     } else {
       toastWarning(
         errors[0],
-        `Created ${created}, ${errors.length} failed.`,
+        `Created ${created}, ${errors.length} failed.${existing ? ` ${existing}` : ""}`,
         { duration: 12_000 },
       );
     }
