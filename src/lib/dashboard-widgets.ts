@@ -306,7 +306,9 @@ export const DASHBOARD_WIDGETS: readonly WidgetDef[] = [
     queryKeys: ["activation-checklist"],
     load: () =>
       import("@/components/onboarding/activation-checklist").then((m) => ({
-        default: m.ActivationChecklist as ComponentType<WidgetProps>,
+        // The bare checklist: the frame draws the title, so the card's own
+        // header would be a card nested in a card.
+        default: m.ActivationChecklistWidget as ComponentType<WidgetProps>,
       })),
   },
   {

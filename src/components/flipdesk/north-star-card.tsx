@@ -20,10 +20,17 @@ export function NorthStarCard({
   weeks,
   lifetimeListed,
   goal = NORTH_STAR_WEEKLY_GOAL,
+  bare = false,
 }: {
   weeks: readonly WeekBucket[];
   lifetimeListed?: number;
   goal?: number;
+  /**
+   * No Card, no header, no gradient: the content only. For the dashboard
+   * board, whose WidgetFrame already draws the title, so a titled card inside
+   * it would be a card nested in a card.
+   */
+  bare?: boolean;
 }) {
   const stats = useMemo(
     () => computeNorthStarFromWeeks(weeks, { goal, lifetimeListed }),
@@ -31,6 +38,88 @@ export function NorthStarCard({
   );
 
   const remaining = Math.max(0, stats.goal - stats.listedThisWeek);
+
+  const body = (
+    <>
+      <div>
+        <div className="flex items-baseline justify-between">
+          <div className="text-3xl font-bold tabular-nums">
+            {stats.listedThisWeek}
+            <span className="ml-1 text-base font-medium text-muted-foreground">
+              / {stats.goal}
+            </span>
+          </div>
+          {stats.goalMet ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2.5 py-1 text-xs font-semibold text-green-600 dark:text-green-400">
+              <Trophy className="h-3 w-3" />
+              Goal hit!
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              {remaining} to go
+            </span>
+          )}
+        </div>
+        <Progress
+          value={stats.progress * 100}
+          className={cn("mt-2 h-2", stats.goalMet && "[&>div]:bg-green-500")}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className={bare ? "" : "rounded-lg border bg-card p-3"}>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Flame className="h-3.5 w-3.5" />
+            Weekly streak
+          </div>
+          <div className="mt-1 text-xl font-bold tabular-nums">
+            {stats.streakWeeks}
+            <span className="ml-1 text-xs font-medium text-muted-foreground">
+              {stats.streakWeeks === 1 ? "week" : "weeks"}
+            </span>
+          </div>
+        </div>
+        <div className={bare ? "" : "rounded-lg border bg-card p-3"}>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Trophy className="h-3.5 w-3.5" />
+            Next milestone
+          </div>
+          <div className="mt-1 text-xl font-bold tabular-nums">
+            {stats.nextMilestone == null ? (
+              <span className="text-base font-semibold text-amber-500">
+                Maxed 🏆
+              </span>
+            ) : (
+              <>
+                {stats.lifetimeListed}
+                <span className="ml-1 text-xs font-medium text-muted-foreground">
+                  / {stats.nextMilestone}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <Button variant="ghost" size="sm" className="w-full" asChild>
+        <Link to="/dashboard/flipdesk/intake">
+          List another item
+          <ArrowRight className="ml-1 h-3.5 w-3.5" />
+        </Link>
+      </Button>
+    </>
+  );
+
+  if (bare) {
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-end">
+          <StreakBadge weeks={stats.streakWeeks} />
+        </div>
+        {body}
+      </div>
+    );
+  }
 
   return (
     <Card className="overflow-hidden border-brand-navy/20 bg-gradient-to-br from-brand-navy/[0.03] to-transparent">
@@ -49,72 +138,7 @@ export function NorthStarCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div>
-          <div className="flex items-baseline justify-between">
-            <div className="text-3xl font-bold tabular-nums">
-              {stats.listedThisWeek}
-              <span className="ml-1 text-base font-medium text-muted-foreground">
-                / {stats.goal}
-              </span>
-            </div>
-            {stats.goalMet ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2.5 py-1 text-xs font-semibold text-green-600 dark:text-green-400">
-                <Trophy className="h-3 w-3" />
-                Goal hit!
-              </span>
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                {remaining} to go
-              </span>
-            )}
-          </div>
-          <Progress
-            value={stats.progress * 100}
-            className={cn("mt-2 h-2", stats.goalMet && "[&>div]:bg-green-500")}
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div className="rounded-lg border bg-card p-3">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Flame className="h-3.5 w-3.5" />
-              Weekly streak
-            </div>
-            <div className="mt-1 text-xl font-bold tabular-nums">
-              {stats.streakWeeks}
-              <span className="ml-1 text-xs font-medium text-muted-foreground">
-                {stats.streakWeeks === 1 ? "week" : "weeks"}
-              </span>
-            </div>
-          </div>
-          <div className="rounded-lg border bg-card p-3">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Trophy className="h-3.5 w-3.5" />
-              Next milestone
-            </div>
-            <div className="mt-1 text-xl font-bold tabular-nums">
-              {stats.nextMilestone == null ? (
-                <span className="text-base font-semibold text-amber-500">
-                  Maxed 🏆
-                </span>
-              ) : (
-                <>
-                  {stats.lifetimeListed}
-                  <span className="ml-1 text-xs font-medium text-muted-foreground">
-                    / {stats.nextMilestone}
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <Button variant="ghost" size="sm" className="w-full" asChild>
-          <Link to="/dashboard/flipdesk/intake">
-            List another item
-            <ArrowRight className="ml-1 h-3.5 w-3.5" />
-          </Link>
-        </Button>
+        {body}
       </CardContent>
     </Card>
   );

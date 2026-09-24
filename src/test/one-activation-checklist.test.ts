@@ -71,7 +71,7 @@ describe("the step list is one module (US-2859)", () => {
     // US-3075: the grading overview renders from the widget registry, so the
     // dashboard "renders the checklist" by registering it - with no props,
     // which is the half that matters (see the persona guard below).
-    expect(read(REGISTRY)).toContain("m.ActivationChecklist");
+    expect(read(REGISTRY)).toContain("m.ActivationChecklistWidget");
     const flipdesk = read("src/components/onboarding/flipdesk-activation.tsx");
     expect(flipdesk).toContain('<ActivationChecklist variant="remaining" />');
     expect(

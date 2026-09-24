@@ -54,11 +54,18 @@ interface ActivationChecklistProps {
    * seller would meet their grade/item/eBay list on the buyer home.
    */
   persona?: UserUseCase;
+  /**
+   * No Card and no second title: for the dashboard board, whose WidgetFrame
+   * already draws "Getting started". The progress line and ONE dismiss control
+   * (Skip for now) remain.
+   */
+  bare?: boolean;
 }
 
 export function ActivationChecklist({
   variant = "full",
   persona,
+  bare = false,
 }: ActivationChecklistProps) {
   const navigate = useNavigate();
   const { steps, state, done, total, firstIncomplete, active, complete, dismiss, skip } =
@@ -78,6 +85,116 @@ export function ActivationChecklist({
 
   const shown = variant === "remaining" ? remaining : steps;
   if (shown.length === 0) return null;
+
+  const body = (
+    <>
+      {shown.map((step) => {
+        const isDone = step.isDone(state);
+        // "Next" is decided against the FULL list, not the filtered one, so
+        // the two variants highlight the same step.
+        const isNext = steps.indexOf(step) === firstIncomplete;
+        const Icon = step.icon;
+        return (
+          <div
+            key={step.key}
+            className={cn(
+              "flex items-center gap-3 rounded-lg border p-3",
+              isDone
+                ? "border-transparent bg-background/60"
+                : isNext
+                  ? "border-brand-navy/40 bg-background"
+                  : "border-transparent bg-background/40 opacity-70",
+            )}
+          >
+            <div
+              className={cn(
+                "flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full",
+                isDone
+                  ? "bg-brand-navy text-white"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              {isDone ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <Icon className="h-4 w-4" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p
+                className={cn(
+                  "text-sm font-medium",
+                  isDone && "text-muted-foreground line-through",
+                )}
+              >
+                {step.title}
+              </p>
+              {/* The WHY, which none of the three old cards carried. */}
+              <p className="text-xs text-muted-foreground">{step.reason}</p>
+            </div>
+            {!isDone && (
+              <div className="flex flex-shrink-0 items-center gap-1">
+                <Button
+                  size="sm"
+                  variant={isNext ? "default" : "outline"}
+                  onClick={() => complete(step, navigate)}
+                >
+                  {step.cta}
+                  <ArrowRight className="ml-1.5 h-3 w-3" />
+                </Button>
+                {/* US-3262: a step a seller may genuinely have nothing to do
+                    -- today only the import -- can be set aside here rather
+                    than sitting unchecked forever. Settings > Replay brings
+                    it back with the rest of the list. */}
+                {step.skippable && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => skip(step)}
+                    aria-label={`Skip: ${step.title}`}
+                  >
+                    Not me
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      <div className="flex justify-end pt-1">
+        <Button variant="ghost" size="sm" onClick={dismiss}>
+          Skip for now
+        </Button>
+      </div>
+      {/* US-2873 AC1: the way into the guided path, offered from the
+          FIRST step rather than as a fifth list of its own. It walks
+          these same steps, one at a time. */}
+      {!guidedActive && firstIncomplete !== -1 && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-1 w-full sm:w-auto"
+          onClick={() => startGuided(user?.id)}
+        >
+          <Compass className="mr-1.5 h-4 w-4" />
+          Walk me through it
+        </Button>
+      )}
+    </>
+  );
+
+  if (bare) {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-muted-foreground">
+          {done} of {total} done. Each one finishes on its own once you do the
+          real thing.
+        </p>
+        {body}
+      </div>
+    );
+  }
 
   return (
     <Card className="border-brand-navy/30 bg-brand-navy/5">
@@ -104,100 +221,13 @@ export function ActivationChecklist({
         </Button>
       </CardHeader>
       <CardContent className="space-y-2">
-        {shown.map((step) => {
-          const isDone = step.isDone(state);
-          // "Next" is decided against the FULL list, not the filtered one, so
-          // the two variants highlight the same step.
-          const isNext = steps.indexOf(step) === firstIncomplete;
-          const Icon = step.icon;
-          return (
-            <div
-              key={step.key}
-              className={cn(
-                "flex items-center gap-3 rounded-lg border p-3",
-                isDone
-                  ? "border-transparent bg-background/60"
-                  : isNext
-                    ? "border-brand-navy/40 bg-background"
-                    : "border-transparent bg-background/40 opacity-70",
-              )}
-            >
-              <div
-                className={cn(
-                  "flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full",
-                  isDone
-                    ? "bg-brand-navy text-white"
-                    : "bg-muted text-muted-foreground",
-                )}
-              >
-                {isDone ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Icon className="h-4 w-4" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p
-                  className={cn(
-                    "text-sm font-medium",
-                    isDone && "text-muted-foreground line-through",
-                  )}
-                >
-                  {step.title}
-                </p>
-                {/* The WHY, which none of the three old cards carried. */}
-                <p className="text-xs text-muted-foreground">{step.reason}</p>
-              </div>
-              {!isDone && (
-                <div className="flex flex-shrink-0 items-center gap-1">
-                  <Button
-                    size="sm"
-                    variant={isNext ? "default" : "outline"}
-                    onClick={() => complete(step, navigate)}
-                  >
-                    {step.cta}
-                    <ArrowRight className="ml-1.5 h-3 w-3" />
-                  </Button>
-                  {/* US-3262: a step a seller may genuinely have nothing to do
-                      -- today only the import -- can be set aside here rather
-                      than sitting unchecked forever. Settings > Replay brings
-                      it back with the rest of the list. */}
-                  {step.skippable && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => skip(step)}
-                      aria-label={`Skip: ${step.title}`}
-                    >
-                      Not me
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        <div className="flex justify-end pt-1">
-          <Button variant="ghost" size="sm" onClick={dismiss}>
-            Skip for now
-          </Button>
-        </div>
-        {/* US-2873 AC1: the way into the guided path, offered from the
-            FIRST step rather than as a fifth list of its own. It walks
-            these same steps, one at a time. */}
-        {!guidedActive && firstIncomplete !== -1 && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-1 w-full sm:w-auto"
-            onClick={() => startGuided(user?.id)}
-          >
-            <Compass className="mr-1.5 h-4 w-4" />
-            Walk me through it
-          </Button>
-        )}
+        {body}
       </CardContent>
     </Card>
   );
+}
+
+/** The dashboard board's widget: the checklist without its own card. */
+export function ActivationChecklistWidget() {
+  return <ActivationChecklist bare />;
 }

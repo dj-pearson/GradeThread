@@ -57,8 +57,12 @@ export function FlipdeskPipelineWidget({ range }: WidgetProps) {
             <div className="mt-1 flex items-baseline justify-between">
               <div
                 className={cn(
-                  "text-2xl font-bold tabular-nums",
-                  count === 0 && "text-muted-foreground/50",
+                  "text-2xl tabular-nums",
+                  // A zero is lighter, not fainter: half-opacity gray failed
+                  // contrast and read as disabled.
+                  count === 0
+                    ? "font-normal text-muted-foreground"
+                    : "font-bold",
                 )}
               >
                 {count.toLocaleString()}

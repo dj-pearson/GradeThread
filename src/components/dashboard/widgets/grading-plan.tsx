@@ -1,5 +1,4 @@
 import { Link } from "react-router";
-import { TrendingUp } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
   FLIPDESK_PLANS,
@@ -21,23 +20,25 @@ export function GradingPlanWidget() {
   const config =
     FLIPDESK_PLANS[profile?.flipdesk_plan ?? flipdeskPlanForLegacy(plan as PlanKey)];
 
+  // Flat: the frame already says "Current plan", so no second title, icon or
+  // border here.
+  const price =
+    config.priceMonthlyCents === 0
+      ? "Free"
+      : `${new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+        }).format(config.priceMonthlyCents / 100)}/mo`;
+
   return (
     <Link
       to="/dashboard/billing"
-      className="block rounded-xl border px-4 py-4 transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+      className="flex items-center gap-2 rounded-md py-1 hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
     >
-      <span className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-sm font-medium">Current plan</span>
-        <TrendingUp className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-      </span>
-      <span className="flex items-center gap-2">
-        <span className="text-2xl font-bold">{config.name}</span>
-        <Badge variant="secondary" className="text-xs">
-          {config.priceMonthlyCents === 0
-            ? "Free"
-            : `${config.priceMonthlyCents / 100}/mo`}
-        </Badge>
-      </span>
+      <span className="text-2xl font-bold">{config.name}</span>
+      <Badge variant="secondary" className="text-xs">
+        {price}
+      </Badge>
     </Link>
   );
 }

@@ -9,7 +9,7 @@ import {
   type OverviewStaleRow,
 } from "@/hooks/use-flipdesk-overview";
 import { DEFAULT_OVERVIEW_RANGE } from "@/lib/overview-range";
-import { fmtMoney, PREVIEW_ROWS } from "@/lib/flipdesk-overview-format";
+import { itemLabel, fmtMoney, PREVIEW_ROWS } from "@/lib/flipdesk-overview-format";
 import {
   EmptyList,
   ListIntro,
@@ -122,7 +122,7 @@ export function FlipdeskStaleWidget({ range }: WidgetProps) {
                       to={`/dashboard/flipdesk/items/${row.id}`}
                       className="block truncate font-medium hover:underline"
                     >
-                      {row.item_title}
+                      {itemLabel(row)}
                     </Link>
                     <div className="text-xs text-muted-foreground">
                       {fmtMoney(row.list_price)}
@@ -190,14 +190,18 @@ function StaleNudge({
     : "Grade this item to add a verified condition badge + certificate — graded listings earn more buyer trust.";
 
   const cta = isGraded
-    ? { label: "Reprice", to: "/dashboard/flipdesk/pricing?tab=repricing" }
+    // The item itself, where its price is edited: the repricing tab lists
+    // every rule and would make the seller find this item again.
+    ? { label: "Reprice", to: `/dashboard/flipdesk/items/${row.id}` }
     : {
         label: "Grade it",
         to: `/dashboard/flipdesk/items/${row.id}#canvas-grading`,
       };
 
   return (
-    <div className="flex items-start gap-2 rounded-md border border-brand-navy/30 bg-brand-navy/5 px-2.5 py-2">
+    // Flat: it sits inside a list row inside the frame, and a tinted bordered
+    // box there was a third level of card.
+    <div className="flex items-start gap-2 pl-1">
       {icon}
       <p className="flex-1 text-xs text-foreground">{text}</p>
       <div className="flex shrink-0 items-center gap-1">

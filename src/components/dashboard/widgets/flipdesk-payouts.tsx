@@ -72,7 +72,7 @@ export function FlipdeskPayoutsWidget() {
           {due ? `. Next one dated ${due.toLocaleDateString()}.` : "."}
         </p>
       ) : null}
-      <EbayPayoutsCard />
+      <EbayPayoutsCard bare />
       <Link
         to={PAYOUTS_HREF}
         className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"

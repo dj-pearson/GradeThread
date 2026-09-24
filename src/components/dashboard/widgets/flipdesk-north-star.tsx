@@ -39,6 +39,7 @@ export function FlipdeskNorthStarWidget({ range }: WidgetProps) {
     <NorthStarCard
       weeks={metrics?.listWeeks ?? []}
       lifetimeListed={metrics?.lifetimeListed}
+      bare
     />
   );
 }
