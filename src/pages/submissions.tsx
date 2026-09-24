@@ -60,7 +60,7 @@ import { escapeCsvCell } from "@/lib/items-csv";
 import { todayLocalDate, toLocalDate } from "@/lib/local-date";
 import { sanitizeSearch, endOfDayIso } from "@/lib/search-filter";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuthStore } from "@/stores/auth-store";
 import { fetchInChunks } from "@/lib/supabase-batch";
 import {
   GARMENT_TYPES,
@@ -110,7 +110,7 @@ function LoadingSkeleton() {
 
 // US-2544 AC4: pass `ids` to export just the checked rows. Omit it for the
 // whole account, which is what the toolbar button has always done.
-async function exportSubmissionsCsv(ids?: string[]) {
+async function exportSubmissionsCsv(ownerId: string, ids?: string[]) {
   // US-2204: the export is unpaginated by design, so it is the one submissions
   // read whose row width scales with the whole account. It writes seven columns
   // out of the row, and the grade_reports side is already projected — so project
@@ -139,6 +139,7 @@ async function exportSubmissionsCsv(ids?: string[]) {
       const { data, error } = await supabase
         .from("submissions")
         .select(EXPORT_COLUMNS)
+        .eq("user_id", ownerId)
         .in("id", chunk)
         .order("created_at", { ascending: false });
       return { data, error };
@@ -147,6 +148,7 @@ async function exportSubmissionsCsv(ids?: string[]) {
     const { data: submissions, error: subError } = await supabase
       .from("submissions")
       .select(EXPORT_COLUMNS)
+      .eq("user_id", ownerId)
       .order("created_at", { ascending: false });
     if (subError) throw subError;
     allSubmissions = (submissions ?? []) as ExportSubmission[];
@@ -267,7 +269,12 @@ interface DisputeWithSubmission extends DisputeRow {
 
 export function SubmissionsPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  // SUB-01: RLS alone is not a tenant scope here. It unions the caller's own
+  // rows, every workspace they belong to and, for an admin, every seller on the
+  // platform. The list is one workspace's ledger, so every read below names the
+  // effective owner, and the query keys carry it so a workspace switch refetches
+  // instead of serving the other tenant's cached page.
+  const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId ?? s.user?.id);
   // US-3328: finished grades held for their paid turnaround, and when each lands.
   const turnaround = useGradeTurnaround();
   const [exporting, setExporting] = useState(false);
@@ -334,6 +341,7 @@ export function SubmissionsPage() {
   } = useQuery({
     queryKey: [
       "submissions",
+      ownerId,
       page,
       statusFilter,
       garmentTypeFilter,
@@ -402,6 +410,7 @@ export function SubmissionsPage() {
         let scoreQuery = supabase
           .from("submissions")
           .select(SUBMISSION_LIST_COLUMNS, { count: "exact" })
+          .eq("user_id", ownerId!)
           .is("superseded_at", null);
         if (statusFilter !== "all")
           scoreQuery = scoreQuery.eq("status", statusFilter);
@@ -431,6 +440,7 @@ export function SubmissionsPage() {
       let query = supabase
         .from("submissions")
         .select(SUBMISSION_LIST_COLUMNS, { count: "exact" })
+        .eq("user_id", ownerId!)
         // US-949: superseded (retaken) submissions are history — exclude them
         // from the active list + count so a retake doesn't leave a dead row.
         .is("superseded_at", null);
@@ -464,6 +474,7 @@ export function SubmissionsPage() {
 
       return { submissions: merged, totalCount: count ?? 0 };
     },
+    enabled: !!ownerId,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -474,13 +485,16 @@ export function SubmissionsPage() {
     isFetching: disputesFetching,
     refetch: refetchDisputes,
   } = useQuery({
-    queryKey: ["my-disputes", user?.id],
+    queryKey: ["my-disputes", ownerId],
+    enabled: !!ownerId,
     queryFn: async () => {
       // Fetch all user disputes
       const { data: disputes, error: disputeError } = await supabase
         .from("disputes")
         .select("*")
-        .order("created_at", { ascending: false });
+        .eq("user_id", ownerId!)
+        .order("created_at", { ascending: false })
+        .limit(50);
 
       if (disputeError) throw disputeError;
 
@@ -511,6 +525,7 @@ export function SubmissionsPage() {
       const { data: subs, error: subsError } = await supabase
         .from("submissions")
         .select("id, title")
+        .eq("user_id", ownerId!)
         .in("id", submissionIds);
       if (subsError) throw subsError;
 
@@ -598,11 +613,11 @@ export function SubmissionsPage() {
           <>
             <Button
               variant="outline"
-              disabled={exporting}
+              disabled={exporting || !ownerId}
               onClick={async () => {
                 setExporting(true);
                 try {
-                  await exportSubmissionsCsv();
+                  await exportSubmissionsCsv(ownerId!);
                 } catch {
                   toast.error("Failed to export submissions.");
                 } finally {
@@ -800,11 +815,11 @@ export function SubmissionsPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={exporting}
+                      disabled={exporting || !ownerId}
                       onClick={async () => {
                         setExporting(true);
                         try {
-                          await exportSubmissionsCsv([...selected]);
+                          await exportSubmissionsCsv(ownerId!, [...selected]);
                         } catch {
                           toast.error("Failed to export the selected submissions.");
                         } finally {

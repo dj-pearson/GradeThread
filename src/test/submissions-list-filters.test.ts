@@ -104,8 +104,8 @@ describe("disputes collapse when there are none (US-2544 AC3)", () => {
 describe("rows are selectable and exportable (US-2544 AC4)", () => {
   it("the export takes an optional id list", () => {
     const src = page();
-    expect(src).toContain("async function exportSubmissionsCsv(ids?: string[])");
-    expect(src).toContain("exportSubmissionsCsv([...selected])");
+    expect(src).toContain("async function exportSubmissionsCsv(ownerId: string, ids?: string[])");
+    expect(src).toContain("exportSubmissionsCsv(ownerId!, [...selected])");
   });
 
   it("the selected ids are chunked like every other id list here", () => {
@@ -149,5 +149,29 @@ describe("the search guard is shared, not copied (US-2544)", () => {
     expect(src, "a second local copy has appeared").not.toContain(
       "function sanitizeSearch",
     );
+  });
+});
+
+describe("every read is scoped to the effective owner (SUB-01)", () => {
+  // RLS unions own rows, member workspaces and, for an admin, every seller.
+  // Leaning on it alone showed admins the whole platform in their list, count,
+  // CSV and My Disputes. Each from() below must name the owner explicitly.
+  it("each submissions/disputes read carries .eq(\"user_id\", ownerId)", () => {
+    const src = page();
+    const reads = [...src.matchAll(/\.from\("(submissions|disputes)"\)/g)];
+    expect(reads.length).toBeGreaterThanOrEqual(5);
+    for (const m of reads) {
+      const window = src.slice(m.index!, m.index! + 260);
+      expect(window, `unscoped ${m[1]} read at offset ${m.index}`).toMatch(
+        /\.eq\("user_id", ownerId!?\)/,
+      );
+    }
+  });
+
+  it("the owner comes from the active workspace, and keys carry it", () => {
+    const src = page();
+    expect(src).toContain("s.activeWorkspaceOwnerId ?? s.user?.id");
+    expect(src).toMatch(/queryKey: \[\s*"submissions",\s*ownerId,/);
+    expect(src).toContain('queryKey: ["my-disputes", ownerId]');
   });
 });
