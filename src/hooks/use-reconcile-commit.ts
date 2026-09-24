@@ -45,7 +45,21 @@ export interface CommitResult {
   /** Photos that couldn't be uploaded (e.g. restored placeholders). US-1633:
    * the session is only marked committed when every cluster has zero skips. */
   skipped?: number;
+  /** Photos that reached item_photos. */
+  saved?: number;
+  /** Photos that did not, for any reason. Equal to `skipped`. */
+  failed?: number;
+  /** Ids of the CommitPhotos that were saved, so the board can drop them and
+   * a retry does not upload them twice. */
+  savedPhotoIds?: string[];
 }
+
+/** Shown when the canvas re-encode fails. The original is never uploaded in
+ * its place: it still carries EXIF and GPS, and item-photos is public. */
+export const UNCONVERTIBLE_PHOTO_DETAIL =
+  "This format couldn't be converted (HEIC?). Export as JPEG and add it again.";
+
+type PhotoOutcome = { saved: true } | { saved: false; detail: string };
 
 function extForBlobType(mimeType: string, fallback: string): string {
   if (mimeType.includes("webp")) return "webp";
@@ -60,7 +74,7 @@ async function uploadOnePhoto(
   sortOrder: number,
   photo: CommitPhoto,
   sessionId: string | null,
-): Promise<boolean> {
+): Promise<PhotoOutcome> {
   // US-289: iOS-staged photo — the blob is already in the item-photos bucket.
   // Reference it directly instead of re-uploading (the in-memory File is gone).
   if (!photo.file && photo.storagePath) {
@@ -78,39 +92,43 @@ async function uploadOnePhoto(
       reconcile_session_id: sessionId,
     } as never);
     if (insErr) throw insErr;
-    return true;
+    return { saved: true };
   }
-  if (!photo.file) return false; // restored placeholder — nothing to upload
+  if (!photo.file) {
+    // Restored placeholder: the blob did not survive the reload.
+    return { saved: false, detail: "The photo didn't survive a reload. Add it again." };
+  }
 
   const file = photo.file;
-  let body: Blob = file;
-  let bodyType = file.type || "image/jpeg";
-  let ext = extForBlobType(bodyType, "jpg");
-  let width: number | null = null;
-  let height: number | null = null;
   let thumbBlob: Blob | null = null;
   let thumbType = "image/webp";
 
+  // The canvas re-encode IS the EXIF/GPS strip for this bucket, so a failure
+  // here skips the photo. It used to fall through and upload the original File
+  // to the PUBLIC item-photos bucket, location and all, and HEIC on Chrome and
+  // Firefox always took that path.
+  let main: Awaited<ReturnType<typeof compressImage>>;
   try {
-    const main = await compressImage(file, 2400, 0.85);
-    if (main.blob.size > 0) {
-      body = main.blob;
-      bodyType = main.blob.type || bodyType;
-      ext = extForBlobType(bodyType, ext);
-      width = main.width;
-      height = main.height;
-      try {
-        const thumb = await compressImage(file, 320, 0.7);
-        if (thumb.blob.size > 0) {
-          thumbBlob = thumb.blob;
-          thumbType = thumb.blob.type || "image/webp";
-        }
-      } catch {
-        /* thumbnail optional */
-      }
+    main = await compressImage(file, 2400, 0.85);
+  } catch {
+    return { saved: false, detail: UNCONVERTIBLE_PHOTO_DETAIL };
+  }
+  if (main.blob.size === 0) {
+    return { saved: false, detail: UNCONVERTIBLE_PHOTO_DETAIL };
+  }
+  const body: Blob = main.blob;
+  const bodyType = main.blob.type || "image/jpeg";
+  const ext = extForBlobType(bodyType, "jpg");
+  const width: number | null = main.width;
+  const height: number | null = main.height;
+  try {
+    const thumb = await compressImage(file, 320, 0.7);
+    if (thumb.blob.size > 0) {
+      thumbBlob = thumb.blob;
+      thumbType = thumb.blob.type || "image/webp";
     }
   } catch {
-    /* fall back to the original file */
+    /* thumbnail optional */
   }
 
   const ts = Date.now() + sortOrder; // keep paths unique within a cluster
@@ -152,8 +170,18 @@ async function uploadOnePhoto(
     captured_at: photo.capturedAt ? photo.capturedAt.toISOString() : null,
     reconcile_session_id: sessionId,
   } as never);
-  if (insErr) throw insErr;
-  return true;
+  if (insErr) {
+    // The object is in storage with no row pointing at it. Remove it, or a
+    // retry uploads a second copy and this one sits in a public bucket
+    // forever. Best effort: the insert error is the one the seller needs.
+    const orphans = [path, ...(thumbnailPath ? [thumbnailPath] : [])];
+    await supabase.storage
+      .from("item-photos")
+      .remove(orphans)
+      .catch(() => undefined);
+    throw insErr;
+  }
+  return { saved: true };
 }
 
 export async function resolveItemId(
@@ -214,56 +242,9 @@ async function commitCluster(
   workspaceOwnerId: string,
   sessionId: string | null,
 ): Promise<CommitResult> {
+  let resolved: Awaited<ReturnType<typeof resolveItemId>>;
   try {
-    const { itemId, currentStatus, createdNew } = await resolveItemId(cluster, workspaceOwnerId);
-
-    let uploaded = 0;
-    let skipped = 0;
-    let sort = 0;
-    for (const photo of cluster.photos) {
-      const ok = await uploadOnePhoto(itemId, workspaceOwnerId, sort, photo, sessionId);
-      if (ok) uploaded += 1;
-      else skipped += 1;
-      sort += 1;
-    }
-
-    // US-1633: a freshly-created draft that ended up with ZERO uploaded photos
-    // (e.g. every photo was a restored placeholder) is an orphan — delete it and
-    // report failure instead of leaving an empty draft littering the pipeline.
-    if (createdNew && uploaded === 0) {
-      // US-3376: checked. The whole point of this delete is that an empty draft
-      // does not litter the pipeline, and dropping its result meant that on a
-      // refusal one did anyway, while the results dialog said only "re-add the
-      // photos" and never mentioned the draft now sitting in Inventory.
-      const { error: deleteErr } = await supabase
-        .from("inventory_items")
-        .delete()
-        .eq("id", itemId)
-        .eq("user_id", workspaceOwnerId);
-      return {
-        clusterId: cluster.clusterId,
-        title: cluster.label,
-        ok: false,
-        skipped,
-        detail: deleteErr
-          ? "No photos could be uploaded, and the empty draft this created could not be removed. Delete it from Inventory, then re-add the photos."
-          : "No photos could be uploaded, so re-add them and try again.",
-      };
-    }
-
-    // Advance to "photographed" if the required set is satisfied (consider both
-    // the freshly-uploaded types and any the linked item already had).
-    const presentTypes = new Set(cluster.photos.map((p) => p.photoType));
-    const requiredComplete = REQUIRED_PHOTO_TYPES.every((t) => presentTypes.has(t));
-    if (requiredComplete) {
-      await advanceItemStatus(itemId, currentStatus, "photographed");
-    }
-
-    const detail =
-      skipped > 0
-        ? `${uploaded} uploaded, ${skipped} skipped (re-add those photos)`
-        : `${uploaded} photo${uploaded === 1 ? "" : "s"} → ${cluster.linkItemId ? "linked item" : "new draft"}`;
-    return { clusterId: cluster.clusterId, title: cluster.label, ok: true, detail, itemId, skipped };
+    resolved = await resolveItemId(cluster, workspaceOwnerId);
   } catch (err) {
     return {
       clusterId: cluster.clusterId,
@@ -272,6 +253,105 @@ async function commitCluster(
       detail: err instanceof Error ? err.message : String(err),
     };
   }
+  const { itemId, currentStatus, createdNew } = resolved;
+  const total = cluster.photos.length;
+
+  // From here the item EXISTS, so every return carries its id. A photo that
+  // throws is counted against this cluster rather than escaping to an outer
+  // catch that no longer knew which item it had half-built, which is how a
+  // retry used to create the item and upload the photos a second time.
+  const savedPhotoIds: string[] = [];
+  const savedTypes = new Set<string>();
+  const reasons: string[] = [];
+  let sort = 0;
+  for (const photo of cluster.photos) {
+    try {
+      const out = await uploadOnePhoto(itemId, workspaceOwnerId, sort, photo, sessionId);
+      if (out.saved) {
+        savedPhotoIds.push(photo.id);
+        savedTypes.add(photo.photoType);
+      } else {
+        reasons.push(out.detail);
+      }
+    } catch (err) {
+      reasons.push(err instanceof Error ? err.message : String(err));
+    }
+    sort += 1;
+  }
+  const saved = savedPhotoIds.length;
+  const failed = total - saved;
+
+  // US-1633: a freshly-created draft that ended up with ZERO uploaded photos
+  // (e.g. every photo was a restored placeholder) is an orphan — delete it and
+  // report failure instead of leaving an empty draft littering the pipeline.
+  if (createdNew && saved === 0) {
+    // US-3376: checked. The whole point of this delete is that an empty draft
+    // does not litter the pipeline, and dropping its result meant that on a
+    // refusal one did anyway, while the results dialog said only "re-add the
+    // photos" and never mentioned the draft now sitting in Inventory.
+    const { error: deleteErr } = await supabase
+      .from("inventory_items")
+      .delete()
+      .eq("id", itemId)
+      .eq("user_id", workspaceOwnerId);
+    const why = reasons[0] ? ` ${reasons[0]}` : "";
+    return {
+      clusterId: cluster.clusterId,
+      title: cluster.label,
+      ok: false,
+      skipped: failed,
+      saved: 0,
+      failed,
+      savedPhotoIds: [],
+      // Only when the draft is still there: a deleted id is nothing to link to.
+      itemId: deleteErr ? itemId : undefined,
+      detail: deleteErr
+        ? "No photos could be uploaded, and the empty draft this created could not be removed. Delete it from Inventory, then re-add the photos."
+        : `No photos could be uploaded, so re-add them and try again.${why}`,
+    };
+  }
+
+  // Advance to "photographed" only when the required set is really there:
+  // the types that UPLOADED here, plus whatever a linked item already had. A
+  // skipped front photo does not count as a front photo.
+  const presentTypes = new Set<string>(savedTypes);
+  if (!createdNew) {
+    const { data: existing, error: existingErr } = await supabase
+      .from("item_photos")
+      .select("photo_type")
+      .eq("inventory_item_id", itemId);
+    if (!existingErr) {
+      for (const r of (existing ?? []) as { photo_type: string }[]) {
+        presentTypes.add(r.photo_type);
+      }
+    }
+  }
+  const requiredComplete = REQUIRED_PHOTO_TYPES.every((t) => presentTypes.has(t));
+  let statusNote = "";
+  if (requiredComplete) {
+    try {
+      await advanceItemStatus(itemId, currentStatus, "photographed");
+    } catch {
+      statusNote = " The photos are saved, but the item couldn't be moved to Photographed.";
+    }
+  }
+
+  const detail =
+    (failed > 0
+      ? `${saved} of ${total} photos saved. ${reasons[0] ?? "Re-add the rest."}`
+      : `${saved} photo${saved === 1 ? "" : "s"} → ${cluster.linkItemId ? "linked item" : "new draft"}`) +
+    statusNote;
+  return {
+    clusterId: cluster.clusterId,
+    title: cluster.label,
+    ok: failed === 0,
+    detail,
+    itemId,
+    skipped: failed,
+    saved,
+    failed,
+    savedPhotoIds,
+  };
 }
 
 /**
