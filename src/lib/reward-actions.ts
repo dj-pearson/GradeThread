@@ -36,7 +36,7 @@ export const METRIC_ACTIONS: Readonly<Record<string, RewardAction>> = {
   badge_embedded: { href: "/dashboard/flipdesk/verified", label: "Add your badge" },
   verified_share: VERIFIED_SHARE,
   marketplace_connected: CONNECT,
-  item_cataloged: { href: "/dashboard/flipdesk/intake", label: "Add an item" },
+  item_cataloged: { href: "/dashboard/flipdesk/intake", label: "Add item" },
   item_measured: PIPELINE,
   item_photographed: PIPELINE,
   item_comped: { href: "/dashboard/flipdesk/pricing", label: "Price an item" },

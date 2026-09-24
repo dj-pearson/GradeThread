@@ -62,7 +62,7 @@ Deno.test("R4: a hidden character comes back as a sentence the panel can show", 
   const db = installFakePostgrest();
   try {
     seed(db, {});
-    const r = await put({ alias: "Ali​ce" });
+    const r = await put({ alias: "Ali\u200Bce" });
     assertEquals(r.status, 400);
     assert(typeof r.json.error === "string" && r.json.error.length > 0);
     assertEquals(db.writes("users").length, 0);
