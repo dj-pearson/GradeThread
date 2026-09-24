@@ -43,7 +43,7 @@ const DECLARED: readonly DeclaredRead[] = [
     why: "the shared list read pages with .range(); useItemFull reads one row",
   },
   {
-    file: "src/pages/flipdesk/grid.tsx",
+    file: "src/pages/flipdesk/grid-page-query.ts",
     bounds: [".range(", 'count: "exact"'],
     why: "the grid renders one server-side page and gets its total from the count",
   },
@@ -138,10 +138,12 @@ describe("every items_full read is bounded (US-2167)", () => {
     // keeping, so the assertion targets the call and the import, not the word.
     expect(src).not.toMatch(/fetchItemsPaged\s*[<(]/);
     expect(src).not.toMatch(/^import .*fetchItemsPaged/m);
-    // Exactly ONE direct from-call is expected here — the US-2172 undo's
-    // read-back, which is scoped to the ids it is restoring. A second one would
-    // be a new tenant-wide read wearing the first one's declaration.
-    expect(src.split(FROM_CALL).length - 1).toBe(1);
+    // Exactly TWO direct from-calls are expected here — the US-2172 undo's
+    // read-back, scoped to the ids it is restoring, and INV-3's
+    // resolveSelection, scoped to the owner AND the selected ids. A third one
+    // would be a new tenant-wide read wearing the others' declaration.
+    expect(src.split(FROM_CALL).length - 1).toBe(2);
+    expect(src).toMatch(/\.select\(RESOLVE_COLUMNS\)\s*\.eq\("user_id", ownerId\)\s*\.in\("id", chunk\)/);
   });
 
   it("counts tab totals with a server-side aggregate, not loaded rows", () => {

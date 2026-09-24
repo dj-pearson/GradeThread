@@ -149,7 +149,7 @@ function ShipRow({
   }
 
   return (
-    <TableRow>
+    <TableRow data-focus-id={row.id} className="data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none">
       <TableCell className="w-8 align-top">
         <Checkbox
           checked={selected}

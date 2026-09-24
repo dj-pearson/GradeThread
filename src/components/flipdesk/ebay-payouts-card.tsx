@@ -187,13 +187,81 @@ function PayoutBreakdownPanel({ payoutId }: { payoutId: string }) {
   );
 }
 
-export function EbayPayoutsCard() {
+export function EbayPayoutsCard({
+  bare = false,
+}: {
+  /**
+   * The list only, with no Card or header. For the dashboard board, whose
+   * WidgetFrame already draws the title.
+   */
+  bare?: boolean;
+} = {}) {
   const { data: connection } = useEbayConnection();
   const connected = !!connection;
   const { data, isLoading } = useEbayPayouts(connected);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   if (!connected) return null;
+
+  const list = (
+    isLoading ? (
+      <p className="text-sm text-muted-foreground">Loading payouts…</p>
+    ) : data?.access === false ? (
+      <p className="text-sm text-muted-foreground">
+        Reconnect eBay to pull payouts automatically. You can still import a
+        CSV below.
+      </p>
+    ) : (data?.payouts?.length ?? 0) === 0 ? (
+      <p className="text-sm text-muted-foreground">
+        No payouts in the last 90 days.
+      </p>
+    ) : (
+      <ul className="divide-y">
+        {data?.payouts?.map((p) => {
+          const isOpen = expanded === p.payoutId;
+          return (
+            <li key={p.payoutId} className="py-2 text-sm">
+              <button
+                type="button"
+                onClick={() => setExpanded(isOpen ? null : p.payoutId)}
+                className="flex w-full items-center justify-between gap-3 text-left"
+                aria-expanded={isOpen}
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  {isOpen ? (
+                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  )}
+                  <div className="min-w-0">
+                    <div className="font-medium tabular-nums">
+                      {money(p.amount)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {fmtDate(p.payoutDate)}
+                      {p.transactionCount != null
+                        ? ` · ${p.transactionCount} transaction${p.transactionCount === 1 ? "" : "s"}`
+                        : ""}
+                    </div>
+                  </div>
+                </div>
+                <Badge variant={statusVariant(p.payoutStatus)}>
+                  {p.payoutStatus.toLowerCase().replace(/_/g, " ")}
+                </Badge>
+              </button>
+              {isOpen && (
+                <div className="mt-2 pl-6">
+                  <PayoutBreakdownPanel payoutId={p.payoutId} />
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    )
+  );
+
+  if (bare) return <div>{list}</div>;
 
   return (
     <Card>
@@ -208,61 +276,7 @@ export function EbayPayoutsCard() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading payouts…</p>
-        ) : data?.access === false ? (
-          <p className="text-sm text-muted-foreground">
-            Reconnect eBay to pull payouts automatically. You can still import a
-            CSV below.
-          </p>
-        ) : (data?.payouts?.length ?? 0) === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No payouts in the last 90 days.
-          </p>
-        ) : (
-          <ul className="divide-y">
-            {data?.payouts?.map((p) => {
-              const isOpen = expanded === p.payoutId;
-              return (
-                <li key={p.payoutId} className="py-2 text-sm">
-                  <button
-                    type="button"
-                    onClick={() => setExpanded(isOpen ? null : p.payoutId)}
-                    className="flex w-full items-center justify-between gap-3 text-left"
-                    aria-expanded={isOpen}
-                  >
-                    <div className="flex min-w-0 items-center gap-2">
-                      {isOpen ? (
-                        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      )}
-                      <div className="min-w-0">
-                        <div className="font-medium tabular-nums">
-                          {money(p.amount)}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {fmtDate(p.payoutDate)}
-                          {p.transactionCount != null
-                            ? ` · ${p.transactionCount} transaction${p.transactionCount === 1 ? "" : "s"}`
-                            : ""}
-                        </div>
-                      </div>
-                    </div>
-                    <Badge variant={statusVariant(p.payoutStatus)}>
-                      {p.payoutStatus.toLowerCase().replace(/_/g, " ")}
-                    </Badge>
-                  </button>
-                  {isOpen && (
-                    <div className="mt-2 pl-6">
-                      <PayoutBreakdownPanel payoutId={p.payoutId} />
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        {list}
       </CardContent>
     </Card>
   );

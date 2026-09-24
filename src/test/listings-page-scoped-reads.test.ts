@@ -225,10 +225,13 @@ describe("optimistic writes target this page's own cache (US-2372)", () => {
   it("defines the page's items key exactly once", () => {
     // The whole fix is one definition. Nine hand-spelled copies is how it
     // drifted, so a second inline spelling of the same key is a regression.
+    // INV-D1: the key is built by listingsItemsKeyFor and names the workspace
+    // on screen rather than the signed-in user.
     const definition = src.match(
-      /const listingsItemsKey = \["items_full", "listings", user\?\.id\] as const;/g,
+      /const listingsItemsKey = listingsItemsKeyFor\(ownerId\);/g,
     );
     expect(definition?.length).toBe(1);
+    expect(src).not.toMatch(/\["items_full", "listings", user\?\.id\]/);
   });
 
   it("no setQueryData in this file targets the bare full-row key", () => {

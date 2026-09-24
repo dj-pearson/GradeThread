@@ -34,11 +34,11 @@ export interface SyncConflictsResponse {
   has_more: boolean;
 }
 
-export function useSyncConflicts() {
+export function useSyncConflicts(enabled = true) {
   const user = useAuthStore((s) => s.user);
   return useQuery({
     queryKey: ["sync_conflicts", user?.id],
-    enabled: !!user,
+    enabled: enabled && !!user,
     staleTime: 30_000,
     queryFn: async (): Promise<SyncConflictsResponse> => {
       // silentGate: this read runs on page mount (tab badge) — a non-Business
@@ -49,7 +49,12 @@ export function useSyncConflicts() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(json.error || "Failed to load sync conflicts.");
+        // Carry the status so a caller can tell a plan gate (402/403, not
+        // applicable to this account) from a real failure.
+        throw Object.assign(
+          new Error(json.error || "Failed to load sync conflicts."),
+          { status: res.status },
+        );
       }
       return json as SyncConflictsResponse;
     },

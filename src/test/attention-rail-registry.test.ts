@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { widgetsForSurface } from "@/lib/dashboard-widgets";
+import { ATTENTION_HREF, SYNC_CONFLICTS_HREF } from "@/lib/attention-rail";
 
 // US-3079 AC3: the rail's Refresh control invalidates the queryKey prefixes the
 // REGISTRY declares, so a widget added later is refreshed on the commit that
@@ -105,5 +106,39 @@ describe("US-3079 AC3: every data widget declares its queryKeys", () => {
       return w != null && w.queryKeys.length > 0;
     });
     expect(pointless).toEqual([]);
+  });
+});
+
+describe("DASH-6: rail chips point at the pages that show what they count", () => {
+  it("sends sync conflicts to the resolver, shared with the widget", () => {
+    expect(ATTENTION_HREF.syncConflicts).toBe(SYNC_CONFLICTS_HREF);
+    expect(SYNC_CONFLICTS_HREF).toBe(
+      "/dashboard/flipdesk/money?view=reconcile&tab=cross-source",
+    );
+    const widget = readFileSync(
+      resolve(process.cwd(), "src/components/dashboard/widgets/flipdesk-sync-conflicts.tsx"),
+      "utf8",
+    );
+    expect(widget).toContain("SYNC_CONFLICTS_HREF");
+  });
+
+  it("sends stale to the stale widget's own destination", () => {
+    expect(ATTENTION_HREF.stale).toBe("/dashboard/flipdesk/analytics/performance");
+  });
+
+  it("gates every FlipDesk hook in the rail on isFlipdesk", () => {
+    const rail = readFileSync(
+      resolve(process.cwd(), "src/components/dashboard/attention-rail.tsx"),
+      "utf8",
+    );
+    for (const call of [
+      "useNeedsYou(isFlipdesk || crossNeedsYou, ebayOn || crossNeedsYou)",
+      "useSyncConflicts(isFlipdesk)",
+      "useExtensionQueue(isFlipdesk)",
+      "useAutolisterDrafts(isFlipdesk)",
+      "useFlipdeskOverview(range, isFlipdesk)",
+    ]) {
+      expect(rail, call).toContain(call);
+    }
   });
 });

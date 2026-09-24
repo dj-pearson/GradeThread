@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { fetchInChunks } from "@/lib/supabase-batch";
 import { ListingSuggestions } from "@/components/analytics/listing-suggestions";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WidgetLoadError } from "@/components/dashboard/widgets/flipdesk-shared";
 import type {
   GradeReportRow,
   InventoryItemRow,
@@ -29,7 +30,7 @@ interface SuggestionData {
 }
 
 export function GradingListingSuggestionsWidget() {
-  const { data, isLoading } = useQuery<SuggestionData>({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery<SuggestionData>({
     queryKey: ["dashboard-listing-suggestions"],
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
@@ -37,8 +38,12 @@ export function GradingListingSuggestionsWidget() {
       const { data: itemsRaw, error: itemsError } = await supabase
         .from("inventory_items")
         .select("id, status, title, submission_id")
-        .not("status", "in", "(sold,shipped,completed,returned)")
-        .order("created_at", { ascending: false })
+        // Archived items are out of stock by choice; suggesting a listing for
+        // one is noise.
+        .not("status", "in", "(sold,shipped,completed,returned,archived)")
+        // Oldest first: the item that has waited longest is the one a
+        // suggestion helps most, and a newest-first cap cut it off.
+        .order("created_at", { ascending: true })
         .limit(SUGGESTION_CANDIDATE_CAP);
       if (itemsError) throw itemsError;
       const items = (itemsRaw ?? []) as unknown as InventoryItemRow[];
@@ -72,6 +77,15 @@ export function GradingListingSuggestionsWidget() {
   });
 
   if (isLoading) return <Skeleton className="h-32 w-full rounded-xl" />;
+  if (isError) {
+    return (
+      <WidgetLoadError
+        what="your listing suggestions"
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
   if (!data) return null;
 
   return (

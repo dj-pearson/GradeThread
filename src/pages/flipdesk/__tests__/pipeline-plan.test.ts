@@ -11,6 +11,8 @@ import { QueryClient } from "@tanstack/react-query";
 import type { ItemListRow } from "@/lib/item-list-columns";
 import {
   moveCardOptimistically,
+  writeStageMove,
+  CHANGED_SINCE_LOADED,
   nextPipelineStatus,
   planBatchAdvance,
 } from "@/pages/flipdesk/pipeline-plan";
@@ -172,5 +174,41 @@ describe("moveCardOptimistically (US-1633)", () => {
     expect(err).toBeNull();
     expect(statusOf(qc, "x")).toBe("cataloged");
     expect(cancel).toHaveBeenCalledWith({ queryKey: ["items_full"] });
+  });
+});
+
+describe("writeStageMove (INV-8)", () => {
+  function client(rows: unknown[] | null, error: unknown = null) {
+    const calls: { eq: [string, string][]; patch?: unknown } = { eq: [] };
+    const c = {
+      from: () => ({
+        update: (patch: never) => {
+          calls.patch = patch;
+          const chain = {
+            eq: (col: string, val: string) => {
+              calls.eq.push([col, val]);
+              return chain;
+            },
+            select: () => Promise.resolve({ data: rows, error }),
+          };
+          return chain;
+        },
+      }),
+    };
+    return { c: c as unknown as Parameters<typeof writeStageMove>[0], calls };
+  }
+
+  it("carries the status the board showed as a precondition", async () => {
+    const { c, calls } = client([{ id: "i1" }]);
+    const res = await writeStageMove(c, "i1", "listed" as never, "sold" as never);
+    expect(res.error).toBeNull();
+    expect(calls.eq).toEqual([["id", "i1"], ["status", "listed"]]);
+    expect(calls.patch).toEqual({ status: "sold" });
+  });
+
+  it("reports zero changed rows as 'Changed since you loaded the board'", async () => {
+    const { c } = client([]);
+    const res = await writeStageMove(c, "i1", "sold" as never, "listed" as never);
+    expect((res.error as Error).message).toBe(CHANGED_SINCE_LOADED);
   });
 });

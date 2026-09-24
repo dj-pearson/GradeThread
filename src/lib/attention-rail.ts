@@ -23,6 +23,11 @@ export interface AttentionChip {
   /** The chip's own words, without the count. */
   label: string;
   count: number;
+  /**
+   * What to print instead of `count` when the count is a floor rather than
+   * the total, e.g. "500+" for a capped read. Absent when count is exact.
+   */
+  countLabel?: string;
   href: string;
   /**
    * A short qualifier shown after the label, e.g. "due in 3 hours" for the
@@ -43,13 +48,25 @@ export interface FlipdeskAttentionInput {
    */
   needsYouDeadlineLabel: string | null;
   draftsToReview: number;
+  /** True when the drafts read hit its cap, so draftsToReview is a floor. */
+  draftsTruncated?: boolean;
   syncConflicts: number;
   extensionJobsPending: number;
+  /**
+   * Extension jobs that failed or expired (the queue's needsAttention). A
+   * failed delist is a double-sale risk, so this ranks right after needs-you.
+   */
+  extensionJobsFailed?: number;
+  /** Finished extension runs that still want a human (finishedNeedsReview). */
+  extensionJobsToReview?: number;
   agingCount: number;
   staleCount: number;
 }
 
 export interface GradingAttentionInput {
+  /** needs_photos: the quality gate asked the SELLER for new photos. */
+  needsPhotos?: number;
+  /** pending_review: waiting on GradeThread staff, not the seller. */
   inReview: number;
   failed: number;
   disputed: number;
@@ -59,6 +76,12 @@ export interface AttentionInputs {
   surface: AttentionSurface;
   flipdesk?: FlipdeskAttentionInput | null;
   grading?: GradingAttentionInput | null;
+  /**
+   * DASH-14: what the OTHER half of the Overview has waiting, for one trailing
+   * chip. Null when the account does not have the other half, or when it is
+   * not read (grading view with no eBay connection).
+   */
+  otherSide?: { count: number } | null;
 }
 
 /**
@@ -66,17 +89,36 @@ export interface AttentionInputs {
  * src/routes/index.tsx; a chip that links nowhere is worse than no chip,
  * because it costs a click to learn that.
  */
+/**
+ * Where sync conflicts are resolved. Shared by the rail chip and the
+ * flipdesk.sync-conflicts widget so the two cannot point at different pages;
+ * /marketplaces renders no conflicts at all.
+ */
+export const SYNC_CONFLICTS_HREF =
+  "/dashboard/flipdesk/money?view=reconcile&tab=cross-source";
+
 export const ATTENTION_HREF = {
   needsYou: "/dashboard/flipdesk/post-sale",
   draftsToReview: "/dashboard/flipdesk/autolister?view=drafts",
-  syncConflicts: "/dashboard/flipdesk/marketplaces",
-  extensionJobs: "/dashboard/flipdesk/marketplaces",
+  syncConflicts: SYNC_CONFLICTS_HREF,
+  extensionJobs: "/dashboard/flipdesk/marketplaces#extension-queue",
   aging: "/dashboard/flipdesk/inventory",
-  stale: "/dashboard/flipdesk/inventory",
+  // Same destination as the flipdesk.stale widget's own "see all" link.
+  stale: "/dashboard/flipdesk/analytics/performance",
+  needsPhotos: "/dashboard/submissions?status=needs_photos",
   inReview: "/dashboard/submissions?status=pending_review",
+  gradingSide: "/dashboard?view=grading",
+  flipdeskSide: "/dashboard?view=flipdesk",
   failed: "/dashboard/submissions?status=failed",
   disputed: "/dashboard/submissions?status=disputed",
 } as const;
+
+/**
+ * The query-key prefixes the rail reads that are NOT registry widgets'. The
+ * Refresh control unions these into its invalidations, or the rail's own
+ * counts would be the one thing on the page it does not refresh.
+ */
+export const RAIL_QUERY_KEYS = ["attention-rail-grading"] as const;
 
 /** What the rail says when every count is zero. */
 export const ALL_CLEAR = "All clear";
@@ -97,8 +139,15 @@ export function buildAttentionChips(inputs: AttentionInputs): AttentionChip[] {
     count: number,
     href: string,
     hint: string | null = null,
+    countLabel?: string,
   ) => {
-    if (count > 0) out.push({ id, label, count, href, hint });
+    if (count > 0) {
+      out.push(
+        countLabel
+          ? { id, label, count, countLabel, href, hint }
+          : { id, label, count, href, hint },
+      );
+    }
   };
 
   const f = inputs.flipdesk;
@@ -110,7 +159,26 @@ export function buildAttentionChips(inputs: AttentionInputs): AttentionChip[] {
       ATTENTION_HREF.needsYou,
       f.needsYouDeadlineLabel,
     );
-    push("drafts", "drafts to review", f.draftsToReview, ATTENTION_HREF.draftsToReview);
+    push(
+      "extension-failed",
+      "extension jobs failed",
+      f.extensionJobsFailed ?? 0,
+      ATTENTION_HREF.extensionJobs,
+    );
+    push(
+      "drafts",
+      "drafts to review",
+      f.draftsToReview,
+      ATTENTION_HREF.draftsToReview,
+      null,
+      f.draftsTruncated ? `${f.draftsToReview}+` : undefined,
+    );
+    push(
+      "extension-review",
+      "extension runs to check",
+      f.extensionJobsToReview ?? 0,
+      ATTENTION_HREF.extensionJobs,
+    );
     push("conflicts", "sync conflicts", f.syncConflicts, ATTENTION_HREF.syncConflicts);
     push(
       "extension",
@@ -124,9 +192,35 @@ export function buildAttentionChips(inputs: AttentionInputs): AttentionChip[] {
 
   const g = inputs.grading;
   if (inputs.surface === "grading" && g) {
-    push("in-review", "in review", g.inReview, ATTENTION_HREF.inReview);
+    // needs_photos first: it is the one grading status that waits on the
+    // seller. pending_review waits on GradeThread staff, so it ranks last and
+    // is worded as progress rather than as work.
+    push("needs-photos", "need new photos", g.needsPhotos ?? 0, ATTENTION_HREF.needsPhotos);
     push("failed", "failed", g.failed, ATTENTION_HREF.failed);
     push("disputed", "disputed", g.disputed, ATTENTION_HREF.disputed);
+    push("in-review", "being finalized", g.inReview, ATTENTION_HREF.inReview);
+  }
+
+  // DASH-14: last, whatever it holds. The view choice is remembered, so a
+  // reseller who lives on FlipDesk would otherwise never see a disputed grade,
+  // and a grader never an eBay deadline. One chip, not the other side's list.
+  const other = inputs.otherSide;
+  if (other) {
+    if (inputs.surface === "flipdesk") {
+      push(
+        "grading-side",
+        other.count === 1 ? "grading item needs you" : "grading items need you",
+        other.count,
+        ATTENTION_HREF.gradingSide,
+      );
+    } else {
+      push(
+        "flipdesk-side",
+        other.count === 1 ? "FlipDesk item needs you" : "FlipDesk items need you",
+        other.count,
+        ATTENTION_HREF.flipdeskSide,
+      );
+    }
   }
 
   return out;
@@ -146,4 +240,41 @@ export function oldestUpdatedAt(stamps: readonly number[]): number | null {
   const real = stamps.filter((n) => Number.isFinite(n) && n > 0);
   if (real.length === 0) return null;
   return Math.min(...real);
+}
+
+/** What the rail's chip area shows. */
+export type RailState = "loading" | "all-clear" | "chips" | "error";
+
+export interface RailStateInput {
+  chips: readonly AttentionChip[];
+  /** Names of the sources whose read failed. */
+  failed: readonly string[];
+  loading: boolean;
+  /** A source answered with only part of its data (useNeedsYou.isPartial). */
+  partial: boolean;
+}
+
+/**
+ * Which of the four states the rail is in.
+ *
+ * The rule this exists for: "All clear" is a claim that every source was
+ * checked and every count was zero. A failed or partial read is not zero, it
+ * is unknown, so it can never produce 'all-clear'. With chips to show the rail
+ * shows them and adds a "Could not check" chip; with none it is an error.
+ */
+export function railState(input: RailStateInput): RailState {
+  if (input.loading) return "loading";
+  const unsure = input.failed.length > 0 || input.partial;
+  if (input.chips.length > 0) return "chips";
+  return unsure ? "error" : "all-clear";
+}
+
+/**
+ * True for an error that means "this account's plan does not include this
+ * read" rather than "the read failed". A plan-gated source is not applicable,
+ * so it must not count as a source the rail could not check.
+ */
+export function isPlanGateError(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status;
+  return status === 402 || status === 403;
 }

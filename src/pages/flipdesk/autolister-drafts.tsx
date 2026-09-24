@@ -1,6 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { shouldIgnoreDraftsHotkey } from "./autolister/drafts-hotkeys";
+import { DraftsPublishConfirm } from "./autolister/drafts-publish-confirm";
 import {
   Boxes,
   Search,
@@ -54,6 +56,7 @@ import { ClickableRow } from "@/components/clickable-row";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import {
+  patchAutolisterDraft,
   useAutolisterDrafts,
   useBulkPublish,
   useGeneratePlatformFields,
@@ -175,32 +178,27 @@ export function FlipdeskAutolisterDraftsPage() {
   );
   // US-1895: recommended-aspect coverage per draft, so a bulk session can sort
   // + fix low-coverage drafts before publishing (one de-duped edge call).
-  const { data: coverageByItem = {} } = useBulkAspectCoverage(itemIds);
+  // AL-04: a failed coverage read shows a banner; the table still renders.
+  const {
+    data: coverageByItem = {},
+    isError: coverageError,
+    refetch: reloadCoverage,
+    isFetching: coverageFetching,
+  } = useBulkAspectCoverage(itemIds);
 
-  // US-1897: the persisted Listing Quality Score per draft.
-  //
-  // A failed score read is unavailable, not evidence that drafts are unscored.
-  // Keep it separate so a retry can refresh just the supporting reads.
-  const listingIds = useMemo(() => drafts.map((d) => d.id), [drafts]);
-  const { data: scoreByListing = {}, isError: scoresError, refetch: reloadScores } = useQuery({
-    queryKey: ["draft-quality-scores", listingIds],
-    enabled: listingIds.length > 0,
-    staleTime: 30_000,
-    queryFn: async (): Promise<Record<string, QualityScoreSummary>> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select("id, quality_score, quality_blocked")
-        .in("id", listingIds);
-      if (error) throw error;
-      return scoreMapFromRows(
-        (data ?? []) as Array<{
-          id: string;
-          quality_score: number | null;
-          quality_blocked: boolean | null;
-        }>,
-      );
-    },
-  });
+  // US-1897: the persisted Listing Quality Score per draft. AL-04: read with
+  // the drafts themselves rather than a second GET carrying every id.
+  const scoreByListing = useMemo<Record<string, QualityScoreSummary>>(
+    () =>
+      scoreMapFromRows(
+        drafts.map((d) => ({
+          id: d.id,
+          quality_score: d.quality_score ?? null,
+          quality_blocked: d.quality_blocked ?? null,
+        })),
+      ),
+    [drafts],
+  );
   // See draft-quality.ts for why unscored sinks to the end.
   const qualityRank = (listingId: string): number => qualityRankOf(scoreByListing[listingId]);
   // Ratio (0..1) for sorting; unknown/no-recommended coverage sinks to the end.
@@ -210,31 +208,17 @@ export function FlipdeskAutolisterDraftsPage() {
     return c.filled / c.total;
   };
   // The draft lives on `listings`, but what you PAID lives on the inventory
-  // item (inventory_items.acquired_price — surfaced as purchase_price by the
-  // items_full view the Inventory table reads). Pull it alongside the title so
-  // a draft can show cost + estimated return without a second round trip.
-  const { data: itemMeta = {}, isError: itemMetaError, isLoading: itemMetaLoading, refetch: reloadItemMeta } = useQuery<
-    Record<string, { title: string; cost: number | null }>
-  >({
-    queryKey: ["autolister_drafts_items", user?.id, itemIds],
-    enabled: itemIds.length > 0,
-    queryFn: async () => {
-      const { data: rows, error: rowsReadError } = await supabase
-        .from("inventory_items")
-        .select("id, title, acquired_price")
-        .in("id", itemIds);
-      if (rowsReadError) throw rowsReadError;
-      const map: Record<string, { title: string; cost: number | null }> = {};
-      for (const r of (rows ?? []) as Array<{
-        id: string;
-        title: string;
-        acquired_price: number | null;
-      }>) {
-        map[r.id] = { title: r.title, cost: r.acquired_price };
-      }
-      return map;
-    },
-  });
+  // item (inventory_items.acquired_price). AL-04: embedded in the drafts read.
+  const itemMeta = useMemo<Record<string, { title: string; cost: number | null }>>(() => {
+    const map: Record<string, { title: string; cost: number | null }> = {};
+    for (const d of drafts) {
+      map[d.inventory_item_id] = {
+        title: d.inventory_items?.title ?? "",
+        cost: d.inventory_items?.acquired_price ?? null,
+      };
+    }
+    return map;
+  }, [drafts]);
 
   function titleFor(d: DraftRow): string {
     return (
@@ -306,24 +290,30 @@ export function FlipdeskAutolisterDraftsPage() {
   // US-548: a draft is "ready" to publish when it isn't flagged for review,
   // carries a real price + category, and isn't already on a schedule. Bulk
   // publish-all only touches these (the per-item pre-flight is still the gate).
+  // AL-06: a row this session already published (or is publishing) is not
+  // ready again, even before the refetch drops it.
   const readyDrafts = useMemo(
     () =>
-      sorted.filter(
-        (d) =>
+      sorted.filter((d) => {
+        const sent = bulkPublish.results[d.inventory_item_id]?.status;
+        return (
+          sent !== "success" &&
+          sent !== "publishing" &&
           !d.needs_review &&
           (d.listing_price ?? 0) > 0 &&
           !!d.platform_category_id &&
-          !d.scheduled_publish_at,
-      ),
-    [sorted],
+          !d.scheduled_publish_at
+        );
+      }),
+    [sorted, bulkPublish.results],
   );
 
   async function publishReady() {
     if (readyDrafts.length === 0) return;
+    // AL-06: useBulkPublish chunks at the server's cap and owns the toast.
     await bulkPublish.run(
       readyDrafts.map((d) => ({ itemId: d.inventory_item_id, listingId: d.id })),
     );
-    toast.success("Publish finished — see per-row status.");
   }
 
   // US-549: keyboard-first review. j/k move the active row, e expands an inline
@@ -335,11 +325,17 @@ export function FlipdeskAutolisterDraftsPage() {
   const [editPrice, setEditPrice] = useState("");
   const [editCost, setEditCost] = useState("");
   const [saving, setSaving] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
+  // AL-15: "a" approves the active draft (stamps reviewed_at), so the queue
+  // actually shrinks; this counts them for the header.
+  const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // US-2817: re-run identification over the selected drafts. Old stock was
   // catalogued by an older model; this reads the photos again and corrects what
   // the AI itself wrote, leaving anything the seller typed alone.
   const [reidentifyOpen, setReidentifyOpen] = useState(false);
+  // AL-05: "p" asks first.
+  const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
   const editTitleRef = useRef<HTMLInputElement>(null);
@@ -366,6 +362,7 @@ export function FlipdeskAutolisterDraftsPage() {
 
   const openEditor = useCallback((d: DraftRow) => {
     setEditingId(d.id);
+    setPriceError(null);
     setEditTitle(
       (d.listing_title && d.listing_title.trim()) ||
         itemMeta[d.inventory_item_id]?.title ||
@@ -383,20 +380,39 @@ export function FlipdeskAutolisterDraftsPage() {
       const title = editTitle.trim();
       const parsed = editPrice.trim() === "" ? null : Number(editPrice);
       const price = parsed != null && Number.isFinite(parsed) ? parsed : null;
+      // AL-15: a price of 0 or less would list for nothing; say so here.
+      if (price != null && price <= 0) {
+        setPriceError("Enter a price above $0, or leave it blank.");
+        return false;
+      }
+      setPriceError(null);
       const parsedCost = editCost.trim() === "" ? null : Number(editCost);
       const cost =
         parsedCost != null && Number.isFinite(parsedCost) && parsedCost >= 0
           ? parsedCost
           : null;
+      const originalTitle = (row.listing_title && row.listing_title.trim()) ||
+        itemMeta[row.inventory_item_id]?.title || "";
+      const listingChanged = title !== originalTitle || price !== row.listing_price;
       setSaving(true);
       try {
-        const { error } = await supabase
-          .from("listings")
-          .update({ listing_title: title || null, listing_price: price } as never)
-          .eq("id", row.id);
-        if (error) {
-          toastError(error, "Couldn't save.");
-          return false;
+        // AL-15: nothing changed, nothing written. A price the seller typed
+        // is theirs, so it is no longer an estimate.
+        if (listingChanged) {
+          const patch = {
+            listing_title: title || null,
+            listing_price: price,
+            ...(price !== row.listing_price ? { price_is_estimated: false } : {}),
+          };
+          const { error } = await supabase
+            .from("listings")
+            .update(patch as never)
+            .eq("id", row.id);
+          if (error) {
+            toastError(error, "Couldn't save.");
+            return false;
+          }
+          patchAutolisterDraft(queryClient, user?.id, row.id, patch);
         }
         // Cost lives on the ITEM, not the listing — a separate write, and only
         // when it actually changed so the keyboard review loop doesn't issue a
@@ -412,35 +428,15 @@ export function FlipdeskAutolisterDraftsPage() {
           if (costErr) {
             toastError(costErr, "Saved, but the cost didn't stick.");
           } else {
-            queryClient.setQueryData<
-              Record<string, { title: string; cost: number | null }>
-            >(
-              ["autolister_drafts_items", user?.id, itemIds.length],
-              (old) => ({
-                ...(old ?? {}),
-                [row.inventory_item_id]: {
-                  title: old?.[row.inventory_item_id]?.title ?? "",
-                  cost,
-                },
-              }),
-            );
+            patchAutolisterDraft(queryClient, user?.id, row.id, { acquired_price: cost });
           }
         }
-        queryClient.setQueryData<DraftRow[]>(
-          ["autolister_drafts", user?.id],
-          (old) =>
-            (old ?? []).map((d) =>
-              d.id === row.id
-                ? { ...d, listing_title: title || null, listing_price: price }
-                : d,
-            ),
-        );
         return true;
       } finally {
         setSaving(false);
       }
     },
-    [editTitle, editPrice, editCost, itemMeta, itemIds.length, queryClient, user?.id],
+    [editTitle, editPrice, editCost, itemMeta, queryClient, user?.id],
   );
 
   // Enter inside the editor: save the current row, then advance and keep the
@@ -459,6 +455,26 @@ export function FlipdeskAutolisterDraftsPage() {
       toast.success("Reviewed the last draft.");
     }
   }, [sorted, activeIndex, persistEdit, openEditor]);
+
+  const approveActive = useCallback(async () => {
+    const row = sorted[activeIndex];
+    if (!row || reviewedIds.has(row.id)) {
+      setActiveIndex((i) => Math.min(i + 1, Math.max(sorted.length - 1, 0)));
+      return;
+    }
+    const { error } = await supabase
+      .from("listings")
+      .update({ reviewed_at: new Date().toISOString() } as never)
+      .eq("id", row.id);
+    if (error) {
+      toastError(error, "Couldn't mark that draft reviewed.");
+      return;
+    }
+    // Kept on screen (marked) until the next refetch drops it, so the row
+    // under the cursor doesn't jump mid-review.
+    setReviewedIds((prev) => new Set(prev).add(row.id));
+    setActiveIndex((i) => Math.min(i + 1, Math.max(sorted.length - 1, 0)));
+  }, [sorted, activeIndex, reviewedIds]);
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -489,6 +505,26 @@ export function FlipdeskAutolisterDraftsPage() {
     });
   }, [sorted]);
 
+  // AL-06: every bulk action works on the selected drafts VISIBLE under the
+  // current search, so every label counts those, not selectedIds.size.
+  const selectedVisible = useMemo(
+    () => sorted.filter((d) => selectedIds.has(d.id)),
+    [sorted, selectedIds],
+  );
+  const hiddenSelected = selectedIds.size - selectedVisible.length;
+  const hiddenNote = hiddenSelected > 0 ? ` (${hiddenSelected} hidden by search)` : "";
+
+  // AL-06: drop ids that are no longer drafts (published, deleted, reviewed)
+  // whenever the list refetches, so a stale id can't ride into a bulk action.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const live = new Set(drafts.map((d) => d.id));
+      const next = new Set([...prev].filter((id) => live.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [drafts]);
+
   // The AI works on inventory items; a draft row is the listing attached to one.
   const selectedItemIds = useMemo(
     () =>
@@ -505,7 +541,7 @@ export function FlipdeskAutolisterDraftsPage() {
   // US-3046: one call per selected draft, sequential. A failure on one draft
   // is reported and the loop moves on; the ones that succeeded stay filled.
   async function fillKitForSelected() {
-    const chosen = sorted.filter((d) => selectedIds.has(d.id));
+    const chosen = selectedVisible;
     if (chosen.length === 0) return;
     const platforms = kitPlatformsFor(chosenChannels);
     setKitFilling({ done: 0, total: chosen.length });
@@ -524,6 +560,7 @@ export function FlipdeskAutolisterDraftsPage() {
       setKitFilling(null);
     }
     const ok = chosen.length - failed;
+    if (failed === 0) setSelectedIds(new Set());
     if (ok > 0) {
       toast.success(
         `Cross-list copy written for ${ok} draft${ok === 1 ? "" : "s"}` +
@@ -536,18 +573,19 @@ export function FlipdeskAutolisterDraftsPage() {
   // everything else through one cross-push-bulk request. The server skips a
   // channel a draft is already on, so a second press mints nothing twice.
   async function crossListSelected(choice: BulkCrossListChoice) {
-    const chosen = sorted.filter((d) => selectedIds.has(d.id));
+    const chosen = selectedVisible;
     if (chosen.length === 0) {
       toast.error("Select drafts first (press x on a row).");
       return;
     }
     let ebayPublished: number | null = null;
+    let ebayOk = false;
     if (choice.platforms.includes("ebay")) {
       if (!ebayConnection) {
         toast.error("Connect eBay first on the Marketplaces page.");
         return;
       }
-      await bulkPublish.run(
+      ebayOk = await bulkPublish.run(
         chosen.map((d) => ({ itemId: d.inventory_item_id, listingId: d.id })),
       );
       ebayPublished = chosen.length;
@@ -555,6 +593,7 @@ export function FlipdeskAutolisterDraftsPage() {
     const others = choice.platforms.filter((p) => p !== "ebay");
     if (others.length === 0) {
       setCrossListOpen(false);
+      if (ebayOk) setSelectedIds(new Set());
       return;
     }
     try {
@@ -570,13 +609,14 @@ export function FlipdeskAutolisterDraftsPage() {
       else toast.error(report.title, opts);
       if (res.summary.queued > 0) void requestDrainNow();
       setCrossListOpen(false);
+      if (report.tone === "success") setSelectedIds(new Set());
     } catch (err) {
       toastError(err, "Bulk cross-listing failed.");
     }
   }
 
   async function publishSelected() {
-    const chosen = sorted.filter((d) => selectedIds.has(d.id));
+    const chosen = selectedVisible;
     if (chosen.length === 0) {
       toast.error("Select drafts first (press x on a row).");
       return;
@@ -585,16 +625,40 @@ export function FlipdeskAutolisterDraftsPage() {
       toast.error("Connect eBay first on the Marketplaces page.");
       return;
     }
-    await bulkPublish.run(
+    // AL-06: useBulkPublish owns the one summary toast.
+    const ok = await bulkPublish.run(
       chosen.map((d) => ({ itemId: d.inventory_item_id, listingId: d.id })),
     );
-    toast.success("Publish finished — see per-row status.");
+    if (ok) setSelectedIds(new Set());
   }
+
+  // AL-05: what the "p" confirm reports. Only drafts visible under the current
+  // search are sent, so the count is of those.
+  const publishPreview = useMemo(() => {
+    const chosen = selectedVisible;
+    // The pre-flight blockers only. readyDrafts also drops rows this session
+    // already sent, which are not "flagged, unpriced or scheduled".
+    const isBlocked = (d: DraftRow) =>
+      d.needs_review ||
+      !((d.listing_price ?? 0) > 0) ||
+      !d.platform_category_id ||
+      !!d.scheduled_publish_at;
+    return {
+      count: chosen.length,
+      blocked: chosen.filter(isBlocked).length,
+      totalValue: chosen.reduce((sum, d) => sum + (d.listing_price ?? 0), 0),
+      hiddenBySearch: hiddenSelected,
+    };
+  }, [selectedVisible, hiddenSelected]);
 
   // Global key handler for the cockpit. Typing in the search/editor inputs is
   // respected; only the documented shortcuts are intercepted.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // AL-05: never on Ctrl/Cmd/Alt (Cmd+P is print), a repeat, a handled
+      // event, a focused button or link, or while any dialog is open.
+      if (shouldIgnoreDraftsHotkey(e)) return;
+      if (crossListOpen || reidentifyOpen || publishConfirmOpen) return;
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName;
       const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
@@ -652,9 +716,21 @@ export function FlipdeskAutolisterDraftsPage() {
             toggleSelect(active.id);
           }
           break;
+        case "a":
+          if (active) {
+            e.preventDefault();
+            void approveActive();
+          }
+          break;
         case "p":
           e.preventDefault();
-          void publishSelected();
+          if (publishPreview.count === 0) {
+            toast.error("Select drafts first (press x on a row).");
+          } else if (!ebayConnection) {
+            toast.error("Connect eBay first on the Marketplaces page.");
+          } else if (!bulkPublish.running) {
+            setPublishConfirmOpen(true);
+          }
           break;
         default:
           break;
@@ -662,8 +738,11 @@ export function FlipdeskAutolisterDraftsPage() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-    // publishSelected is intentionally not memoized; it closes over current state.
-  }, [sorted, activeIndex, editingId, saveAndNext, openEditor, toggleSelect]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    sorted, activeIndex, editingId, saveAndNext, openEditor, toggleSelect,
+    crossListOpen, reidentifyOpen, publishConfirmOpen, publishPreview,
+    ebayConnection, bulkPublish.running, approveActive,
+  ]);
 
   const totalValue = useMemo(
     () => drafts.reduce((sum, d) => sum + (d.listing_price ?? 0), 0),
@@ -772,14 +851,14 @@ export function FlipdeskAutolisterDraftsPage() {
                 </SelectContent>
               </Select>
               {/* US-2817: re-run identification over the selected drafts. */}
-              {selectedIds.size > 0 && (
+              {selectedVisible.length > 0 && (
                 <Button
                   variant="outline"
                   onClick={() => setReidentifyOpen(true)}
                   title="Read the photos again with the current AI and correct what it got wrong before. Values you typed are kept."
                 >
                   <Sparkles className="mr-2 h-4 w-4" />
-                  Re-run AI on {selectedIds.size}
+                  Re-run AI on {selectedVisible.length}{hiddenNote}
                 </Button>
               )}
               {/* US-3046: fill the cross-list kit for the selected drafts (a
@@ -787,7 +866,7 @@ export function FlipdeskAutolisterDraftsPage() {
                   channels were narrowed). Each item is one AI action, the same
                   as the kit's own button, so it runs one at a time and reports
                   as it goes. */}
-              {selectedIds.size > 0 && (
+              {selectedVisible.length > 0 && (
                 <Button
                   variant="outline"
                   onClick={() => void fillKitForSelected()}
@@ -801,11 +880,11 @@ export function FlipdeskAutolisterDraftsPage() {
                   )}
                   {kitFilling
                     ? `Filling kit ${kitFilling.done}/${kitFilling.total}`
-                    : `Fill copy kit for ${selectedIds.size}`}
+                    : `Fill copy kit for ${selectedVisible.length}${hiddenNote}`}
                 </Button>
               )}
               {/* US-3456: the selected drafts to every marketplace at once. */}
-              {selectedIds.size > 0 && (
+              {selectedVisible.length > 0 && (
                 <Button
                   variant="outline"
                   onClick={() => setCrossListOpen(true)}
@@ -813,11 +892,11 @@ export function FlipdeskAutolisterDraftsPage() {
                   title="List the selected drafts on the marketplaces you pick, in one go."
                 >
                   <Layers className="mr-2 h-4 w-4" />
-                  Cross-list {selectedIds.size}
+                  Cross-list {selectedVisible.length}{hiddenNote}
                 </Button>
               )}
               {/* US-549: publish the keyboard-selected subset. */}
-              {selectedIds.size > 0 && (
+              {selectedVisible.length > 0 && (
                 <Button
                   variant="outline"
                   onClick={() => void publishSelected()}
@@ -833,7 +912,7 @@ export function FlipdeskAutolisterDraftsPage() {
                   ) : (
                     <Rocket className="mr-2 h-4 w-4" />
                   )}
-                  Publish {selectedIds.size} selected
+                  Publish {selectedVisible.length} selected{hiddenNote}
                 </Button>
               )}
               {/* US-548: publish-all from the cockpit (ready drafts only). */}
@@ -860,15 +939,26 @@ export function FlipdeskAutolisterDraftsPage() {
           </div>
         </CardHeader>
         <CardContent className="px-0">
-          {isLoading || itemMetaLoading ? (
+          {coverageError && drafts.length > 0 && (
+            <div
+              role="status"
+              className="mx-4 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+            >
+              <span>Couldn't load item specifics. That column and its sort are blank for now.</span>
+              <Button size="sm" variant="outline" disabled={coverageFetching} onClick={() => void reloadCoverage()}>
+                Retry
+              </Button>
+            </div>
+          )}
+          {isLoading ? (
             <LoadingRegion label="Loading drafts" className="px-4">
               <SkeletonRows rows={5} />
             </LoadingRegion>
-          ) : draftsError || itemMetaError || scoresError ? (
+          ) : draftsError ? (
             <ErrorState
               title="Couldn't load your drafts"
-              description={scoresError ? "Couldn't load quality scores. Retry before reviewing which drafts are ready." : itemMetaError ? "Couldn't load item costs. Profit estimates are unavailable until this read succeeds." : (draftsError as Error).message}
-              onRetry={() => Promise.all([refetchDrafts(), reloadItemMeta(), reloadScores()])}
+              description={(draftsError as Error).message}
+              onRetry={() => refetchDrafts()}
               retrying={draftsFetching}
             />
           ) : drafts.length === 0 ? (
@@ -910,8 +1000,14 @@ export function FlipdeskAutolisterDraftsPage() {
                 <Shortcut keys="e" label="edit" />
                 <Shortcut keys="Enter" label="save & next" />
                 <Shortcut keys="x" label="select" />
+                <Shortcut keys="a" label="approve & next" />
                 <Shortcut keys="p" label="publish selected" />
                 <Shortcut keys="/" label="find" />
+                {reviewedIds.size > 0 && (
+                  <span className="ml-auto font-medium text-foreground" role="status">
+                    Reviewed {reviewedIds.size} this session
+                  </span>
+                )}
               </div>
               <Table>
                 <TableHeader>
@@ -992,6 +1088,11 @@ export function FlipdeskAutolisterDraftsPage() {
                               can see at a glance which drafts are weak — and
                               which cannot be listed at all. */}
                           <QualityScoreChip score={scoreByListing[d.id]} />
+                          {reviewedIds.has(d.id) && (
+                            <span className="shrink-0 text-xs font-normal text-muted-foreground">
+                              Reviewed
+                            </span>
+                          )}
                         </span>
                         {/* US-1892: flag weak titles (<60 chars or a lint
                             finding) so a bulk session catches them pre-publish. */}
@@ -1266,9 +1367,19 @@ export function FlipdeskAutolisterDraftsPage() {
                                 min="0"
                                 step="0.01"
                                 value={editPrice}
-                                onChange={(e) => setEditPrice(e.target.value)}
+                                onChange={(e) => {
+                                  setEditPrice(e.target.value);
+                                  setPriceError(null);
+                                }}
                                 className="h-9 tabular-nums"
+                                aria-invalid={priceError != null}
+                                aria-describedby={priceError ? `edit-price-err-${d.id}` : undefined}
                               />
+                              {priceError && (
+                                <p id={`edit-price-err-${d.id}`} className="text-xs text-destructive">
+                                  {priceError}
+                                </p>
+                              )}
                             </div>
                             <div className="w-32 space-y-1">
                               <label
@@ -1334,10 +1445,19 @@ export function FlipdeskAutolisterDraftsPage() {
       <BulkCrossListDialog
         open={crossListOpen}
         onOpenChange={setCrossListOpen}
-        itemCount={selectedIds.size}
+        itemCount={selectedVisible.length}
         ebayConnected={!!ebayConnection}
         running={bulkPublish.running || crossPushBulk.isPending}
         onConfirm={(choice) => void crossListSelected(choice)}
+      />
+      <DraftsPublishConfirm
+        open={publishConfirmOpen}
+        onOpenChange={setPublishConfirmOpen}
+        {...publishPreview}
+        onConfirm={() => {
+          setPublishConfirmOpen(false);
+          void publishSelected();
+        }}
       />
       <BulkAiEnrichDialog
         open={reidentifyOpen}
@@ -1357,9 +1477,6 @@ export function FlipdeskAutolisterDraftsPage() {
         onDone={() => {
           void queryClient.invalidateQueries({
             queryKey: ["autolister_drafts"],
-          });
-          void queryClient.invalidateQueries({
-            queryKey: ["autolister_drafts_items"],
           });
           void queryClient.invalidateQueries({ queryKey: ["items_full"] });
         }}

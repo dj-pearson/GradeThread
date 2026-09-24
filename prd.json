@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3496",
+  "nextId": "US-3497",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4959,6 +4959,20 @@
         "vault/30-platform/ebay-standard-size-values.md drops the gap from its not-done list in the same commit"
       ],
       "priority": 60
+    },
+    {
+      "id": "US-3496",
+      "passes": false,
+      "title": "Inventory Sold tab and badge count completed sales only, matching the dashboard Sold tile",
+      "description": "As a reseller, I want the Inventory Sold tab list, its tab badge and the dashboard Sold tile to count the same sales, so that the number I see on the dashboard is the number I find when I open the Sold tab. Product decision 2026-09-24: completed sales only (sale_status = 'completed'), the rule flipdesk_overview_metrics already uses (00111, kept in 00834). Today the Sold tab predicate in flipdesk_listing_page (00833 line 121-122) is status = 'sold' and sale_status not refunded/cancelled, so pending and blank sale statuses count, and inventory_status_counts returns a raw status count that disagrees with its own list.",
+      "acceptanceCriteria": [
+        "A new migration redefines flipdesk_listing_page so the p_tab='sold' predicate selects rows with sale_status = 'completed' (not status='sold' with a refunded/cancelled exclusion), keeping the p_owner_id signature, owner guard and grants from 00833 unchanged (proacl identical before and after).",
+        "The same migration makes inventory_status_counts return the Sold count with the identical completed-sales predicate, so the badge equals the Sold tab total for the same owner.",
+        "A --dsn proof (extend scripts/check-inventory-owner-scope.mjs or a sibling scripts/check-*.mjs) seeds one owner with a completed sale, a pending sale, a blank-status sale, a refunded sale and a cancelled sale, and asserts flipdesk_listing_page(p_tab=>'sold').total = inventory_status_counts sold = flipdesk_overview_metrics sold for the same owner and window, all equal to 1.",
+        "Sabotage proof: restoring the old status='sold' predicate in either function turns the proof red (counts 3 vs 1), and restoring the fix turns it green; both runs recorded in the completion note.",
+        "Migration triple (US-1108): idempotent SQL applied twice cleanly, EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts bumped in the same commit, self-record footer, held-migrations.json and PENDING_MIGRATIONS.md entries.",
+        "Sold tab UI copy (tab label, empty state, soldAgg strip in src/pages/flipdesk/listings.tsx) says 'completed sales' where it describes what is counted, and any vitest pinning the old predicate or copy is updated."
+      ]
     }
   ]
 }

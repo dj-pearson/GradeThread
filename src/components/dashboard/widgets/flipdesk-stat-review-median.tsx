@@ -4,6 +4,7 @@ import { formatDuration } from "@/lib/review-flow";
 import {
   StatTile,
   StatTileSkeleton,
+  WidgetLoadError,
 } from "@/components/dashboard/widgets/flipdesk-shared";
 
 // US-9204, on the board (US-3076): median seconds from first photo to Approve.
@@ -14,9 +15,18 @@ import {
 // instead.
 
 export function FlipdeskStatReviewMedianWidget() {
-  const { data, isLoading } = useReviewApproveMedian();
+  const { data, isLoading, isError, isFetching, refetch } = useReviewApproveMedian();
 
   if (isLoading) return <StatTileSkeleton label="photos to approve" />;
+  if (isError) {
+    return (
+      <WidgetLoadError
+        what="your review time"
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
   if (data?.median == null) return null;
 
   return (

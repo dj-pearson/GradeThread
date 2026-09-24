@@ -1595,6 +1595,9 @@ export function useListingQuality(itemId: string | null | undefined) {
 // US-1895: bulk recommended-aspect coverage for a set of items (the AutoLister
 // drafts list), so low-coverage drafts are sortable/fixable in bulk. One call
 // per visible page; the edge de-dupes category-spec fetches.
+/** The aspect-coverage route caps each call at 200 item ids. */
+export const ASPECT_COVERAGE_CHUNK = 200;
+
 export function useBulkAspectCoverage(itemIds: string[]) {
   const key = [...itemIds].sort().join(",");
   return useQuery({
@@ -1602,20 +1605,29 @@ export function useBulkAspectCoverage(itemIds: string[]) {
     enabled: itemIds.length > 0,
     staleTime: 60_000,
     retry: 1,
+    // AL-04: the route reads at most ASPECT_COVERAGE_CHUNK ids per call, so a
+    // bigger list is sent in chunks. A failed chunk THROWS: returning {} made a
+    // failed read look like "no coverage data", which is a claim about drafts.
     queryFn: async (): Promise<Record<string, AspectCoverage>> => {
-      const res = await fetch(
-        `${edgeApiUrl()}/api/flipdesk/ebay/aspect-coverage`,
-        {
-          method: "POST",
-          headers: await ebayHeaders(),
-          body: JSON.stringify({ itemIds }),
-        },
-      );
-      if (!res.ok) return {};
-      const json = (await res.json().catch(() => ({}))) as {
-        coverage?: Record<string, AspectCoverage>;
-      };
-      return json.coverage ?? {};
+      const unique = [...new Set(itemIds)];
+      const headers = await ebayHeaders();
+      const out: Record<string, AspectCoverage> = {};
+      for (let i = 0; i < unique.length; i += ASPECT_COVERAGE_CHUNK) {
+        const res = await fetch(
+          `${edgeApiUrl()}/api/flipdesk/ebay/aspect-coverage`,
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ itemIds: unique.slice(i, i + ASPECT_COVERAGE_CHUNK) }),
+          },
+        );
+        if (!res.ok) throw new Error(`Coverage read failed (HTTP ${res.status})`);
+        const json = (await res.json().catch(() => ({}))) as {
+          coverage?: Record<string, AspectCoverage>;
+        };
+        Object.assign(out, json.coverage ?? {});
+      }
+      return out;
     },
   });
 }
@@ -2834,28 +2846,80 @@ export function useBulkEditListings() {
     // US-2172: either ONE edit across many listings, or a per-listing edit.
     // Undo is always the second shape: each row goes back to its own former
     // value, which no shared patch can express.
-    { listingIds: string[]; edit: BulkEditFields } | { items: BulkEditItem[] }
+    (
+      | { listingIds: string[]; edit: BulkEditFields }
+      | { items: BulkEditItem[] }
+    ) & { onProgress?: (done: number, total: number) => void }
   >({
     mutationFn: async (input) => {
-      const body = "items" in input
-        ? { items: input.items }
-        : { listing_ids: input.listingIds, edit: input.edit };
-      const res = await fetch(
-        `${edgeApiUrl()}/api/flipdesk/ebay/listings/bulk-edit`,
-        {
-          method: "POST",
-          headers: await ebayHeaders(),
-          body: JSON.stringify(body),
-        },
-      );
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Bulk edit failed.");
-      return json as BulkEditResponse;
+      // INV-5: the route refuses more than BULK_EDIT_MAX listings with a 400.
+      // Chunk the selection and merge the per-chunk results.
+      const bodies: Array<Record<string, unknown>> = [];
+      let total = 0;
+      if ("items" in input) {
+        total = input.items.length;
+        for (let i = 0; i < input.items.length; i += BULK_EDIT_MAX) {
+          bodies.push({ items: input.items.slice(i, i + BULK_EDIT_MAX) });
+        }
+      } else {
+        total = input.listingIds.length;
+        for (let i = 0; i < input.listingIds.length; i += BULK_EDIT_MAX) {
+          bodies.push({
+            listing_ids: input.listingIds.slice(i, i + BULK_EDIT_MAX),
+            edit: input.edit,
+          });
+        }
+      }
+      const parts: BulkEditResponse[] = [];
+      let done = 0;
+      for (const body of bodies) {
+        const res = await fetch(
+          `${edgeApiUrl()}/api/flipdesk/ebay/listings/bulk-edit`,
+          {
+            method: "POST",
+            headers: await ebayHeaders(),
+            body: JSON.stringify(body),
+          },
+        );
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          // A later chunk failing after earlier ones applied must not read as
+          // "nothing changed".
+          const msg = json.error || "Bulk edit failed.";
+          throw new Error(
+            parts.length > 0 ? `${msg} (${done} of ${total} were already sent.)` : msg,
+          );
+        }
+        parts.push(json as BulkEditResponse);
+        done += ((body.items ?? body.listing_ids) as unknown[]).length;
+        input.onProgress?.(done, total);
+      }
+      return mergeBulkEditResponses(parts);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["items_full"] });
     },
   });
+}
+
+/** INV-5: MAX_BULK_EDIT_ITEMS on the edge. */
+export const BULK_EDIT_MAX = 100;
+
+/** Merge per-chunk bulk-edit responses into one. */
+export function mergeBulkEditResponses(
+  parts: readonly BulkEditResponse[],
+): BulkEditResponse {
+  const results = parts.flatMap((p) => p.results ?? []);
+  return {
+    ok: true,
+    results,
+    summary: {
+      ok: parts.reduce((n, p) => n + (p.summary?.ok ?? 0), 0),
+      blocked: parts.reduce((n, p) => n + (p.summary?.blocked ?? 0), 0),
+      error: parts.reduce((n, p) => n + (p.summary?.error ?? 0), 0),
+    },
+    total: parts.reduce((n, p) => n + (p.total ?? 0), 0),
+  };
 }
 
 // ── Leave buyer feedback (US-1047) ──────────────────────────────────

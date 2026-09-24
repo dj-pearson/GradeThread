@@ -42,11 +42,11 @@ describe("the grading queue tally", () => {
   });
 
   it("ignores a status the submissions list cannot filter on", () => {
-    // `needs_photos` and the retired-checkout values are real database enum
-    // members that have never been filter options. A tile for one would link to
-    // a filter the list cannot apply.
+    // The retired-checkout value is a real database enum member that has never
+    // been a filter option. A tile for it would link to a filter the list
+    // cannot apply. (needs_photos used to be here; DASH-7 made it a status.)
     const counts = tallySubmissionStatuses([
-      { status: "needs_photos" },
+      { status: "expired" },
       { status: null },
       { status: "" },
       { status: "completed" },
@@ -108,7 +108,7 @@ describe("what the submissions list opens on", () => {
     expect(statusFilterFromSearch("?status=nonsense")).toBe(ALL_STATUSES_FILTER);
     // A real enum member the list has never offered as a filter is junk here
     // too: seeding it would open a page whose Status select shows nothing.
-    expect(statusFilterFromSearch("?status=needs_photos")).toBe(ALL_STATUSES_FILTER);
+    expect(statusFilterFromSearch("?status=expired")).toBe(ALL_STATUSES_FILTER);
   });
 
   it("is what src/pages/submissions.tsx actually seeds its filter with", () => {
@@ -128,12 +128,30 @@ describe("what the submissions list opens on", () => {
   });
 });
 
+describe("needs_photos (DASH-7)", () => {
+  it("is a known submission status the list can filter on", () => {
+    expect(SUBMISSION_STATUSES).toContain("needs_photos");
+    expect(statusFilterFromSearch("?status=needs_photos")).toBe("needs_photos");
+  });
+
+  it("is tallied rather than ignored", () => {
+    const counts = tallySubmissionStatuses([
+      { status: "needs_photos" },
+      { status: "needs_photos" },
+      { status: "failed" },
+    ]);
+    expect(counts.needs_photos).toBe(2);
+    expect(counts.failed).toBe(1);
+  });
+});
+
 describe("what needs the seller's attention", () => {
-  it("watches only the three statuses a person has to act on", () => {
+  it("watches the statuses a person has to act on, seller-actionable first", () => {
     expect([...ATTENTION_STATUSES]).toEqual([
-      "pending_review",
-      "failed",
       "disputed",
+      "needs_photos",
+      "failed",
+      "pending_review",
     ]);
     // pending and processing are the pipeline working; completed is done.
     expect(ATTENTION_STATUSES).not.toContain("pending");
@@ -150,14 +168,15 @@ describe("what needs the seller's attention", () => {
     expect(widget).toContain("ATTENTION_QUIET_STATE");
   });
 
-  it("shows at most five rows, newest first", () => {
+  it("shows at most five rows, the longest stall first (DASH-12)", () => {
     const widget = readFileSync(
       resolve(process.cwd(), "src/components/dashboard/widgets/grading-attention.tsx"),
       "utf8",
     );
     expect(widget).toContain("const MAX_ROWS = 5");
-    expect(widget).toContain('.order("created_at", { ascending: false })');
-    expect(widget).toContain(".limit(MAX_ROWS)");
+    // Oldest first by time in status; newest-first cut the longest stalls.
+    expect(widget).toContain('.order("updated_at", { ascending: true })');
+    expect(widget).toContain("ordered.slice(0, MAX_ROWS)");
   });
 });
 

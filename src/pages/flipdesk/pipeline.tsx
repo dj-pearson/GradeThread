@@ -96,9 +96,12 @@ import {
 } from "@/lib/pipeline-board";
 import { chunk } from "@/lib/chunk";
 import {
+  CHANGED_SINCE_LOADED,
   moveCardOptimistically,
   pipelineColumnFor,
   planBatchAdvance,
+  writeStageMove,
+  type StageWriteClient,
 } from "@/pages/flipdesk/pipeline-plan";
 import {
   useValidateGradingBulk,
@@ -115,7 +118,6 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingRegion } from "@/components/ui/skeletons";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
-import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
 import { FilterBuilder } from "@/components/flipdesk/filter-builder";
 import { SaveViewDialog } from "@/components/flipdesk/save-view-dialog";
@@ -158,6 +160,9 @@ function csvCell(v: unknown): string {
 
 export function FlipdeskPipelinePage() {
   const user = useAuthStore((s) => s.user);
+  // INV-1: the list read and its cache key are scoped to the workspace on
+  // screen, so the optimistic move has to patch that same key.
+  const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId) ?? user?.id;
   const qc = useQueryClient();
   // US-2972: this read is the trigger, not the data. GET /api/rewards/state runs
   // the pipeline-XP sweep for the caller (throttled server-side to one sweep per
@@ -355,6 +360,16 @@ export function FlipdeskPipelinePage() {
     [items],
   );
 
+  const offPipelineAllArchived = useMemo(
+    () =>
+      items.every(
+        (i) =>
+          i.status === "archived" ||
+          FLIPDESK_PIPELINE.some((p) => p.status === pipelineColumnFor(i.status)),
+      ),
+    [items],
+  );
+
   function selectAllMatching() {
     setSelectedIds(new Set(matchingItems.map((it) => it.id)));
   }
@@ -393,19 +408,29 @@ export function FlipdeskPipelinePage() {
     // failure only the dragged card is rolled back (US-1633, pipeline-plan.ts).
     const err = await moveCardOptimistically({
       qc,
-      listKey: itemsListQueryKey(user?.id),
+      listKey: itemsListQueryKey(ownerId),
       itemId,
       from: item.status,
       to: targetStatus,
+      // INV-8: the write carries the status the board showed. A stale board
+      // (the item sold or moved in another tab) changes zero rows rather than
+      // dragging a sold item backwards.
       save: () =>
-        supabase
-          .from("inventory_items")
-          .update({ status: targetStatus } as never)
-          .eq("id", itemId),
+        writeStageMove(
+          supabase as unknown as StageWriteClient,
+          itemId,
+          item.status,
+          targetStatus,
+        ),
     });
     if (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`Move failed: ${msg}`);
+      if (msg === CHANGED_SINCE_LOADED) {
+        toast.error(`${CHANGED_SINCE_LOADED} Refreshing it now.`);
+        await qc.invalidateQueries({ queryKey: ["items_full"] });
+      } else {
+        toast.error(`Move failed: ${msg}`);
+      }
       return;
     }
     toast.success(
@@ -438,29 +463,39 @@ export function FlipdeskPipelinePage() {
       // short) instead of one round trip per card.
       for (const group of groups) {
         const label = ITEM_STATUS_LABELS[group.status];
-        for (const part of chunk(group.items, BATCH_WRITE_SIZE)) {
-          const { data, error } = await supabase
-            .from("inventory_items")
-            .update({ status: group.status } as never)
-            .in(
-              "id",
-              part.map((it) => it.id),
-            )
-            .select("id");
-          const updated = new Set(
-            ((data ?? []) as Array<{ id: string }>).map((r) => r.id),
-          );
-          for (const it of part) {
-            if (error) {
-              results.push({ title: it.item_title, ok: false, detail: error.message });
-            } else if (!updated.has(it.id)) {
-              results.push({
-                title: it.item_title,
-                ok: false,
-                detail: "Not updated. It may have been moved or deleted; refresh and try again.",
-              });
-            } else {
-              results.push({ title: it.item_title, ok: true, detail: `→ ${label}` });
+        // INV-8: grouped by the status each card was read at as well, so each
+        // UPDATE carries `.eq("status", from)` and a card that moved since the
+        // board loaded is left where it is.
+        const byFrom = new Map<ItemStatus, ItemListRow[]>();
+        for (const it of group.items) {
+          byFrom.set(it.status, [...(byFrom.get(it.status) ?? []), it]);
+        }
+        for (const [from, fromItems] of byFrom) {
+          for (const part of chunk(fromItems, BATCH_WRITE_SIZE)) {
+            const { data, error } = await supabase
+              .from("inventory_items")
+              .update({ status: group.status } as never)
+              .in(
+                "id",
+                part.map((it) => it.id),
+              )
+              .eq("status", from)
+              .select("id");
+            const updated = new Set(
+              ((data ?? []) as Array<{ id: string }>).map((r) => r.id),
+            );
+            for (const it of part) {
+              if (error) {
+                results.push({ title: it.item_title, ok: false, detail: error.message });
+              } else if (!updated.has(it.id)) {
+                results.push({
+                  title: it.item_title,
+                  ok: false,
+                  detail: `Not updated. ${CHANGED_SINCE_LOADED}`,
+                });
+              } else {
+                results.push({ title: it.item_title, ok: true, detail: `→ ${label}` });
+              }
             }
           }
         }
@@ -549,21 +584,13 @@ export function FlipdeskPipelinePage() {
         </Link>
       )}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-              <LayoutGrid className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
-              <HelpLink slug="the-flipdesk-pipeline" label="Help: the FlipDesk pipeline" />
-              <p className="text-sm text-muted-foreground">
-                Drag a card to advance its status, or select cards for a batch
-                move. Click a card for full details.
-              </p>
-            </div>
-          </div>
-          <InventoryViewSwitcher current="kanban" />
+        {/* INV-13: the title and mode switcher live in the Inventory shell. */}
+        <div>
+          <HelpLink slug="the-flipdesk-pipeline" label="Help: the FlipDesk pipeline" />
+          <p className="text-sm text-muted-foreground">
+            Drag a card to advance its status, or select cards for a batch
+            move. Click a card for full details.
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setSettingsOpen(true)}>
@@ -733,7 +760,9 @@ export function FlipdeskPipelinePage() {
           (archived or personal){" "}
           {offPipelineCount === 1 ? "isn't" : "aren't"} shown on the board —{" "}
           <Link
-            to="/dashboard/flipdesk/inventory"
+            // Archived items have their own tab; personal (keeping /
+            // wearing) items only show under All, so a mixed set goes there.
+            to={`/dashboard/flipdesk/inventory?tab=${offPipelineAllArchived ? "archived" : "all"}`}
             className="font-medium text-brand-red-text hover:underline"
           >
             view in inventory

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, useEffect } from "react";
+import { lazy, Suspense, useCallback, useMemo, useRef, useState, useEffect, type ReactNode } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -76,29 +76,18 @@ import {
 import { supabase } from "@/lib/supabase";
 import { itemRowLabel } from "@/lib/item-row-label";
 import { useAuthStore } from "@/stores/auth-store";
-import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { dialogIsOpen, useRowCursor } from "@/pages/flipdesk/listings-row-cursor";
 import { useUrlPageState, useUrlParamState, useUrlSearchInput } from "@/hooks/use-url-param-state";
 import { useInventorySelection } from "@/stores/inventory-selection";
 import { useInventoryStatusCounts } from "@/hooks/use-inventory-status-counts";
 import { useAgedThreshold } from "@/hooks/use-aged-threshold";
 import { AgedStrip } from "@/components/flipdesk/aged-strip";
 import { listingsEmptyState } from "@/pages/flipdesk/listings-empty-state";
-import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
-import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
-import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
-import { ShipOrderDialog } from "@/components/flipdesk/ship-order-dialog";
-import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
-import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
-import { BulkCrossListDialog } from "@/components/flipdesk/bulk-cross-list-dialog";
 import { useCrossPushBulk } from "@/hooks/use-cross-listing";
-import { BulkRepriceDialog } from "@/components/flipdesk/bulk-reprice-dialog";
-import { BulkPromoteDialog } from "@/components/flipdesk/bulk-promote-dialog";
-import { BulkEditDialog } from "@/components/flipdesk/bulk-edit-dialog";
-import { BulkFieldsDialog } from "@/components/flipdesk/bulk-fields-dialog";
-import { PrepareShipmentDialog } from "@/components/flipdesk/prepare-shipment-dialog";
 import { FilterBuilder } from "@/components/flipdesk/filter-builder";
-import { SaveViewDialog } from "@/components/flipdesk/save-view-dialog";
 import { useSavedViews } from "@/hooks/use-saved-views";
 import {
   EMPTY_QUERY,
@@ -120,7 +109,6 @@ import {
   // module so they can be unit-tested without importing this whole page.
   TABS,
   TO_LIST_STATUSES,
-  DRAFT_LIKE_STATUSES,
   UNLISTED_FILTERS,
   UNLISTED_FILTER_LABELS,
   tabSupportsSelection,
@@ -131,7 +119,6 @@ import {
   resolveSortOption,
   sortOptionsForTab,
   sortRequestFor,
-  type ColumnSort,
 } from "@/pages/flipdesk/inventory-sort";
 import { SortMenu } from "@/components/flipdesk/sort-menu";
 import {
@@ -139,12 +126,21 @@ import {
   readLastInventoryTab,
   writeLastInventoryTab,
 } from "@/pages/flipdesk/inventory-last-tab";
+import { listingIdsOf, selectedRowsFrom } from "@/pages/flipdesk/listings-selection";
+import { keepRowsAcrossKeys, tabCountsFrom } from "@/pages/flipdesk/listings-tab-counts";
 import {
+  formatHeaderSort,
+  nextHeaderSort,
+  parseHeaderSort,
+  resolveSoldWindow,
+} from "@/pages/flipdesk/listings-url-state";
+import {
+  listingPageArgs,
+  listingsItemsKeyFor,
   usePageRowDetails,
   type ListingPageResult,
 } from "@/pages/flipdesk/listings-page-queries";
 import { makeListingsActions } from "@/pages/flipdesk/listings-actions";
-import { LISTINGS_COLUMN_LIST } from "@/pages/flipdesk/listings-columns";
 import { ListingsTable } from "@/pages/flipdesk/listings-table";
 import { fmtMoney } from "@/pages/flipdesk/listings-format";
 import {
@@ -177,6 +173,60 @@ import { cn } from "@/lib/utils";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
 import { PageHelp } from "@/components/help/page-help";
 
+// INV-13: the row and bulk dialogs load on first open instead of riding in
+// the table's chunk. LazyMount keeps one mounted after that, so a dialog that
+// is still working (AI enrich, a chunked reprice) is not unmounted on close.
+const ItemDetailDialog = lazy(() =>
+  import("@/components/flipdesk/item-detail-dialog").then((m) => ({ default: m.ItemDetailDialog })),
+);
+const MarkListedDialog = lazy(() =>
+  import("@/components/flipdesk/mark-listed-dialog").then((m) => ({ default: m.MarkListedDialog })),
+);
+const PublishToEbayDialog = lazy(() =>
+  import("@/components/flipdesk/publish-to-ebay-dialog").then((m) => ({ default: m.PublishToEbayDialog })),
+);
+const RecordSaleDialog = lazy(() =>
+  import("@/components/flipdesk/record-sale-dialog").then((m) => ({ default: m.RecordSaleDialog })),
+);
+const ShipOrderDialog = lazy(() =>
+  import("@/components/flipdesk/ship-order-dialog").then((m) => ({ default: m.ShipOrderDialog })),
+);
+const BulkAiEnrichDialog = lazy(() =>
+  import("@/components/flipdesk/bulk-ai-enrich-dialog").then((m) => ({ default: m.BulkAiEnrichDialog })),
+);
+const BulkCrossListDialog = lazy(() =>
+  import("@/components/flipdesk/bulk-cross-list-dialog").then((m) => ({ default: m.BulkCrossListDialog })),
+);
+const BulkRepriceDialog = lazy(() =>
+  import("@/components/flipdesk/bulk-reprice-dialog").then((m) => ({ default: m.BulkRepriceDialog })),
+);
+const BulkPromoteDialog = lazy(() =>
+  import("@/components/flipdesk/bulk-promote-dialog").then((m) => ({ default: m.BulkPromoteDialog })),
+);
+const BulkEditDialog = lazy(() =>
+  import("@/components/flipdesk/bulk-edit-dialog").then((m) => ({ default: m.BulkEditDialog })),
+);
+const BulkFieldsDialog = lazy(() =>
+  import("@/components/flipdesk/bulk-fields-dialog").then((m) => ({ default: m.BulkFieldsDialog })),
+);
+const PrepareShipmentDialog = lazy(() =>
+  import("@/components/flipdesk/prepare-shipment-dialog").then((m) => ({ default: m.PrepareShipmentDialog })),
+);
+const SaveViewDialog = lazy(() =>
+  import("@/components/flipdesk/save-view-dialog").then((m) => ({ default: m.SaveViewDialog })),
+);
+
+/**
+ * INV-13: render `children` once `when` has been true, and keep them after.
+ * The first open loads the dialog's chunk; closing it later keeps the close
+ * animation and any work in flight.
+ */
+function LazyMount({ when, children }: { when: boolean; children: ReactNode }) {
+  const [seen, setSeen] = useState(when);
+  if (when && !seen) setSeen(true);
+  return seen || when ? <Suspense fallback={null}>{children}</Suspense> : null;
+}
+
 /**
  * The per-tab sort menu, rendered once in the desktop toolbar and once in the
  * mobile Filters sheet. While a column header sort is active the menu shows a
@@ -189,6 +239,7 @@ const SOLD_FILTER_LABELS: Record<SoldFilter, string> = {
   discrepancy: "Discrepancy",
   d7: "Last 7 days",
   d30: "Last 30 days",
+  d90: "Last 90 days",
   ytd: "Year to date",
 };
 
@@ -226,6 +277,14 @@ const VIRTUALIZE_ROW_THRESHOLD = 60;
 
 export function FlipdeskListingsPage() {
   const user = useAuthStore((s) => s.user);
+  // INV-3: bulk writes resolve the selection against, and scope to, the
+  // workspace on screen.
+  const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId) ?? user?.id ?? "";
+  // INV-4: hard delete is admin-only on the server; don't offer it below that.
+  const { can } = useWorkspace();
+  const canDeleteItems = can("delete_inventory");
+  // INV-13: Tailwind's md breakpoint; decides table vs card list below.
+  const isDesktop = useMediaQuery("(min-width: 768px)");
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   // US-1429: an explicit `?tab=` wins; otherwise honor a `?status=` deep-link
@@ -288,18 +347,15 @@ export function FlipdeskListingsPage() {
   // A clicked column header overrides the menu until the third click clears
   // it, or a menu pick replaces it. Kept separate from the menu so the seller
   // can take control of one column without losing the stage tab they're in.
-  const [headerSort, setHeaderSort] = useState<ColumnSort | null>(null);
+  // INV-12: in the URL (`?col=field:dir`) so it survives a trip into an item,
+  // validated against the sortable headers, and cleared by a tab change.
+  const [colParam, setColParam] = useUrlParamState("col", "");
+  const headerSort = useMemo(() => parseHeaderSort(colParam), [colParam]);
   function toggleColumnSort(field: keyof ItemFullRow) {
-    setHeaderSort((prev) =>
-      prev && prev.field === field
-        ? prev.dir === "asc"
-          ? { field, dir: "desc" }
-          : null // third click clears, revealing the menu's sort again
-        : { field, dir: "asc" },
-    );
+    setColParam(formatHeaderSort(nextHeaderSort(headerSort, field)));
   }
   function pickSort(id: string) {
-    setHeaderSort(null);
+    setColParam("");
     setSortParam(id);
   }
   // What the server is asked for: the header wins, then the menu's column,
@@ -311,7 +367,11 @@ export function FlipdeskListingsPage() {
   const sortedByLabel = headerSort
     ? `${String(headerSort.field).replace(/_/g, " ")} ${headerSort.dir === "asc" ? "ascending" : "descending"}`
     : sortOption.label.toLowerCase();
-  const [soldFilter, setSoldFilter] = useState<SoldFilter>("all");
+  // INV-12: the Sold window rides in `?window=` so it survives a trip into an
+  // item and back, like the Unlisted chip below.
+  const [windowParam, setWindowParam] = useUrlParamState("window", "all");
+  const soldFilter = resolveSoldWindow(windowParam);
+  const setSoldFilter = (f: SoldFilter) => setWindowParam(f);
   // The Unlisted tab's chip (Needs draft / Ready to publish / Needs review).
   // In the URL, unlike the Sold window, because the whole reason the two tabs
   // became one is a seller working through drafts and coming back: the chip
@@ -361,6 +421,11 @@ export function FlipdeskListingsPage() {
   } | null>(null);
   // US-2404: live counter while a chunked bulk resubmit runs.
   const [bulkReviseProgress, setBulkReviseProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  // INV-5: bulk End is chunked to 100 per request, so it can report progress.
+  const [bulkEndProgress, setBulkEndProgress] = useState<{
     done: number;
     total: number;
   } | null>(null);
@@ -496,7 +561,8 @@ export function FlipdeskListingsPage() {
     {
       key: "a",
       handler: () => {
-        if (selectable) toggleSelectAll();
+        // INV-15: never under an open dialog or sheet.
+        if (selectable && !dialogIsOpen()) toggleSelectAll();
       },
     },
   ]);
@@ -526,6 +592,10 @@ export function FlipdeskListingsPage() {
     // one, and the state.from round trip through an item then returned them to
     // the wrong tab. Measured on every tab click, page 1 included.
     if (tabChanged) next.delete("page");
+    // INV-12: a header sort belongs to the tab it was clicked on; the next
+    // tab has different columns. Cleared in this same write for the reason
+    // above.
+    if (tabChanged) next.delete("col");
     if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }
@@ -597,7 +667,9 @@ export function FlipdeskListingsPage() {
   // reason the page-scoped detail reads key on pageRowIds. The first three
   // elements are unchanged, so every existing
   // invalidateQueries({ queryKey: ["items_full"] }) still sweeps all of them.
-  const listingsItemsKey = ["items_full", "listings", user?.id] as const;
+  // INV-D1: keyed on the WORKSPACE on screen, not the signed-in user, so a
+  // workspace switch never serves the other workspace's page from cache.
+  const listingsItemsKey = listingsItemsKeyFor(ownerId);
   const listingsPageKey = [
     ...listingsItemsKey,
     tab,
@@ -619,6 +691,7 @@ export function FlipdeskListingsPage() {
     isLoading,
     isError,
     isFetching,
+    isPlaceholderData,
     refetch,
   } = useQuery<ListingPageResult>({
     queryKey: listingsPageKey,
@@ -626,7 +699,12 @@ export function FlipdeskListingsPage() {
     // A page's worth of rows is cheap to refetch and stale rows here are the
     // expensive kind, so the previous entry stays visible while the next one
     // loads rather than blanking the table on every keystroke or page click.
-    placeholderData: (prev) => prev,
+    //
+    // INV-11: but ONLY within the same tab. Keeping the Active tab's rows on
+    // screen under "Sold" rendered live listings with Sold-only actions on
+    // them. A tab switch shows the skeleton instead.
+    placeholderData: (prev, prevQuery) =>
+      keepRowsAcrossKeys(prevQuery?.queryKey, listingsPageKey) ? prev : undefined,
     // US-2174 (replaces the US-735 reasoning).
     //
     // The old 15-minute window was justified by "mutations invalidate items_full
@@ -665,29 +743,24 @@ export function FlipdeskListingsPage() {
     // `buyerCounts` across the whole account for the repeat-buyer star.
     //
     // It is SECURITY INVOKER and items_full is security_invoker, so RLS still
-    // scopes this to the caller exactly as the direct read did.
+    // applies. RLS admits every workspace the caller is in, though, so INV-D1
+    // (00833) passes p_owner_id and the function reads that workspace only.
     queryFn: async (): Promise<ListingPageResult> => {
       const { data, error } = await supabase.rpc("flipdesk_listing_page", {
-        p_tab: tab,
-        p_search: search,
-        p_sold_filter: soldFilter,
-        p_unlisted_filter: unlistedFilter,
-        p_filter: filterQuery,
-        p_column_sort: columnSort,
-        p_sort_preset: sortPreset,
-        // "Year to date" means the VIEWER's year; the database cannot know it.
-        p_ytd_start: new Date(new Date().getFullYear(), 0, 1).toISOString(),
+        // INV-6: the same argument builder select-all and CSV export use.
+        ...listingPageArgs({
+          tab,
+          search,
+          soldFilter,
+          unlistedFilter,
+          filterQuery,
+          columnSort,
+          sortPreset,
+          agedThresholdDays,
+          ownerId,
+        }),
         p_limit: pageSize,
         p_offset: (page - 1) * pageSize,
-        // The projection stays in ONE place (listings-columns.ts) and is sent
-        // to the server rather than restated in SQL, where it would drift the
-        // first time a column was added. Without it the RPC returns every
-        // items_full column, including the four heavy detail-only ones this
-        // table never renders.
-        p_columns: LISTINGS_COLUMN_LIST,
-        // US-3195: only consulted on the Aged tab, the same way p_sold_filter
-        // is only consulted on Sold.
-        p_aged_threshold_days: agedThresholdDays,
       } as never);
       if (error) throw error;
       return (data ?? { total: 0, rows: [] }) as ListingPageResult;
@@ -736,47 +809,9 @@ export function FlipdeskListingsPage() {
   // of each view recomputing the totals.
   const { data: statusCounts } = useInventoryStatusCounts();
 
-  const tabCounts = useMemo(() => {
-    const counts: Record<TabId, number> = {
-      all: 0,
-      unlisted: 0,
-      // US-3195: aged is not a status, so the server-side status grouping cannot
-      // count it and this stays -1, which the badge reads as "no number" rather
-      // than as "none". A permanent 0 on a tab holding forty dead listings is
-      // worse than no badge, which is the same judgement the fallback below
-      // already makes about page-limited counts.
-      aged: -1,
-      active: 0,
-      sold: 0,
-      shipped: 0,
-      returned: 0,
-      archived: 0,
-    };
-    // Prefer the server-side grouped count (decoupled from the loaded rows);
-    // fall back to counting the loaded set if the RPC hasn't resolved yet.
-    if (statusCounts && Object.keys(statusCounts).length > 0) {
-      let all = 0;
-      for (const [st, n] of Object.entries(statusCounts)) {
-        // US-1483: archived items are excluded from the All tab.
-        if ((st as ItemStatus) !== "archived") all += n;
-        if (DRAFT_LIKE_STATUSES.has(st as ItemStatus)) counts.unlisted += n;
-      }
-      counts.all = all;
-      counts.active = statusCounts.listed ?? 0;
-      counts.sold = statusCounts.sold ?? 0;
-      counts.shipped = statusCounts.shipped ?? 0;
-      counts.returned = statusCounts.returned ?? 0;
-      counts.archived = statusCounts.archived ?? 0;
-      return counts;
-    }
-    // US-2168: the old fallback counted the LOADED rows while statusCounts was
-    // in flight. That was sound when "loaded" meant the whole account; it is
-    // actively wrong now that it means one page, because it would badge every
-    // tab with a number no larger than the page size — "3" next to a tab
-    // holding 137 items. Zeros are the honest placeholder: obviously
-    // not-yet-known, rather than confidently wrong for the second it shows.
-    return counts;
-  }, [statusCounts]);
+  // INV-11: null while the grouped count loads or when it failed, and the badge
+  // shows nothing for null. A 0 on every tab for that second read as "empty".
+  const tabCounts = useMemo(() => tabCountsFrom(statusCounts), [statusCounts]);
 
   const activeTab = TABS.find((t) => t.id === tab) ?? TABS[0]!;
 
@@ -907,12 +942,15 @@ export function FlipdeskListingsPage() {
     items: actionItems,
     selected,
     setSelected,
+    ownerId,
     tab,
     search,
     soldFilter,
+    unlistedFilter,
     filterQuery,
     columnSort,
     sortPreset,
+    agedThresholdDays,
     setExporting,
     setBusy,
     setDropProgress,
@@ -920,6 +958,7 @@ export function FlipdeskListingsPage() {
     bulkDropPct,
     setBulkPublishProgress,
     setBulkReviseProgress,
+    setBulkEndProgress,
     setBulkDeleteProgress,
     setBulkDeleteOpen,
     setBulkStatusOpen,
@@ -962,6 +1001,14 @@ export function FlipdeskListingsPage() {
 
   const allOnPageSelected =
     pageRowIds.length > 0 && pageRowIds.every((id) => selected.has(id));
+
+  // INV-7: every selected row, including ones remembered from other pages, so
+  // the dialogs below act on the whole selection the bar is counting.
+  const selectedRows = useMemo(
+    () => selectedRowsFrom(actionItems, selected),
+    [actionItems, selected],
+  );
+  const selectedListingIds = useMemo(() => listingIdsOf(selectedRows), [selectedRows]);
 
   // On Unlisted the bulk bar follows the SELECTION, not the tab: a mixed pick
   // of undrafted and drafted rows gets both "Create drafts" (for the first
@@ -1011,6 +1058,50 @@ export function FlipdeskListingsPage() {
     });
   }
 
+  // INV-15: a keyboard row cursor over the desktop table's rows.
+  const { cursor: cursorIndex } = useRowCursor(
+    {
+      count: pageRows.length,
+      idAt: (i) => pageRows[i]?.id,
+      toggle: (id) => {
+        if (selectable) toggleSelected(id);
+      },
+      selectRange: (ids) => {
+        if (!selectable) return;
+        setSelected((prev) => {
+          const next = new Set(prev);
+          for (const id of ids) next.add(id);
+          return next;
+        });
+      },
+      quickEdit: (i) => {
+        const it = pageRows[i];
+        if (it) setQuickEditItem(it);
+      },
+      openFull: (i) => {
+        const it = pageRows[i];
+        if (it) {
+          navigate(`/dashboard/flipdesk/items/${it.id}/draft`, {
+            state: { from: `${window.location.pathname}${window.location.search}` },
+          });
+        }
+      },
+      scrollTo: (i) => {
+        if (virtualize) rowVirtualizer.scrollToIndex(i, { align: "auto" });
+        else {
+          const id = pageRows[i]?.id;
+          if (id) {
+            document
+              .querySelector(`[data-row-id="${CSS.escape(id)}"]`)
+              ?.scrollIntoView?.({ block: "nearest" });
+          }
+        }
+      },
+    },
+    isDesktop,
+  );
+  const cursorId = cursorIndex != null ? (pageRows[cursorIndex]?.id ?? null) : null;
+
   // US-3467: Gmail-style "select all N matching", across every page of the
   // current tab, search and filter. Capped so one click cannot pull a whole
   // account into the browser.
@@ -1045,16 +1136,9 @@ export function FlipdeskListingsPage() {
 
   return (
     <div className={cn("space-y-6", selectable && selected.size > 0 && "pb-24")}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-3">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
-            <p className="text-sm text-muted-foreground">
-              Triage surface — focus on items by their selling stage.
-            </p>
-          </div>
-          <InventoryViewSwitcher current="table" />
-        </div>
+      {/* INV-13: the title and mode switcher live in the Inventory shell
+          (inventory.tsx); this row is the Table's own actions. */}
+      <div className="flex flex-wrap items-start justify-end gap-3">
         <div className="flex flex-wrap gap-2">
           <PageHelp slug="the-four-inventory-views" />
           <Button
@@ -1167,12 +1251,12 @@ export function FlipdeskListingsPage() {
               {t.label}
               {/* US-3195: a negative count means the number is not knowable
                   from the server-side status grouping, so no badge is shown. */}
-              {tabCounts[t.id] >= 0 && (
+              {tabCounts[t.id] != null && (
                 <Badge
                   variant={tab === t.id ? "default" : "secondary"}
                   className="px-1.5 py-0 text-[10px] tabular-nums"
                 >
-                  {tabCounts[t.id].toLocaleString()}
+                  {tabCounts[t.id]!.toLocaleString()}
                 </Badge>
               )}
             </TabsTrigger>
@@ -1545,86 +1629,111 @@ export function FlipdeskListingsPage() {
                   )}
                 </div>
               )}
-              {/* Mobile: card list (the wide table is unusable on a phone). */}
-              <div className="md:hidden">
-                {selectable && (
-                  <label className="flex cursor-pointer items-center gap-2 border-b px-4 py-2">
-                    <input
-                      type="checkbox"
-                      checked={allOnPageSelected}
-                      onChange={toggleSelectAll}
-                      className="h-4 w-4 cursor-pointer"
-                      aria-label="Select all on page"
+              {/* INV-11: while a same-tab refetch shows the previous rows, they
+                  are dimmed and inert, so nothing can be selected or acted on
+                  until the fresh page arrives. */}
+              <div
+                aria-busy={isPlaceholderData || undefined}
+                inert={isPlaceholderData || undefined}
+                className={cn(isPlaceholderData && "opacity-60 transition-opacity")}
+              >
+                {/* INV-13: one list per breakpoint. Both used to mount on every
+                    screen size with CSS hiding one of them, doubling the rows
+                    React rendered. */}
+                {isDesktop ? (
+                  <>
+                    {/* US-2173 AC3: the desktop table is its own component now. The
+                        US-733 virtualization decision stays here — the hook must be
+                        created on every render, and this component is not mounted on
+                        mobile — so its output is passed down rather than computed
+                        there. */}
+                    <ListingsTable
+                      pageRows={pageRows}
+                      tab={tab}
+                      isActive={isActive}
+                      isAged={isAgedTab}
+                      isUnlisted={isUnlisted}
+                      isShipped={isShipped}
+                      isSold={isSold}
+                      selectable={selectable}
+                      selected={selected}
+                      allOnPageSelected={allOnPageSelected}
+                      toggleSelected={toggleSelected}
+                      toggleSelectAll={toggleSelectAll}
+                      columnSort={columnSort}
+                      toggleColumnSort={toggleColumnSort}
+                      tableScrollRef={tableScrollRef}
+                      virtualize={virtualize}
+                      virtualItems={virtualItems}
+                      rowVirtualizer={rowVirtualizer}
+                      vPadTop={vPadTop}
+                      vPadBottom={vPadBottom}
+                      platformsByItem={platformsByItem}
+                      draftMetaByItem={draftMetaByItem}
+                      publishIssuesByItem={publishIssuesByItem}
+                      coverByItem={coverByItem}
+                      cursorId={cursorId}
+                      agedThresholdDays={agedThresholdDays}
+                      metricsByItem={metricsByItem}
+                      qualityByListing={qualityByListing}
+                      scoreById={scoreById}
+                      buyerCounts={buyerCounts}
+                      updateTracking={updateTracking}
+                      updateListingPrice={updateListingPrice}
+                      updateItemStatus={updateItemStatus}
+                      updateItemMoney={updateItemMoney}
+                      updateItemNotes={updateItemNotes}
+                      onQuickEdit={setQuickEditItem}
+                      markDelivered={markDelivered}
+                      setPublishItem={setPublishItem}
+                      setMarkListedItem={setMarkListedItem}
+                      setRecordSaleItem={setRecordSaleItem}
+                      setShipItem={setShipItem}
+                      setEndTarget={setEndTarget}
+                      setDeleteTarget={setDeleteTarget}
+                      canDelete={canDeleteItems}
+                      ebayConnection={ebayConnection}
+                      navigate={navigate}
                     />
-                    <span className="text-xs text-muted-foreground">
-                      {selected.size > 0
-                        ? `${selected.size} selected`
-                        : "Select all on page"}
-                    </span>
-                  </label>
+                  </>
+                ) : (
+                  <>
+                    {/* Mobile: card list (the wide table is unusable on a phone). */}
+                    <div className="md:hidden">
+                      {selectable && (
+                        <label className="flex cursor-pointer items-center gap-2 border-b px-4 py-2">
+                          <input
+                            type="checkbox"
+                            checked={allOnPageSelected}
+                            onChange={toggleSelectAll}
+                            className="h-4 w-4 cursor-pointer"
+                            aria-label="Select all on page"
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {selected.size > 0
+                              ? `${selected.size} selected`
+                              : "Select all on page"}
+                          </span>
+                        </label>
+                      )}
+                      <ItemCardList
+                        items={pageRows}
+                        onOpen={setDetailItem}
+                        selectable={selectable}
+                        selectedIds={selected}
+                        onToggleSelect={toggleSelected}
+                        onQuickEdit={setQuickEditItem}
+                        // US-3122: the phone list shows the sourcer while the page is
+                        // ordered by it, the same rule the desktop column follows.
+                        showSourcer={columnSort?.field === "sourced_by"}
+                        hasRequiredPhotos={(id) =>
+                          coverByItem ? (coverByItem.get(id)?.hasRequiredPhotos ?? false) : undefined
+                        }
+                      />
+                    </div>
+                  </>
                 )}
-                <ItemCardList
-                  items={pageRows}
-                  onOpen={setDetailItem}
-                  selectable={selectable}
-                  selectedIds={selected}
-                  onToggleSelect={toggleSelected}
-                  onQuickEdit={setQuickEditItem}
-                  // US-3122: the phone list shows the sourcer while the page is
-                  // ordered by it, the same rule the desktop column follows.
-                  showSourcer={columnSort?.field === "sourced_by"}
-                />
               </div>
-              {/* US-2173 AC3: the desktop table is its own component now. The
-                  US-733 virtualization decision stays here — the hook must be
-                  created on every render, and this component is not mounted on
-                  mobile — so its output is passed down rather than computed
-                  there. */}
-              <ListingsTable
-                pageRows={pageRows}
-                tab={tab}
-                isActive={isActive}
-                isAged={isAgedTab}
-                isUnlisted={isUnlisted}
-                isShipped={isShipped}
-                isSold={isSold}
-                selectable={selectable}
-                selected={selected}
-                allOnPageSelected={allOnPageSelected}
-                toggleSelected={toggleSelected}
-                toggleSelectAll={toggleSelectAll}
-                columnSort={columnSort}
-                toggleColumnSort={toggleColumnSort}
-                tableScrollRef={tableScrollRef}
-                virtualize={virtualize}
-                virtualItems={virtualItems}
-                rowVirtualizer={rowVirtualizer}
-                vPadTop={vPadTop}
-                vPadBottom={vPadBottom}
-                platformsByItem={platformsByItem}
-                draftMetaByItem={draftMetaByItem}
-                publishIssuesByItem={publishIssuesByItem}
-                coverByItem={coverByItem}
-                metricsByItem={metricsByItem}
-                qualityByListing={qualityByListing}
-                scoreById={scoreById}
-                buyerCounts={buyerCounts}
-                updateTracking={updateTracking}
-                updateListingPrice={updateListingPrice}
-                updateItemStatus={updateItemStatus}
-                updateItemMoney={updateItemMoney}
-                updateItemNotes={updateItemNotes}
-                onQuickEdit={setQuickEditItem}
-                markDelivered={markDelivered}
-                setPublishItem={setPublishItem}
-                setMarkListedItem={setMarkListedItem}
-                setRecordSaleItem={setRecordSaleItem}
-                setShipItem={setShipItem}
-                setEndTarget={setEndTarget}
-                setDeleteTarget={setDeleteTarget}
-                ebayConnection={ebayConnection}
-                navigate={navigate}
-              />
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-xs">
                 <div className="flex items-center gap-2">
@@ -1679,7 +1788,12 @@ export function FlipdeskListingsPage() {
       </Card>
 
       {selectable && selected.size > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+        <div
+          className="fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80"
+          // INV-11: no bulk action while the rows under it are placeholders.
+          inert={isPlaceholderData || undefined}
+          aria-busy={isPlaceholderData || undefined}
+        >
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
             <div className="text-sm font-semibold text-brand-navy dark:text-foreground">
               {selected.size} selected
@@ -1766,7 +1880,12 @@ export function FlipdeskListingsPage() {
                   <Button
                     variant="destructive"
                     onClick={() => setBulkDeleteOpen(true)}
-                    disabled={busy}
+                    disabled={busy || !canDeleteItems}
+                    title={
+                      canDeleteItems
+                        ? undefined
+                        : "Only a workspace admin or the owner can delete items."
+                    }
                   >
                     {busy && bulkDeleteProgress ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1885,7 +2004,9 @@ export function FlipdeskListingsPage() {
                     disabled={busy}
                   >
                     <XCircle className="mr-2 h-4 w-4" />
-                    End {selected.size}
+                    {bulkEndProgress
+                      ? `Ending ${bulkEndProgress.done}/${bulkEndProgress.total}…`
+                      : `End ${selected.size}`}
                   </Button>
                 </>
               ) : isAgedTab ? (
@@ -1950,7 +2071,9 @@ export function FlipdeskListingsPage() {
                     disabled={busy}
                   >
                     <XCircle className="mr-2 h-4 w-4" />
-                    End {selected.size}
+                    {bulkEndProgress
+                      ? `Ending ${bulkEndProgress.done}/${bulkEndProgress.total}…`
+                      : `End ${selected.size}`}
                   </Button>
                 </>
               ) : isSold ? (
@@ -2167,7 +2290,9 @@ export function FlipdeskListingsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
+      <LazyMount when={!!detailItem}>
+        <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
+      </LazyMount>
 
       {/* US-3467: the row click on desktop and the edit button on phone both
           open this panel. It reads the row from the live page, so a save that
@@ -2187,122 +2312,137 @@ export function FlipdeskListingsPage() {
             state: { from: `${window.location.pathname}${window.location.search}` },
           })
         }
+        onRecordSale={setRecordSaleItem}
         actions={{ patchItemColumns, updateItemStatus, updateListingPrice }}
       />
 
-      <MarkListedDialog
-        item={markListedItem}
-        onClose={() => setMarkListedItem(null)}
-      />
+      <LazyMount when={!!markListedItem}>
+        <MarkListedDialog
+          item={markListedItem}
+          onClose={() => setMarkListedItem(null)}
+        />
+      </LazyMount>
 
       {publishItem && (
-        <PublishToEbayDialog
-          open={!!publishItem}
-          onOpenChange={(o) => !o && setPublishItem(null)}
-          itemId={publishItem.id}
-          // Relist when the item was previously listed: an ended draft, or a
-          // still-live listing being replaced. A never-listed draft publishes
-          // normally.
-          relist={
-            publishItem.listing_status === "ended" ||
-            publishItem.listing_status === "active"
-          }
-          listingActive={publishItem.listing_status === "active"}
-        />
+        <Suspense fallback={null}>
+          <PublishToEbayDialog
+            open={!!publishItem}
+            onOpenChange={(o) => !o && setPublishItem(null)}
+            itemId={publishItem.id}
+            // Relist when the item was previously listed: an ended draft, or a
+            // still-live listing being replaced. A never-listed draft publishes
+            // normally.
+            relist={
+              publishItem.listing_status === "ended" ||
+              publishItem.listing_status === "active"
+            }
+            listingActive={publishItem.listing_status === "active"}
+          />
+        </Suspense>
       )}
 
-      <RecordSaleDialog
-        item={recordSaleItem}
-        onClose={() => setRecordSaleItem(null)}
-      />
-      <ShipOrderDialog item={shipItem} onClose={() => setShipItem(null)} />
+      <LazyMount when={!!recordSaleItem}>
+        <RecordSaleDialog
+          item={recordSaleItem}
+          onClose={() => setRecordSaleItem(null)}
+        />
+      </LazyMount>
+      <LazyMount when={!!shipItem}>
+        <ShipOrderDialog item={shipItem} onClose={() => setShipItem(null)} />
+      </LazyMount>
 
-      <SaveViewDialog
-        open={saveViewOpen}
-        onOpenChange={setSaveViewOpen}
-        query={filterQuery}
-      />
+      <LazyMount when={saveViewOpen}>
+        <SaveViewDialog
+          open={saveViewOpen}
+          onOpenChange={setSaveViewOpen}
+          query={filterQuery}
+        />
+      </LazyMount>
 
-      <BulkRepriceDialog
-        open={repriceOpen}
-        onOpenChange={setRepriceOpen}
-        listingIds={Array.from(selected)
-          .map((id) => items.find((i) => i.id === id)?.listing_id)
-          .filter((v): v is string => !!v)}
-        onApplied={() => {
-          setSelected(new Set());
-          void qc.invalidateQueries({ queryKey: ["items_full"] });
-        }}
-      />
+      <LazyMount when={repriceOpen}>
+        <BulkRepriceDialog
+          open={repriceOpen}
+          onOpenChange={setRepriceOpen}
+          listingIds={selectedListingIds}
+          onApplied={() => {
+            setSelected(new Set());
+            void qc.invalidateQueries({ queryKey: ["items_full"] });
+          }}
+        />
+      </LazyMount>
 
-      <BulkPromoteDialog
-        open={promoteOpen}
-        onOpenChange={setPromoteOpen}
-        listingIds={Array.from(selected)
-          .map((id) => items.find((i) => i.id === id)?.listing_id)
-          .filter((v): v is string => !!v)}
-        selectionValueCents={(() => {
-          // Null when ANY selected item has no price: a fee estimate that
-          // silently omits the items it could not price reads as complete.
-          const rows = Array.from(selected)
-            .map((id) => items.find((i) => i.id === id))
-            .filter((r): r is NonNullable<typeof r> => !!r);
-          if (rows.length === 0 || rows.some((r) => r.list_price == null)) return null;
-          return rows.reduce((sum, r) => sum + Math.round(Number(r.list_price) * 100), 0);
-        })()}
-      />
+      <LazyMount when={promoteOpen}>
+        <BulkPromoteDialog
+          open={promoteOpen}
+          onOpenChange={setPromoteOpen}
+          listingIds={selectedListingIds}
+          selectionValueCents={(() => {
+            // Null when ANY selected item has no price: a fee estimate that
+            // silently omits the items it could not price reads as complete.
+            const rows = selectedRows;
+            if (rows.length === 0 || rows.some((r) => r.list_price == null)) return null;
+            return rows.reduce((sum, r) => sum + Math.round(Number(r.list_price) * 100), 0);
+          })()}
+        />
+      </LazyMount>
 
-      <BulkFieldsDialog
-        open={bulkFieldsOpen}
-        count={selected.size}
-        onOpenChange={setBulkFieldsOpen}
-        onApply={bulkSetFields}
-      />
+      <LazyMount when={bulkFieldsOpen}>
+        <BulkFieldsDialog
+          open={bulkFieldsOpen}
+          count={selected.size}
+          onOpenChange={setBulkFieldsOpen}
+          onApply={bulkSetFields}
+        />
+      </LazyMount>
 
-      <BulkEditDialog
-        open={bulkEditOpen}
-        onOpenChange={setBulkEditOpen}
-        listingIds={Array.from(selected)
-          .map((id) => items.find((i) => i.id === id)?.listing_id)
-          .filter((v): v is string => !!v)}
-        onApplied={() => {
-          setSelected(new Set());
-          void qc.invalidateQueries({ queryKey: ["items_full"] });
-        }}
-      />
+      <LazyMount when={bulkEditOpen}>
+        <BulkEditDialog
+          open={bulkEditOpen}
+          onOpenChange={setBulkEditOpen}
+          listingIds={selectedListingIds}
+          onApplied={() => {
+            setSelected(new Set());
+            void qc.invalidateQueries({ queryKey: ["items_full"] });
+          }}
+        />
+      </LazyMount>
 
-      <PrepareShipmentDialog
-        open={prepareShipOpen}
-        onOpenChange={setPrepareShipOpen}
-        items={Array.from(selected)
-          .map((id) => items.find((i) => i.id === id))
-          .filter((v): v is ItemFullRow => !!v)}
-        onApplied={() => setSelected(new Set())}
-      />
+      <LazyMount when={prepareShipOpen}>
+        <PrepareShipmentDialog
+          open={prepareShipOpen}
+          onOpenChange={setPrepareShipOpen}
+          items={selectedRows}
+          onApplied={() => setSelected(new Set())}
+        />
+      </LazyMount>
 
-      <BulkCrossListDialog
-        open={bulkCrossListOpen}
-        onOpenChange={setBulkCrossListOpen}
-        itemCount={selectedDrafted}
-        ebayConnected={!!ebayConnection}
-        running={busy || crossPushBulk.isPending}
-        onConfirm={(choice) => void bulkCrossList(choice)}
-      />
-      <BulkAiEnrichDialog
-        open={aiEnrichOpen}
-        onOpenChange={setAiEnrichOpen}
-        itemIds={Array.from(selected)}
-        itemLabel={(itemId) => itemRowLabel(items.find((i) => i.id === itemId) ?? { id: itemId })}
-        onReviewItem={(itemId) => {
-          const it = items.find((i) => i.id === itemId);
-          if (it) setDetailItem(it);
-          setAiEnrichOpen(false);
-        }}
-        onDone={() => {
-          qc.invalidateQueries({ queryKey: ["items_full"] });
-          setSelected(new Set());
-        }}
-      />
+      <LazyMount when={bulkCrossListOpen}>
+        <BulkCrossListDialog
+          open={bulkCrossListOpen}
+          onOpenChange={setBulkCrossListOpen}
+          itemCount={selectedDrafted}
+          ebayConnected={!!ebayConnection}
+          running={busy || crossPushBulk.isPending}
+          onConfirm={(choice) => void bulkCrossList(choice)}
+        />
+      </LazyMount>
+      <LazyMount when={aiEnrichOpen}>
+        <BulkAiEnrichDialog
+          open={aiEnrichOpen}
+          onOpenChange={setAiEnrichOpen}
+          itemIds={Array.from(selected)}
+          itemLabel={(itemId) => itemRowLabel(actionItems.find((i) => i.id === itemId) ?? { id: itemId })}
+          onReviewItem={(itemId) => {
+            const it = actionItems.find((i) => i.id === itemId);
+            if (it) setDetailItem(it);
+            setAiEnrichOpen(false);
+          }}
+          onDone={() => {
+            qc.invalidateQueries({ queryKey: ["items_full"] });
+            setSelected(new Set());
+          }}
+        />
+      </LazyMount>
     </div>
   );
 }

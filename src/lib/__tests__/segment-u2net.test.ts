@@ -171,7 +171,7 @@ describe("the AGPL library is gone and nothing points at a vendor CDN (US-3069)"
     const helper = lib.slice(lib.indexOf("export function backgroundRemovalMessage"));
     expect(helper.slice(0, 400)).toMatch(/NoLocalSegmenter/);
     for (const f of [
-      "src/pages/flipdesk/autolister.tsx",
+      "src/pages/flipdesk/autolister/use-photo-tools.ts",
       "src/components/flipdesk/photo-editor-dialog.tsx",
     ]) {
       expect(read(f), `${f} does not use the shared message`).toMatch(
@@ -185,6 +185,7 @@ describe("the AGPL library is gone and nothing points at a vendor CDN (US-3069)"
     // bought, so it is what is pinned.
     for (const f of [
       "src/pages/flipdesk/autolister.tsx",
+      "src/pages/flipdesk/autolister/use-photo-tools.ts",
       "src/components/flipdesk/photo-editor-dialog.tsx",
     ]) {
       expect(read(f), `${f} hardcodes the missing-model copy`).not.toMatch(

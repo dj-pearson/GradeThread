@@ -15,9 +15,11 @@ import {
 } from "../lib/ai-metering.ts";
 import { AI_ACTION_LIMITS, creditsAllowedFor } from "../lib/ai-quota.ts";
 
-Deno.test("a bare number is 'plan cap, credits allowed'", () => {
-  assertEquals(toSpendAuthority(200), { limit: 200, allowCredits: true });
-  assertEquals(toSpendAuthority(-1), { limit: -1, allowCredits: true });
+Deno.test("a bare number is 'this cap, no credits' (AL-01)", () => {
+  // A number has already lost the self-cap decision, so the only safe reading
+  // is the one that never spends the seller's wallet.
+  assertEquals(toSpendAuthority(200), { limit: 200, allowCredits: false });
+  assertEquals(toSpendAuthority(-1), { limit: -1, allowCredits: false });
 });
 
 Deno.test("an explicit authority passes through untouched", () => {
@@ -175,4 +177,36 @@ Deno.test("only 'allowance' and 'credits' count as paid; anything else is exhaus
   for (const junk of [null, undefined, true, 1, "", "ALLOWANCE", {}]) {
     assertEquals(paid(junk), "exhausted", `${JSON.stringify(junk)} must not entitle`);
   }
+});
+
+// ── AL-01: AutoLister passes a full authority, never a bare limit ─────
+
+/** Every reserve/withAiAction call whose authority argument is a bare
+ * number literal or an identifier ending in `Limit` (the old `coverLimit` /
+ * `qaLimit` shape, which toSpendAuthority cannot tell apart from a plan cap). */
+function bareLimitReserveCalls(src: string): string[] {
+  const re =
+    /(?:withAiAction|reserveAiActionSafe|reserveAiAction)\(\s*[\w.]+\s*,\s*(-?\d+|\w*Limit)\s*[,)]/g;
+  return [...src.matchAll(re)].map((m) => m[0]);
+}
+
+Deno.test("AL-01: flipdesk-autolister passes no bare number or *Limit to a reserve call", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../routes/flipdesk-autolister.ts", import.meta.url),
+  );
+  assertEquals(
+    bareLimitReserveCalls(src),
+    [],
+    "pass { limit, allowCredits } (or the quota itself), not a bare limit",
+  );
+});
+
+Deno.test("AL-01: that scan still detects the shapes it was written for", () => {
+  assertEquals(
+    bareLimitReserveCalls("await withAiAction(ownerId, coverLimit, () =>").length,
+    1,
+  );
+  assertEquals(bareLimitReserveCalls("reserveAiAction(ownerId, 0)").length, 1);
+  assertEquals(bareLimitReserveCalls("withAiAction(ownerId, qaSpend, () =>").length, 0);
+  assertEquals(bareLimitReserveCalls("reserveAiAction(ownerId, quota)").length, 0);
 });

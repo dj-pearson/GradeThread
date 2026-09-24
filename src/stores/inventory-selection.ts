@@ -12,8 +12,19 @@ import { create } from "zustand";
 // of ids (would blow the URL length) and a stale selection across a full page
 // reload is more confusing than helpful. Persistence across *view switches* —
 // which keep the component tree mounted in the same SPA session — is the goal.
+//
+// INV-2: the selection belongs to ONE workspace. A bulk write sends these ids
+// with `.in("id", selected)`, and RLS admits a member of both workspaces, so a
+// selection that outlived a workspace switch or a sign-out could write to the
+// tenant the user just left. `bindOwner` drops the selection the moment the
+// owner on screen differs from the one it was made under, and switchWorkspace
+// and the sign-out path call `clear()` directly as well.
 interface InventorySelectionState {
   selected: Set<string>;
+  /** The workspace owner the current selection was made under. */
+  ownerId: string | null;
+  /** Adopt `ownerId`; clears the selection when it differs from the bound one. */
+  bindOwner: (ownerId: string | null) => void;
   // Mirrors React's setState signature (value or updater) so existing call
   // sites that did setSelected(new Set()) / setSelected(prev => …) port over
   // unchanged.
@@ -25,6 +36,11 @@ interface InventorySelectionState {
 
 export const useInventorySelection = create<InventorySelectionState>((set) => ({
   selected: new Set(),
+  ownerId: null,
+  bindOwner: (ownerId) =>
+    set((state) =>
+      state.ownerId === ownerId ? state : { ownerId, selected: new Set() },
+    ),
   setSelected: (next) =>
     set((state) => ({
       selected:
@@ -32,5 +48,5 @@ export const useInventorySelection = create<InventorySelectionState>((set) => ({
           ? (next as (prev: Set<string>) => Set<string>)(state.selected)
           : next,
     })),
-  clear: () => set({ selected: new Set() }),
+  clear: () => set({ selected: new Set(), ownerId: null }),
 }));

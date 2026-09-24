@@ -3,7 +3,9 @@ import {
   ALL_CLEAR,
   ATTENTION_HREF,
   buildAttentionChips,
+  isPlanGateError,
   oldestUpdatedAt,
+  railState,
 } from "@/lib/attention-rail";
 
 // US-3079 AC4: the rail's ordering, its zero-count rule and the all-clear case,
@@ -68,12 +70,20 @@ describe("buildAttentionChips: order", () => {
     expect(chips.map((c) => c.id)).toEqual(["needs-you", "stale"]);
   });
 
-  it("orders the grading surface in review, failed, disputed", () => {
+  it("orders the grading surface needs photos, failed, disputed, being finalized", () => {
     const chips = buildAttentionChips({
       surface: "grading",
-      grading: { inReview: 2, failed: 1, disputed: 5 },
+      grading: { needsPhotos: 1, inReview: 2, failed: 1, disputed: 5 },
     });
-    expect(chips.map((c) => c.id)).toEqual(["in-review", "failed", "disputed"]);
+    expect(chips.map((c) => c.id)).toEqual([
+      "needs-photos",
+      "failed",
+      "disputed",
+      "in-review",
+    ]);
+    // pending_review waits on staff, so it is worded as progress.
+    expect(chips[chips.length - 1]!.label).toBe("being finalized");
+    expect(chips[0]!.href).toBe("/dashboard/submissions?status=needs_photos");
   });
 });
 
@@ -177,6 +187,7 @@ describe("buildAttentionChips: every chip links somewhere real", () => {
       }),
     ];
     expect(all.length).toBe(9);
+    // (the optional DASH-7 inputs are absent here, so the count is unchanged)
     for (const c of all) {
       expect(known.has(c.href), `${c.id} -> ${c.href}`).toBe(true);
       expect(c.href.startsWith("/dashboard/")).toBe(true);
@@ -199,5 +210,130 @@ describe("oldestUpdatedAt", () => {
     expect(oldestUpdatedAt([])).toBeNull();
     expect(oldestUpdatedAt([0, 0])).toBeNull();
     expect(oldestUpdatedAt([Number.NaN])).toBeNull();
+  });
+});
+
+describe("railState (DASH-1)", () => {
+  const chip = {
+    id: "stale",
+    label: "stale listings",
+    count: 1,
+    href: "/dashboard/x",
+    hint: null,
+  };
+
+  it("is error, never all-clear, when a source failed and there are no chips", () => {
+    expect(
+      railState({ chips: [], failed: ["sync conflicts"], loading: false, partial: false }),
+    ).toBe("error");
+  });
+
+  it("is error when a read was only partial", () => {
+    expect(
+      railState({ chips: [], failed: [], loading: false, partial: true }),
+    ).toBe("error");
+  });
+
+  it("shows the chips that loaded even when another source failed", () => {
+    expect(
+      railState({ chips: [chip], failed: ["drafts"], loading: false, partial: false }),
+    ).toBe("chips");
+  });
+
+  it("is loading while a source is in flight", () => {
+    expect(
+      railState({ chips: [], failed: [], loading: true, partial: false }),
+    ).toBe("loading");
+  });
+
+  it("is all-clear only when every source answered and nothing is waiting", () => {
+    expect(
+      railState({ chips: [], failed: [], loading: false, partial: false }),
+    ).toBe("all-clear");
+  });
+
+  it("recognises a plan gate by its status", () => {
+    expect(isPlanGateError({ status: 402 })).toBe(true);
+    expect(isPlanGateError({ status: 403 })).toBe(true);
+    expect(isPlanGateError({ status: 500 })).toBe(false);
+    expect(isPlanGateError(new Error("x"))).toBe(false);
+    expect(isPlanGateError(null)).toBe(false);
+  });
+});
+
+describe("buildAttentionChips: extension and draft states (DASH-7)", () => {
+  it("puts failed extension jobs right after needs-you, ahead of pending jobs", () => {
+    const chips = buildAttentionChips({
+      surface: "flipdesk",
+      flipdesk: {
+        ...FLIPDESK_ALL,
+        extensionJobsFailed: 2,
+        extensionJobsToReview: 3,
+      },
+    });
+    const ids = chips.map((c) => c.id);
+    expect(ids.slice(0, 4)).toEqual([
+      "needs-you",
+      "extension-failed",
+      "drafts",
+      "extension-review",
+    ]);
+    expect(ids.indexOf("extension-failed")).toBeLessThan(ids.indexOf("extension"));
+  });
+
+  it("renders a truncated draft read as a floor, not an exact count", () => {
+    const chips = buildAttentionChips({
+      surface: "flipdesk",
+      flipdesk: { ...FLIPDESK_NONE, draftsToReview: 500, draftsTruncated: true },
+    });
+    expect(chips[0]!.countLabel).toBe("500+");
+    const exact = buildAttentionChips({
+      surface: "flipdesk",
+      flipdesk: { ...FLIPDESK_NONE, draftsToReview: 12 },
+    });
+    expect(exact[0]!.countLabel).toBeUndefined();
+  });
+});
+
+describe("buildAttentionChips: the other side of the Overview (DASH-14)", () => {
+  it("adds a trailing grading chip on FlipDesk when grading has items", () => {
+    const chips = buildAttentionChips({
+      surface: "flipdesk",
+      flipdesk: FLIPDESK_ALL,
+      otherSide: { count: 3 },
+    });
+    const last = chips[chips.length - 1]!;
+    expect(last.id).toBe("grading-side");
+    expect(last.label).toBe("grading items need you");
+    expect(last.href).toBe("/dashboard?view=grading");
+  });
+
+  it("adds a trailing FlipDesk chip on grading when FlipDesk has items", () => {
+    const chips = buildAttentionChips({
+      surface: "grading",
+      grading: { needsPhotos: 1, inReview: 0, failed: 0, disputed: 0 },
+      otherSide: { count: 1 },
+    });
+    expect(chips.map((c) => c.id)).toEqual(["needs-photos", "flipdesk-side"]);
+    expect(chips[1]!.label).toBe("FlipDesk item needs you");
+    expect(chips[1]!.href).toBe("/dashboard?view=flipdesk");
+  });
+
+  it("adds nothing when the other side has zero", () => {
+    const chips = buildAttentionChips({
+      surface: "flipdesk",
+      flipdesk: FLIPDESK_NONE,
+      otherSide: { count: 0 },
+    });
+    expect(chips).toEqual([]);
+  });
+
+  it("adds nothing for an account without the other side", () => {
+    const chips = buildAttentionChips({
+      surface: "grading",
+      grading: { inReview: 0, failed: 1, disputed: 0 },
+      otherSide: null,
+    });
+    expect(chips.map((c) => c.id)).toEqual(["failed"]);
   });
 });

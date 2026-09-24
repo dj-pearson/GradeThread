@@ -633,6 +633,20 @@ if (on("db")) {
       "db: source item counts are tenant-scoped (00831)",
       "node scripts/check-source-item-counts.mjs",
     );
+    // 00833 (INV-D1): the Inventory table and its tab counts read one
+    // workspace. A stranger naming another workspace gets 42501; the owner,
+    // members and the service role get only that workspace's rows.
+    run(
+      "db: the Inventory table reads one workspace (00833)",
+      "node scripts/check-inventory-owner-scope.mjs",
+    );
+    // 00834: the FlipDesk Overview reads one workspace too, and recentSales
+    // lists completed sales only. A stranger naming another workspace gets
+    // 42501; the owner, members and the service role get that one's numbers.
+    run(
+      "db: the FlipDesk Overview reads one workspace (00834)",
+      "node scripts/check-overview-owner-scope.mjs",
+    );
     // 00825: api-key-auth trusts rate_tier and monthly_quota off the row, so
     // no client UPDATE or INSERT policy may exist on api_keys. The owner still
     // reads and deletes; the service role still mints.

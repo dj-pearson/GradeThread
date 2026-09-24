@@ -9,7 +9,10 @@ import {
 } from "@/components/ui/dialog";
 import { useTimeSaved } from "@/hooks/use-time-saved";
 import { formatMinutes, TIME_SAVED_LABELS } from "@/lib/time-saved";
-import { StatTileSkeleton } from "@/components/dashboard/widgets/flipdesk-shared";
+import {
+  StatTileSkeleton,
+  WidgetLoadError,
+} from "@/components/dashboard/widgets/flipdesk-shared";
 
 // US-9207, on the board (US-3076): hours FlipDesk saved this month.
 //
@@ -24,11 +27,20 @@ import { StatTileSkeleton } from "@/components/dashboard/widgets/flipdesk-shared
 // to see what the number is for.
 
 export function FlipdeskStatTimeSavedWidget() {
-  const { data: timeSaved, isLoading } = useTimeSaved();
+  const { data: timeSaved, isLoading, isError, isFetching, refetch } = useTimeSaved();
 
   if (isLoading) return <StatTileSkeleton label="time saved" />;
-  // No error branch: this is an edge read, not part of the overview aggregate,
-  // and the frame's quiet state says the right thing when it cannot answer.
+  // A failed read is not "nothing to show": the frame's quiet state would say
+  // exactly that over an edge outage. Say it failed and offer Retry.
+  if (isError) {
+    return (
+      <WidgetLoadError
+        what="your time saved"
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
   if (!timeSaved) return null;
 
   const { totalMinutes, lines, month } = timeSaved;

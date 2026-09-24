@@ -6,6 +6,7 @@ import {
   validateReceiptUpload,
 } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { isOwnedStagingPath } from "../lib/staging-path.ts";
 import {
   encodeBase64,
   extractReceipt,
@@ -201,7 +202,7 @@ flipdeskExpensesRoutes.post("/:id/adopt-staged", async (c) => {
   // THE TENANCY CHECK, before any storage call. A path from the body is
   // attacker-controlled; without this a crafted one copies another tenant's
   // receipt onto this expense.
-  if (!staged.startsWith(`${ownerId}/_staging/`)) {
+  if (!isOwnedStagingPath(staged, ownerId)) {
     return c.json({ error: "Not your file" }, 403);
   }
 

@@ -48,6 +48,18 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    // INV-15: listings-row-cursor.ts. Off while a dialog is open.
+    title: "Inventory table",
+    items: [
+      { keys: ["J", "K"], label: "Move the row cursor down / up" },
+      { keys: ["X"], label: "Select or unselect the cursor row" },
+      { keys: ["Shift", "X"], label: "Select a range of rows" },
+      { keys: ["↵"], label: "Quick edit the cursor row" },
+      { keys: ["E"], label: "Open the cursor row in the full editor" },
+      { keys: ["Esc"], label: "Drop the row cursor" },
+    ],
+  },
+  {
     title: "Inventory grid",
     items: [{ keys: ["⌘/Ctrl", "Z"], label: "Undo cell edits" }],
   },

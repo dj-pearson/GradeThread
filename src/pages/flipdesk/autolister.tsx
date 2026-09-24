@@ -23,15 +23,21 @@ import { useGooglePhotosImport } from "@/hooks/use-google-photos-import";
 import { itemPhotoThumb } from "@/lib/images";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { useAutolisterPhoneCapture } from "./autolister/use-phone-capture";
+import { useWorkbenchPersistence } from "./autolister/use-workbench-persistence";
+import { aiActionBudget } from "./autolister/ai-budget";
+import { QUOTA_WALL_STATUSES, runMeteredWindows, trimTrailingPartialGroup } from "@/lib/metered-windows";
+import { usePhotoTools } from "./autolister/use-photo-tools";
+import { DELETE_UNDO_MS, usePendingStagedDeletes } from "./autolister/pending-deletes";
+import { DELETE_CONFIRM_AT, DeleteConfirmDialog } from "./autolister/delete-confirm-dialogs";
+import { useWorkbenchHotkeys } from "./autolister/use-workbench-hotkeys";
+import { WorkbenchHotkeysHelp } from "./autolister/workbench-hotkeys-help";
 import { uploadActions } from "./autolister/upload-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { readStored, writeStored } from "@/lib/safe-storage";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
-import { processStagedImage } from "@/lib/image-worker-pool";
 import {
   closestCenter,
   DndContext,
@@ -57,7 +63,10 @@ import {
 } from "@/lib/autolister-virtual-grid";
 import { useWindowVirtualAnchor } from "@/hooks/use-window-virtual-anchor";
 import {
+  mergeAutoTagResult,
   movePhotosToGroup,
+  pruneDeletedPhotos,
+  restoreDeletedPhotos,
   reorderWithinGroup,
 } from "@/lib/autolister-group-edits";
 import {
@@ -80,10 +89,13 @@ import {
 import {
   clearSession,
   idbAvailable,
-  loadSession,
-  migrateSessionFromLocalStorage,
   saveSession,
 } from "@/lib/autolister-session-idb";
+
+import {
+  readLocalWorkbenchSession,
+  readWorkbenchSessionId,
+} from "./autolister/workbench-session";
 import {
   type GroupEditKind,
   groupingCorrectionScore,
@@ -101,17 +113,11 @@ import {
   ProposalReviewChips,
 } from "./autolister/suggestion-chips";
 import {
+  activeCount,
   type StagedPhoto,
-  type StagedUploadResult,
-  uploadStagingPhoto,
   useAutolisterUploadStore,
 } from "@/stores/autolister-upload-store";
-import { autoEnhance, type EnhanceStats } from "@/lib/image-enhance";
-import {
-  backgroundRemovalMessage,
-  removeImageBackground,
-  type BgMode,
-} from "@/lib/background-removal";
+import type { BgMode } from "@/lib/background-removal";
 import {
   fetchAutolisterHandoff,
   useAutolisterHandoffs,
@@ -119,6 +125,8 @@ import {
   useDiscardAutolisterHandoff,
   useRunCoverQa,
   useStartAutolisterBatch,
+  StartBatchError,
+  MAX_GENERATE_BATCH_ITEMS,
 } from "@/hooks/use-autolister";
 import {
   dedupeSuggestions,
@@ -138,10 +146,14 @@ import {
   COVER_QA_REVIEW_THRESHOLD,
   type GroupWarning,
 } from "@/pages/flipdesk/autolister/group-warnings";
-import { persistGroupsAsItems } from "./autolister/persist-groups-as-items";
-import { discardStagedObjects } from "./autolister/discard-staged-objects";
+import {
+  findProtectedSkuMatches,
+  persistGroupsAsItems,
+  type ProtectedSkuMatch,
+} from "./autolister/persist-groups-as-items";
 import {
   GenerateConfirmDialog,
+  MeteredCountConfirmDialog,
   ProposeConfirmDialog,
   VerifyConfirmDialog,
 } from "./autolister/metered-confirm-dialogs";
@@ -229,6 +241,8 @@ interface Group {
   // creating a duplicate) so the AI draft can be reconciled against the
   // sheet-imported record field-by-field. Optional → round-trips older sessions.
   sku?: string;
+  // AL-07: the item a refused Generate already created; a retry reuses it.
+  itemId?: string;
   photoIds: string[];
   coverId: string;
   // photoId -> role. Optional so sessions persisted before US-533 (and freshly
@@ -342,7 +356,25 @@ function virtualItemsWithPin(
 // "reshoot recommended" nudge before Generate. Advisory only — never blocks.
 
 
+/** AL-11: the one component that re-renders on each upload progress tick. */
+function LiveUploadProgressPanel(
+  props: Omit<React.ComponentProps<typeof UploadProgressPanel>, "tasks">,
+) {
+  const tasks = useAutolisterUploadStore((s) => s.tasks);
+  return <UploadProgressPanel tasks={tasks} {...props} />;
+}
+
 export function FlipdeskAutolisterPage() {
+  const user = useAuthStore((s) => s.user);
+  const { workspaceOwnerId } = useWorkspace();
+  const ownerId = workspaceOwnerId ?? user?.id ?? null;
+  // AL-03: one workbench per (user, workspace). Switching either remounts it,
+  // so the session id, staged grid and undo snapshot are re-read for the new
+  // owner instead of carrying the previous one's over.
+  return <AutolisterWorkbench key={`${user?.id ?? ""}:${ownerId ?? ""}`} />;
+}
+
+function AutolisterWorkbench() {
   const user = useAuthStore((s) => s.user);
   const { workspaceOwnerId } = useWorkspace();
   const ownerId = workspaceOwnerId ?? user?.id ?? null;
@@ -363,27 +395,28 @@ export function FlipdeskAutolisterPage() {
   // US-1545: the month's remaining AI actions (plan cap, tightened by the
   // optional self-cap) — feeds the projected-spend line next to Generate. The
   // server enforces the same math at enqueue (count-aware 402) and per item.
-  const aiActionsRemaining = useMemo(() => {
+  // AL-08: Action Credits count too when the plan (not a self-cap) binds.
+  const aiBudget = useMemo(() => {
     if (!billing) return null;
-    const planCap = FLIPDESK_PLANS[plan].aiActionsPerMonth;
-    const selfCap = billing.usage.ai_action_limit;
-    const limit = selfCap != null ? Math.min(planCap, selfCap) : planCap;
-    return Math.max(0, limit - billing.usage.ai_actions_used_this_month);
+    return aiActionBudget({
+      planCap: FLIPDESK_PLANS[plan].aiActionsPerMonth,
+      selfCap: billing.usage.ai_action_limit,
+      used: billing.usage.ai_actions_used_this_month,
+      creditBalance: billing.action_credits?.balance,
+    });
   }, [billing, plan]);
+  const aiActionsRemaining = aiBudget?.remaining ?? null;
+  const creditsInRemaining = aiBudget?.credits ?? 0;
+  // AL-08: every metered pass refreshes the meter, so the next dialog's
+  // "remaining" reflects what the last pass spent.
+  const refreshAiMeter = () => void qc.invalidateQueries({ queryKey: ["billing_summary"] });
 
   // US-317: persist sessionId across reloads so the _staging uploads aren't
-  // orphaned and the staged/groups state can be rehydrated.
-  const sessionId = useRef<string>(
-    (() => {
-      // US-3218: runs during render, so a blocked-storage throw took the whole
-      // page down. It now costs a resumed session at most, never the page.
-      const existing = readStored("autolister:sessionId");
-      if (existing) return existing;
-      const id = crypto.randomUUID();
-      writeStored("autolister:sessionId", id);
-      return id;
-    })(),
+  // orphaned. AL-03: keyed on this user AND workspace owner.
+  const [{ sessionId: initialSessionId, sessionKey }] = useState(() =>
+    readWorkbenchSessionId(user?.id, ownerId),
   );
+  const sessionId = useRef<string>(initialSessionId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -392,37 +425,23 @@ export function FlipdeskAutolisterPage() {
   // Declared here (not by the mutation helpers) so the persist/rehydrate effects
   // below can read it.
   const undoGroupsRef = useRef<Group[] | null>(null);
-  // US-1905: gate persistence until the async IndexedDB rehydrate finishes, so
-  // the localStorage-seeded initial state can't clobber a fuller IDB session
-  // (localStorage may be stale/truncated on large sessions).
-  const hydratedRef = useRef(false);
   // Lazy-rehydrate staged/groups from localStorage so a refresh recovers the
   // in-flight session (instant first paint + the IndexedDB-unavailable
   // fallback); US-1905 then overrides from IndexedDB when it's available.
   // Uploaded photos live in Supabase Storage independently; only the in-memory
   // grouping state is at risk of loss.
-  const [staged, setStaged] = useState<StagedPhoto[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw) as { staged?: StagedPhoto[] };
-      return Array.isArray(parsed.staged) ? parsed.staged : [];
-    } catch {
-      return [];
-    }
-  });
-  const [groups, setGroups] = useState<Group[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw) as { groups?: Group[] };
-      return Array.isArray(parsed.groups) ? parsed.groups : [];
-    } catch {
-      return [];
-    }
-  });
+  // AL-03: whatever is read back is filtered to this owner's staging folder.
+  const [initialLocal] = useState(() =>
+    readLocalWorkbenchSession<StagedPhoto, Group>(storageKey, ownerId),
+  );
+  const [staged, setStaged] = useState<StagedPhoto[]>(initialLocal.staged);
+  const [groups, setGroups] = useState<Group[]>(initialLocal.groups);
+  // AL-09: the latest groups/staged for code that runs after an await.
+  const liveGroupsRef = useRef(groups);
+  liveGroupsRef.current = groups;
+  const liveStagedRef = useRef(staged);
+  liveStagedRef.current = staged;
+  const stagedByIdRef = useRef<ReadonlyMap<string, StagedPhoto>>(new Map());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   // US-1550: shift-click range selection anchor (id of the last plain click).
@@ -480,16 +499,15 @@ export function FlipdeskAutolisterPage() {
   // US-539/US-1542: per-file pipeline tasks (progress bars + failure retry)
   // now live in the app-level store, so uploads survive in-app navigation and
   // this page just renders live progress + claims finished photos.
-  const uploadTasks = useAutolisterUploadStore((s) => s.tasks);
-  const uploadResults = useAutolisterUploadStore((s) => s.results);
-  const uploading = uploadTasks.filter(
-    (t) => t.status === "queued" || t.status === "processing" || t.status === "uploading",
-  ).length;
+  // AL-11: the page subscribes to the in-flight COUNT only. The task array
+  // changes on every 2% progress tick; LiveUploadProgressPanel owns it.
+  const uploading = useAutolisterUploadStore((s) => activeCount(s.tasks));
   const [busy, setBusy] = useState(false);
   // US-955: fire-and-forget — auto-publish the green, clean drafts on completion.
   const [autoPublishGreen, setAutoPublishGreen] = useState(false);
   // US-2374: batches waiting from the phone, and which one is being pulled in.
   const { data: handoffs = [] } = useAutolisterHandoffs();
+  const [discardHandoffTarget, setDiscardHandoffTarget] = useState<{ id: string; photo_count: number } | null>(null);
   const claimHandoff = useClaimAutolisterHandoff();
   const discardHandoff = useDiscardAutolisterHandoff();
   const [loadingHandoffId, setLoadingHandoffId] = useState<string | null>(null);
@@ -497,6 +515,10 @@ export function FlipdeskAutolisterPage() {
   // US-533: groups currently running the AI cover/role pass.
   const [taggingGroups, setTaggingGroups] = useState<Set<string>>(new Set());
   const [taggingAll, setTaggingAll] = useState(false);
+  // AL-10: Auto-tag all and Check covers each confirm their spend first.
+  const [autoTagConfirmOpen, setAutoTagConfirmOpen] = useState(false);
+  const [coverCheckOpen, setCoverCheckOpen] = useState(false);
+  const autoTagCancelRef = useRef(false);
   // US-1544: AI group-boundary suggestions (merge/split/move). NEVER
   // auto-applied — rendered as dismissible chips on the affected groups.
   const [groupSuggestions, setGroupSuggestions] = useState<GroupSuggestionRow[]>([]);
@@ -517,18 +539,16 @@ export function FlipdeskAutolisterPage() {
   /** US-2621: which groups the pending Generate covers. null = all of them. */
   const [generateTarget, setGenerateTarget] = useState<string[] | null>(null);
   const [ackUngrouped, setAckUngrouped] = useState(false);
+  // AL-07: SKU matches on listed/sold/shipped/archived items, read when the
+  // Generate confirm opens; skipped unless the seller ticks the box.
+  const [protectedSkus, setProtectedSkus] = useState<ProtectedSkuMatch[]>([]);
+  const [attachProtected, setAttachProtected] = useState(false);
   // US-535: studio background. Mode for the one-tap clean, photos currently
   // being segmented, a batch-busy flag, and one-time model-download progress.
   const [bgMode, setBgMode] = useState<BgMode>("white");
   // US-2520: photos nothing has been applied to yet — an `original` means the
   // batch tools already ran on that one, and both bars count the same thing.
   const untouchedStagedCount = staged.filter((p) => !p.original).length;
-  const [bgProcessing, setBgProcessing] = useState<Set<string>>(new Set());
-  const [bgBusy, setBgBusy] = useState(false);
-  const [modelProgress, setModelProgress] = useState<number | null>(null);
-  // US-536: photos currently being auto-enhanced, and a batch-busy flag.
-  const [enhancing, setEnhancing] = useState<Set<string>>(new Set());
-  const [enhanceBusy, setEnhanceBusy] = useState(false);
   // US-534: id of the staged photo open in the crop/rotate/straighten editor.
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
   // US-957: fast cover-photo QA scores, keyed by the cover staged-photo id
@@ -537,164 +557,26 @@ export function FlipdeskAutolisterPage() {
   const [coverScores, setCoverScores] = useState<Record<string, number>>({});
   const coverInFlight = useRef<Set<string>>(new Set());
 
-  // US-1542: page ↔ upload-store wiring.
-  //
-  // Attach/detach: while attached the store skips its own localStorage merge
-  // (this page claims results + persists them itself). Detaching hands that
-  // responsibility back so uploads finishing mid-navigation are still safe
-  // against a hard reload.
-  useEffect(() => {
-    // sessionId is a ref — stable for the component's lifetime.
-    const store = useAutolisterUploadStore.getState();
-    store.attach(sessionId.current);
-    return () => useAutolisterUploadStore.getState().detach();
-  }, []);
-
-  // Duplicate guards: mirror the staged photos' source signatures/hashes into
-  // the store (deleting a photo frees its identity for re-adding; a claim that
-  // made it into `staged` is pruned store-side).
-  useEffect(() => {
-    const sigs = new Set<string>();
-    const hashes = new Set<string>();
-    for (const p of staged) {
-      if (p.sourceSig) sigs.add(p.sourceSig);
-      if (p.sourceHash) hashes.add(p.sourceHash);
-    }
-    useAutolisterUploadStore.getState().syncStagedIdentities(sigs, hashes);
-  }, [staged]);
-
-  // Claim finished photos from the store into the page's staged state (deduped
-  // by id — a photo merged into localStorage while this page was unmounted may
-  // already have rehydrated).
-  useEffect(() => {
-    if (uploadResults.length === 0) return;
-    setStaged((prev) => {
-      const have = new Set(prev.map((p) => p.id));
-      const fresh = uploadResults.filter((r) => !have.has(r.id));
-      return fresh.length > 0 ? [...prev, ...fresh] : prev;
-    });
-    useAutolisterUploadStore.getState().claimResults(uploadResults.map((r) => r.id));
-  }, [uploadResults]);
-
-  // US-1542 AC3: after a hard reload, Files queued in the previous page life
-  // are unrecoverable — say plainly how many need re-adding.
-  useEffect(() => {
-    const lost = useAutolisterUploadStore.getState().consumeLostUploadCount();
-    if (lost > 0) {
-      toast.warning(
-        `${lost} photo${lost === 1 ? "" : "s"} didn't finish uploading before the page closed.`,
-        {
-          description:
-            "Already-uploaded photos are safe below — add the missing files again to finish.",
-          duration: 10_000,
-        },
-      );
-    }
-  }, []);
-
-  // US-1905: rehydrate the FULL session from IndexedDB on mount (migrating an
-  // existing localStorage session on first run). IDB is authoritative — for a
-  // 600-photo session localStorage may be stale or truncated. `hydratedRef`
-  // gates the persist effect until this completes, so the localStorage-seeded
-  // initial state can't overwrite a fuller IDB session. Undo snapshot restored
-  // too. No IndexedDB (some private-browsing modes) → keep the localStorage
-  // state and mark hydrated immediately.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (idbAvailable()) {
-        try {
-          const raw = (() => {
-            try {
-              return window.localStorage.getItem(storageKey);
-            } catch {
-              return null;
-            }
-          })();
-          const loaded =
-            (await migrateSessionFromLocalStorage(sessionId.current, raw)) ??
-            (await loadSession(sessionId.current));
-          if (!cancelled && loaded) {
-            if (Array.isArray(loaded.staged)) {
-              const idbStaged = loaded.staged as StagedPhoto[];
-              const idbIds = new Set(idbStaged.map((p) => p.id));
-              // Merge, not replace: keep any photo an upload claimed during the
-              // async rehydrate window (IDB is authoritative for the rest).
-              setStaged((cur) => [...idbStaged, ...cur.filter((p) => !idbIds.has(p.id))]);
-            }
-            if (Array.isArray(loaded.groups) && loaded.groups.length > 0) {
-              setGroups(loaded.groups as Group[]);
-            }
-            if (Array.isArray(loaded.undo)) undoGroupsRef.current = loaded.undo as Group[];
-          }
-        } catch {
-          /* keep the localStorage-seeded state */
-        }
-      }
-      if (!cancelled) hydratedRef.current = true;
-      // US-1905: resume uploads persisted before a reload (part 2). Runs after
-      // the localStorage-derived staged identities are synced, so a photo that
-      // finished before the reload isn't re-uploaded.
-      void useAutolisterUploadStore.getState().resumeUploads(sessionId.current);
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Persist whenever staged / groups change. US-1905: IndexedDB is the primary
-  // store (no size limit → a 600-photo session saves fully, undo snapshot
-  // included). localStorage remains the fallback when IndexedDB is unavailable,
-  // where the US-1541 size-guard (drop `original` snapshots, warn once) still
-  // applies. Gated on `hydratedRef` so it can't run before the IDB rehydrate.
-  const persistWarnedRef = useRef(false);
-  useEffect(() => {
-    if (typeof window === "undefined" || !hydratedRef.current) return;
-    if (idbAvailable()) {
-      void saveSession(sessionId.current, {
-        staged,
-        groups,
-        undo: undoGroupsRef.current,
-        sort: { ungroupedSort, groupEvery },
-        updatedAt: Date.now(),
-      });
-      return;
-    }
-    // Fallback: localStorage, size-guarded (only reached without IndexedDB).
-    try {
-      window.localStorage.setItem(storageKey, JSON.stringify({ staged, groups }));
-      return;
-    } catch {
-      /* fall through to the slimmed retry */
-    }
-    try {
-      const slimmed = staged.map((p) => {
-        const copy = { ...p };
-        delete copy.original;
-        return copy;
-      });
-      window.localStorage.setItem(storageKey, JSON.stringify({ staged: slimmed, groups }));
-      if (!persistWarnedRef.current) {
-        persistWarnedRef.current = true;
-        toast.warning(
-          "This session is too large to save fully — it will still restore after a reload, but photo-edit undo snapshots won't.",
-        );
-      }
-    } catch {
-      if (!persistWarnedRef.current) {
-        persistWarnedRef.current = true;
-        toast.warning(
-          "Couldn't save this session locally (storage is full or disabled) — a reload will lose the grouping. Uploaded photos are safe on the server.",
-        );
-      }
-    }
-  }, [staged, groups, storageKey, ungroupedSort, groupEvery]);
+  // US-1542 / US-1905 / AL-03: upload-store wiring, the IndexedDB rehydrate
+  // and the session persist live in autolister/use-workbench-persistence.ts.
+  const { cancelPendingPersist } = useWorkbenchPersistence<Group>({
+    sessionId: sessionId.current,
+    storageKey,
+    ownerId,
+    staged,
+    setStaged,
+    groups,
+    setGroups,
+    undoGroupsRef,
+    ungroupedSort,
+    groupEvery,
+  });
 
   const stagedById = useMemo(
     () => new Map(staged.map((p) => [p.id, p])),
     [staged],
   );
+  stagedByIdRef.current = stagedById;
   const groupedIds = useMemo(
     () => new Set(groups.flatMap((g) => g.photoIds)),
     [groups],
@@ -798,10 +680,9 @@ export function FlipdeskAutolisterPage() {
   // dnd-kit's viewport-edge auto-scroll keeps working untouched. Each needs its
   // list's distance from the top of the document (`scrollMargin`); the grid also
   // needs its width, because a square tile's height IS its width.
-  const gridRef = useRef<HTMLDivElement>(null);
-  const groupsRef = useRef<HTMLDivElement>(null);
-  const gridAnchor = useWindowVirtualAnchor(gridRef);
-  const groupsAnchor = useWindowVirtualAnchor(groupsRef);
+  // AL-12: callback refs, so a list that mounts after the page still measures.
+  const [gridRef, gridAnchor] = useWindowVirtualAnchor<HTMLDivElement>();
+  const [groupsRef, groupsAnchor] = useWindowVirtualAnchor<HTMLDivElement>();
 
   // Columns follow the grid's VIEWPORT breakpoints; the tile size follows the
   // container's own width. Feeding the container width to the breakpoints would
@@ -845,53 +726,63 @@ export function FlipdeskAutolisterPage() {
   }, [activeDragId, shownGroups]);
 
   const gridRows = virtualItemsWithPin(gridVirtualizer, dragSourceRow);
+  // AL-15: keyboard sorting (arrows, Space, g, 1-9, Delete, Esc, ?).
+  const hotkeys = useWorkbenchHotkeys({
+    photoIds: ungroupedSorted.map((p) => p.id),
+    columns: gridColumns,
+    suspended: editingPhotoId != null,
+    setSelected,
+    onGroupSelection: () => createGroupFromSelection(),
+    onSendToGroup: (i) => {
+      const g = shownGroups[i];
+      if (g && selected.size > 0) movePhotos(Array.from(selected), g.id);
+    },
+    onDeleteSelection: () => {
+      if (selected.size > 0) removePhotos(Array.from(selected));
+    },
+    onFocusIndex: (i) => gridVirtualizer.scrollToIndex(Math.floor(i / gridColumns)),
+  });
   const groupRows = virtualItemsWithPin(groupsVirtualizer, dragSourceGroup);
 
-  // US-957: as photos get grouped, score each group's cover so a low-quality
-  // cover can be reshot before the (much pricier) AI generation runs. Each pass
-  // batches the not-yet-scored covers into a single request; the edge runs the
-  // vision calls with bounded concurrency, so this never stalls the intake UI.
-  // Advisory only — failures are swallowed and a score never blocks Generate.
-  useEffect(() => {
-    if (!entitled) return;
-    const pending: { id: string; storage_path: string }[] = [];
+  // US-957 / AL-10: covers not yet scored. Scoring costs one AI action per
+  // cover, so it runs only when the seller asks (it used to fire on every
+  // grouping change and bill with no disclosure). Advisory only: failures are
+  // swallowed and a score never blocks Generate.
+  const pendingCovers = useMemo(() => {
+    const out: { id: string; storage_path: string }[] = [];
     const seen = new Set<string>();
     for (const g of groups) {
       const cover = stagedById.get(g.coverId);
-      if (!cover || seen.has(cover.id)) continue;
+      if (!cover || seen.has(cover.id) || cover.id in coverScores) continue;
       seen.add(cover.id);
-      if (cover.id in coverScores) continue;
-      if (coverInFlight.current.has(cover.id)) continue;
-      pending.push({ id: cover.id, storage_path: cover.storagePath });
+      out.push({ id: cover.id, storage_path: cover.storagePath });
     }
-    if (pending.length === 0) return;
+    return out;
+  }, [groups, stagedById, coverScores]);
+  function checkCovers() {
+    const pending = pendingCovers.filter((p) => !coverInFlight.current.has(p.id));
+    if (!entitled || pending.length === 0) return;
     for (const p of pending) coverInFlight.current.add(p.id);
     // US-1911: the hook chunks `pending` to the server's ≤100-per-request cap
-    // and merges partials as each chunk resolves. onSettled clears in-flight for
-    // ALL pending covers — including any left unscored by a failed chunk — so a
-    // later intake pass (triggered when the grouping changes) retries them.
+    // and merges partials as each chunk resolves.
     coverQa.mutate(
       {
         covers: pending,
-        onPartial: (results) => {
+        onPartial: (results) =>
           setCoverScores((prev) => {
             const next = { ...prev };
             for (const r of results) next[r.cover_id] = r.score;
             return next;
-          });
-        },
+          }),
       },
       {
         onSettled: () => {
           for (const p of pending) coverInFlight.current.delete(p.id);
+          refreshAiMeter();
         },
       },
     );
-    // coverQa.mutate is referentially stable (react-query); the deps below cover
-    // every input the scan reads. Including `coverQa` itself would re-run every
-    // render (useMutation returns a fresh object each time).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups, stagedById, coverScores, entitled]);
+  }
 
   // US-3139: name each group off its tag photo instead of "Item 3". See ./autolister/tag-ocr.tsx.
   const { busy: tagOcrBusy } = useTagOcrWiring({ staged, groups, entitled, setGroups });
@@ -982,11 +873,17 @@ export function FlipdeskAutolisterPage() {
   // and best-effort removes the storage objects (current + pre-edit original).
   // The dedup sets rebuild from `staged`, so a deleted photo's source file
   // becomes re-addable automatically.
-  function removePhotos(ids: string[]) {
+  // AL-13: a delete leaves the grid at once but its storage objects go only
+  // when the Undo window closes; 10 or more ask first.
+  const pendingDeletes = usePendingStagedDeletes();
+  const [deleteConfirmIds, setDeleteConfirmIds] = useState<string[] | null>(null);
+  function removePhotos(ids: string[], confirmed = false) {
+    if (!confirmed && ids.length >= DELETE_CONFIRM_AT) return setDeleteConfirmIds(ids);
     const idSet = new Set(ids);
+    const removed = staged.filter((p) => idSet.has(p.id));
+    const groupsBefore = liveGroupsRef.current;
     const orphans: string[] = [];
-    for (const p of staged) {
-      if (!idSet.has(p.id)) continue;
+    for (const p of removed) {
       for (const path of [
         p.storagePath,
         p.thumbnailStoragePath,
@@ -997,338 +894,34 @@ export function FlipdeskAutolisterPage() {
       }
     }
     setStaged((prev) => prev.filter((p) => !idSet.has(p.id)));
-    setGroups((prev) =>
-      prev
-        .map((g) => {
-          const photoIds = g.photoIds.filter((pid) => !idSet.has(pid));
-          if (photoIds.length === g.photoIds.length) return g;
-          return {
-            ...g,
-            photoIds,
-            coverId: idSet.has(g.coverId) ? (photoIds[0] ?? g.coverId) : g.coverId,
-            roles: g.roles
-              ? Object.fromEntries(
-                  Object.entries(g.roles).filter(([pid]) => !idSet.has(pid)),
-                )
-              : undefined,
-            photoRoles: g.photoRoles
-              ? Object.fromEntries(
-                  Object.entries(g.photoRoles).filter(([pid]) => !idSet.has(pid)),
-                )
-              : undefined,
-          };
-        })
-        .filter((g) => g.photoIds.length > 0),
-    );
+    setGroups((prev) => pruneDeletedPhotos(prev, idSet));
+    // AL-09: the undo snapshot must not resurrect deleted photos.
+    if (undoGroupsRef.current) undoGroupsRef.current = pruneDeletedPhotos(undoGroupsRef.current, idSet);
     setSelected((prev) => {
       const next = new Set(prev);
       for (const id of ids) next.delete(id);
       return next;
     });
-    // US-3389: notified, because this is the one of the four where the seller
-    // pressed Delete and is about to read a success toast.
-    void discardStagedObjects(orphans, "delete staged photos", { notify: true });
-    toast.success(`Deleted ${ids.length} photo${ids.length === 1 ? "" : "s"}.`);
+    const handle = pendingDeletes.schedule(orphans);
+    toast.success(`Deleted ${ids.length} photo${ids.length === 1 ? "" : "s"}.`, {
+      duration: DELETE_UNDO_MS,
+      action: {
+        label: "Undo",
+        onClick: () => {
+          if (!pendingDeletes.cancel(handle)) return void toast.error("Too late to undo: those photos are gone.");
+          setStaged((prev) => [...prev, ...removed.filter((p) => !prev.some((x) => x.id === p.id))]);
+          setGroups((prev) => restoreDeletedPhotos(prev, groupsBefore, idSet));
+        },
+      },
+    });
   }
 
-  // Upload a processed image under a fresh storage key and swap it into the
-  // staged photo, snapshotting the previous image into `original` for one-tap
-  // revert. Keeps the staged id + capture time so grouping/order survive.
-  async function restageProcessed(
-    photoId: string,
-    processed: {
-      full: Blob;
-      thumb: Blob;
-      width: number;
-      height: number;
-      contentType: string;
-      ext: string;
-    },
-  ): Promise<boolean> {
-    if (!ownerId) return false;
-    const existing = stagedById.get(photoId);
-    if (!existing) return false;
-
-    // US-529: re-staged (enhanced/bg-removed) images go through the same
-    // validated server upload as fresh ones.
-    let up: StagedUploadResult;
-    try {
-      up = await uploadStagingPhoto(
-        sessionId.current,
-        processed.full,
-        processed.thumb,
-      );
-    } catch (err) {
-      if (import.meta.env.DEV) console.warn("[autolister] restage upload failed:", err);
-      return false;
-    }
-
-    const original = existing.original ?? {
-      url: existing.url,
-      storagePath: existing.storagePath,
-      thumbnailUrl: existing.thumbnailUrl,
-      thumbnailStoragePath: existing.thumbnailStoragePath,
-      width: existing.width,
-      height: existing.height,
-      bytes: existing.bytes,
-      phash: existing.phash,
-    };
-    const orphans = existing.original
-      ? [existing.storagePath, existing.thumbnailStoragePath].filter(
-          (p): p is string => !!p,
-        )
-      : [];
-    setStaged((prev) =>
-      prev.map((p) =>
-        p.id === photoId
-          ? {
-              ...p,
-              url: up.url,
-              storagePath: up.storagePath,
-              thumbnailUrl: up.thumbnailUrl,
-              thumbnailStoragePath: up.thumbnailStoragePath,
-              width: processed.width,
-              height: processed.height,
-              bytes: up.bytes,
-              phash: "",
-              original,
-            }
-          : p,
-      ),
-    );
-    // US-3389: reported, not surfaced. The re-stage already succeeded.
-    void discardStagedObjects(orphans, "re-stage processed photo");
-    return true;
-  }
-
-  // US-535: run on-device segmentation on one staged photo and swap in the
-  // cleaned result (studio-white or transparent). Keeps the staged id + capture
-  // time so grouping/order survive, snapshots the previous image into `original`
-  // for one-tap undo, writes a fresh storage key, and drops the replaced object.
-  // The cleaned image flows into BOTH the AI input and the published listing.
-  async function applyBgToPhoto(photoId: string, mode: BgMode): Promise<boolean> {
-    if (!ownerId) return false;
-    const existing = stagedById.get(photoId);
-    if (!existing) return false;
-
-    setBgProcessing((prev) => new Set(prev).add(photoId));
-    try {
-      const srcBlob = await (await fetch(existing.url)).blob();
-      const processed = await removeImageBackground(srcBlob, mode, (f) =>
-        setModelProgress(f < 1 ? f : null),
-      );
-      setModelProgress(null);
-      const ok = await restageProcessed(photoId, processed);
-      if (!ok) {
-        toast.error("Could not save cleaned photo.");
-        return false;
-      }
-      return true;
-    } catch (err) {
-      setModelProgress(null);
-      // US-3069: a missing on-device model is not a failed removal.
-      toastError(err, backgroundRemovalMessage(err));
-      return false;
-    } finally {
-      setBgProcessing((prev) => {
-        const next = new Set(prev);
-        next.delete(photoId);
-        return next;
-      });
-    }
-  }
-
-  // US-536: auto-enhance one photo. A `reference` (a group's cover stats) gives
-  // every photo of an item the same white-point/exposure.
-  async function enhancePhoto(
-    photoId: string,
-    reference?: EnhanceStats,
-  ): Promise<EnhanceStats | null> {
-    const existing = stagedById.get(photoId);
-    if (!existing) return null;
-    setEnhancing((prev) => new Set(prev).add(photoId));
-    try {
-      const srcBlob = await (await fetch(existing.url)).blob();
-      const { image, stats } = await autoEnhance(srcBlob, reference);
-      const ok = await restageProcessed(photoId, image);
-      if (!ok) {
-        toast.error("Could not save enhanced photo.");
-        return null;
-      }
-      return stats;
-    } catch (err) {
-      toastError(err, "Auto-enhance failed.");
-      return null;
-    } finally {
-      setEnhancing((prev) => {
-        const next = new Set(prev);
-        next.delete(photoId);
-        return next;
-      });
-    }
-  }
-
-  // US-535: restore the pre-cleanup original and drop the cleaned objects.
-  function undoBg(photoId: string) {
-    const existing = stagedById.get(photoId);
-    if (!existing?.original) return;
-    const o = existing.original;
-    const orphans = [existing.storagePath, existing.thumbnailStoragePath].filter(
-      (p): p is string => !!p,
-    );
-    setStaged((prev) =>
-      prev.map((p) =>
-        p.id === photoId
-          ? {
-              ...p,
-              url: o.url,
-              storagePath: o.storagePath,
-              thumbnailUrl: o.thumbnailUrl,
-              thumbnailStoragePath: o.thumbnailStoragePath,
-              width: o.width,
-              height: o.height,
-              bytes: o.bytes,
-              phash: o.phash,
-              original: undefined,
-            }
-          : p,
-      ),
-    );
-    // US-3389: reported, not surfaced. The undo itself succeeded.
-    void discardStagedObjects(orphans, "undo background removal");
-  }
-
-  // US-534: persist an edited photo (crop/rotate/straighten) by re-running the
-  // SAME stage pipeline as upload — compress → thumbnail → dHash → upload — so
-  // the edit feeds BOTH the AI input and the published image. Keeps the staged
-  // id + capture time so grouping/order/roles survive; writes a fresh storage
-  // key (avoids CDN-caching a reused URL) and cleans up the replaced objects.
-  async function replacePhotoWithBlob(photoId: string, blob: Blob): Promise<void> {
-    if (!ownerId) return;
-    const existing = stagedById.get(photoId);
-    if (!existing) return;
-    const file = new File([blob], "edited.jpg", { type: blob.type || "image/jpeg" });
-
-    let body: Blob = file;
-    let width: number | null = null;
-    let height: number | null = null;
-    let phash = "";
-    let thumbBlob: Blob | null = null;
-    try {
-      // US-539: same off-thread worker pipeline as fresh uploads.
-      const out = await processStagedImage(file, {
-        maxWidth: 2400,
-        quality: 0.85,
-        thumbWidth: 320,
-        thumbQuality: 0.7,
-      });
-      body = out.blob;
-      width = out.width;
-      height = out.height;
-      phash = out.phash;
-      thumbBlob = out.thumbBlob;
-    } catch (compErr) {
-      if (import.meta.env.DEV) console.warn("[autolister] edit compress failed, using edited blob:", compErr);
-    }
-
-    // US-529: edits re-land through the validated server upload too — even the
-    // compress-failure fallback gets its metadata stripped server-side.
-    let up: StagedUploadResult;
-    try {
-      up = await uploadStagingPhoto(sessionId.current, body, thumbBlob);
-    } catch (err) {
-      toastError(err, "Could not save edit.");
-      throw err;
-    }
-
-    const orphans = [existing.storagePath, existing.thumbnailStoragePath].filter(
-      (p): p is string => !!p,
-    );
-    setStaged((prev) =>
-      prev.map((p) =>
-        p.id === photoId
-          ? {
-              ...p,
-              url: up.url,
-              storagePath: up.storagePath,
-              thumbnailUrl: up.thumbnailUrl,
-              thumbnailStoragePath: up.thumbnailStoragePath,
-              width: width ?? up.width,
-              height: height ?? up.height,
-              bytes: up.bytes,
-              phash,
-            }
-          : p,
-      ),
-    );
-
-    // Drop the replaced objects so staging doesn't accumulate them. US-3389:
-    // reported, not surfaced. The edit is already saved and on screen.
-    void discardStagedObjects(orphans, "replace staged photo with an edit");
-    toast.success("Photo updated.");
-  }
-
-  // US-535: one tap to clean every not-yet-cleaned staged photo. Sequential —
-  // segmentation is heavy and parallel runs would thrash memory on mobile.
-  async function applyBgToAll(mode: BgMode) {
-    if (bgBusy) return;
-    const targets = staged.filter((p) => !p.original);
-    if (targets.length === 0) {
-      toast.info("Every photo already has a clean background.");
-      return;
-    }
-    setBgBusy(true);
-    try {
-      let ok = 0;
-      for (const p of targets) {
-        if (await applyBgToPhoto(p.id, mode)) ok++;
-      }
-      if (ok > 0) {
-        toast.success(
-          `Cleaned ${ok} photo${ok === 1 ? "" : "s"} onto ${mode === "white" ? "studio white" : "a transparent background"}.`,
-        );
-      }
-    } finally {
-      setBgBusy(false);
-    }
-  }
-
-  // US-536: one tap to enhance the whole batch. For each GROUP the cover is
-  // enhanced first and its stats are reused for the rest.
-  async function enhanceAll() {
-    if (enhanceBusy) return;
-    if (staged.every((p) => !!p.original)) {
-      toast.info("Every photo is already enhanced.");
-      return;
-    }
-    setEnhanceBusy(true);
-    try {
-      let ok = 0;
-      for (const g of groups) {
-        const members = g.photoIds
-          .map((id) => stagedById.get(id))
-          .filter((p): p is StagedPhoto => !!p && !p.original);
-        if (members.length === 0) continue;
-        const coverId =
-          members.find((m) => m.id === g.coverId)?.id ?? members[0]!.id;
-        const stats = await enhancePhoto(coverId);
-        if (stats) ok++;
-        for (const m of members) {
-          if (m.id === coverId) continue;
-          if (await enhancePhoto(m.id, stats ?? undefined)) ok++;
-        }
-      }
-      for (const p of ungrouped) {
-        if (p.original) continue;
-        if (await enhancePhoto(p.id)) ok++;
-      }
-      if (ok > 0) {
-        toast.success(`Auto-enhanced ${ok} photo${ok === 1 ? "" : "s"}.`);
-      }
-    } finally {
-      setEnhanceBusy(false);
-    }
-  }
+  // US-534/535/536: the per-photo tools (clean background, auto-enhance, edit)
+  // live in autolister/use-photo-tools.ts.
+  const {
+    bgProcessing, bgBusy, modelProgress, enhancing, enhanceBusy,
+    applyBgToPhoto, enhancePhoto, undoBg, replacePhotoWithBlob, applyBgToAll, enhanceAll,
+  } = usePhotoTools({ ownerId, sessionId: sessionId.current, staged, setStaged, stagedById, groups, ungrouped });
 
   // ── US-1543: undoable grouping mutations + drag-and-drop ───────────
   // (undoGroupsRef is declared near the session state above so US-1905's
@@ -1351,9 +944,14 @@ export function FlipdeskAutolisterPage() {
     apply: (prev: Group[]) => Group[],
     kind?: GroupEditKind,
   ): boolean {
-    const next = apply(groups);
-    if (next === groups) return false;
-    undoGroupsRef.current = groups;
+    // AL-09: read LIVE groups. An async pass (propose, verify) calls this
+    // after awaits, and the render closure would overwrite edits made while
+    // it ran and give Undo a stale snapshot.
+    const prev = liveGroupsRef.current;
+    const next = apply(prev);
+    if (next === prev) return false;
+    undoGroupsRef.current = prev;
+    liveGroupsRef.current = next;
     setGroups(next);
     // US-1908: measure how much sellers correct the auto-grouper.
     if (kind) trackGroupEdit(kind);
@@ -1451,13 +1049,13 @@ export function FlipdeskAutolisterPage() {
     setVerifyingGroups(true);
     verifyCancelRef.current = false;
     setVerifyProgress(multi ? { done: 0, total: totalGroups } : null);
-    const collected: GroupSuggestionRow[] = [];
     let done = 0;
-    let anyError = false;
     try {
-      for (const window of windows) {
-        if (verifyCancelRef.current) break;
-        try {
+      // AL-10: stops at a 402/403/429 instead of spending into the wall, and
+      // keeps failed windows so only those are offered for a retry.
+      const run = await runMeteredWindows(
+        windows,
+        async (window) => {
           const res = await edgeFetch("/api/flipdesk/autolister/verify-groups", {
             method: "POST",
             json: { groups: window.map((g) => ({ id: g.id, photos: g.photos })) },
@@ -1466,43 +1064,51 @@ export function FlipdeskAutolisterPage() {
             suggestions?: Array<Omit<GroupSuggestionRow, "id">>;
             error?: string;
           };
-          if (!res.ok) {
-            anyError = true;
-            if (!silent && !multi) toast.error(json.error || "Could not verify the grouping.");
-          } else {
-            for (const s of json.suggestions ?? []) {
-              collected.push({ ...s, id: crypto.randomUUID() });
-            }
-          }
-        } catch (err) {
-          anyError = true;
-          if (!silent && !multi) {
-            toastError(err, "Verify failed.");
-          }
-        }
-        done += window.length;
-        if (multi) setVerifyProgress({ done, total: totalGroups });
-      }
-
+          return res.ok
+            ? { ok: true as const, value: json.suggestions ?? [] }
+            : { ok: false as const, status: res.status, error: json.error ?? null };
+        },
+        {
+          isCancelled: () => verifyCancelRef.current,
+          onWindowDone: (w) => {
+            done += w.length;
+            if (multi) setVerifyProgress({ done, total: totalGroups });
+          },
+        },
+      );
+      const collected = run.completed.flatMap((c) =>
+        c.value.map((s) => ({ ...s, id: crypto.randomUUID() })),
+      );
+      const anyError = run.failed.length > 0 || run.wall != null;
       const deduped = dedupeSuggestions(collected);
       // Don't clobber existing chips if the whole pass errored with nothing to
       // show; otherwise the fresh result (even empty) replaces the old chips.
       if (!(anyError && deduped.length === 0)) setGroupSuggestions(deduped);
 
-      if (verifyCancelRef.current) {
+      if (run.wall) {
+        toast.error(run.wall.error || "Out of AI actions — stopped checking groups.", {
+          description: `Checked ${done} of ${totalGroups} groups.`,
+        });
+      } else if (run.cancelled) {
         if (!silent) toast.info(`Stopped — checked ${done} of ${totalGroups} groups.`);
       } else if (deduped.length > 0) {
         toast.info(
           `AI flagged ${deduped.length} possible grouping fix${deduped.length === 1 ? "" : "es"} — review the highlighted groups.`,
         );
       } else if (!silent && anyError) {
-        toast.error("Some groups couldn't be checked — try again.");
+        toast.error("Some groups couldn't be checked.", {
+          action: {
+            label: `Retry ${run.failed.length}`,
+            onClick: () => void runVerifyWindows(run.failed, false),
+          },
+        });
       } else if (!silent) {
         toast.success("The grouping looks right to the AI.");
       }
     } finally {
       setVerifyingGroups(false);
       setVerifyProgress(null);
+      refreshAiMeter();
     }
   }
 
@@ -1557,7 +1163,8 @@ export function FlipdeskAutolisterPage() {
         const grouped = new Set(prev.flatMap((g) => g.photoIds));
         const created: Group[] = [];
         for (const run of runs) {
-          const ids = run.photoIds.filter((id) => !grouped.has(id));
+          // AL-09: skip photos deleted while the proposal was running.
+          const ids = run.photoIds.filter((id) => !grouped.has(id) && stagedByIdRef.current.has(id));
           if (ids.length === 0) continue;
           for (const id of ids) grouped.add(id);
           created.push({
@@ -1581,16 +1188,15 @@ export function FlipdeskAutolisterPage() {
     proposeCancelRef.current = false;
     setProposeProgress(multi ? { done: 0, total: totalPhotos } : null);
     const pathById = new Map(ungroupedSorted.map((p) => [p.id, p.storagePath]));
-    const windowResults: ClientProposedGroup[][] = [];
-    let anyError = false;
     let done = 0;
     try {
-      for (const win of windows) {
-        if (proposeCancelRef.current) break;
-        const photos = win
-          .map((id) => ({ id, storage_path: pathById.get(id) ?? "" }))
-          .filter((p) => p.storage_path);
-        try {
+      // AL-10: stop at a quota wall; keep failed windows for a retry.
+      const run = await runMeteredWindows(
+        windows,
+        async (win) => {
+          const photos = win
+            .map((id) => ({ id, storage_path: pathById.get(id) ?? "" }))
+            .filter((p) => p.storage_path);
           const res = await edgeFetch("/api/flipdesk/autolister/propose-groups", {
             method: "POST",
             json: { photos },
@@ -1599,37 +1205,38 @@ export function FlipdeskAutolisterPage() {
             groups?: { photo_ids: string[]; confidence: number; reason: string }[];
             error?: string;
           };
-          if (!res.ok) {
-            anyError = true;
-            if (!multi) toast.error(json.error || "Could not propose groups.");
-          } else {
-            windowResults.push(
-              (json.groups ?? []).map((g) => ({
-                photoIds: g.photo_ids,
-                confidence: g.confidence,
-                reason: g.reason,
-              })),
-            );
-          }
-        } catch (err) {
-          anyError = true;
-          if (!multi) {
-            toastError(err, "Propose failed.");
-          }
-        }
-        done += win.length;
-        if (multi) setProposeProgress({ done, total: totalPhotos });
-      }
-
-      if (proposeCancelRef.current) {
-        toast.info(`Stopped — proposed over ${done} of ${totalPhotos} photos.`);
-        return;
-      }
+          if (!res.ok) return { ok: false as const, status: res.status, error: json.error ?? null };
+          return {
+            ok: true as const,
+            value: (json.groups ?? []).map((g): ClientProposedGroup => ({
+              photoIds: g.photo_ids,
+              confidence: g.confidence,
+              reason: g.reason,
+            })),
+          };
+        },
+        {
+          isCancelled: () => proposeCancelRef.current,
+          onWindowDone: (w) => {
+            done += w.length;
+            if (multi) setProposeProgress({ done, total: totalPhotos });
+          },
+        },
+      );
+      const stoppedEarly = run.cancelled || run.wall != null;
+      if (run.wall) toast.error(run.wall.error || "Out of AI actions — stopped proposing groups.");
+      else if (run.cancelled) toast.info(`Stopped — proposed over ${done} of ${totalPhotos} photos.`);
+      // AL-10: windows already paid for are kept on a stop, minus the last
+      // one's trailing group, which may run on into the window never sent.
+      const windowResults = trimTrailingPartialGroup(run.completed.map((c) => c.value), stoppedEarly);
       // A singleton stays a singleton; only multi-photo items are worth applying.
       const proposals = mergeProposalWindows(windowResults).filter((g) => g.photoIds.length >= 2);
       if (proposals.length === 0) {
-        if (anyError) toast.error("Some windows couldn't be proposed — try again.");
-        else toast.info("AI didn't find clear item boundaries — group these manually.");
+        if (run.failed.length > 0) {
+          toast.error("Some windows couldn't be proposed.", {
+            action: { label: `Retry ${run.failed.length}`, onClick: () => void runProposeWindows(run.failed) },
+          });
+        } else if (!stoppedEarly) toast.info("AI didn't find clear item boundaries — group these manually.");
         return;
       }
       const confident = proposals.filter((g) => g.confidence >= PROPOSE_APPLY_FLOOR);
@@ -1649,10 +1256,14 @@ export function FlipdeskAutolisterPage() {
       toast.success(
         `AI proposed ${confident.length} item${confident.length === 1 ? "" : "s"}` +
           (uncertain.length > 0 ? ` — ${uncertain.length} more to review below.` : "."),
+        run.failed.length > 0
+          ? { action: { label: `Retry ${run.failed.length} failed`, onClick: () => void runProposeWindows(run.failed) } }
+          : undefined,
       );
     } finally {
       setProposing(false);
       setProposeProgress(null);
+      refreshAiMeter();
     }
   }
 
@@ -1753,7 +1364,15 @@ export function FlipdeskAutolisterPage() {
   function openGenerateConfirm(only?: string[]) {
     setGenerateTarget(only && only.length > 0 ? only : null);
     setAckUngrouped(false);
+    setProtectedSkus([]);
+    setAttachProtected(false);
     setConfirmGenerateOpen(true);
+    const wanted = only && only.length > 0 ? new Set(only) : null;
+    if (ownerId) {
+      findProtectedSkuMatches(ownerId, wanted ? groups.filter((g) => wanted.has(g.id)) : groups)
+        .then(setProtectedSkus)
+        .catch((err) => toastError(err, "Couldn't check your SKUs against existing items."));
+    }
   }
 
   /**
@@ -1947,8 +1566,10 @@ export function FlipdeskAutolisterPage() {
     );
     // US-1544: sanity-check the freshly-created grouping (silent — only
     // speaks up when it finds something). Skipped in the degenerate branch
-    // above, where the user is being told to undo anyway.
-    void verifyGroups(true, [...groups, ...created]);
+    // above, where the user is being told to undo anyway. AL-10: the NEW
+    // groups plus one existing neighbour; the cheap single window used to go
+    // to the oldest groups, which this auto-group never touched.
+    void verifyGroups(true, [...groups.slice(-1), ...created]);
   }
 
   // US-1550: chunk the grid into fixed-size groups, in the grid's CURRENT
@@ -2065,8 +1686,8 @@ export function FlipdeskAutolisterPage() {
   // US-533: run the AI cover/role vision pass for one group and apply the
   // result. Returns true on success. edgeFetch surfaces the 402 upgrade dialog
   // for locked plans, so we don't handle gating here.
-  async function autoTagGroup(groupId: string): Promise<boolean> {
-    const g = groups.find((x) => x.id === groupId);
+  async function autoTagGroup(groupId: string, quiet = false): Promise<boolean | "wall"> {
+    const g = liveGroupsRef.current.find((x) => x.id === groupId);
     if (!g) return false;
     const photos = g.photoIds
       // US-1549: never send seller-reference (internal) photos to the vision
@@ -2090,40 +1711,28 @@ export function FlipdeskAutolisterPage() {
         error?: string;
       };
       if (!res.ok) {
-        toast.error(json.error || "Could not auto-tag photos.");
-        return false;
+        // AL-10: out of actions / not allowed / paced stops Auto-tag all.
+        const wall = QUOTA_WALL_STATUSES.has(res.status);
+        if (!quiet || wall) toast.error(json.error || "Could not auto-tag photos.");
+        return wall ? "wall" : false;
       }
-      const cover =
-        typeof json.cover_id === "string" && g.photoIds.includes(json.cover_id)
-          ? json.cover_id
-          : g.coverId;
-      // US-1549/US-1551: the AI only assigns the basic five roles, so any role
-      // outside that set (internal, measurements, interior, …) was hand-picked
-      // by the seller — re-apply those over the AI result instead of letting the
-      // pass demote them to "detail".
-      // US-2461: a QUALIFIED photo counts as hand-picked too. The AI emits bare
-      // types, so "Fabric close-up" comes back as `detail` and would otherwise
-      // survive as a type while its role was silently dropped below.
-      const preservedManual = Object.fromEntries(
-        Object.entries(g.roles ?? {}).filter(
-          ([pid, role]) =>
-            !AI_ASSIGNABLE_ROLES.has(role) || !!g.photoRoles?.[pid],
-        ),
-      ) as Record<string, PhotoRole>;
-      const roles = { ...(json.roles ?? {}), ...preservedManual };
-      // Drop a qualifier the AI just retyped away from under (the seller's
-      // "Size tag" reclassified as a defect keeps no `size` role).
-      const photoRoles = Object.fromEntries(
-        Object.entries(g.photoRoles ?? {}).filter(
-          ([pid]) => pid in preservedManual && roles[pid] !== "front",
-        ),
-      );
-      updateGroup(groupId, { coverId: cover, roles, photoRoles });
+      // AL-09: merge into the group as it is NOW (the seller may have moved
+      // photos or retyped roles while the request ran). US-1549/US-1551/
+      // US-2461's hand-picked-role rule lives in mergeAutoTagResult.
+      setGroups((prev) => {
+        const merged = mergeAutoTagResult(
+          prev.find((x) => x.id === groupId),
+          { coverId: json.cover_id, roles: json.roles },
+          AI_ASSIGNABLE_ROLES,
+        );
+        return merged ? prev.map((x) => (x.id === groupId ? merged : x)) : prev;
+      });
       return true;
     } catch (err) {
       toastError(err, "Auto-tag failed.");
       return false;
     } finally {
+      refreshAiMeter();
       setTaggingGroups((prev) => {
         const next = new Set(prev);
         next.delete(groupId);
@@ -2139,8 +1748,14 @@ export function FlipdeskAutolisterPage() {
     setTaggingAll(true);
     try {
       let ok = 0;
-      for (const g of groups) {
-        if (await autoTagGroup(g.id)) ok++;
+      // AL-09: ids snapshotted from the live list; a group removed mid-run
+      // is skipped by autoTagGroup's own live lookup.
+      autoTagCancelRef.current = false;
+      for (const id of liveGroupsRef.current.map((g) => g.id)) {
+        if (autoTagCancelRef.current) break;
+        const r = await autoTagGroup(id, true);
+        if (r === "wall") break;
+        if (r) ok++;
       }
       if (ok > 0) {
         toast.success(`Auto-tagged ${ok} listing${ok === 1 ? "" : "s"}.`);
@@ -2224,11 +1839,12 @@ export function FlipdeskAutolisterPage() {
   // don't re-show drafts on the next visit.
   function clearStoredSession() {
     if (typeof window === "undefined") return;
+    cancelPendingPersist();
     // US-1905: drop the IndexedDB session + its resume blobs too.
     void clearSession(sessionId.current);
     try {
       window.localStorage.removeItem(storageKey);
-      window.localStorage.removeItem("autolister:sessionId");
+      if (sessionKey) window.localStorage.removeItem(sessionKey);
     } catch {
       /* best-effort */
     }
@@ -2242,8 +1858,12 @@ export function FlipdeskAutolisterPage() {
    * keeps the seller on this page, so finishing one item early no longer means
    * either sending the whole batch or waiting for it.
    */
-  async function generate(only?: string[] | null) {
+  async function generate(only?: string[] | null, allowProtected?: ReadonlySet<string>) {
     if (!ownerId) return;
+    // AL-07: LIVE state. "Generate first N" runs this from a toast, whose
+    // closure held the groups before their itemId stamps: every item twice.
+    const groups = liveGroupsRef.current;
+    const stagedById = stagedByIdRef.current;
     if (groups.length === 0) {
       toast.error("Create at least one group first.");
       return;
@@ -2264,7 +1884,7 @@ export function FlipdeskAutolisterPage() {
       for (const g of groups) for (const pid of g.photoIds) finalAssigned[pid] = g.id;
       const correction = groupingCorrectionScore(autoAssignedRef.current, finalAssigned);
       trackGroupingOutcome({
-        photo_count: staged.length,
+        photo_count: liveStagedRef.current.length,
         corrected_count: correction.corrected,
         correction_pct: Math.round(correction.pct * 100) / 100,
         manual_groups_created: manualGroupsCreated(
@@ -2278,7 +1898,27 @@ export function FlipdeskAutolisterPage() {
       // US-3381: the group -> items + photos write moved to
       // autolister/persist-groups-as-items.ts so the SKU lookup inside it
       // could gain its error check; this file is at its ceiling exactly.
-      const itemIds = await persistGroupsAsItems({ ownerId, targets, stagedById });
+      // AL-07: record each created item on its group and persist it BEFORE the
+      // batch is started, so a refused batch retried later reuses the items.
+      const created = new Map<string, string>();
+      let itemIds: string[];
+      try {
+        itemIds = await persistGroupsAsItems({
+          ownerId, targets, stagedById, allowProtectedGroupIds: allowProtected,
+          onItemReady: (gid, iid) => created.set(gid, iid),
+        });
+      } finally {
+        if (created.size > 0) {
+          const stamped = groups.map((g) => (created.has(g.id) ? { ...g, itemId: created.get(g.id) } : g));
+          setGroups(stamped);
+          if (idbAvailable()) {
+            await saveSession(sessionId.current, {
+              staged: liveStagedRef.current, groups: stamped, undo: undoGroupsRef.current,
+              sort: { ungroupedSort, groupEvery }, updatedAt: Date.now(), ownerId: ownerId ?? undefined,
+            });
+          }
+        }
+      }
 
       if (itemIds.length === 0) {
         toast.error("Add photos to at least one group.");
@@ -2296,14 +1936,17 @@ export function FlipdeskAutolisterPage() {
         item_ids: itemIds,
         auto_publish_green: autoPublishGreen,
       });
-      if (partial) {
+      refreshAiMeter();
+      // AL-07: a group skipped for a protected SKU match stays in the session.
+      const sent = targets.filter((g) => created.has(g.id));
+      if (partial || sent.length < targets.length) {
         // The generated groups and their photos now belong to real items, so
         // they leave the staging session; everything else is untouched and the
         // seller stays on this page to keep working. The batch id goes into the
         // URL so BatchNav appears and the run is one click away.
-        const takenPhotoIds = new Set(targets.flatMap((g) => g.photoIds));
-        const remainingGroups = groups.filter((g) => !targets.includes(g));
-        const remainingStaged = staged.filter((p) => !takenPhotoIds.has(p.id));
+        const takenPhotoIds = new Set(sent.flatMap((g) => g.photoIds));
+        const remainingGroups = liveGroupsRef.current.filter((g) => !created.has(g.id));
+        const remainingStaged = liveStagedRef.current.filter((p) => !takenPhotoIds.has(p.id));
         // The undo snapshot describes groups that no longer exist here.
         undoGroupsRef.current = null;
         setGroups(remainingGroups);
@@ -2320,6 +1963,7 @@ export function FlipdeskAutolisterPage() {
             undo: null,
             sort: { ungroupedSort, groupEvery },
             updatedAt: Date.now(),
+            ownerId: ownerId ?? undefined,
           });
         }
         setSearchParams(
@@ -2347,7 +1991,18 @@ export function FlipdeskAutolisterPage() {
       clearStoredSession();
       navigate(`/dashboard/flipdesk/autolister/queue?batch=${res.batch_id}`);
     } catch (err) {
-      toastError(err, "Could not start generation.");
+      // AL-07: a batch that won't fit the allowance offers the part that does.
+      const remaining = err instanceof StartBatchError && err.code === "INSUFFICIENT_AI_ACTIONS"
+        ? Number(err.body.remaining ?? 0) : 0;
+      if (remaining > 0) {
+        const firstIds = targets.filter((g) => g.photoIds.length > 0).slice(0, remaining).map((g) => g.id);
+        toastError(err, "Not enough AI actions for this batch.", {
+          action: "generate listings",
+          toastAction: { label: `Generate first ${remaining}`, onClick: () => void generate(firstIds, allowProtected) },
+        });
+      } else {
+        toastError(err, "Could not start generation.");
+      }
     } finally {
       setBusy(false);
     }
@@ -2423,7 +2078,7 @@ export function FlipdeskAutolisterPage() {
             // first parameter is the group subset, and a bare handler would hand
             // it the click event as one.
             onClick={() => openGenerateConfirm()}
-            disabled={busy || groups.length === 0 || uploading > 0 || !entitled}
+            disabled={busy || listableCount === 0 || uploading > 0 || !entitled}
             size="lg"
           >
             {busy ? (
@@ -2431,25 +2086,26 @@ export function FlipdeskAutolisterPage() {
             ) : (
               <Sparkles className="mr-2 h-4 w-4" />
             )}
-            Generate {groups.length > 0 ? `${groups.length} listing${groups.length === 1 ? "" : "s"}` : ""}
+            {/* AL-07: count what Generate sends, not empty groups. */}
+            Generate {listableCount > 0 ? `${listableCount} listing${listableCount === 1 ? "" : "s"}` : ""}
           </Button>
           {/* US-2872: the button was disabled with no reason given, which is
               the hidden-feature problem wearing a grey coat. Say what it does
               and which plan has it, right where the seller is standing. */}
           {/* US-1545: projected AI spend vs the month's remainder, so a big
               session never dead-ends at Generate with an invisible quota wall. */}
-          {entitled && groups.length > 0 && aiActionsRemaining != null && (
+          {entitled && listableCount > 0 && aiActionsRemaining != null && (
             <p
               className={cn(
                 "text-xs",
-                groups.length > aiActionsRemaining
+                listableCount > aiActionsRemaining
                   ? "font-medium text-brand-red-text"
                   : "text-muted-foreground",
               )}
             >
-              {groups.length > aiActionsRemaining
-                ? `Needs ~${groups.length} AI actions but only ${aiActionsRemaining} remain — remove some groups or upgrade.`
-                : `Uses ~${groups.length} of your ${aiActionsRemaining} remaining AI actions this month.`}
+              {listableCount > aiActionsRemaining
+                ? `Needs ~${listableCount} AI actions but only ${aiActionsRemaining} remain — remove some groups or upgrade.`
+                : `Uses ~${listableCount} of your ${aiActionsRemaining} remaining AI actions this month.`}
             </p>
           )}
           {/* US-955: fire-and-forget auto-publish of the green, clean drafts. */}
@@ -2480,7 +2136,8 @@ export function FlipdeskAutolisterPage() {
         handoffs={handoffs}
         loadingHandoffId={loadingHandoffId}
         onLoad={loadHandoff}
-        onDiscard={(id) => discardHandoff.mutate(id)}
+        discardingHandoffId={discardHandoff.isPending ? (discardHandoff.variables ?? null) : null}
+        onDiscard={(id) => setDiscardHandoffTarget(handoffs.find((h) => h.id === id) ?? null)}
       />
 
       {(staged.length > 0 || groups.length > 0) && (
@@ -2489,12 +2146,20 @@ export function FlipdeskAutolisterPage() {
           listableCount={listableCount}
           ungroupedCount={ungrouped.length}
           aiActionsRemaining={aiActionsRemaining}
+          creditsInRemaining={creditsInRemaining}
           groupWarnings={groupWarnings}
           onWarningClick={scrollToGroup}
         />
       )}
 
-      {entitled && <CoverQualityAdvisory lowCoverCount={lowCoverCount} />}
+      {entitled && (
+        <CoverQualityAdvisory
+          lowCoverCount={lowCoverCount}
+          uncheckedCount={pendingCovers.length}
+          checking={coverQa.isPending}
+          onCheck={() => setCoverCheckOpen(true)}
+        />
+      )}
 
       {/* Premium gate (US-323) — shown when the plan doesn't include AutoLister.
           The server also enforces this; this is the in-app upsell. */}
@@ -2555,8 +2220,7 @@ export function FlipdeskAutolisterPage() {
         phoneCapture={phoneCapture}
       />
 
-      <UploadProgressPanel
-        tasks={uploadTasks}
+      <LiveUploadProgressPanel
         uploading={uploading}
         onRetry={(ids) => void retryUploadTasks(ids)}
         onDismiss={dismissUploadTask}
@@ -2702,6 +2366,7 @@ export function FlipdeskAutolisterPage() {
                     selected.has(p.id)
                       ? "border-primary ring-2 ring-primary/40"
                       : "border-transparent hover:border-muted-foreground/40",
+                    hotkeys.focusedId === p.id && "outline outline-2 outline-offset-2 outline-primary",
                   )}
                 >
                   <button
@@ -2729,7 +2394,7 @@ export function FlipdeskAutolisterPage() {
                     aria-label={`Delete ${photoName}`}
                     onClick={() => removePhotos([p.id])}
                     disabled={processing}
-                    className="absolute left-1 top-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 hover:bg-red-600 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30"
+                    className="absolute left-1 top-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 hover:bg-red-600 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:grid [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-8 [@media(pointer:coarse)]:place-items-center"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -2740,7 +2405,7 @@ export function FlipdeskAutolisterPage() {
                       title="Undo background removal"
                       aria-label={`Undo background removal on ${photoName}`}
                       onClick={() => undoBg(p.id)}
-                      className="absolute bottom-1 left-1 z-10 inline-flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                      className="absolute bottom-1 left-1 z-10 inline-flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
                     >
                       <Undo2 className="h-3 w-3" />
                       Undo
@@ -2753,7 +2418,7 @@ export function FlipdeskAutolisterPage() {
                       aria-label={`Clean the background of ${photoName}`}
                         onClick={() => applyBgToPhoto(p.id, bgMode)}
                         disabled={processing || bgBusy}
-                        className="absolute bottom-1 left-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        className="absolute bottom-1 left-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:grid [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-8 [@media(pointer:coarse)]:place-items-center"
                       >
                         <Eraser className="h-3 w-3" />
                       </button>
@@ -2763,7 +2428,7 @@ export function FlipdeskAutolisterPage() {
                       aria-label={`Auto-enhance ${photoName}`}
                         onClick={() => void enhancePhoto(p.id)}
                         disabled={processing || enhanceBusy}
-                        className="absolute bottom-1 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        className="absolute bottom-1 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:grid [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-8 [@media(pointer:coarse)]:place-items-center"
                       >
                         <WandSparkles className="h-3 w-3" />
                       </button>
@@ -2776,7 +2441,7 @@ export function FlipdeskAutolisterPage() {
                     aria-label={`Edit ${photoName}`}
                     onClick={() => setEditingPhotoId(p.id)}
                     disabled={processing}
-                    className="absolute bottom-1 right-1 z-10 rounded-full bg-black/50 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30"
+                    className="absolute bottom-1 right-1 z-10 rounded-full bg-black/50 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:grid [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-8 [@media(pointer:coarse)]:place-items-center"
                   >
                     <Pencil className="h-3 w-3" />
                   </button>
@@ -2821,7 +2486,8 @@ export function FlipdeskAutolisterPage() {
                 verifyCancelRef.current = true;
               }}
               tagging={taggingAll || taggingGroups.size > 0}
-              onAutoTagAll={autoTagAllGroups}
+              onAutoTagAll={() => setAutoTagConfirmOpen(true)}
+              onStopAutoTag={taggingAll ? () => { autoTagCancelRef.current = true; } : undefined}
               collapsed={groupsCollapsed}
               onToggleCollapsed={() => setGroupsCollapsed((c) => !c)}
               onUngroupAll={ungroupAll}
@@ -2957,7 +2623,8 @@ export function FlipdeskAutolisterPage() {
             >
             <GroupDropZone groupId={g.id}>
             <Card className="p-3">
-              <div className="mb-2 flex items-center gap-2">
+              {/* AL-14: wraps at 375px; the actions drop to their own row below sm. */}
+              <div className="mb-2 flex flex-wrap items-center gap-2">
                 <input
                   type="checkbox"
                   checked={selectedGroups.has(g.id)}
@@ -2975,7 +2642,7 @@ export function FlipdeskAutolisterPage() {
                 <Input
                   value={g.name}
                   onChange={(e) => updateGroup(g.id, { name: e.target.value })}
-                  className="h-8 max-w-xs"
+                  className="h-8 min-w-0 flex-1 sm:max-w-xs"
                   aria-label={`Item name for ${groupName}`}
                   placeholder="Item name"
                 />
@@ -3006,7 +2673,7 @@ export function FlipdeskAutolisterPage() {
                     </Badge>
                   );
                 })()}
-                <div className="ml-auto flex items-center gap-1">
+                <div className="flex w-full flex-wrap items-center gap-1 sm:ml-auto sm:w-auto">
                   {/* US-2621: generate THIS item without touching the rest of
                       the session. The only way to run one used to be the page
                       header's Generate, which takes the whole batch — so a
@@ -3103,7 +2770,7 @@ export function FlipdeskAutolisterPage() {
                           "absolute left-1 top-1 rounded-full p-0.5",
                           isCover
                             ? "bg-brand-red text-white"
-                            : "bg-black/40 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                            : "bg-black/40 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
                         )}
                       >
                         <Star className="h-3 w-3" />
@@ -3113,7 +2780,7 @@ export function FlipdeskAutolisterPage() {
                         title="Remove from group"
                         aria-label={`Remove from this group: ${photoName}`}
                         onClick={() => removePhotoFromGroup(g.id, pid)}
-                        className="absolute right-1 top-1 rounded-full bg-black/40 p-0.5 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        className="absolute right-1 top-1 rounded-full bg-black/40 p-0.5 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:grid [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-8 [@media(pointer:coarse)]:place-items-center"
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -3132,7 +2799,7 @@ export function FlipdeskAutolisterPage() {
                         title="Edit photo"
                         aria-label={`Edit ${photoName}`}
                         onClick={() => setEditingPhotoId(pid)}
-                        className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 p-1.5 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 p-1.5 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:grid [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-8 [@media(pointer:coarse)]:place-items-center"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
@@ -3190,6 +2857,7 @@ export function FlipdeskAutolisterPage() {
         // neutral `partial` note below instead of a blocking checkbox.
         ungroupedCount={generateScope.partial ? 0 : ungrouped.length}
         aiActionsRemaining={aiActionsRemaining}
+        creditsInRemaining={creditsInRemaining}
         groupWarnings={generateScope.warnings}
         onWarningClick={scrollToGroup}
         ackUngrouped={ackUngrouped}
@@ -3202,16 +2870,79 @@ export function FlipdeskAutolisterPage() {
             }
             : null
         }
-        onGenerate={() => {
+        maxItems={Math.min(MAX_GENERATE_BATCH_ITEMS, aiActionsRemaining ?? Infinity)}
+        protectedSkus={protectedSkus.map((m) => ({
+          ...m, name: groups.find((g) => g.id === m.groupId)?.name || m.sku,
+        }))}
+        attachProtected={attachProtected}
+        onAttachProtectedChange={setAttachProtected}
+        onGenerate={(firstN) => {
           setConfirmGenerateOpen(false);
-          void generate(generateTarget);
+          const allow = attachProtected ? new Set(protectedSkus.map((m) => m.groupId)) : undefined;
+          if (firstN == null) return void generate(generateTarget, allow);
+          const wanted = generateTarget ? new Set(generateTarget) : null;
+          const ids = groups.filter((g) => (!wanted || wanted.has(g.id)) && g.photoIds.length > 0)
+            .slice(0, firstN).map((g) => g.id);
+          void generate(ids, allow);
         }}
       />
 
+      <WorkbenchHotkeysHelp open={hotkeys.helpOpen} onOpenChange={hotkeys.setHelpOpen} />
+      <DeleteConfirmDialog
+        open={deleteConfirmIds != null}
+        title={`Delete ${deleteConfirmIds?.length ?? 0} photos?`}
+        description="They leave this session now. You can undo for a few seconds; after that their uploads are removed."
+        confirmLabel="Delete photos"
+        onCancel={() => setDeleteConfirmIds(null)}
+        onConfirm={() => {
+          if (deleteConfirmIds) removePhotos(deleteConfirmIds, true);
+          setDeleteConfirmIds(null);
+        }}
+      />
+      <DeleteConfirmDialog
+        open={discardHandoffTarget != null}
+        title="Discard this phone batch?"
+        description={`Its ${discardHandoffTarget?.photo_count ?? 0} uploaded photo${discardHandoffTarget?.photo_count === 1 ? "" : "s"} will be deleted. This can't be undone.`}
+        confirmLabel="Discard batch"
+        onCancel={() => setDiscardHandoffTarget(null)}
+        onConfirm={() => {
+          if (discardHandoffTarget) discardHandoff.mutate(discardHandoffTarget.id);
+          setDiscardHandoffTarget(null);
+        }}
+      />
+      <MeteredCountConfirmDialog
+        open={autoTagConfirmOpen}
+        title={`Auto-tag all ${groups.length} items?`}
+        what="one per item"
+        count={groups.filter((g) => g.photoIds.length > 0).length}
+        aiActionsRemaining={aiActionsRemaining}
+        creditsInRemaining={creditsInRemaining}
+        confirmLabel="Auto-tag all"
+        onCancel={() => setAutoTagConfirmOpen(false)}
+        onConfirm={() => {
+          setAutoTagConfirmOpen(false);
+          void autoTagAllGroups();
+        }}
+      />
+      <MeteredCountConfirmDialog
+        open={coverCheckOpen}
+        title={`Check ${pendingCovers.length} cover photos?`}
+        what="one per cover"
+        count={pendingCovers.length}
+        aiActionsRemaining={aiActionsRemaining}
+        creditsInRemaining={creditsInRemaining}
+        confirmLabel="Check covers"
+        onCancel={() => setCoverCheckOpen(false)}
+        onConfirm={() => {
+          setCoverCheckOpen(false);
+          checkCovers();
+        }}
+      />
       <VerifyConfirmDialog
         confirm={verifyConfirm}
         onCancel={() => setVerifyConfirm(null)}
         aiActionsRemaining={aiActionsRemaining}
+        creditsInRemaining={creditsInRemaining}
         onConfirm={(windows) => {
           setVerifyConfirm(null);
           void runVerifyWindows(windows, false);
@@ -3222,6 +2953,7 @@ export function FlipdeskAutolisterPage() {
         confirm={proposeConfirm}
         onCancel={() => setProposeConfirm(null)}
         aiActionsRemaining={aiActionsRemaining}
+        creditsInRemaining={creditsInRemaining}
         onConfirm={(windows) => {
           setProposeConfirm(null);
           void runProposeWindows(windows);

@@ -9,7 +9,9 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
 import { cn } from "@/lib/utils";
@@ -146,13 +148,66 @@ export function WidgetFrame({
   );
 }
 
-function WidgetErrorState({ title }: { title: string }) {
+function WidgetErrorState({
+  title,
+  onRetry,
+}: {
+  title: string;
+  onRetry: () => void;
+}) {
   return (
     <div className="rounded-xl border border-dashed px-4 py-6">
       <p className="text-sm text-muted-foreground">
         {title} could not load. The rest of your board is unaffected.
       </p>
+      <Button type="button" variant="outline" size="sm" className="mt-3" onClick={onRetry}>
+        Try again
+      </Button>
     </div>
+  );
+}
+
+/**
+ * The widget inside its boundary, with a Try again that actually recovers.
+ *
+ * A thrown widget used to stay broken until a reload: the boundary's resetKey
+ * never changed, and a chunk that failed to load stayed cached as a rejected
+ * lazy() forever. Try again drops the cached lazy component, invalidates the
+ * widget's declared queryKeys, and bumps a counter that is part of resetKey,
+ * which remounts it from scratch.
+ */
+function WidgetBody({
+  def,
+  entry,
+  surface,
+  range,
+}: {
+  def: WidgetDef;
+  entry: LayoutEntry;
+  surface: DashboardSurface;
+  range?: OverviewRangeId;
+}) {
+  const queryClient = useQueryClient();
+  const [attempt, setAttempt] = useState(0);
+  const Widget = lazyWidget(def);
+
+  const retry = () => {
+    lazyComponents.delete(def.id);
+    for (const key of def.queryKeys) {
+      void queryClient.invalidateQueries({ queryKey: [key] });
+    }
+    setAttempt((n) => n + 1);
+  };
+
+  return (
+    <ErrorBoundary
+      resetKey={`${entry.id}:${attempt}`}
+      fallback={<WidgetErrorState title={def.title} onRetry={retry} />}
+    >
+      <Suspense fallback={<WidgetSkeleton title={def.title} />}>
+        <Widget size={entry.size} surface={surface} range={range} />
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 
@@ -215,7 +270,6 @@ export function WidgetBoard({
         // normalize() drops unknown ids, so this only fires when a caller
         // passes a layout it never normalized. Skipping beats crashing.
         if (!def) return null;
-        const Widget = lazyWidget(def);
         const cell: WidgetCell = {
           entry,
           def,
@@ -227,14 +281,7 @@ export function WidgetBoard({
               subtitle={widgetWindowPhrase(def, range)}
               action={renderAction?.(def, entry)}
             >
-              <ErrorBoundary
-                resetKey={entry.id}
-                fallback={<WidgetErrorState title={def.title} />}
-              >
-                <Suspense fallback={<WidgetSkeleton title={def.title} />}>
-                  <Widget size={entry.size} surface={surface} range={range} />
-                </Suspense>
-              </ErrorBoundary>
+              <WidgetBody def={def} entry={entry} surface={surface} range={range} />
             </WidgetFrame>
           ),
         };

@@ -88,3 +88,18 @@ Deno.test("blockViewerWrites runs AFTER workspaceMiddleware (role must be resolv
       "role is resolved before the write floor runs",
   );
 });
+
+Deno.test("the extension queue resolves the workspace before the viewer floor runs", () => {
+  // Without workspaceMiddleware on this mount, workspaceRole is never set, so
+  // blockViewerWrites passes a viewer through and a view-only member can POST
+  // or DELETE queue jobs in the owner's tenant.
+  for (const path of ["/api/flipdesk/extension-queue", "/api/flipdesk/extension-queue/*"]) {
+    const re = new RegExp(
+      `app\\.use\\(\\s*"${path.replace(/[/*]/g, (c) => "\\" + c)}"\\s*,\\s*workspaceMiddleware\\s*\\)`,
+    );
+    const m = re.exec(mainSrc);
+    assert(m, `expected app.use("${path}", workspaceMiddleware) in main.ts`);
+    const floor = mainSrc.indexOf('app.use("/api/flipdesk/*", blockViewerWrites)');
+    assert(floor > m.index, `${path}: workspaceMiddleware must mount before blockViewerWrites`);
+  }
+});

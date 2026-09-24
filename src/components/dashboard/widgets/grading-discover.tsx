@@ -1,16 +1,14 @@
-import { useNavigate } from "react-router";
+import { Link } from "react-router";
 import { ArrowRight } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { usePassportSummary } from "@/hooks/use-passport-summary";
 import { featureCardsFor } from "@/lib/dashboard-persona-cards";
-import { Button } from "@/components/ui/button";
 
 // US-1118's Discover cards, moved onto the widget board by US-3075 AC1. The
 // list itself lives in src/lib/dashboard-persona-cards.ts.
 
 export function GradingDiscoverWidget() {
   const { profile } = useAuth();
-  const navigate = useNavigate();
   const passports = usePassportSummary();
 
   const cards = featureCardsFor(profile?.use_case ?? null, {
@@ -22,34 +20,29 @@ export function GradingDiscoverWidget() {
 
   if (cards.length === 0) return null;
 
+  // A plain list of links rather than a grid of icon-tile boxes: each row is
+  // one thing to try, and the whole row is the link.
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {cards.map((feature) => {
-        const Icon = feature.icon;
-        return (
-          <div
-            key={feature.key}
-            className="flex flex-col gap-3 rounded-xl border px-4 py-4"
+    <ul className="divide-y">
+      {cards.map((feature) => (
+        <li key={feature.key}>
+          <Link
+            to={feature.to}
+            className="group flex items-start justify-between gap-3 rounded-md py-3 hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none sm:px-2"
           >
-            <div className="flex items-center gap-2">
-              <Icon className="h-4 w-4 text-primary" aria-hidden="true" />
-              <p className="text-sm font-medium">{feature.title}</p>
-            </div>
-            <p className="flex-1 text-xs text-muted-foreground">
-              {feature.description}
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="self-start"
-              onClick={() => navigate(feature.to)}
-            >
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">{feature.title}</span>
+              <span className="block text-sm text-muted-foreground">
+                {feature.description}
+              </span>
+            </span>
+            <span className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary">
               {feature.cta}
-              <ArrowRight className="ml-1.5 h-3 w-3" aria-hidden="true" />
-            </Button>
-          </div>
-        );
-      })}
-    </div>
+              <ArrowRight className="h-3 w-3" aria-hidden="true" />
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }

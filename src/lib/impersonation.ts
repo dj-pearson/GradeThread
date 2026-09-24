@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/query-client";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useImpersonationStore } from "@/stores/impersonation-store";
+import { useInventorySelection } from "@/stores/inventory-selection";
 import { readStored, removeStored, writeStored } from "@/lib/safe-storage";
 
 // Client orchestration for admin "view as" / impersonation (US-581).
@@ -96,6 +97,7 @@ export async function startImpersonation(targetUserId: string): Promise<StartRes
   // while acting as the target, and — worse on the way back out — the TARGET's
   // cached data is served to the admin for up to staleTime after exit.
   queryClient.clear();
+  useInventorySelection.getState().clear();
 
   // Redeem the one-time token → swaps the browser into the target's session.
   const { error } = await supabase.auth.verifyOtp({
@@ -120,6 +122,7 @@ export async function stopImpersonation(): Promise<void> {
   // ADMIN's own session after the swap back — a support admin would see a
   // customer's data attributed to their own session for up to staleTime.
   queryClient.clear();
+  useInventorySelection.getState().clear();
 
   // Restore the admin's session by redeeming the one-time resume token. This
   // swaps the browser out of the target's session and back into the admin's

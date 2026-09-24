@@ -77,6 +77,10 @@ export const LISTINGS_COLUMN_LIST = [
   "listing_needs_review",
   "listing_reviewed_at",
   "listing_title",
+  // INV-10: the mobile card estimates postage from these two (US-2790), and
+  // without them in the projection it always fell back to the base weight.
+  "garment_category",
+  "material",
 ] as const;
 
 /**

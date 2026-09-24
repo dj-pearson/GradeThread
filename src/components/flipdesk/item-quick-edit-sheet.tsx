@@ -33,9 +33,16 @@ export interface QuickEditActions {
     it: ItemFullRow,
     base: Record<string, string | number | null>,
     view: Partial<ItemFullRow>,
+    opts?: { silent?: boolean },
   ) => Promise<boolean>;
-  updateItemStatus: (it: ItemFullRow, next: ItemStatus) => Promise<void>;
-  updateListingPrice: (it: ItemFullRow, raw: string) => Promise<void>;
+  /** INV-9: resolves false when the write failed. */
+  updateItemStatus: (
+    it: ItemFullRow,
+    next: ItemStatus,
+    opts?: { silent?: boolean },
+  ) => Promise<boolean>;
+  /** INV-9: resolves false when the price was not saved. */
+  updateListingPrice: (it: ItemFullRow, raw: string) => Promise<boolean>;
 }
 
 // US-961 made this a four-field sheet for the phone card list. US-3467 makes it
@@ -56,6 +63,7 @@ export function ItemQuickEditSheet({
   onSelect,
   onClose,
   onOpenFull,
+  onRecordSale,
   actions,
 }: {
   item: ItemFullRow | null;
@@ -64,10 +72,17 @@ export function ItemQuickEditSheet({
   onSelect?: (next: ItemFullRow) => void;
   onClose: () => void;
   onOpenFull?: (it: ItemFullRow) => void;
+  /**
+   * INV-9: Sold / Shipped / Completed open Record Sale instead of writing a
+   * bare status, so the sale row, price and fees are recorded too.
+   */
+  onRecordSale?: (it: ItemFullRow) => void;
   actions: QuickEditActions;
 }) {
   const [form, setForm] = useState<QuickEditForm | null>(null);
   const [saving, setSaving] = useState(false);
+  // INV-9: closing with unsaved edits asks first instead of dropping them.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   // The form resets when the panel moves to another item, never when the same
   // item's row refreshes underneath it: a refetch mid-typing must not wipe
   // what the seller has typed.
@@ -76,11 +91,13 @@ export function ItemQuickEditSheet({
     if (!item) {
       loadedId.current = null;
       setForm(null);
+      setConfirmDiscard(false);
       return;
     }
     if (loadedId.current === item.id) return;
     loadedId.current = item.id;
     setForm(formFromItem(item));
+    setConfirmDiscard(false);
   }, [item]);
 
   const plan = useMemo(
@@ -96,7 +113,14 @@ export function ItemQuickEditSheet({
     setForm((f) => (f ? { ...f, [key]: value } : f));
   }
 
-  /** Saves what changed. Resolves true when there is nothing left unsaved. */
+  /**
+   * Saves what changed. Resolves true when there is nothing left unsaved.
+   *
+   * INV-9: any failed write resolves false, which keeps the panel on this item
+   * rather than stepping past a price that never reached the marketplace. The
+   * three writes report as ONE toast; the price push keeps its own, because
+   * "queued for the extension" is a different outcome from "saved".
+   */
   async function save(): Promise<boolean> {
     if (!item || !plan) return true;
     if (plan.errors.length > 0) {
@@ -106,12 +130,28 @@ export function ItemQuickEditSheet({
     if (!plan.changed) return true;
     setSaving(true);
     try {
-      const ok = await actions.patchItemColumns(item, plan.base, plan.view);
+      const ok = await actions.patchItemColumns(item, plan.base, plan.view, { silent: true });
       if (!ok) return false;
-      if (plan.status) await actions.updateItemStatus(item, plan.status);
-      if (plan.listPrice != null) {
-        await actions.updateListingPrice(item, String(plan.listPrice));
+      if (plan.status && plan.recordsSale) {
+        // A sale is recorded, not typed in: hand over to Record Sale.
+        if (onRecordSale) {
+          if (Object.keys(plan.base).length > 0) toast.success("Saved. Now record the sale.");
+          loadedId.current = null;
+          onRecordSale(item);
+          onClose();
+        } else {
+          toast.error("Record the sale from the item's Record sale action.");
+        }
+        return false;
       }
+      if (plan.status) {
+        const statusOk = await actions.updateItemStatus(item, plan.status, { silent: true });
+        if (!statusOk) return false;
+      }
+      if (plan.listPrice != null) {
+        return await actions.updateListingPrice(item, String(plan.listPrice));
+      }
+      toast.success("Saved.");
       return true;
     } finally {
       setSaving(false);
@@ -120,11 +160,26 @@ export function ItemQuickEditSheet({
 
   async function go(target: ItemFullRow | null | undefined) {
     if (!target || !onSelect) return;
+    // INV-9: a live price change is pushed only on an explicit Save, never as a
+    // side effect of stepping to the next row.
+    if (plan?.needsExplicitSave) {
+      toast.error("Press Save to change the live price, or put it back first.");
+      return;
+    }
     if (await save()) onSelect(target);
   }
 
   async function saveAndClose() {
     if (await save()) onClose();
+  }
+
+  /** INV-9: close, but ask first when there are unsaved edits. */
+  function requestClose() {
+    if (plan?.changed && !saving) {
+      setConfirmDiscard(true);
+      return;
+    }
+    onClose();
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
@@ -152,7 +207,7 @@ export function ItemQuickEditSheet({
     : null;
 
   return (
-    <Sheet open={!!item} onOpenChange={(o) => !o && onClose()}>
+    <Sheet open={!!item} onOpenChange={(o) => !o && requestClose()}>
       <SheetContent
         side="right"
         className="w-full overflow-y-auto sm:max-w-md"
@@ -307,6 +362,41 @@ export function ItemQuickEditSheet({
                 {plan.errors[0]}
               </p>
             )}
+            {plan && plan.errors.length === 0 && plan.warnings.length > 0 && (
+              <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
+                {plan.warnings.join(" ")} Check it before you save.
+              </p>
+            )}
+            {plan?.recordsSale && (
+              <p className="text-xs text-muted-foreground">
+                Saving opens Record sale, so the sale price and fees are kept too.
+              </p>
+            )}
+          </div>
+        )}
+
+        {confirmDiscard && (
+          <div
+            role="alertdialog"
+            aria-label="Discard changes?"
+            className="mx-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/40 p-3 text-sm"
+          >
+            <span>You have unsaved changes. Discard them?</span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setConfirmDiscard(false)}>
+                Keep editing
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  setConfirmDiscard(false);
+                  onClose();
+                }}
+              >
+                Discard
+              </Button>
+            </div>
           </div>
         )}
 
@@ -320,7 +410,7 @@ export function ItemQuickEditSheet({
             <span />
           )}
           <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose} disabled={saving}>
+            <Button variant="outline" onClick={requestClose} disabled={saving}>
               Cancel
             </Button>
             <Button

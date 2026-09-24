@@ -1,5 +1,6 @@
 import { Handshake } from "lucide-react";
-import { useEbayBestOffers } from "@/hooks/use-ebay";
+import { Link } from "react-router";
+import { useEbayBestOffers, useEbayConnection } from "@/hooks/use-ebay";
 import { deadlineLabel, isClosedCase } from "@/pages/flipdesk/post-sale-state";
 import {
   StatTile,
@@ -19,8 +20,28 @@ import {
 // day left" means exactly what it means everywhere else.
 
 export function FlipdeskOffersWidget() {
-  const { data, isLoading, isError, isFetching, refetch } = useEbayBestOffers();
+  const connection = useEbayConnection();
+  // No eBay connection: the offers route 502s, and it polls every 90s. Do not
+  // ask. A failed connection read is unknown, so it still asks.
+  const ebayConnected = connection.isError || !!connection.data;
+  const { data, isLoading, isError, isFetching, refetch } = useEbayBestOffers(
+    ebayConnected && !connection.isLoading,
+  );
 
+  if (connection.isLoading) return <StatTileSkeleton label="open offers" />;
+  if (!ebayConnected) {
+    return (
+      <p className="py-4 text-sm text-muted-foreground">
+        <Link
+          to="/dashboard/flipdesk/marketplaces"
+          className="underline underline-offset-2 hover:text-foreground"
+        >
+          Connect eBay
+        </Link>{" "}
+        to see returns, cases and offers here.
+      </p>
+    );
+  }
   if (isLoading) return <StatTileSkeleton label="open offers" />;
   if (isError) {
     return (

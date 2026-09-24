@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MAX_QA_ITEMS, runChunkedQa } from "@/lib/photo-qa-chunking";
-import { fetchCapped } from "@/lib/paged-read";
+import { type CappedRead, fetchCapped } from "@/lib/paged-read";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import type {
@@ -58,7 +58,28 @@ interface StartBatchResponse {
   item_count: number;
 }
 
-/** POST /api/flipdesk/autolister/batch — enqueue items for generation. */
+/** AL-07: the edge's per-batch cap on POST /autolister/batch (MAX_BATCH_ITEMS). */
+export const MAX_GENERATE_BATCH_ITEMS = 300;
+
+/**
+ * AL-07: a refused Generate, carrying the HTTP status and the edge's body so
+ * the page can answer INSUFFICIENT_AI_ACTIONS with "Generate the first N".
+ */
+export class StartBatchError extends Error {
+  readonly status: number;
+  readonly body: Record<string, unknown>;
+  constructor(status: number, body: Record<string, unknown>) {
+    super(typeof body.error === "string" ? body.error : "Could not start generation.");
+    this.name = "StartBatchError";
+    this.status = status;
+    this.body = body;
+  }
+  get code(): string | null {
+    return typeof this.body.code === "string" ? this.body.code : null;
+  }
+}
+
+/** POST /api/flipdesk/autolister/batch: enqueue items for generation. */
 export function useStartAutolisterBatch() {
   return useMutation<StartBatchResponse, Error, StartBatchInput>({
     mutationFn: async (input) => {
@@ -67,12 +88,11 @@ export function useStartAutolisterBatch() {
         json: input,
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json.error || "Could not start generation.");
-      }
+      if (!res.ok) throw new StartBatchError(res.status, json as Record<string, unknown>);
       return json as StartBatchResponse;
     },
-    onError: (err) => toastError(err),
+    // AL-06: no onError here. Callers already toast a failed Generate, and a
+    // hook-level toast made every failure show twice.
   });
 }
 
@@ -125,7 +145,22 @@ interface PublishJobRow {
   listing_url: string | null;
 }
 
+/**
+ * AL-06: the server refuses a publish batch over this many items
+ * (MAX_PUBLISH_BATCH_ITEMS in routes/flipdesk-autolister.ts), so run() sends
+ * bigger sets in sequential chunks of this size.
+ */
+export const MAX_PUBLISH_BATCH_ITEMS = 300;
+
+/** Split `items` into runs of at most `size`. Exported for tests. */
+export function chunkItems<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
 export function useBulkPublish() {
+  const qc = useQueryClient();
   const [results, setResults] = useState<Record<string, BulkPublishItemResult>>({});
   const [running, setRunning] = useState(false);
   // US-1633: stop the poll loop when the component unmounts (the durable server
@@ -139,8 +174,13 @@ export function useBulkPublish() {
     };
   }, []);
 
-  const run = useCallback(async (items: BulkPublishItem[]) => {
-    if (items.length === 0) return;
+  /**
+   * Resolves true once every chunk terminalized (whatever each item's
+   * outcome), false when a chunk could not start, the run was abandoned on
+   * unmount, or it hit the poll cap. This hook owns the one summary toast.
+   */
+  const run = useCallback(async (items: BulkPublishItem[]): Promise<boolean> => {
+    if (items.length === 0) return false;
     setRunning(true);
     setResults(
       Object.fromEntries(
@@ -148,93 +188,112 @@ export function useBulkPublish() {
       ),
     );
 
-    const finish = (failed: number, total: number) => {
-      setRunning(false);
-      toast.success(
-        `Publish finished — ${total - failed} live${failed ? `, ${failed} failed` : ""}.`,
-      );
-    };
-
-    const failAll = (message: string) => {
-      setResults((prev) =>
-        Object.fromEntries(
-          Object.values(prev).map((r) => [r.itemId, { ...r, status: "failed", error: message }]),
-        ),
-      );
-      setRunning(false);
-      toast.error(message);
-    };
-
-    // 1. Start the durable server batch.
-    let batchId: string;
-    try {
-      const res = await edgeFetch("/api/flipdesk/autolister/publish-batch", {
-        method: "POST",
-        json: { item_ids: items.map((i) => i.itemId) },
+    const markFailed = (ids: string[], message: string) =>
+      setResults((prev) => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = { itemId: id, status: "failed", error: message };
+        return next;
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json.batch_id) {
-        failAll(json.error || "Could not start publishing.");
-        return;
-      }
-      batchId = json.batch_id as string;
-    } catch (err) {
-      failAll(err instanceof Error ? err.message : "Could not start publishing.");
-      return;
-    }
 
-    // 2. Poll the batch until it terminalizes, mapping jobs → per-item results.
-    //    Closing the tab here doesn't stop the publish — the server owns it.
-    //    US-1633: bounded (~20 min at 1.5s) and unmount-cancellable.
-    const MAX_POLLS = 800;
-    for (let poll = 0; poll < MAX_POLLS; poll++) {
-      await new Promise((r) => setTimeout(r, 1500));
-      if (cancelledRef.current) return; // unmounted — stop touching state
-      let json: {
-        batch?: { status?: string };
-        jobs?: PublishJobRow[];
-      };
+    // AL-06: published rows must leave the drafts list (and stop counting as
+    // ready) once a chunk ends, or they could be sent again.
+    const refreshLists = () => {
+      void qc.invalidateQueries({ queryKey: ["autolister_drafts"] });
+      void qc.invalidateQueries({ queryKey: ["items_full"] });
+    };
+
+    const chunks = chunkItems(items, MAX_PUBLISH_BATCH_ITEMS);
+    let failed = 0;
+    let total = 0;
+    for (const [n, chunk] of chunks.entries()) {
+      const chunkIds = chunk.map((i) => i.itemId);
+      const notSent = chunks.slice(n + 1).flat().map((i) => i.itemId);
+
+      // 1. Start the durable server batch for this chunk.
+      let batchId: string;
       try {
-        const res = await edgeFetch(`/api/flipdesk/autolister/publish-batch/${batchId}`);
-        json = await res.json().catch(() => ({}));
-        if (!res.ok) continue; // transient — keep polling
-      } catch {
-        continue;
+        const res = await edgeFetch("/api/flipdesk/autolister/publish-batch", {
+          method: "POST",
+          json: { item_ids: chunkIds },
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json.batch_id) throw new Error(json.error || "Could not start publishing.");
+        batchId = json.batch_id as string;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not start publishing.";
+        markFailed(chunkIds, message);
+        if (notSent.length > 0) markFailed(notSent, "Not sent: an earlier chunk could not start.");
+        setRunning(false);
+        if (total > 0) refreshLists();
+        toast.error(message);
+        return false;
       }
-      if (cancelledRef.current) return;
 
-      const jobs = json.jobs ?? [];
-      setResults(() =>
-        Object.fromEntries(
-          jobs.map((j) => [
-            j.inventory_item_id,
-            {
-              itemId: j.inventory_item_id,
-              status: jobToStatus(j.status),
-              error: j.error ?? undefined,
-              listingUrl: j.listing_url ?? undefined,
-            } satisfies BulkPublishItemResult,
-          ]),
-        ),
-      );
+      // 2. Poll the batch until it terminalizes, mapping jobs → per-item results.
+      //    Closing the tab here doesn't stop the publish — the server owns it.
+      //    US-1633: bounded (~20 min at 1.5s) and unmount-cancellable.
+      const MAX_POLLS = 800;
+      let done = false;
+      for (let poll = 0; poll < MAX_POLLS && !done; poll++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        if (cancelledRef.current) return false; // unmounted — stop touching state
+        let json: {
+          batch?: { status?: string };
+          jobs?: PublishJobRow[];
+        };
+        try {
+          const res = await edgeFetch(`/api/flipdesk/autolister/publish-batch/${batchId}`);
+          json = await res.json().catch(() => ({}));
+          if (!res.ok) continue; // transient — keep polling
+        } catch {
+          continue;
+        }
+        if (cancelledRef.current) return false;
 
-      const status = json.batch?.status;
-      if (status && status !== "pending" && status !== "running") {
-        const failed = jobs.filter((j) => j.status === "failed").length;
-        finish(failed, jobs.length || items.length);
-        return;
+        const jobs = json.jobs ?? [];
+        setResults((prev) => ({
+          ...prev,
+          ...Object.fromEntries(
+            jobs.map((j) => [
+              j.inventory_item_id,
+              {
+                itemId: j.inventory_item_id,
+                status: jobToStatus(j.status),
+                error: j.error ?? undefined,
+                listingUrl: j.listing_url ?? undefined,
+              } satisfies BulkPublishItemResult,
+            ]),
+          ),
+        }));
+
+        const status = json.batch?.status;
+        if (status && status !== "pending" && status !== "running") {
+          failed += jobs.filter((j) => j.status === "failed").length;
+          total += jobs.length || chunk.length;
+          done = true;
+          refreshLists();
+        }
+      }
+      if (!done) {
+        // US-1633: hit the poll cap without terminalizing — the durable server
+        // batch is still running; stop the local spinner and tell the user it'll
+        // finish server-side rather than polling forever. Later chunks are not
+        // started, so nothing is sent twice.
+        setRunning(false);
+        if (notSent.length > 0) markFailed(notSent, "Not sent: the previous chunk is still publishing.");
+        toast.info(
+          "Publishing is taking longer than expected — it will finish on the server. Refresh later to see the results.",
+        );
+        return false;
       }
     }
-    // US-1633: hit the poll cap without terminalizing — the durable server batch
-    // is still running; stop the local spinner and tell the user it'll finish
-    // server-side rather than polling forever.
-    if (!cancelledRef.current) {
-      setRunning(false);
-      toast.info(
-        "Publishing is taking longer than expected — it will finish on the server. Refresh later to see the results.",
-      );
-    }
-  }, []);
+
+    setRunning(false);
+    toast.success(
+      `Publish finished — ${total - failed} live${failed ? `, ${failed} failed` : ""}.`,
+    );
+    return true;
+  }, [qc]);
 
   return { run, results, running };
 }
@@ -679,6 +738,55 @@ export interface AutolisterDraftRow {
   // US-828: per-aspect needs-review entries from generation reconciliation; its
   // length drives the "N to fix" count badge on the row.
   aspect_review: AspectReviewEntry[] | null;
+  // AL-04: read in the same request. These used to be two side queries that
+  // sent every id in a GET (Kong 414s at ~400) and hid the table on failure.
+  quality_score?: number | null;
+  quality_blocked?: boolean | null;
+  inventory_items?: { title: string | null; acquired_price: number | null } | null;
+}
+
+/** What a Drafts inline edit can change on a cached row. `acquired_price`
+ * lives on the joined inventory item. */
+export interface AutolisterDraftPatch {
+  listing_title?: string | null;
+  listing_price?: number | null;
+  price_is_estimated?: boolean | null;
+  acquired_price?: number | null;
+}
+
+/**
+ * AL-04: patch one draft inside the cached CappedRead in place, so a save
+ * shows at once without a refetch re-sorting the list mid-review. The cache
+ * holds `{ rows, truncated, limit }`, not an array; mapping it as an array
+ * threw after the save had already landed.
+ */
+export function patchAutolisterDraft(
+  queryClient: QueryClient,
+  userId: string | undefined,
+  id: string,
+  patch: AutolisterDraftPatch,
+): void {
+  queryClient.setQueryData<CappedRead<AutolisterDraftRow>>(
+    ["autolister_drafts", userId],
+    (old) => {
+      if (!old) return old;
+      const { acquired_price, ...listingPatch } = patch;
+      return {
+        ...old,
+        rows: old.rows.map((d) => {
+          if (d.id !== id) return d;
+          const next: AutolisterDraftRow = { ...d, ...listingPatch };
+          if (acquired_price !== undefined) {
+            next.inventory_items = {
+              title: d.inventory_items?.title ?? null,
+              acquired_price,
+            };
+          }
+          return next;
+        }),
+      };
+    },
+  );
 }
 
 /**
@@ -705,7 +813,7 @@ export function useAutolisterDrafts(enabled = true) {
         const { data, error } = await supabase
           .from("listings")
           .select(
-            "id, inventory_item_id, listing_title, listing_price, batch_id, created_at, scheduled_publish_at, price_is_estimated, price_comp_source, platform_category_id, needs_review, aspect_review",
+            "id, inventory_item_id, listing_title, listing_price, batch_id, created_at, scheduled_publish_at, price_is_estimated, price_comp_source, platform_category_id, needs_review, aspect_review, quality_score, quality_blocked, inventory_items(title, acquired_price)",
           )
           .eq("listing_status", "draft")
           .not("batch_id", "is", null)

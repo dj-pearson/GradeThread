@@ -310,6 +310,7 @@ export function GroupsToolbar({
   onStopVerify,
   tagging,
   onAutoTagAll,
+  onStopAutoTag,
   collapsed,
   onToggleCollapsed,
   onUngroupAll,
@@ -322,6 +323,8 @@ export function GroupsToolbar({
   onStopVerify: () => void;
   tagging: boolean;
   onAutoTagAll: () => void;
+  /** AL-10: set while Auto-tag all runs, to stop it between items. */
+  onStopAutoTag?: () => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onUngroupAll: () => void;
@@ -371,6 +374,15 @@ export function GroupsToolbar({
         )}
         Auto-tag all
       </Button>
+      {onStopAutoTag && (
+        <button
+          type="button"
+          className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          onClick={onStopAutoTag}
+        >
+          Stop
+        </button>
+      )}
       {/* US-1907: collapse every group to a header-only overview. */}
       <Button
         size="sm"

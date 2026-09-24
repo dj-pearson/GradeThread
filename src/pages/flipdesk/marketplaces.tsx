@@ -1724,7 +1724,8 @@ function ExtensionQueueSection() {
 
   return (
     // US-3032: h3 and <div> — a part of the "Browser extension" section.
-    <div>
+    // The id is the attention rail's extension chips' anchor.
+    <div id="extension-queue" className="scroll-mt-20">
       <h3 className="mb-3 text-sm font-semibold text-foreground">
         Queued for your desktop
       </h3>

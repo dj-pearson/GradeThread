@@ -7,7 +7,6 @@ import {
 import { toast } from "sonner";
 import { toastWarning } from "@/lib/toast-error";
 import {
-  Grid3x3,
   Search,
   ChevronLeft,
   ChevronRight,
@@ -36,57 +35,12 @@ import {
   resolveSortOptionForMode,
   sortOptionsForMode,
 } from "@/pages/flipdesk/inventory-sort";
-import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
-import type { ItemFullRow } from "@/types/database";
 import { GridSheet } from "./grid-sheet";
 import { GRID_COLS as COLS, COMMON_ASPECTS, DEFAULT_GRID_KEYS, aspectColumn, cellLock, isListingColumn, validateGridValue, type GridCol, type GridRow } from "./grid-columns";
 import { useGridListings, useSaveGridListing } from "./use-grid-listings";
 import { GridReview } from "./grid-review";
 
-const PAGE_SIZE = 100;
-
-// Only the columns this spreadsheet renders/edits — the items_full view is wide
-// (jsonb comps/measurements, per-row photo subqueries) and loading all of it
-// per page is wasteful (US-404). Selecting a slim projection lets Postgres
-// prune the unused view columns from the plan.
-const GRID_COLUMNS =
-  "id,item_number,item_title,brand,style,size,purchase_price,target_price," +
-  "sourced_by,notes,status,color,material,location_bin,floor_price,listing_id,listing_platform,listing_status";
-
-// Minimal typed view of the PostgREST builder for the (untyped) items_full
-// view — supports the count + search + range chain this page needs.
-interface ItemsFullPageBuilder {
-  or: (filter: string) => ItemsFullPageBuilder;
-  order: (
-    col: string,
-    opts?: { ascending?: boolean; nullsFirst?: boolean },
-  ) => ItemsFullPageBuilder;
-  range: (
-    from: number,
-    to: number,
-  ) => Promise<{
-    data: ItemFullRow[] | null;
-    error: Error | null;
-    count: number | null;
-  }>;
-}
-
-function itemsFullPage() {
-  return (
-    supabase.from as unknown as (name: "items_full") => {
-      select: (
-        cols: string,
-        opts: { count: "exact" },
-      ) => ItemsFullPageBuilder;
-    }
-  )("items_full");
-}
-
-// PostgREST `.or()` is a comma/parenthesis-delimited grammar, so strip the
-// characters that would break the filter out of the user's search term.
-function sanitizeSearch(raw: string): string {
-  return raw.trim().replace(/[,():*\\%]/g, " ").replace(/\s+/g, " ").trim();
-}
+import { fetchGridPage, GRID_PAGE_SIZE as PAGE_SIZE } from "./grid-page-query";
 
 type Staged = Map<string, Record<string, string>>; // itemId → { field: value }
 interface EditLog {
@@ -167,38 +121,12 @@ export function FlipdeskGridPage() {
       sortColumn.field,
       sortColumn.dir,
     ],
-    enabled: !!user,
+    enabled: !!user && !!ownerId,
     // 15-min freshness — mutations invalidate items_full explicitly (US-735).
     staleTime: 15 * 60 * 1000,
     placeholderData: keepPreviousData,
-    queryFn: async (): Promise<{ rows: ItemFullRow[]; total: number }> => {
-      const q = sanitizeSearch(search);
-      const from = (page - 1) * PAGE_SIZE;
-      let builder = itemsFullPage().select(GRID_COLUMNS, { count: "exact" });
-      if (q) {
-        builder = builder.or(
-          `item_title.ilike.*${q}*,brand.ilike.*${q}*,` +
-            `item_number.ilike.*${q}*,style.ilike.*${q}*`,
-        );
-      }
-      const {
-        data: rows,
-        error,
-        count,
-      } = await builder
-        // NULLS LAST in BOTH directions, which is what flipdesk_listing_page
-        // does for the table and what the client comparator does for the
-        // Kanban. Postgres' own default puts NULLs FIRST on a descending sort,
-        // so leaving this off would order the same items differently in two
-        // views of the same list.
-        .order(sortColumn.field, {
-          ascending: sortColumn.dir === "asc",
-          nullsFirst: false,
-        })
-        .range(from, from + PAGE_SIZE - 1);
-      if (error) throw error;
-      return { rows: rows ?? [], total: count ?? 0 };
-    },
+    queryFn: () =>
+      fetchGridPage({ ownerId: ownerId as string, page, search, sort: sortColumn }),
   });
 
   const inventoryRows = data?.rows ?? [];
@@ -589,22 +517,10 @@ export function FlipdeskGridPage() {
 
   return (
     <div className={cn("min-w-0 max-w-full space-y-4", staged.size > 0 && "pb-32")}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-navy text-white">
-              <Grid3x3 className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
-              <p className="text-sm text-muted-foreground">
-                Edit inventory and eBay listings in bulk. Choose columns, make changes, then review and save.
-              </p>
-            </div>
-          </div>
-          <InventoryViewSwitcher current="grid" />
-        </div>
-      </div>
+      {/* INV-13: the title and mode switcher live in the Inventory shell. */}
+      <p className="text-sm text-muted-foreground">
+        Edit inventory and eBay listings in bulk. Choose columns, make changes, then review and save.
+      </p>
 
       <div className="flex flex-wrap items-center gap-2">
         <SearchInput

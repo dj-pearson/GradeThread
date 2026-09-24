@@ -50,6 +50,7 @@ vi.mock("sonner", () => ({
 import {
   _transport,
   type StagedUploadResult,
+  uploadStagingPhoto,
   useAutolisterUploadStore,
 } from "./autolister-upload-store";
 
@@ -226,5 +227,28 @@ describe("lost-upload marker (AC3)", () => {
     window.localStorage.setItem("autolister:lostUploads", "2");
     expect(store.consumeLostUploadCount()).toBe(2);
     expect(window.localStorage.getItem("autolister:lostUploads")).toBeNull();
+  });
+});
+
+// AL-03: a sign-out between a task's start and its upload must stop it. The
+// reset bumps an epoch the upload loop checks before every attempt, so a file
+// asleep in pacing or 429 back-off never goes out under the next user.
+describe("uploadStagingPhoto cancel hook (AL-03)", () => {
+  it("sends nothing once the caller reports cancelled", async () => {
+    const spy = vi.spyOn(_transport, "upload").mockResolvedValue(okUpload("a.jpg"));
+    await expect(
+      uploadStagingPhoto("s1", makeFile("a.jpg"), null, () => {}, () => true),
+    ).rejects.toThrow("Upload cancelled.");
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("uploads normally when not cancelled", async () => {
+    const spy = vi.spyOn(_transport, "upload").mockResolvedValue(okUpload("b.jpg"));
+    await expect(uploadStagingPhoto("s1", makeFile("b.jpg"), null)).resolves.toMatchObject({
+      storagePath: "staging/b.jpg",
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 });

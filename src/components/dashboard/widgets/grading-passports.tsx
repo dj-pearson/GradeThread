@@ -1,5 +1,4 @@
 import { Link } from "react-router";
-import { Stamp } from "lucide-react";
 import { usePassportSummary } from "@/hooks/use-passport-summary";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -31,14 +30,11 @@ export function GradingPassportsWidget() {
   return (
     <Link
       to={to}
-      className="block rounded-xl border px-4 py-4 transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+      // Flat: the frame already titles it "Garment passports".
+      className="group block rounded-md py-1 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
     >
-      <span className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-sm font-medium">Garment passports</span>
-        <Stamp className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-      </span>
       <span className="block text-2xl font-bold tabular-nums">{data.count}</span>
-      <span className="mt-0.5 block text-xs text-muted-foreground">
+      <span className="mt-0.5 block text-xs text-muted-foreground group-hover:underline">
         {data.count === 0
           ? "Grade an item to create your first"
           : data.latestSlug

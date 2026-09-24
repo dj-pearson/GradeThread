@@ -31,6 +31,8 @@ on:
       - "scripts/check-dispute-report-ownership.mjs"
       - "scripts/check-source-tenant-scope.mjs"
       - "scripts/check-source-item-counts.mjs"
+      - "scripts/check-inventory-owner-scope.mjs"
+      - "scripts/check-overview-owner-scope.mjs"
       - "scripts/check-api-key-self-upgrade.mjs"
       - "scripts/check-service-role-grants.mjs"
       - "services/edge-functions/src/tests/rls-guard_test.ts"
@@ -75,6 +77,8 @@ on:
       - "scripts/check-dispute-report-ownership.mjs"
       - "scripts/check-source-tenant-scope.mjs"
       - "scripts/check-source-item-counts.mjs"
+      - "scripts/check-inventory-owner-scope.mjs"
+      - "scripts/check-overview-owner-scope.mjs"
       - "scripts/check-api-key-self-upgrade.mjs"
       - "scripts/check-service-role-grants.mjs"
       - "services/edge-functions/src/tests/rls-guard_test.ts"
@@ -213,6 +217,16 @@ jobs:
       # workspace gets no rows; the owner and a viewer member get the counts.
       - name: Source item counts are tenant-scoped (00831)
         run: node scripts/check-source-item-counts.mjs
+      # 00833 (INV-D1): flipdesk_listing_page and inventory_status_counts
+      # read one workspace. A stranger naming another gets 42501; the owner,
+      # members and the service role get only that workspace's rows.
+      - name: The Inventory table reads one workspace (00833)
+        run: node scripts/check-inventory-owner-scope.mjs
+      # 00834: flipdesk_overview_metrics reads one workspace, and recentSales
+      # lists completed sales only. A stranger naming another workspace gets
+      # 42501; the owner, members and the service role get that one's numbers.
+      - name: The FlipDesk Overview reads one workspace (00834)
+        run: node scripts/check-overview-owner-scope.mjs
       # 00825: api-key-auth trusts api_keys.rate_tier and monthly_quota, so a
       # client must not be able to write either. The owner can still read and
       # delete, and the service role still mints (POST /api/keys).

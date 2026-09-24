@@ -364,6 +364,68 @@ describe("useBulkEndListings", () => {
   });
 });
 
+describe("useBulkEndListings above the route's 100-id cap (INV-5)", () => {
+  it("sends 250 ids as three requests of at most 100 and merges them", async () => {
+    const ids = Array.from({ length: 250 }, (_, i) => `l${i}`);
+    edgeFetch.mockImplementation((_path: string, opts: { json: { listing_ids: string[] } }) => {
+      const part = opts.json.listing_ids;
+      return Promise.resolve(
+        jsonResponse({
+          ok: true,
+          total: part.length,
+          succeeded: part.length,
+          failed: 0,
+          results: part.map((id) => ({ listing_id: id, ok: true, ended_upstream: true })),
+        }),
+      );
+    });
+    const progress: Array<[number, number]> = [];
+    const hook = useBulkEndListings() as unknown as MutationLike<
+      { listingIds: string[]; onProgress?: (d: number, t: number) => void },
+      { total: number; succeeded: number; results: unknown[] }
+    >;
+    const res = await hook.mutationFn({
+      listingIds: ids,
+      onProgress: (d, t) => progress.push([d, t]),
+    });
+    expect(edgeFetch).toHaveBeenCalledTimes(3);
+    const sizes = edgeFetch.mock.calls.map(
+      (c) => (c[1] as { json: { listing_ids: string[] } }).json.listing_ids.length,
+    );
+    expect(sizes).toEqual([100, 100, 50]);
+    expect(res.total).toBe(250);
+    expect(res.succeeded).toBe(250);
+    expect(res.results).toHaveLength(250);
+    expect(progress).toEqual([[100, 250], [200, 250], [250, 250]]);
+  });
+
+  it("a later chunk failing says how many were already sent", async () => {
+    const ids = Array.from({ length: 150 }, (_, i) => `l${i}`);
+    let call = 0;
+    edgeFetch.mockImplementation((_path: string, opts: { json: { listing_ids: string[] } }) => {
+      call++;
+      const part = opts.json.listing_ids;
+      if (call === 2) return Promise.resolve(jsonResponse({ error: "Rate limited." }, 429));
+      return Promise.resolve(
+        jsonResponse({
+          ok: true,
+          total: part.length,
+          succeeded: part.length,
+          failed: 0,
+          results: part.map((id) => ({ listing_id: id, ok: true, ended_upstream: true })),
+        }),
+      );
+    });
+    const hook = useBulkEndListings() as unknown as MutationLike<
+      { listingIds: string[] },
+      unknown
+    >;
+    await expect(hook.mutationFn({ listingIds: ids })).rejects.toThrow(
+      "Rate limited. (100 of 150 were already sent.)",
+    );
+  });
+});
+
 describe("undoableFrom (US-2172)", () => {
   type Row = {
     listing_id: string;

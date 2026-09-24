@@ -38,7 +38,32 @@ export interface QuickEditPlan {
   listPrice: number | null;
   /** True when at least one field would be written. */
   changed: boolean;
+  /**
+   * INV-9: things worth a second look that do not block a save, e.g. a live
+   * price dropping by more than 40% or below cost.
+   */
+  warnings: string[];
+  /**
+   * INV-9: a LIVE listing's price changes. Stepping to the next row with j/k
+   * must not push that silently; the seller presses Save.
+   */
+  needsExplicitSave: boolean;
+  /**
+   * INV-9: the chosen status records a sale (Sold / Shipped / Completed). That
+   * goes through Record Sale, which writes the sale row, not a bare status.
+   */
+  recordsSale: boolean;
 }
+
+/** Statuses that mean a sale happened. Setting them needs a sale record. */
+export const SALE_STATUSES: ReadonlySet<ItemStatus> = new Set<ItemStatus>([
+  "sold",
+  "shipped",
+  "completed",
+] as ItemStatus[]);
+
+/** INV-9: a live price cut past this fraction asks for a second look. */
+export const BIG_DROP_FRACTION = 0.4;
 
 export function formFromItem(it: ItemFullRow): QuickEditForm {
   return {
@@ -119,6 +144,7 @@ export function planQuickEdit(it: ItemFullRow, form: QuickEditForm): QuickEditPl
 
   const status = form.status !== it.status ? form.status : null;
 
+  const warnings: string[] = [];
   let listPrice: number | null = null;
   if (it.listing_id) {
     const p = parseMoney(form.listPrice);
@@ -132,6 +158,26 @@ export function planQuickEdit(it: ItemFullRow, form: QuickEditForm): QuickEditPl
     }
   }
 
+  // INV-9: the seller's own floor is a hard stop, the same rule the bulk
+  // markdown applies. A typo like 4.99 for 49.99 must not go live.
+  const floor = it.floor_price ?? null;
+  if (listPrice != null && floor != null && listPrice < floor) {
+    errors.push(`Listed price is below your floor of $${floor.toFixed(2)}.`);
+  }
+  const live = it.listing_status === "active";
+  if (listPrice != null && live) {
+    const current = it.list_price ?? null;
+    if (current != null && current > 0 && listPrice < current * (1 - BIG_DROP_FRACTION)) {
+      warnings.push(
+        `That cuts the live price by ${Math.round((1 - listPrice / current) * 100)}%.`,
+      );
+    }
+    const cost = it.purchase_price ?? null;
+    if (cost != null && listPrice < cost) {
+      warnings.push(`That is below what you paid ($${cost.toFixed(2)}).`);
+    }
+  }
+
   return {
     errors,
     base,
@@ -139,5 +185,8 @@ export function planQuickEdit(it: ItemFullRow, form: QuickEditForm): QuickEditPl
     status,
     listPrice,
     changed: Object.keys(base).length > 0 || status !== null || listPrice !== null,
+    warnings,
+    needsExplicitSave: live && listPrice != null,
+    recordsSale: status != null && SALE_STATUSES.has(status),
   };
 }

@@ -277,17 +277,55 @@ export function useBulkEndListings() {
   return useMutation<
     BulkEndResponse,
     Error & { status?: number },
-    { listingIds: string[] }
+    { listingIds: string[]; onProgress?: (done: number, total: number) => void }
   >({
-    mutationFn: async ({ listingIds }) => {
-      const res = await edgeFetch("/api/flipdesk/listings/bulk-end", {
-        method: "POST",
-        json: { listing_ids: listingIds },
-      });
-      return readOrThrow<BulkEndResponse>(res, "Bulk end failed.");
+    mutationFn: async ({ listingIds, onProgress }) => {
+      // INV-5: the route refuses more than BULK_LIFECYCLE_MAX ids with a 400,
+      // and "Select all matching" reaches 2,000. Send it in chunks and merge.
+      const parts: BulkEndResponse[] = [];
+      let done = 0;
+      for (const part of chunkForBulkPrice(listingIds, BULK_LIFECYCLE_MAX)) {
+        const res = await edgeFetch("/api/flipdesk/listings/bulk-end", {
+          method: "POST",
+          json: { listing_ids: part },
+        });
+        try {
+          parts.push(await readOrThrow<BulkEndResponse>(res, "Bulk end failed."));
+        } catch (err) {
+          // A later chunk failing after earlier ones ended listings must not
+          // read as "nothing changed": those listings are already down.
+          if (parts.length > 0 && err instanceof Error) {
+            err.message = `${err.message} (${done} of ${listingIds.length} were already sent.)`;
+          }
+          throw err;
+        }
+        done += part.length;
+        onProgress?.(done, listingIds.length);
+      }
+      return mergeBulkEndResponses(parts);
     },
     onSuccess: invalidate,
   });
+}
+
+/**
+ * INV-5: the most ids /listings/bulk-end and /listings/bulk-edit accept in one
+ * request (MAX_BULK_EDIT_ITEMS on the edge). Larger selections are chunked.
+ */
+export const BULK_LIFECYCLE_MAX = 100;
+
+/** Merge per-chunk bulk-end responses; counts come from the merged rows. */
+export function mergeBulkEndResponses(
+  parts: readonly BulkEndResponse[],
+): BulkEndResponse {
+  const results = parts.flatMap((p) => p.results);
+  return {
+    ok: true,
+    total: parts.reduce((n, p) => n + p.total, 0),
+    succeeded: parts.reduce((n, p) => n + p.succeeded, 0),
+    failed: parts.reduce((n, p) => n + p.failed, 0),
+    results,
+  };
 }
 
 // ── Bulk resubmit (US-2404) ─────────────────────────────────────────

@@ -4,7 +4,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
 import { KIND_LABEL, needsYouKey } from "@/pages/flipdesk/needs-you";
 import { deadlineBucket, deadlineLabel } from "@/pages/flipdesk/post-sale-state";
-import { NEEDS_YOU_HREF, useNeedsYou } from "@/hooks/use-needs-you";
+import { needsYouHref, useNeedsYou } from "@/hooks/use-needs-you";
+import { useEbayConnection } from "@/hooks/use-ebay";
 import {
   EmptyList,
   WidgetLoadError,
@@ -29,11 +30,29 @@ function money(cents: number | null): string | null {
   return cents == null ? null : `$${(cents / 100).toFixed(2)}`;
 }
 
-export function FlipdeskNeedsYouWidget({ size }: WidgetProps) {
-  const { items, isLoading, isError, isPartial, isFetching, refetch } =
-    useNeedsYou();
+/** Where a seller connects eBay. */
+const CONNECT_EBAY_HREF = "/dashboard/flipdesk/marketplaces";
 
-  if (isLoading) {
+/** "returns, cases and offers" style list of the queues still in flight. */
+const QUEUE_WORD: Record<string, string> = {
+  returns: "returns",
+  cancellations: "cancellations",
+  inquiries: "inquiries",
+  cases: "cases",
+  disputes: "disputes",
+  offers: "offers",
+  shipments: "shipments",
+};
+
+export function FlipdeskNeedsYouWidget({ size }: WidgetProps) {
+  const connection = useEbayConnection();
+  // A failed connection read is unknown, not "not connected": keep asking eBay
+  // and let the queues report for themselves.
+  const ebayConnected = connection.isError || !!connection.data;
+  const { items, isLoading, isError, isPartial, isFetching, refetch, pending } =
+    useNeedsYou(true, ebayConnected && !connection.isLoading);
+
+  if (connection.isLoading || isLoading) {
     return (
       <LoadingRegion label="Loading what needs you">
         <div className="space-y-1" aria-hidden="true">
@@ -59,6 +78,22 @@ export function FlipdeskNeedsYouWidget({ size }: WidgetProps) {
 
   return (
     <div>
+      {!ebayConnected && (
+        <p className="mb-2 text-xs text-muted-foreground">
+          <Link
+            to={CONNECT_EBAY_HREF}
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Connect eBay
+          </Link>{" "}
+          to see returns, cases and offers here.
+        </p>
+      )}
+      {pending.length > 0 && (
+        <p className="mb-2 text-xs text-muted-foreground" role="status">
+          Still checking {pending.map((q) => QUEUE_WORD[q] ?? q).join(", ")}...
+        </p>
+      )}
       {isPartial && (
         <p className="mb-2 text-xs text-muted-foreground" role="status">
           One of your eBay queues did not answer, so this list may be short.{" "}
@@ -85,7 +120,7 @@ export function FlipdeskNeedsYouWidget({ size }: WidgetProps) {
               return (
                 <li key={needsYouKey(it)}>
                   <Link
-                    to={NEEDS_YOU_HREF[it.kind]}
+                    to={needsYouHref(it)}
                     className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-sm hover:bg-muted/50"
                   >
                     <Badge variant="outline" className="text-[10px]">

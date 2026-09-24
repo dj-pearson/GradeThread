@@ -1,4 +1,5 @@
 import { arrayMove } from "@dnd-kit/sortable";
+import type { Location } from "react-router";
 import {
   DEFAULT_PERSONA,
   LAYOUT_VERSION,
@@ -47,6 +48,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  *
  * - unknown widget ids are dropped (retired widget, or another surface's)
  * - a widget whose `omitWhen` answers true for this account is dropped
+ * - a widget this persona is not offered is dropped
  * - a size the widget does not allow is clamped to its defaultSize
  * - a repeated id keeps the FIRST occurrence and drops the rest
  * - a missing, malformed or unknown-version document returns the persona default
@@ -68,20 +70,21 @@ export function normalize(
   const surface = surfaceOf(registry);
   const fallback = (): LayoutEntry[] =>
     surface
-      ? normalizeEntries(defaultLayoutFor(surface, persona), registry, context)
+      ? normalizeEntries(defaultLayoutFor(surface, persona), registry, persona, context)
       : [];
 
   if (!isRecord(stored)) return fallback();
   if (stored.version !== LAYOUT_VERSION) return fallback();
   if (!Array.isArray(stored.widgets)) return fallback();
 
-  return normalizeEntries(stored.widgets, registry, context);
+  return normalizeEntries(stored.widgets, registry, persona, context);
 }
 
 /** The per-entry rules, shared by the stored document and the shipped default. */
 function normalizeEntries(
   entries: readonly unknown[],
   registry: readonly WidgetDef[],
+  persona: WidgetPersona,
   context: LayoutContext,
 ): LayoutEntry[] {
   const out: LayoutEntry[] = [];
@@ -94,6 +97,11 @@ function normalizeEntries(
 
     const def = registry.find((w) => w.id === id);
     if (!def) continue;
+    // A stored layout (or a mirror written by another account on this browser)
+    // can name a widget this persona is never offered, e.g. a seller-only
+    // widget on a buyer's board. The picker already filters by persona; the
+    // board has to as well.
+    if (!def.personas.includes(persona)) continue;
     if (def.omitWhen?.(context)) continue;
 
     const size = isWidgetSize(raw.size) && def.sizes.includes(raw.size)
@@ -333,4 +341,14 @@ export function layoutDiff(
   const moved = commonAfter.filter((id, i) => commonBefore[i] !== id).length;
 
   return { moved, resized, hidden, added };
+}
+
+/**
+ * True when a navigation leaves this board: another page, or another ?view=.
+ * A ?range= change stays on the board, so the Customize leave guard ignores it.
+ */
+export function leavesBoard(current: Location, next: Location): boolean {
+  if (current.pathname !== next.pathname) return true;
+  const view = (l: Location) => new URLSearchParams(l.search).get("view");
+  return view(current) !== view(next);
 }

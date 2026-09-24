@@ -101,3 +101,42 @@ export async function moveCardOptimistically(opts: {
     return err;
   }
 }
+
+/** INV-8: what a stage write that changed zero rows means. */
+export const CHANGED_SINCE_LOADED = "Changed since you loaded the board.";
+
+/** The slice of the supabase client the drag write needs. */
+export interface StageWriteClient {
+  from: (table: "inventory_items") => {
+    update: (patch: never) => {
+      eq: (col: string, val: string) => {
+        eq: (col: string, val: string) => {
+          select: (cols: string) => PromiseLike<{ data: unknown[] | null; error: unknown }>;
+        };
+      };
+    };
+  };
+}
+
+/**
+ * INV-8: the drag write. It carries the status the board SHOWED, so a stale
+ * board (the item sold or moved in another tab) changes zero rows instead of
+ * dragging a sold item backwards, and zero rows comes back as an error the
+ * caller can name.
+ */
+export async function writeStageMove(
+  client: StageWriteClient,
+  itemId: string,
+  from: ItemStatus,
+  to: ItemStatus,
+): Promise<{ error: unknown }> {
+  const { data, error } = await client
+    .from("inventory_items")
+    .update({ status: to } as never)
+    .eq("id", itemId)
+    .eq("status", from)
+    .select("id");
+  if (error) return { error };
+  if ((data ?? []).length === 0) return { error: new Error(CHANGED_SINCE_LOADED) };
+  return { error: null };
+}

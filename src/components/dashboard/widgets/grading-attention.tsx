@@ -7,6 +7,7 @@ import {
   ATTENTION_STATUSES,
   formatAge,
   formatStatusLabel,
+  orderAttentionRows,
   submissionHref,
 } from "@/lib/dashboard-grading-queue";
 import { Badge } from "@/components/ui/badge";
@@ -16,38 +17,63 @@ import type { SubmissionRow } from "@/types/database";
 
 // US-3075 AC3: the five things waiting on the seller.
 //
-// A submission in pending_review, failed or disputed is stalled until a person
-// does something, and until this widget existed the only way to find one was to
-// open the submissions list and read it. The age is the point of the row: a
+// A submission in disputed, needs_photos, failed or pending_review is stalled
+// until a person does something, and until this widget existed the only way to
+// find one was to open the submissions list and read it. The age is the point of the row: a
 // review that has been sitting nine days is a different problem from one filed
 // this morning, and the two look identical in a table sorted by date.
 
 /** How many rows fit before the list stops being a glance. */
 const MAX_ROWS = 5;
 
+/**
+ * How many candidate rows to read. The list is sorted by status priority in
+ * the browser (PostgREST cannot order by an enum's meaning), so it reads more
+ * than it shows; the exact count comes back separately for "+N more".
+ */
+const READ_CAP = 200;
+
 type AttentionRow = Pick<
   SubmissionRow,
-  "id" | "title" | "status" | "created_at"
+  "id" | "title" | "status" | "updated_at"
 >;
 
+interface AttentionData {
+  rows: AttentionRow[];
+  total: number;
+}
+
+/** Where "+N more" goes: the one status the rest share, or every submission. */
+function moreHref(hidden: readonly AttentionRow[]): string {
+  const statuses = new Set(hidden.map((r) => r.status));
+  const only = statuses.size === 1 ? [...statuses][0] : null;
+  return only ? `/dashboard/submissions?status=${only}` : "/dashboard/submissions";
+}
+
 export function GradingAttentionWidget() {
-  const { data, isLoading, isError } = useQuery<AttentionRow[]>({
+  const { data, isLoading, isError } = useQuery<AttentionData>({
     queryKey: ["dashboard-attention"],
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       // RLS scopes `submissions` to the signed-in account; this is the browser
       // client, not the edge service-role one. US-949: superseded retakes are
       // history and never need attention.
-      const { data: rows, error } = await supabase
+      //
+      // updated_at, not created_at: the age that matters is how long the row
+      // has sat in the status it is in, and the status change is the last
+      // write. Oldest first, because the longest stall is the point of the
+      // list and a newest-first cap was the first thing to cut it.
+      const { data: rows, error, count } = await supabase
         .from("submissions")
-        .select("id, title, status, created_at")
+        .select("id, title, status, updated_at", { count: "exact" })
         .is("superseded_at", null)
         .in("status", ATTENTION_STATUSES as unknown as string[])
-        .order("created_at", { ascending: false })
-        .limit(MAX_ROWS);
+        .order("updated_at", { ascending: true })
+        .limit(READ_CAP);
 
       if (error) throw error;
-      return (rows ?? []) as unknown as AttentionRow[];
+      const list = (rows ?? []) as unknown as AttentionRow[];
+      return { rows: list, total: count ?? list.length };
     },
   });
 
@@ -71,7 +97,9 @@ export function GradingAttentionWidget() {
     );
   }
 
-  const rows = data ?? [];
+  const ordered = orderAttentionRows(data?.rows ?? []);
+  const rows = ordered.slice(0, MAX_ROWS);
+  const more = Math.max(0, (data?.total ?? 0) - rows.length);
 
   if (rows.length === 0) {
     return (
@@ -82,30 +110,40 @@ export function GradingAttentionWidget() {
   }
 
   return (
-    <ul className="space-y-2">
-      {rows.map((row) => (
-        <li key={row.id}>
-          <Link
-            to={submissionHref(row.id)}
-            className="flex items-center justify-between gap-3 rounded-xl border px-3 py-3 transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium">
-                {row.title}
-              </span>
-              <span className="block text-xs text-muted-foreground">
-                Waiting {formatAge(row.created_at)}
-              </span>
-            </span>
-            <Badge
-              variant="outline"
-              className={cn("shrink-0", getStatusBadgeClasses(row.status))}
+    <div>
+      <ul className="space-y-2">
+        {rows.map((row) => (
+          <li key={row.id}>
+            <Link
+              to={submissionHref(row.id)}
+              className="flex items-center justify-between gap-3 rounded-xl border px-3 py-3 transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
             >
-              {formatStatusLabel(row.status)}
-            </Badge>
-          </Link>
-        </li>
-      ))}
-    </ul>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">
+                  {row.title}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Waiting {formatAge(row.updated_at)}
+                </span>
+              </span>
+              <Badge
+                variant="outline"
+                className={cn("shrink-0", getStatusBadgeClasses(row.status))}
+              >
+                {formatStatusLabel(row.status)}
+              </Badge>
+            </Link>
+          </li>
+        ))}
+      </ul>
+      {more > 0 ? (
+        <Link
+          to={moreHref(ordered.slice(MAX_ROWS))}
+          className="mt-2 inline-block text-sm font-medium text-primary hover:underline"
+        >
+          +{more} more
+        </Link>
+      ) : null}
+    </div>
   );
 }

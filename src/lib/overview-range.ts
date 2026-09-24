@@ -49,6 +49,65 @@ export function isOverviewRangeId(v: string | null | undefined): v is OverviewRa
   return !!v && OVERVIEW_RANGES.some((r) => r.id === v);
 }
 
+/**
+ * Spellings of a range that older links use. `/dashboard/flipdesk?range=30d`
+ * is the documented legacy link (src/routes/index.tsx), and before this it
+ * silently fell back to 7 days while leaving `30d` in the address bar.
+ */
+const RANGE_ALIASES: Record<string, OverviewRangeId> = {
+  "7d": "d7",
+  "30d": "d30",
+  "90d": "d90",
+  YTD: "ytd",
+  "all-time": "all",
+};
+
+/**
+ * A `?range=` value to a range id, accepting the legacy aliases. Null for
+ * anything else, so the caller can fall back and rewrite the URL.
+ */
+export function parseOverviewRange(v: string | null | undefined): OverviewRangeId | null {
+  if (!v) return null;
+  if (isOverviewRangeId(v)) return v;
+  return RANGE_ALIASES[v] ?? RANGE_ALIASES[v.toLowerCase()] ?? null;
+}
+
+// ── the remembered range ─────────────────────────────────────────────────────
+// Per user, like the remembered view (src/lib/overview-view.ts). A seller who
+// reads 30-day numbers every morning should not re-pick them every morning.
+
+const RANGE_KEY_PREFIX = "gt:overview-range:";
+
+export function overviewRangeKey(userId: string | null | undefined): string | null {
+  return userId ? `${RANGE_KEY_PREFIX}${userId}` : null;
+}
+
+export function readOverviewRange(key: string | null): OverviewRangeId | null {
+  if (!key) return null;
+  try {
+    return parseOverviewRange(localStorage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+
+export function writeOverviewRange(key: string | null, id: OverviewRangeId): void {
+  if (!key) return;
+  try {
+    localStorage.setItem(key, id);
+  } catch {
+    /* storage unavailable: the URL still carries the range */
+  }
+}
+
+/** URL first, then memory, then the default. */
+export function resolveOverviewRange(
+  param: string | null | undefined,
+  remembered: OverviewRangeId | null,
+): OverviewRangeId {
+  return parseOverviewRange(param) ?? remembered ?? DEFAULT_OVERVIEW_RANGE;
+}
+
 export function overviewRangeDef(id: OverviewRangeId): OverviewRangeDef {
   return OVERVIEW_RANGES.find((r) => r.id === id) ?? SEVEN_DAYS;
 }
@@ -102,4 +161,13 @@ export function overviewRangeDays(
   if (id === "d90") return 90;
   const startOfYear = new Date(now.getFullYear(), 0, 1).getTime();
   return Math.max(1, Math.ceil((now.getTime() - startOfYear) / DAY_MS));
+}
+
+/**
+ * The Sold tab, filtered to the same window a ranged tile counted. The Sold
+ * tab's ?window= values use the same ids as the overview range (d7, d30, d90,
+ * ytd, all), so this is a straight pass-through with one spelling.
+ */
+export function soldWindowHref(id: OverviewRangeId): string {
+  return `/dashboard/flipdesk/items?tab=sold&window=${id}`;
 }

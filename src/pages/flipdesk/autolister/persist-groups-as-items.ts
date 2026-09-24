@@ -23,8 +23,61 @@ const ROLE_ORDER: Record<PhotoRole, number> = Object.fromEntries(
   FLIPDESK_PHOTO_TYPES.map((t, i) => [t, i]),
 ) as Record<PhotoRole, number>;
 
+/**
+ * AL-07: an item in one of these has moved past intake. A SKU match on it
+ * must not drag it back to "photographed", and is skipped unless the seller
+ * confirmed attaching to it.
+ */
+export const PROTECTED_SKU_STATUSES: readonly string[] = ["listed", "sold", "shipped", "archived"];
+/** Statuses a SKU-bound item may be advanced FROM. Anything later stays put. */
+const ADVANCEABLE_STATUSES = ["sourced", "cataloged", "measured"];
+
+export interface ProtectedSkuMatch {
+  groupId: string;
+  sku: string;
+  status: string;
+}
+
+/**
+ * AL-07: which of these groups' SKUs match an item that is already listed,
+ * sold, shipped or archived. Read before the Generate confirm opens so the
+ * dialog can name them. Throws on a refused read.
+ */
+export async function findProtectedSkuMatches(
+  ownerId: string,
+  groups: readonly PersistableGroup[],
+): Promise<ProtectedSkuMatch[]> {
+  const bySku = new Map<string, string[]>();
+  for (const g of groups) {
+    const sku = g.sku?.trim();
+    if (!sku || g.itemId) continue;
+    bySku.set(sku, [...(bySku.get(sku) ?? []), g.id]);
+  }
+  if (bySku.size === 0) return [];
+  const { data, error } = await supabase
+    .from("inventory_items")
+    .select("sku, status")
+    .eq("user_id", ownerId)
+    .in("sku", [...bySku.keys()])
+    .in("status", [...PROTECTED_SKU_STATUSES]);
+  if (error) throw error;
+  const out: ProtectedSkuMatch[] = [];
+  for (const row of (data ?? []) as { sku: string; status: string }[]) {
+    for (const groupId of bySku.get(row.sku) ?? []) {
+      out.push({ groupId, sku: row.sku, status: row.status });
+    }
+  }
+  return out;
+}
+
 /** Only the group fields this step reads, so the module owns no page state. */
 export interface PersistableGroup extends WarnableGroup {
+  /**
+   * AL-07: the inventory item an earlier Generate already created for this
+   * group. A retry after a refused batch reuses it instead of inserting a
+   * duplicate.
+   */
+  itemId?: string;
   /** The seller's own inventory SKU / listing number, when they gave one. */
   sku?: string;
   /** photoId -> the `item_photos.photo_role` qualifier (US-2461). */
@@ -44,8 +97,16 @@ export async function persistGroupsAsItems(args: {
   ownerId: string;
   targets: readonly PersistableGroup[];
   stagedById: ReadonlyMap<string, StagedPhoto>;
+  /**
+   * AL-07: called as soon as a group has its item, BEFORE its photos are
+   * written, so the page can record the id and a retry reuses it.
+   */
+  onItemReady?: (groupId: string, itemId: string) => void;
+  /** AL-07: groups whose SKU match is listed/sold/shipped/archived and the
+   * seller confirmed attaching to anyway. Any other such match is skipped. */
+  allowProtectedGroupIds?: ReadonlySet<string>;
 }): Promise<string[]> {
-  const { ownerId, targets, stagedById } = args;
+  const { ownerId, targets, stagedById, onItemReady, allowProtectedGroupIds } = args;
   const itemIds: string[] = [];
   for (const g of targets) {
     const photos = g.photoIds
@@ -82,7 +143,20 @@ export async function persistGroupsAsItems(args: {
     const sku = g.sku?.trim() || "";
     let itemId: string;
     let existingId: string | null = null;
-    if (sku) {
+    let existingStatus: string | null = null;
+    // AL-07: an item an earlier (refused) Generate already made for this group.
+    let reusedId: string | null = null;
+    if (g.itemId) {
+      const { data: prior, error: priorErr } = await supabase
+        .from("inventory_items")
+        .select("id")
+        .eq("id", g.itemId)
+        .eq("user_id", ownerId)
+        .maybeSingle();
+      if (priorErr) throw priorErr;
+      reusedId = (prior as { id: string } | null)?.id ?? null;
+    }
+    if (sku && !reusedId) {
       // US-3381 AC5. This read used to drop its error, and the story it came
       // from argued that was survivable because the null took the INSERT branch
       // and the partial unique index on (user_id, sku) rejected it. It does --
@@ -93,19 +167,34 @@ export async function persistGroupsAsItems(args: {
       // no. Checking it says which of the two things actually went wrong.
       const { data: existing, error: skuErr } = await supabase
         .from("inventory_items")
-        .select("id")
+        .select("id, status")
         .eq("user_id", ownerId)
         .eq("sku", sku)
         .maybeSingle();
       if (skuErr) throw skuErr;
       existingId = (existing as { id: string } | null)?.id ?? null;
+      existingStatus = (existing as { status?: string } | null)?.status ?? null;
     }
-    if (existingId) {
+    if (reusedId) {
+      itemId = reusedId;
+    } else if (existingId) {
+      // AL-07: a listed / sold / shipped / archived match is skipped unless
+      // the seller confirmed it, and its status is never touched.
+      if (
+        existingStatus != null &&
+        PROTECTED_SKU_STATUSES.includes(existingStatus) &&
+        !allowProtectedGroupIds?.has(g.id)
+      ) {
+        continue;
+      }
       itemId = existingId;
+      // AL-07: advance only an item still in intake. This used to force a
+      // listed or sold item back to "photographed".
       const { error: statusErr } = await supabase
         .from("inventory_items")
         .update({ status: "photographed" } as never)
-        .eq("id", itemId);
+        .eq("id", itemId)
+        .in("status", ADVANCEABLE_STATUSES);
       // US-3376: dropped, this stranded the item in its old pipeline tab.
       if (statusErr) {
         toastWarning(
@@ -128,8 +217,30 @@ export async function persistGroupsAsItems(args: {
       if (itemErr || !item) throw itemErr ?? new Error("Item create failed");
       itemId = (item as { id: string }).id;
     }
+    onItemReady?.(g.id, itemId);
 
-    const photoRows = ordered.map((p, idx) => ({
+    // AL-07: an existing item (SKU match, or a retry reusing its own item)
+    // may already hold photos. Skip paths it has, and place the new ones
+    // after its last sort_order instead of stacking on 0..n.
+    let sortBase = 0;
+    let toWrite = ordered;
+    if (reusedId || existingId) {
+      const { data: have, error: haveErr } = await supabase
+        .from("item_photos")
+        .select("storage_path, sort_order")
+        .eq("inventory_item_id", itemId);
+      if (haveErr) throw haveErr;
+      const rows = (have ?? []) as { storage_path: string | null; sort_order: number | null }[];
+      const paths = new Set(rows.map((r) => r.storage_path));
+      toWrite = ordered.filter((p) => !paths.has(p.storagePath));
+      sortBase = rows.reduce((m, r) => Math.max(m, (r.sort_order ?? -1) + 1), 0);
+    }
+    if (toWrite.length === 0) {
+      itemIds.push(itemId);
+      continue;
+    }
+
+    const photoRows = toWrite.map((p, idx) => ({
       inventory_item_id: itemId,
       photo_url: p.url,
       storage_path: p.storagePath,
@@ -137,7 +248,7 @@ export async function persistGroupsAsItems(args: {
       thumbnail_storage_path: p.thumbnailStoragePath,
       photo_type: roleOf(p),
       photo_role: qualifierOf(p),
-      sort_order: idx,
+      sort_order: sortBase + idx,
       width: p.width,
       height: p.height,
       bytes: p.bytes,

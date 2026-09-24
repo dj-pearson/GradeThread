@@ -67,6 +67,10 @@ export const GARMENT_CATEGORIES = [
 export const SUBMISSION_STATUSES = [
   "pending",
   "processing",
+  // US-332 / migration 00069: the quality gate abstained and asked for new
+  // photos. The one status that waits on the SELLER, so the queue, the list
+  // filter and the attention rail all have to be able to name it.
+  "needs_photos",
   "pending_review",
   "completed",
   "failed",

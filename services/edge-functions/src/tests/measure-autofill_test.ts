@@ -190,7 +190,7 @@ Deno.test("US-2595: the card must be found before the listing photos load", asyn
     new URL("../lib/ai-listing.ts", import.meta.url),
   );
   const measure = src.indexOf("autofillMeasurementsFromCard(");
-  const load = src.indexOf("const photos = await loadItemPhotoUrls(itemId)");
+  const load = src.indexOf("const photos = await loadItemPhotoUrls(itemId");
   assert(measure > 0 && load > 0);
   assert(
     measure < load,

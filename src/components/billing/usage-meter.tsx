@@ -4,6 +4,7 @@ import { FLIPDESK_PLANS } from "@/lib/constants";
 import type { FlipdeskPlanKey } from "@/lib/constants";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WidgetLoadError } from "@/components/dashboard/widgets/flipdesk-shared";
 
 // ── UsageMeter (US-214) ─────────────────────────────────────────
 //
@@ -94,7 +95,14 @@ export function UsageMeter({
           <span className="ml-1 text-xs">({pctDisplay}%)</span>
         </span>
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+      <div
+        className="h-2 w-full overflow-hidden rounded-full bg-secondary"
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={limit}
+        aria-valuenow={Math.min(used, limit)}
+      >
         <div
           className={cn("h-full rounded-full transition-all", colorClass(pct))}
           style={{ width: `${pct * 100}%` }}
@@ -112,7 +120,18 @@ export function UsageMeter({
 // apply (e.g. marketplaces meter is dropped when marketplacesCap === 1).
 
 export function UsageMeters({ className }: { className?: string }) {
-  const { data, isLoading } = useBillingSummary();
+  const { data, isLoading, isError, isFetching, refetch } = useBillingSummary();
+
+  // A failed read used to shimmer here forever; say it failed and offer Retry.
+  if (isError && !data) {
+    return (
+      <WidgetLoadError
+        what="your usage"
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
 
   if (isLoading || !data) {
     return (
@@ -124,7 +143,12 @@ export function UsageMeters({ className }: { className?: string }) {
     );
   }
 
-  const plan = FLIPDESK_PLANS[data.subscription.plan as FlipdeskPlanKey];
+  // An unknown plan key (a new plan the client has not shipped yet, or a
+  // legacy one) used to crash the page on plan.activeListingCap. Free is the
+  // most conservative set of caps to show.
+  const plan =
+    FLIPDESK_PLANS[data.subscription.plan as FlipdeskPlanKey] ??
+    FLIPDESK_PLANS.free;
   // Optional-chained: a client running against an edge build from before
   // US-3138 gets 0 rather than a crash on the dashboard.
   const actionCredits = data.action_credits?.balance ?? 0;

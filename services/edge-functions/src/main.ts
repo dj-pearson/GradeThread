@@ -547,6 +547,13 @@ app.use("/api/flipdesk/sales/*", authMiddleware);
 // step-up gate.
 app.use("/api/flipdesk/extension-queue", extensionOrUserAuthMiddleware);
 app.use("/api/flipdesk/extension-queue/*", extensionOrUserAuthMiddleware);
+// Every handler resolves `workspaceOwnerId ?? userId`, and without this mount
+// workspaceOwnerId was never set: a member read their OWN queue on the owner's
+// board, and blockViewerWrites could not see a viewer role, so a view-only
+// member could POST or DELETE queue jobs. The extension sends no
+// X-Workspace-Owner header, so its token resolves to self exactly as before.
+app.use("/api/flipdesk/extension-queue", workspaceMiddleware);
+app.use("/api/flipdesk/extension-queue/*", workspaceMiddleware);
 // US-3068: the return shield reads from the extension, which holds an extension
 // token rather than a user JWT. Same middleware as the queue above and for the
 // same reason — /api/flipdesk/ebay/* is behind ebayAuthMiddleware, which falls

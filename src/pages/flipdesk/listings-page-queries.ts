@@ -38,6 +38,11 @@ import type {
   ListingPlatform,
 } from "@/types/database";
 import { blockingAspectReview } from "@/lib/aspect-review";
+import type { FilterQuery } from "@/lib/item-filter";
+import type { TabId } from "@/pages/flipdesk/inventory-tabs";
+import type { SoldFilter, SortPreset } from "@/pages/flipdesk/listings-filter";
+import type { UnlistedFilter } from "@/pages/flipdesk/inventory-tabs";
+import { LISTINGS_COLUMN_LIST } from "@/pages/flipdesk/listings-columns";
 
 // US-1568: draft listing metadata not on items_full (from the listings table).
 interface DraftMetaRow {
@@ -57,6 +62,108 @@ interface DraftMetaRow {
  * shape: the page renders it, and listings-actions.ts replays the same RPC to
  * build the CSV export. A second hand-written copy is how the two would drift.
  */
+/** Everything that decides WHICH rows the listing page shows. */
+export interface ListingPageCriteria {
+  tab: TabId;
+  search: string;
+  soldFilter: SoldFilter;
+  unlistedFilter: UnlistedFilter;
+  filterQuery: FilterQuery;
+  columnSort: { field: keyof ItemFullRow; dir: "asc" | "desc" } | null;
+  sortPreset: SortPreset;
+  agedThresholdDays: number;
+  /**
+   * INV-D1: the workspace on screen (activeWorkspaceOwnerId, else the user).
+   * RLS admits every workspace the caller belongs to, so without this a
+   * seller in two workspaces saw both mixed in one table.
+   */
+  ownerId: string;
+}
+
+/**
+ * INV-D1: the cache-key prefix for the listings table. It names the WORKSPACE
+ * rather than the signed-in user, so switching workspace is a different cache
+ * entry and a page from one workspace is never served under another. The
+ * first two elements are unchanged, so invalidateQueries({ queryKey:
+ * ["items_full"] }) still sweeps it.
+ */
+export function listingsItemsKeyFor(ownerId: string | undefined) {
+  return ["items_full", "listings", ownerId] as const;
+}
+
+/**
+ * INV-6: the `flipdesk_listing_page` arguments for a set of criteria, minus
+ * `p_limit` / `p_offset`. The page query and the select-all / CSV export both
+ * build their call from this, so the two cannot disagree about which rows
+ * match. They did: the export and select-all left out the Unlisted chip and the
+ * seller's Aged threshold, so "Select all" on Unlisted > Ready picked undrafted
+ * rows and then offered Publish.
+ */
+/**
+ * The 90-day Sold window, expressed without a migration.
+ *
+ * flipdesk_listing_page's p_sold_filter knows d7/d30/ytd and treats anything
+ * else as "all". 'd90' is sent instead as a sale_date >= rule in p_filter,
+ * which flipdesk_filter_matches already evaluates. That only composes with an
+ * AND filter: under an OR filter the rule would widen the result rather than
+ * narrow it, so there the window is dropped and the tab shows every sale.
+ */
+function soldWindowArgs(
+  soldFilter: SoldFilter,
+  filterQuery: FilterQuery,
+  now: Date,
+): { p_sold_filter: string; p_filter: FilterQuery } {
+  if (soldFilter !== "d90") return { p_sold_filter: soldFilter, p_filter: filterQuery };
+  if (filterQuery.combinator === "or" && filterQuery.rules.length > 0) {
+    return { p_sold_filter: "all", p_filter: filterQuery };
+  }
+  const from = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  return {
+    p_sold_filter: "all",
+    p_filter: {
+      combinator: "and",
+      rules: [
+        ...filterQuery.rules,
+        { id: "sold-window-d90", field: "sale_date", op: "gte", value: from },
+      ],
+    },
+  };
+}
+
+export function listingPageArgs(c: ListingPageCriteria, now: Date = new Date()) {
+  const window = c.tab === "sold"
+    ? soldWindowArgs(c.soldFilter, c.filterQuery, now)
+    : { p_sold_filter: c.soldFilter, p_filter: c.filterQuery };
+  return {
+    p_tab: c.tab,
+    p_search: c.search,
+    p_sold_filter: window.p_sold_filter,
+    // Only consulted on the Unlisted tab, like p_sold_filter on Sold.
+    p_unlisted_filter: c.unlistedFilter,
+    p_filter: window.p_filter,
+    p_column_sort: c.columnSort,
+    p_sort_preset: c.sortPreset,
+    // "Year to date" means the VIEWER's year; the database cannot know it.
+    p_ytd_start: new Date(new Date().getFullYear(), 0, 1).toISOString(),
+    // The projection stays in ONE place (listings-columns.ts) and is sent to
+    // the server rather than restated in SQL, where it would drift the first
+    // time a column was added.
+    p_columns: LISTINGS_COLUMN_LIST,
+    // US-3195: only consulted on the Aged tab.
+    p_aged_threshold_days: c.agedThresholdDays,
+    // INV-D1 (migration 00833): one workspace. The server checks the caller
+    // may read it (42501 otherwise) and treats null as the caller's own rows.
+    p_owner_id: c.ownerId || null,
+  };
+}
+
+/** The page's cover photo per item, plus whether it has the required photos. */
+export interface PageCover {
+  thumbnail_url: string | null;
+  photo_url: string | null;
+  hasRequiredPhotos: boolean;
+}
+
 export interface ListingPageResult {
   total: number;
   rows: ItemFullRow[];
@@ -243,35 +350,47 @@ export function usePageRowDetails({
     queryKey: ["items_full", "listings", "covers", userId, pageRowIds],
     enabled: !!userId && pageRowIds.length > 0,
     staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<
-      Map<string, { thumbnail_url: string | null; photo_url: string | null }>
-    > => {
+    queryFn: async (): Promise<Map<string, PageCover>> => {
       const rows = await fetchInChunks<{
         inventory_item_id: string | null;
         thumbnail_url: string | null;
         photo_url: string | null;
+        photo_type: string | null;
       }>(pageRowIds, async (chunk) => {
         const { data, error } = await supabase
           .from("item_photos")
-          .select("inventory_item_id, thumbnail_url, photo_url, sort_order")
+          .select("inventory_item_id, thumbnail_url, photo_url, sort_order, photo_type")
           .in("inventory_item_id", chunk)
           .order("sort_order", { ascending: true });
         return { data: data as unknown[] | null, error };
       });
-      const map = new Map<
-        string,
-        { thumbnail_url: string | null; photo_url: string | null }
-      >();
+      const map = new Map<string, PageCover>();
+      const types = new Map<string, Set<string>>();
       for (const row of rows) {
+        if (!row.inventory_item_id) continue;
         // First (lowest sort_order) row per item is the cover. Chunking preserves
         // this: each chunk is ordered, and an item's photos never span chunks
         // because chunking is BY ITEM ID.
-        if (row.inventory_item_id && !map.has(row.inventory_item_id)) {
+        if (!map.has(row.inventory_item_id)) {
           map.set(row.inventory_item_id, {
             thumbnail_url: row.thumbnail_url,
             photo_url: row.photo_url,
+            hasRequiredPhotos: false,
           });
         }
+        if (row.photo_type) {
+          const set = types.get(row.inventory_item_id) ?? new Set<string>();
+          set.add(row.photo_type);
+          types.set(row.inventory_item_id, set);
+        }
+      }
+      // INV-14: the same rule as items_full.has_required_photos (a front AND
+      // a back), which the listings projection leaves out because it is a
+      // per-row subquery. The page's own photo read answers it for free, and
+      // the Next column needs it to say "Add photos" only when that is true.
+      for (const [id, cover] of map) {
+        const t = types.get(id);
+        cover.hasRequiredPhotos = !!t && t.has("front") && t.has("back");
       }
       return map;
     },

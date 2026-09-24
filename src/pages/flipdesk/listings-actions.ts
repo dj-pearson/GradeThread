@@ -51,8 +51,11 @@ import {
   type SoldFilter,
   type SortPreset,
 } from "@/pages/flipdesk/listings-filter";
-import { LISTINGS_COLUMN_LIST } from "@/pages/flipdesk/listings-columns";
-import type { ListingPageResult } from "@/pages/flipdesk/listings-page-queries";
+import type { UnlistedFilter } from "@/pages/flipdesk/inventory-tabs";
+import {
+  listingPageArgs,
+  type ListingPageResult,
+} from "@/pages/flipdesk/listings-page-queries";
 import {
   type BulkPriceResponse,
   type BulkEndResponse,
@@ -144,6 +147,61 @@ function isUniqueViolation(err: unknown): boolean {
   return (err as { code?: unknown } | null)?.code === "23505";
 }
 
+/**
+ * INV-3: a selected row as the server sees it NOW, under the workspace on
+ * screen. Bulk writes run off these rather than off the rows the page happened
+ * to have, so an id from another workspace, a deleted row or one RLS hides is
+ * dropped before any write rather than counted as done.
+ */
+export type ResolvedRow = Pick<
+  ItemFullRow,
+  | "id"
+  | "user_id"
+  | "status"
+  | "listing_id"
+  | "listing_status"
+  | "link"
+  | "item_title"
+  | "target_price"
+  | "list_price"
+  | "item_description"
+>;
+
+const RESOLVE_COLUMNS =
+  "id,user_id,status,listing_id,listing_status,link,item_title,target_price,list_price,item_description";
+
+/** Why selected rows were not changed, as counts. */
+export interface BulkSkips {
+  /** Not visible under this workspace: deleted, another tenant, or no permission. */
+  notFound?: number;
+  /** Visible, but already in the target state or not eligible for the action. */
+  wrongStage?: number;
+  /** The write ran and the server changed nothing, or returned an error. */
+  failed?: number;
+}
+
+/**
+ * INV-3: every bulk toast reads "N of M" and names what was skipped and why.
+ * `verb` is the past tense ("updated", "deleted"). Returns the sentence; the
+ * caller picks the toast level.
+ */
+export function describeBulkOutcome(
+  done: number,
+  total: number,
+  verb: string,
+  skips: BulkSkips = {},
+): string {
+  const head = `${done} of ${total} ${verb}`;
+  const parts: string[] = [];
+  const nf = skips.notFound ?? 0;
+  const ws = skips.wrongStage ?? 0;
+  const fl = skips.failed ?? 0;
+  if (fl > 0) parts.push(`${fl} could not be changed`);
+  if (ws > 0) parts.push(`${ws} already there or not eligible`);
+  if (nf > 0) parts.push(`${nf} not found or no permission`);
+  return parts.length > 0 ? `${head}, ${parts.join(", ")}.` : `${head}.`;
+}
+
 export interface ListingsActionDeps {
   /** For the post-write invalidate. Every handler ends with one. */
   qc: Pick<QueryClient, "invalidateQueries">;
@@ -157,6 +215,11 @@ export interface ListingsActionDeps {
   items: ItemFullRow[];
   selected: Set<string>;
   setSelected: (next: Set<string>) => void;
+  /**
+   * INV-3: the workspace owner on screen. Bulk writes resolve the selection
+   * against it and scope every UPDATE to it.
+   */
+  ownerId: string;
 
   // The page criteria the CSV export replays against the server. Export pages
   // the RPC itself rather than exporting the rendered page, so it needs the
@@ -164,9 +227,13 @@ export interface ListingsActionDeps {
   tab: TabId;
   search: string;
   soldFilter: SoldFilter;
+  /** INV-6: the Unlisted chip. Select-all and export must honour it. */
+  unlistedFilter: UnlistedFilter;
   filterQuery: FilterQuery;
   columnSort: { field: keyof ItemFullRow; dir: "asc" | "desc" } | null;
   sortPreset: SortPreset;
+  /** INV-6: the seller's Aged threshold, which the page query also sends. */
+  agedThresholdDays: number;
 
   setExporting: (v: boolean) => void;
   setBusy: (v: boolean) => void;
@@ -180,6 +247,8 @@ export interface ListingsActionDeps {
   setBulkPublishProgress: (v: { done: number; total: number } | null) => void;
   /** US-2404: live counter while a chunked bulk resubmit runs. */
   setBulkReviseProgress: (v: { done: number; total: number } | null) => void;
+  /** INV-5: live counter while a chunked bulk End runs. Optional for tests. */
+  setBulkEndProgress?: (v: { done: number; total: number } | null) => void;
   setBulkDeleteProgress: (v: { done: number; total: number } | null) => void;
   setBulkDeleteOpen: (v: boolean) => void;
   setBulkStatusOpen: (v: boolean) => void;
@@ -206,7 +275,10 @@ export interface ListingsActionDeps {
     | { items: { listingId: string; price: number }[] },
     BulkPriceResponse
   >;
-  bulkEnd: MutationLike<{ listingIds: string[] }, BulkEndResponse>;
+  bulkEnd: MutationLike<
+    { listingIds: string[]; onProgress?: (done: number, total: number) => void },
+    BulkEndResponse
+  >;
   /** US-9203: relist a selection; eBay under its offer, extension rows queued. */
   bulkRelistApi: MutationLike<{ listingIds: string[] }, BulkRelistResponse>;
   bulkRevise: MutationLike<
@@ -227,12 +299,15 @@ export function makeListingsActions(d: ListingsActionDeps) {
     items,
     selected,
     setSelected,
+    ownerId,
     tab,
     search,
     soldFilter,
+    unlistedFilter,
     filterQuery,
     columnSort,
     sortPreset,
+    agedThresholdDays,
     setExporting,
     setBusy,
     setDropProgress,
@@ -240,6 +315,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
     bulkDropPct,
     setBulkPublishProgress,
     setBulkReviseProgress,
+    setBulkEndProgress,
     setBulkDeleteProgress,
     setBulkDeleteOpen,
     setBulkStatusOpen,
@@ -262,7 +338,9 @@ export function makeListingsActions(d: ListingsActionDeps) {
   // false; a genuinely LIVE eBay offer is left untouched and reported as `true`
   // so the caller can tell the seller to End it (we never silently pull a live
   // marketplace offer down). Returns true only when a live listing was left.
-  async function syncListingForDraftStatus(it: ItemFullRow): Promise<boolean> {
+  async function syncListingForDraftStatus(
+    it: Pick<ItemFullRow, "listing_id" | "listing_status" | "link">,
+  ): Promise<boolean> {
     // US-2178: the decision lives in planListingDemote (pure, unit-tested); this
     // performs it. The rule that matters is that a LIVE marketplace offer is
     // never silently demoted — the caller reports it so the seller can End it.
@@ -277,6 +355,38 @@ export function makeListingsActions(d: ListingsActionDeps) {
     return false;
   }
 
+  // INV-3: read the selected ids back from items_full under the workspace on
+  // screen, in chunks. What comes back is what a bulk write may touch; the
+  // difference is reported as "not found or no permission".
+  async function resolveSelection(ids: string[]): Promise<ResolvedRow[]> {
+    // 100, the repo-wide `.in()` size (supabase-batch.ts): the ids ride in the URL.
+    const CHUNK = 100;
+    const out: ResolvedRow[] = [];
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const chunk = ids.slice(i, i + CHUNK);
+      const { data, error } = await (
+        supabase.from as unknown as (name: "items_full") => {
+          select: (cols: string) => {
+            eq: (col: string, val: string) => {
+              in: (
+                col: string,
+                vals: string[],
+              ) => PromiseLike<{ data: ResolvedRow[] | null; error: Error | null }>;
+            };
+          };
+        }
+      ).bind(supabase)("items_full")
+        .select(RESOLVE_COLUMNS)
+        .eq("user_id", ownerId)
+        .in("id", chunk);
+      if (error) throw error;
+      for (const r of data ?? []) if (r.user_id === ownerId) out.push(r);
+    }
+    // Keep the seller's selection order, so reports name rows predictably.
+    const byId = new Map(out.map((r) => [r.id, r]));
+    return ids.map((id) => byId.get(id)).filter((r): r is ResolvedRow => !!r);
+  }
+
   // Every row matching the current tab, search, filter and sort, paged the
   // same way the table is. US-3467 shares it between the CSV export and
   // "Select all matching". `cap` stops a select-all from pulling a whole
@@ -286,16 +396,21 @@ export function makeListingsActions(d: ListingsActionDeps) {
     const all: ItemFullRow[] = [];
     for (let offset = 0; ; offset += PAGE) {
       const { data, error } = await supabase.rpc("flipdesk_listing_page", {
-        p_tab: tab,
-        p_search: search,
-        p_sold_filter: soldFilter,
-        p_filter: filterQuery,
-        p_column_sort: columnSort,
-        p_sort_preset: sortPreset,
-        p_ytd_start: new Date(new Date().getFullYear(), 0, 1).toISOString(),
+        // INV-6: the page query's own argument builder, so select-all and the
+        // export match exactly the rows the seller is looking at.
+        ...listingPageArgs({
+          tab,
+          search,
+          soldFilter,
+          unlistedFilter,
+          filterQuery,
+          columnSort,
+          sortPreset,
+          agedThresholdDays,
+          ownerId,
+        }),
         p_limit: PAGE,
         p_offset: offset,
-        p_columns: LISTINGS_COLUMN_LIST,
       } as never);
       if (error) throw error;
       const batch = ((data ?? {}) as ListingPageResult).rows ?? [];
@@ -324,15 +439,27 @@ export function makeListingsActions(d: ListingsActionDeps) {
   async function bulkCreateDrafts() {
     if (selected.size === 0) return;
     setBusy(true);
+    const ids = Array.from(selected);
     const errors: { message: string }[] = [];
     const alreadyDrafted: string[] = [];
     let created = 0;
-    for (const id of selected) {
-      const it = items.find((i) => i.id === id);
+    let wrongStage = 0;
+    let resolved: ResolvedRow[] = [];
+    try {
+      resolved = await resolveSelection(ids);
+    } catch (err) {
+      setBusy(false);
+      toastError(err, "Couldn't read the selected items. Nothing was changed.");
+      return;
+    }
+    for (const it of resolved) {
       // The Unlisted tab mixes drafted and undrafted rows in one selection;
       // a drafted row already has its listing, and writing a second one would
       // leave the composer with two drafts to choose between.
-      if (!it || it.status === "drafted") continue;
+      if (it.status === "drafted") {
+        wrongStage++;
+        continue;
+      }
       try {
         const listing: ListingInsert = {
           inventory_item_id: it.id,
@@ -353,12 +480,17 @@ export function makeListingsActions(d: ListingsActionDeps) {
         // draft, and still move the item to drafted: that is now true of it.
         const hadDraft = lErr != null && isUniqueViolation(lErr);
         if (lErr && !hadDraft) throw lErr;
-        const { error: uErr } = await supabase
+        const { data: moved, error: uErr } = await supabase
           .from("inventory_items")
           .update({ status: "drafted" } as never)
-          .eq("id", it.id);
+          .eq("id", it.id)
+          .eq("user_id", ownerId)
+          .select("id");
         if (uErr) throw uErr;
-        if (hadDraft) alreadyDrafted.push(itemRowLabel(it));
+        if (((moved ?? []) as unknown[]).length === 0) {
+          throw new Error("The item could not be moved to drafted.");
+        }
+        if (hadDraft) alreadyDrafted.push(itemRowLabel(it as ItemFullRow));
         else created++;
       } catch (err) {
         errors.push({
@@ -370,13 +502,24 @@ export function makeListingsActions(d: ListingsActionDeps) {
     setSelected(new Set());
     await qc.invalidateQueries({ queryKey: ["items_full"] });
     const existing = describeExistingDrafts(alreadyDrafted);
-    if (errors.length === 0) {
+    const notFound = ids.length - resolved.length;
+    if (errors.length === 0 && notFound === 0 && wrongStage === 0) {
       const made = `Created ${created} draft${created === 1 ? "" : "s"}.`;
+      toast.success(existing ? `${made} ${existing}` : made);
+    } else if (errors.length === 0) {
+      const made = describeBulkOutcome(created, ids.length, "drafted", {
+        notFound,
+        wrongStage,
+      });
       toast.success(existing ? `${made} ${existing}` : made);
     } else {
       toastWarning(
         errors[0],
-        `Created ${created}, ${errors.length} failed.${existing ? ` ${existing}` : ""}`,
+        `${describeBulkOutcome(created, ids.length, "drafted", {
+          notFound,
+          wrongStage,
+          failed: errors.length,
+        })}${existing ? ` ${existing}` : ""}`,
         { duration: 12_000 },
       );
     }
@@ -460,15 +603,23 @@ export function makeListingsActions(d: ListingsActionDeps) {
   // here now: the server writes the row itself when (and only when) the
   // marketplace accepted the change, and reports `pushed:false` for a draft that
   // was never live. A failure is a failure.
-  async function updateListingPrice(it: ItemFullRow, raw: string) {
+  //
+  // INV-9: resolves true only when the price was saved, so the quick-edit panel
+  // can stay on an item whose push failed instead of stepping past it. The
+  // seller's floor is refused here too, not only in the panel's plan.
+  async function updateListingPrice(it: ItemFullRow, raw: string): Promise<boolean> {
     if (!it.listing_id) {
       toast.error("No listing record for this item.");
-      return;
+      return false;
     }
     const next = Number(raw);
     if (!Number.isFinite(next) || next < 0) {
       toast.error("Enter a valid price.");
-      return;
+      return false;
+    }
+    if (it.floor_price != null && next < it.floor_price) {
+      toast.error(`That is below your floor of $${Number(it.floor_price).toFixed(2)}.`);
+      return false;
     }
     const rollback = patchRow(it.id, { list_price: next });
     try {
@@ -490,9 +641,11 @@ export function makeListingsActions(d: ListingsActionDeps) {
       } else {
         toast.success(res.pushed ? "Price updated on the marketplace." : "Price updated.");
       }
+      return true;
     } catch (err) {
       rollback();
       toastError(err, "Price update failed.");
+      return false;
     }
   }
 
@@ -508,7 +661,8 @@ export function makeListingsActions(d: ListingsActionDeps) {
     value: string | number | null,
     viewPatch: Partial<ItemFullRow>,
     label: string,
-  ) {
+    opts: { silent?: boolean } = {},
+  ): Promise<boolean> {
     const rollback = patchRow(it.id, viewPatch);
     try {
       const { error } = await supabase
@@ -517,10 +671,12 @@ export function makeListingsActions(d: ListingsActionDeps) {
         .eq("id", it.id);
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["items_full"] });
-      toast.success(`${label} updated.`);
+      if (!opts.silent) toast.success(`${label} updated.`);
+      return true;
     } catch (err) {
       rollback();
       toastError(err, `Couldn't update ${label.toLowerCase()}.`);
+      return false;
     }
   }
 
@@ -530,6 +686,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
     it: ItemFullRow,
     base: Record<string, string | number | null>,
     viewPatch: Partial<ItemFullRow>,
+    opts: { silent?: boolean } = {},
   ): Promise<boolean> {
     if (Object.keys(base).length === 0) return true;
     const rollback = patchRow(it.id, viewPatch);
@@ -540,7 +697,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
         .eq("id", it.id);
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["items_full"] });
-      toast.success("Saved.");
+      if (!opts.silent) toast.success("Saved.");
       return true;
     } catch (err) {
       rollback();
@@ -559,19 +716,34 @@ export function makeListingsActions(d: ListingsActionDeps) {
     if (ids.length === 0 || Object.keys(patch).length === 0) return false;
     setBusy(true);
     let done = 0;
+    let resolvedCount = 0;
     try {
-      const CHUNK = 200;
-      for (let i = 0; i < ids.length; i += CHUNK) {
-        const chunk = ids.slice(i, i + CHUNK);
-        const { error } = await supabase
+      // INV-3: only ids the server shows under this workspace are written, and
+      // `done` counts the rows the server says it changed.
+      const resolved = await resolveSelection(ids);
+      resolvedCount = resolved.length;
+      const CHUNK = 100;
+      for (let i = 0; i < resolved.length; i += CHUNK) {
+        const chunk = resolved.slice(i, i + CHUNK).map((r) => r.id);
+        const { data, error } = await supabase
           .from("inventory_items")
           .update(patch as never)
-          .in("id", chunk);
+          .in("id", chunk)
+          .eq("user_id", ownerId)
+          .select("id");
         if (error) throw error;
-        done += chunk.length;
+        done += ((data ?? []) as unknown[]).length;
       }
-      toast.success(`Updated ${done} item${done === 1 ? "" : "s"}.`);
-      return true;
+      const notFound = ids.length - resolvedCount;
+      const failed = resolvedCount - done;
+      if (notFound === 0 && failed === 0) {
+        toast.success(`Updated ${done} item${done === 1 ? "" : "s"}.`);
+        return true;
+      }
+      toast.warning(describeBulkOutcome(done, ids.length, "updated", { notFound, failed }), {
+        duration: 12_000,
+      });
+      return done > 0;
     } catch (err) {
       toastError(
         err,
@@ -588,9 +760,16 @@ export function makeListingsActions(d: ListingsActionDeps) {
 
   // Inline status change. Honors the explicit pick (forward or back, incl.
   // side-track statuses) — same direct write the mobile quick-edit sheet uses.
-  async function updateItemStatus(it: ItemFullRow, next: ItemStatus) {
-    if (next === it.status) return;
-    await patchItemColumn(it, "status", next, { status: next }, "Status");
+  // INV-9: resolves false when the status write failed, so a caller that steps
+  // on to the next item can stop instead.
+  async function updateItemStatus(
+    it: ItemFullRow,
+    next: ItemStatus,
+    opts: { silent?: boolean } = {},
+  ): Promise<boolean> {
+    if (next === it.status) return true;
+    const ok = await patchItemColumn(it, "status", next, { status: next }, "Status", opts);
+    if (!ok) return false;
     // Keep the listing row in lockstep so a re-drafted item doesn't keep showing
     // as a live listing in the composer.
     if (DRAFT_LIKE_STATUSES.has(next)) {
@@ -613,6 +792,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
         });
       }
     }
+    return true;
   }
 
   // Inline numeric edit (cost → acquired_price, target → target_price). Empty
@@ -1012,35 +1192,49 @@ export function makeListingsActions(d: ListingsActionDeps) {
     if (selected.size === 0) return;
     const ids = Array.from(selected);
     setBusy(true);
-    setBulkDeleteProgress({ done: 0, total: ids.length });
+    // INV-3: only rows visible under this workspace go to the delete route.
+    let resolved: ResolvedRow[];
+    try {
+      resolved = await resolveSelection(ids);
+    } catch (err) {
+      setBusy(false);
+      toastError(err, "Couldn't read the selected items. Nothing was deleted.");
+      return;
+    }
+    const notFound = ids.length - resolved.length;
+    setBulkDeleteProgress({ done: 0, total: resolved.length });
     const errors: { title: string; message: string }[] = [];
     let deleted = 0;
-    for (let i = 0; i < ids.length; i++) {
-      const id = ids[i]!;
-      const it = items.find((x) => x.id === id);
+    for (let i = 0; i < resolved.length; i++) {
+      const it = resolved[i]!;
       try {
-        await deleteItemApi.mutateAsync({ itemId: id });
+        await deleteItemApi.mutateAsync({ itemId: it.id });
         deleted++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push({
-          title: it?.item_title ?? "item",
+          title: it.item_title ?? "item",
           message: msg.split("\n")[0] ?? msg,
         });
       }
-      setBulkDeleteProgress({ done: i + 1, total: ids.length });
+      setBulkDeleteProgress({ done: i + 1, total: resolved.length });
     }
     setBusy(false);
     setBulkDeleteProgress(null);
     setBulkDeleteOpen(false);
     setSelected(new Set());
     await qc.invalidateQueries({ queryKey: ["items_full"] });
-    if (errors.length === 0) {
+    if (errors.length === 0 && notFound === 0) {
       // US-2172 AC4: the confirm dialog already says a delete is permanent; the
       // toast repeats it because that is the moment a seller looks for Undo.
       toast.success(`Deleted ${deleted} item${deleted === 1 ? "" : "s"}.`, {
         description: "Deletes are permanent — there's nothing to undo.",
         duration: 10_000,
+      });
+    } else if (errors.length === 0) {
+      toast.warning(describeBulkOutcome(deleted, ids.length, "deleted", { notFound }), {
+        description: "Deletes are permanent — there's nothing to undo.",
+        duration: 12_000,
       });
     } else if (deleted === 0) {
       toastError(
@@ -1051,7 +1245,10 @@ export function makeListingsActions(d: ListingsActionDeps) {
     } else {
       toastWarning(
         errors[0],
-        `Deleted ${deleted}, ${errors.length} skipped. First: ${errors[0]?.title}`,
+        `${describeBulkOutcome(deleted, ids.length, "deleted", {
+          notFound,
+          failed: errors.length,
+        })} First: ${errors[0]?.title}`,
         { duration: 14_000 },
       );
     }
@@ -1075,7 +1272,10 @@ export function makeListingsActions(d: ListingsActionDeps) {
 
     setBusy(true);
     try {
-      const res = await bulkEnd.mutateAsync({ listingIds });
+      const res = await bulkEnd.mutateAsync({
+        listingIds,
+        onProgress: (done, total) => setBulkEndProgress?.({ done, total }),
+      });
       setSelected(new Set());
       // US-2162: a queued row is NOT ended — Poshmark/Mercari/Grailed have no
       // end API, so the Lister extension ends it in the seller's browser and
@@ -1106,6 +1306,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
       toastError(err, "Bulk end failed.");
     } finally {
       setBusy(false);
+      setBulkEndProgress?.(null);
     }
   }
   // US-2404: resubmit a SELECTION of live eBay listings — re-assert the saved
@@ -1186,7 +1387,9 @@ export function makeListingsActions(d: ListingsActionDeps) {
         const { error } = await supabase
           .from("inventory_items")
           .update({ status: e.previousStatus } as never)
-          .eq("id", e.itemId);
+          .eq("id", e.itemId)
+          // INV-3: the same workspace scope the forward write carried.
+          .eq("user_id", ownerId);
         if (error) {
           failures.push(error.message);
           continue;
@@ -1233,29 +1436,53 @@ export function makeListingsActions(d: ListingsActionDeps) {
   async function bulkSetStatus(next: ItemStatus) {
     if (selected.size === 0) return;
     setBusy(true);
+    const ids = Array.from(selected);
     const errors: { message: string }[] = [];
     let done = 0;
+    let unchanged = 0;
+    let wrongStage = 0;
     let liveSkipped = 0;
     const demote = DRAFT_LIKE_STATUSES.has(next);
     // US-2172: record where each row came from, so the batch is reversible.
     // Captured per row as it succeeds rather than up front, because a row whose
     // write failed never changed and must not be offered for undo.
     const undoEntries: StatusUndoEntry[] = [];
-    for (const id of selected) {
-      const it = items.find((i) => i.id === id);
-      if (!it || it.status === next) continue;
-      const { error } = await supabase
+    // INV-3: run off the rows the server shows under this workspace now, not
+    // the page's copy. Anything else is dropped before any write.
+    let resolved: ResolvedRow[];
+    try {
+      resolved = await resolveSelection(ids);
+    } catch (err) {
+      setBusy(false);
+      toastError(err, "Couldn't read the selected items. Nothing was changed.");
+      return;
+    }
+    for (const it of resolved) {
+      if (it.status === next) {
+        wrongStage++;
+        continue;
+      }
+      // The write carries the status we read, so a row that moved in between
+      // (a sale, another tab) is left alone rather than overwritten.
+      const { data, error } = await supabase
         .from("inventory_items")
         .update({ status: next } as never)
-        .eq("id", it.id);
+        .eq("id", it.id)
+        .eq("user_id", ownerId)
+        .eq("status", it.status)
+        .select("id");
       if (error) {
         errors.push({ message: error.message });
+        continue;
+      }
+      if (((data ?? []) as unknown[]).length === 0) {
+        unchanged++;
         continue;
       }
       done++;
       const entry: StatusUndoEntry = {
         itemId: it.id,
-        title: it.item_title,
+        title: it.item_title ?? "",
         appliedStatus: next,
         previousStatus: it.status,
       };
@@ -1304,16 +1531,23 @@ export function makeListingsActions(d: ListingsActionDeps) {
       ? { label: "Undo", onClick: () => void undoBulkStatus(undoable) }
       : undefined;
 
-    if (errors.length === 0) {
+    const notFound = ids.length - resolved.length;
+    const skips: BulkSkips = { notFound, wrongStage, failed: unchanged + errors.length };
+    if (errors.length === 0 && unchanged === 0 && notFound === 0 && wrongStage === 0) {
       toast.success(
         `Set ${done} item${done === 1 ? "" : "s"} to ${ITEM_STATUS_LABELS[next]}.`,
         // Longer than a default toast: undo is only useful while it's on screen.
         { duration: 15_000, action: undoAction },
       );
+    } else if (errors.length === 0) {
+      toast.warning(describeBulkOutcome(done, ids.length, "updated", skips), {
+        duration: 15_000,
+        action: undoAction,
+      });
     } else {
       toastWarning(
         errors[0],
-        `Updated ${done}, ${errors.length} failed.`,
+        describeBulkOutcome(done, ids.length, "updated", skips),
         { duration: 15_000, toastAction: undoAction },
       );
     }

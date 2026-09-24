@@ -1,4 +1,5 @@
 import { GitCompareArrows } from "lucide-react";
+import { SYNC_CONFLICTS_HREF } from "@/lib/attention-rail";
 import { useSyncConflicts } from "@/hooks/use-sync-conflicts";
 import {
   StatTile,
@@ -25,7 +26,7 @@ import {
  * already uses, so following the AC's wording literally would have pointed at
  * a redirect at best and a 404 at worst.
  */
-const RESOLVER = "/dashboard/flipdesk/money?view=reconcile&tab=cross-source";
+const RESOLVER = SYNC_CONFLICTS_HREF;
 
 export function FlipdeskSyncConflictsWidget() {
   const { data, isLoading, isError, isFetching, refetch } = useSyncConflicts();

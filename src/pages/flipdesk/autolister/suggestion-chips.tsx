@@ -27,7 +27,8 @@ export interface AiChipRow {
   label: string;
   /** 0–1. Rendered as a whole-number percentage beside the text. */
   confidence: number;
-  /** Tooltip explaining the AI's reasoning. Empty is treated as absent. */
+  /** The AI's reasoning, shown after the text (AL-14) and as the tooltip.
+   *  Empty is treated as absent. */
   reason?: string | null;
 }
 
@@ -57,6 +58,8 @@ function AiChip({
       <Sparkles className="h-3 w-3 shrink-0" />
       <span className={textClassName}>
         {row.text} · {Math.round(row.confidence * 100)}%
+        {/* AL-14: the reason is visible, not tooltip-only (no hover on touch). */}
+        {row.reason && <span className="ml-1 opacity-80">({row.reason})</span>}
       </span>
       <button
         type="button"
@@ -70,7 +73,7 @@ function AiChip({
         type="button"
         aria-label={dismissLabel}
         onClick={onDismiss}
-        className="rounded-full p-0.5 hover:bg-amber-500/20"
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-amber-500/20"
       >
         <X className="h-3 w-3" />
       </button>

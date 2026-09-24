@@ -4,7 +4,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import {
-  Hammer,
   ChevronLeft,
   ChevronRight,
   SkipForward,
@@ -29,12 +28,12 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
+import { ErrorState } from "@/components/ui/error-state";
 import { supabase } from "@/lib/supabase";
 import { useItemsList, useItemFull } from "@/hooks/use-items-full";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import { SoldCompRecommendation } from "@/components/flipdesk/sold-comp-recommendation";
-import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { SortMenu } from "@/components/flipdesk/sort-menu";
 import { useUrlParamState } from "@/hooks/use-url-param-state";
 import {
@@ -85,7 +84,7 @@ export function FlipdeskPrepPage() {
   // Shared items_full read — single source of truth across FlipDesk (US-419),
   // projected since US-2188: the queue needs display columns and measurements,
   // nothing here reads a description, a note or a comp set.
-  const { data: items = [], isLoading } = useItemsList();
+  const { data: items = [], isLoading, isError, isFetching, refetch } = useItemsList();
 
   // Items still in the prep phase (before drafted). The shared cache is ordered
   // newest-first; the menu's default (`created_at asc`) puts it back to
@@ -105,22 +104,30 @@ export function FlipdeskPrepPage() {
 
   const current: ItemListRow | undefined = queue[index];
 
-  // Seed the editable draft whenever the current item changes.
-  useEffect(() => {
-    if (current) {
-      setDraft({
-        measurements:
-          current.measurements && typeof current.measurements === "object"
-            ? current.measurements
-            : {},
-        targetPrice:
-          current.target_price == null ? "" : String(current.target_price),
-        size: current.size ?? "",
-      });
-    } else {
-      setDraft(null);
-    }
-  }, [current]);
+  // Seed the editable draft when the current ITEM changes -- by id, not by
+  // object. INV-8: any items_full invalidation (a photo upload on this very
+  // item, for one) hands back a new `current` object for the same item, and
+  // re-seeding on that wiped the measurements and price the seller had typed.
+  // Adjusting state during render on a key change is React's documented
+  // pattern for this; an effect would paint the stale draft first.
+  const currentId = current?.id ?? null;
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  if (currentId !== seededFor) {
+    setSeededFor(currentId);
+    setDraft(
+      current
+        ? {
+          measurements:
+            current.measurements && typeof current.measurements === "object"
+              ? current.measurements
+              : {},
+          targetPrice:
+            current.target_price == null ? "" : String(current.target_price),
+          size: current.size ?? "",
+        }
+        : null,
+    );
+  }
 
   // US-2188: `ai_field_sources` is a detail-only column, so the AI-provenance
   // hints on the measurements card read it for the ONE item on screen instead
@@ -194,6 +201,30 @@ export function FlipdeskPrepPage() {
         <Skeleton className="h-8 w-56" />
         <Skeleton className="h-64 w-full" />
       </LoadingRegion>
+    );
+  }
+
+  // INV-8: a failed read is not an empty queue. Saying "Prep queue is clear"
+  // over an error sends the seller off to Unlisted with work still waiting.
+  // Only when there is nothing to show: a failed BACKGROUND refetch keeps the
+  // cached queue, and swapping it for an error would unmount the item the
+  // seller is typing into.
+  if (isError && items.length === 0) {
+    return (
+      <div className="space-y-6">
+        <PrepHeader
+          queueLength={0}
+          index={0}
+          sortValue={sortOption.id}
+          onSortChange={setSortParam}
+        />
+        <ErrorState
+          title="Couldn't load your prep queue"
+          description="Something went wrong while loading these items."
+          onRetry={() => refetch()}
+          retrying={isFetching}
+        />
+      </div>
     );
   }
 
@@ -493,12 +524,9 @@ function PrepHeader({
 }) {
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-          <Hammer className="h-5 w-5" />
-        </div>
+      {/* INV-13: the title and mode switcher live in the Inventory shell. */}
+      <div className="flex flex-wrap items-center gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
           <p className="text-sm text-muted-foreground">
             {queueLength > 0
               ? `Prepping ${queueLength} item${queueLength === 1 ? "" : "s"} — currently on item ${index + 1}.`
@@ -520,7 +548,6 @@ function PrepHeader({
           </div>
         )}
       </div>
-      <InventoryViewSwitcher current="prep" />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
   type NeedsYouKind,
 } from "@/pages/flipdesk/needs-you";
 import { isClosedCase, splitByOpenState } from "@/pages/flipdesk/post-sale-state";
+import { tabForKind } from "@/pages/flipdesk/post-sale-tabs";
 import {
   useEbayBestOffers,
   useEbayCancellations,
@@ -55,8 +56,14 @@ export interface NeedsYouState {
   items: NeedsYouItem[];
   /** Per-queue flags. A caller decides which subset it waits on. */
   queues: Record<NeedsYouQueue, NeedsYouQueueState>;
-  /** Any of the six still in flight. */
+  /**
+   * No queue has answered yet. As soon as one has, this is false and the
+   * rows it brought render; `pending` names the ones still in flight, so one
+   * slow eBay call no longer hides shipments that already loaded.
+   */
   isLoading: boolean;
+  /** The queues still in flight, in NEEDS_YOU_QUEUES order. */
+  pending: NeedsYouQueue[];
   /** Every one of the six failed: there is nothing to show and nothing to say. */
   isError: boolean;
   /** At least one queue failed. The list is real but incomplete. */
@@ -85,13 +92,35 @@ export const NEEDS_YOU_HREF: Record<NeedsYouKind, string> = {
   shipment: "/dashboard/flipdesk/post-sale#ship-queue",
 };
 
-export function useNeedsYou(enabled = true): NeedsYouState {
-  const returns = useEbayReturns(enabled);
-  const cancellations = useEbayCancellations(enabled);
-  const inquiries = useEbayInquiries(enabled);
-  const cases = useEbayCases(enabled);
-  const disputes = useEbayPaymentDisputes(enabled);
-  const offers = useEbayBestOffers(enabled);
+/**
+ * @param enabled  run any of the reads at all.
+ * @param ebayEnabled  run the six eBay queues. A seller with no eBay
+ *   connection gets a 502 from every one of them (ebay-client.ts
+ *   getUserAccessToken), which used to read as "one of your eBay queues did
+ *   not answer" on every load. Pass false for them; shipments still run.
+ */
+/**
+ * DASH-15: a link to the exact item, not just its queue. The post-sale page
+ * opens the item's tab from `?tab=` and finds the row from `?focus=`; offers
+ * live on their own page and take `?focus=` alone.
+ */
+export function needsYouHref(item: Pick<NeedsYouItem, "kind" | "id">): string {
+  const focus = `focus=${encodeURIComponent(item.id)}`;
+  if (item.kind === "offer") return `/dashboard/flipdesk/offers?${focus}`;
+  const tab = tabForKind(item.kind);
+  return tab
+    ? `/dashboard/flipdesk/post-sale?tab=${tab}&${focus}`
+    : `/dashboard/flipdesk/post-sale?${focus}`;
+}
+
+export function useNeedsYou(enabled = true, ebayEnabled = true): NeedsYouState {
+  const ebay = enabled && ebayEnabled;
+  const returns = useEbayReturns(ebay);
+  const cancellations = useEbayCancellations(ebay);
+  const inquiries = useEbayInquiries(ebay);
+  const cases = useEbayCases(ebay);
+  const disputes = useEbayPaymentDisputes(ebay);
+  const offers = useEbayBestOffers(ebay);
   const shipments = useShipQueue(enabled);
 
   const items = useMemo(() => {
@@ -216,21 +245,38 @@ export function useNeedsYou(enabled = true): NeedsYouState {
     ],
   );
 
+  // refetch() runs a query even when it is disabled, so the eBay six are
+  // only retried when they are enabled. Otherwise Retry on a seller with no
+  // eBay connection fires six calls that each 502, and turns a clean board
+  // into "one of your eBay queues did not answer".
   const refetch = useCallback(() => {
-    void returns.refetch();
-    void cancellations.refetch();
-    void inquiries.refetch();
-    void cases.refetch();
-    void disputes.refetch();
-    void offers.refetch();
-    void shipments.refetch();
-  }, [returns, cancellations, inquiries, cases, disputes, offers, shipments]);
+    if (ebay) {
+      void returns.refetch();
+      void cancellations.refetch();
+      void inquiries.refetch();
+      void cases.refetch();
+      void disputes.refetch();
+      void offers.refetch();
+    }
+    if (enabled) void shipments.refetch();
+  }, [ebay, enabled, returns, cancellations, inquiries, cases, disputes, offers, shipments]);
 
   const states = Object.values(queues);
+  const answered = [
+    returns,
+    cancellations,
+    inquiries,
+    cases,
+    disputes,
+    offers,
+    shipments,
+  ].some((q) => q.data !== undefined);
+  const pending = NEEDS_YOU_QUEUES.filter((q) => queues[q].isLoading);
   return {
     items,
     queues,
-    isLoading: states.some((s) => s.isLoading),
+    pending,
+    isLoading: pending.length > 0 && !answered,
     // Every queue down is an outage worth an error state. One queue down is
     // not: the others carry real work the seller still has to do, and
     // hiding it behind "could not load" would be the more expensive mistake.

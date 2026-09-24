@@ -9,10 +9,12 @@ import { MediaIntakeError, normalizeToImageFile } from "@/lib/media-intake";
 import { runWithConcurrency } from "@/lib/concurrency";
 import {
   appendStagedToSession,
+  deleteAutolisterDb,
   deleteBlob,
   idbAvailable,
   listBlobs,
   putBlob,
+  removeAutolisterLocalStorage,
 } from "@/lib/autolister-session-idb";
 import {
   backoffDelayMs,
@@ -102,6 +104,11 @@ export interface UploadTask {
   error?: string;
   retryable?: boolean;
   file: File;
+  /**
+   * AL-11: unique per task OBJECT. A resumed blob reuses its task id, so an id
+   * alone could name two tasks, and removing a duplicate by id removed both.
+   */
+  laneKey?: string;
 }
 
 export interface StagedUploadResult {
@@ -174,6 +181,13 @@ interface XhrOutcome {
   retryAfter: string | null;
 }
 
+// AL-03: every in-flight staging XHR, so a sign-out can abort them rather than
+// let the last user's files finish uploading under the next user's session.
+const activeXhrs = new Set<XMLHttpRequest>();
+// AL-03: bumped by reset(). A task started before a reset sees a different
+// value and stops before it uploads anything.
+let resetEpoch = 0;
+
 function xhrSend(
   sessionId: string,
   full: Blob,
@@ -183,6 +197,8 @@ function xhrSend(
 ): Promise<XhrOutcome> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    activeXhrs.add(xhr);
+    xhr.addEventListener("loadend", () => activeXhrs.delete(xhr));
     xhr.open("POST", `${edgeApiUrl()}/api/flipdesk/autolister/staging/upload`);
     for (const [key, value] of Object.entries(headers)) {
       xhr.setRequestHeader(key, value);
@@ -204,6 +220,7 @@ function xhrSend(
       reject(new Error("Upload failed — check your connection and retry."));
     xhr.ontimeout = () =>
       reject(new Error("Upload timed out — check your connection and retry."));
+    xhr.onabort = () => reject(new Error("Upload cancelled."));
     const form = new FormData();
     form.append("session_id", sessionId);
     form.append("full", full, `photo.${extForBlobType(full.type)}`);
@@ -289,10 +306,14 @@ export async function uploadStagingPhoto(
   full: Blob,
   thumb: Blob | null,
   onProgress: (fraction: number) => void = () => {},
+  isCancelled: () => boolean = () => false,
 ): Promise<StagedUploadResult> {
   for (let attempt = 0; ; attempt++) {
     const delay = uploadLimiter.acquireDelayMs();
     if (delay > 0) await sleep(delay);
+    // AL-03: a sign-out during a pacing or 429 back-off sleep must not send
+    // the last user's file under whoever is signed in by the time it wakes.
+    if (isCancelled()) throw new Error("Upload cancelled.");
     try {
       return await _transport.upload(session, full, thumb, onProgress);
     } catch (err) {
@@ -357,9 +378,16 @@ interface AutolisterUploadState {
   claimResults: (ids: string[]) => void;
   /** Files lost to the last hard unload (AC3); clears the marker. */
   consumeLostUploadCount: () => number;
+  /**
+   * AL-03: forget everything. Aborts in-flight uploads, drops tasks, results,
+   * the session id and the duplicate-identity sets. Called on sign-out.
+   */
+  reset: () => void;
 }
 
-function activeCount(tasks: UploadTask[]): number {
+/** Tasks still queued, processing or uploading. AL-11: exported so the page
+ * can subscribe to this one number instead of the whole task array. */
+export function activeCount(tasks: UploadTask[]): number {
   return tasks.filter(
     (t) => t.status === "queued" || t.status === "processing" || t.status === "uploading",
   ).length;
@@ -372,8 +400,13 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
     }));
   }
 
-  function removeTask(id: string) {
-    set((state) => ({ tasks: state.tasks.filter((t) => t.id !== id) }));
+  // AL-11: remove THIS task, not every task sharing its id.
+  function removeTask(task: UploadTask) {
+    set((state) => ({
+      tasks: state.tasks.filter(
+        (t) => !(t.id === task.id && (task.laneKey == null || t.laneKey === task.laneKey)),
+      ),
+    }));
   }
 
   // Deliver one finished photo: into `results` for the page to claim, and —
@@ -393,6 +426,11 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
   // apart from the store plumbing + byte-level progress.
   async function processUploadTask(task: UploadTask, stats: BatchStats): Promise<void> {
     const { id, file } = task;
+    const epoch = resetEpoch;
+    const wasReset = () => epoch !== resetEpoch;
+    // AL-03: a reset (sign-out) empties `tasks`. A lane that was still queued
+    // behind it must not start the upload for the next user.
+    if (!get().tasks.some((t) => t.id === id)) return;
 
     // Duplicate gate 1: exact file identity. enqueueFiles pre-filters too, but
     // this claim is the authoritative, race-safe one (two lanes can carry the
@@ -400,7 +438,7 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
     const sig = fileSig(file);
     const skipDuplicate = () => {
       stats.duplicates++;
-      removeTask(id);
+      removeTask(task);
     };
     if (isKnownSig(sig)) {
       skipDuplicate();
@@ -521,17 +559,29 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
       // US-1541: paced under the server's rate budget + auto-backoff on 429.
       // US-1542: progress 30→100 is REAL byte progress, throttled to whole
       // steps so a 600-file batch doesn't storm the store with set() calls.
+      // AL-03: reset (sign-out) while this was decoding. The file belongs to
+      // the last user; it must not be uploaded under the next one's token.
+      if (wasReset()) return;
       patchTask(id, { status: "uploading", progress: 30 });
       let lastPct = 30;
       const sessionForUpload = get().sessionId ?? "";
-      const up = await uploadStagingPhoto(sessionForUpload, body, thumbBlob, (fraction) => {
-        const pct = 30 + Math.round(fraction * 70);
-        if (pct >= lastPct + 2 || pct === 100) {
-          lastPct = pct;
-          patchTask(id, { progress: pct });
-        }
-      });
+      const up = await uploadStagingPhoto(
+        sessionForUpload,
+        body,
+        thumbBlob,
+        (fraction) => {
+          const pct = 30 + Math.round(fraction * 70);
+          if (pct >= lastPct + 2 || pct === 100) {
+            lastPct = pct;
+            patchTask(id, { progress: pct });
+          }
+        },
+        wasReset,
+      );
 
+      // AL-03: reset while this was uploading. Never hand the photo to
+      // whoever is signed in now.
+      if (wasReset() || !get().tasks.some((t) => t.id === id)) return;
       deliverResult({
         id: crypto.randomUUID(),
         url: up.url,
@@ -652,6 +702,7 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
         status: "queued",
         progress: 0,
         file,
+        laneKey: crypto.randomUUID(),
       }));
       set((s) => ({ tasks: [...s.tasks.filter((t) => t.status !== "done"), ...tasks] }));
       // US-1905: persist each queued file up front so a reload/crash can resume
@@ -679,6 +730,11 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
     // synced their sigs on mount) are skipped; the pipeline re-checks too.
     resumeUploads: async (sessionId) => {
       if (!idbAvailable()) return;
+      // AL-11: an in-app return to a session still uploading finds its tasks
+      // live in this store. Re-appending them from IDB duplicated every one,
+      // and the duplicate check then removed both copies mid-upload.
+      const before = get();
+      if (before.sessionId === sessionId && activeCount(before.tasks) > 0) return;
       let blobs: Awaited<ReturnType<typeof listBlobs>>;
       try {
         blobs = await listBlobs(sessionId);
@@ -686,8 +742,12 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
         return;
       }
       if (blobs.length === 0) return;
+      const liveIds = new Set(get().tasks.map((t) => t.id));
+      // AL-11: a blob whose file is already staged is done with; drop it so it
+      // never comes back.
+      for (const b of blobs) if (isKnownSig(b.sig)) void deleteBlob(b.taskId);
       const tasks: UploadTask[] = blobs
-        .filter((b) => !isKnownSig(b.sig))
+        .filter((b) => !isKnownSig(b.sig) && !liveIds.has(b.taskId))
         .map((b) => ({
           id: b.taskId,
           name: b.name,
@@ -696,6 +756,7 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
           // Rebuild a File from the stored bytes + original name/type (don't
           // trust structured clone to preserve the File subtype/MIME).
           file: new File([b.blob], b.name, { type: b.type }),
+          laneKey: crypto.randomUUID(),
         }));
       if (tasks.length === 0) return;
       const state = get();
@@ -724,13 +785,38 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
       set((s) => ({ tasks: s.tasks.filter((t) => t.status !== "done") }));
     },
 
-    dismissTask: (id) => set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) })),
+    // AL-11: a dismissed failure is gone for good. Its resume blob went
+    // with it, or a reload brought the file straight back.
+    dismissTask: (id) => {
+      void deleteBlob(id);
+      set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }));
+    },
 
-    clearTasks: () => set({ tasks: [] }),
+    clearTasks: () => {
+      for (const t of get().tasks) void deleteBlob(t.id);
+      set({ tasks: [] });
+    },
 
     claimResults: (ids) => {
       const idSet = new Set(ids);
       set((s) => ({ results: s.results.filter((r) => !idSet.has(r.id)) }));
+    },
+
+    reset: () => {
+      resetEpoch++;
+      for (const xhr of [...activeXhrs]) {
+        try {
+          xhr.abort();
+        } catch {
+          /* already settled */
+        }
+      }
+      activeXhrs.clear();
+      stagedSigs.clear();
+      stagedHashes.clear();
+      pipelineSigs.clear();
+      pipelineHashes.clear();
+      set({ sessionId: null, attached: false, tasks: [], results: [] });
     },
 
     consumeLostUploadCount: () => {
@@ -845,6 +931,8 @@ if (typeof window !== "undefined") {
   // Keep the lost-uploads marker current: any task that isn't `done` holds a
   // File that cannot survive a full unload. Written on every task change so
   // the count is accurate whenever the unload actually happens.
+  // AL-11: written only when the count changes, not on every progress tick.
+  let lastAtRisk = -1;
   useAutolisterUploadStore.subscribe((state) => {
     try {
       // US-1905: when IndexedDB is available, unfinished uploads were persisted
@@ -853,6 +941,8 @@ if (typeof window !== "undefined") {
       const atRisk = idbAvailable()
         ? 0
         : state.tasks.filter((t) => t.status !== "done").length;
+      if (atRisk === lastAtRisk) return;
+      lastAtRisk = atRisk;
       if (atRisk > 0) {
         window.localStorage.setItem(LOST_UPLOADS_KEY, String(atRisk));
       } else {
@@ -875,4 +965,17 @@ if (typeof window !== "undefined") {
       event.returnValue = "";
     }
   });
+}
+
+/**
+ * AL-03: wipe every trace of AutoLister from this browser. The session id,
+ * the localStorage mirrors, the `autolister` IndexedDB database (staged grid
+ * AND the original files queued for resume) and the upload store. Called
+ * from the SIGNED_OUT branch of useAuth, so a shared computer never hands one
+ * seller's photos to the next.
+ */
+export async function clearAutolisterLocalState(): Promise<void> {
+  useAutolisterUploadStore.getState().reset();
+  if (typeof window !== "undefined") removeAutolisterLocalStorage();
+  await deleteAutolisterDb();
 }

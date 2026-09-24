@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { useFlipdeskOverview } from "@/hooks/use-flipdesk-overview";
 import { DEFAULT_OVERVIEW_RANGE, overviewRangeDef } from "@/lib/overview-range";
-import { fmtMoney } from "@/lib/flipdesk-overview-format";
+import { fmtMoney, fmtSaleDate, itemLabel } from "@/lib/flipdesk-overview-format";
 import {
   EmptyList,
   MetricsUnavailable,
@@ -43,10 +43,10 @@ export function FlipdeskRecentSalesWidget({ range }: WidgetProps) {
               to={`/dashboard/flipdesk/items/${it.id}`}
               className="block truncate font-medium hover:underline"
             >
-              {it.item_title}
+              {itemLabel(it)}
             </Link>
             <div className="text-xs text-muted-foreground">
-              {it.sale_date?.slice(0, 10)}
+              {fmtSaleDate(it.sale_date)}
               {it.brand ? ` · ${it.brand}` : ""}
             </div>
           </div>

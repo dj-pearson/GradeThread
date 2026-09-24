@@ -51,7 +51,11 @@ const CEILINGS: Record<string, number> = {
   // ceiling was the reason a screen-reader defect stayed open, which is the
   // ceiling working -- the message says extract rather than raise, and that is
   // what closed both.
-  "src/pages/flipdesk/autolister.tsx": 3264,
+  // Lowered from 3264 by the AutoLister fix pass (AL-03..AL-10): the session
+  // persistence moved to autolister/use-workbench-persistence.ts and the
+  // per-photo tools to autolister/use-photo-tools.ts, which made room for the
+  // Generate, metered-pass and upload fixes without raising this number.
+  "src/pages/flipdesk/autolister.tsx": 3000,
   "src/pages/flipdesk/autolister-bulk-edit.tsx": 2010,
   // Lowered from 1120 when the rows gained the generated title and a cover
   // thumbnail, and the listing review query, the cover query, the title rule

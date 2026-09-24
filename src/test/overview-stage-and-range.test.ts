@@ -196,7 +196,8 @@ describe("the seller can pick a window (US-2547 AC4)", () => {
     // The URL param is still the source of truth, and it is still read on the
     // PAGE: the board is handed the range and hands it down, so no widget goes
     // back to the URL and none of them can disagree about the window.
-    expect(read(OVERVIEW)).toContain('useUrlParamState(\n    "range"');
+    expect(read(OVERVIEW)).toContain("useOverviewRange(view, userId)");
+    expect(read("src/hooks/use-overview-range.ts")).toContain('useUrlParamState("range")');
   });
 });
 

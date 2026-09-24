@@ -16,24 +16,24 @@ const MIGRATION = readFileSync(
 );
 
 describe("dashboard layout persistence", () => {
-  it("mirrors the layout under gt:dashboard-layout:<surface>", () => {
-    expect(HOOK).toContain('const MIRROR_PREFIX = "gt:dashboard-layout:"');
-    expect(HOOK).toContain("`${MIRROR_PREFIX}${surface}`");
+  it("mirrors the layout per user through the lib helpers", () => {
+    expect(HOOK).toContain("readLayoutMirror(userId, surface)");
+    expect(HOOK).toContain("writeLayoutMirror(user?.id, surface,");
   });
 
   it("normalizes the mirrored copy instead of trusting it", () => {
-    expect(HOOK).toMatch(/readMirrorDocument\(surface\);\s*\n\s*if \(mirrored\) return normalize\(/);
+    expect(HOOK).toMatch(/readLayoutMirror\(userId, surface\);\s*\n\s*if \(mirrored\) return normalize\(/);
   });
 
-  it("resolves a read error to a layout rather than an error state", () => {
-    expect(HOOK).toContain(
-      "if (error) return fallbackLayout(surface, registry, persona, {});",
+  it("falls back only when the table is missing, and throws any other read error", () => {
+    // DASH-4: a read error used to become a fake success, so Customize could
+    // save the fallback over the real layout. Only 42P01/PGRST205 (the table
+    // not deployed yet) still resolves to the fallback.
+    expect(HOOK).toContain('error?.code === "42P01" || error?.code === "PGRST205"');
+    expect(HOOK).toMatch(
+      /if \(isMissingTable\(error\)\) \{\s*return fallbackLayout\(user\?\.id, surface, registry, persona, \{\}\);\s*\}\s*throw error;/,
     );
-    // The one place that rethrows is the SAVE, which must fail loudly. It has
-    // to sit after mutationFn, i.e. below the read.
-    const thrown = HOOK.indexOf("if (error) throw error;");
-    expect(thrown).toBeGreaterThan(HOOK.indexOf("mutationFn:"));
-    expect(HOOK.indexOf("if (error) throw error;", thrown + 1)).toBe(-1);
+    expect(HOOK).toContain("isFromServer: query.isSuccess && !query.isPlaceholderData");
   });
 
   it("reads and writes through supabase-js under RLS, with no edge route", () => {

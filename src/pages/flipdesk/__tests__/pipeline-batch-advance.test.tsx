@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   items: [] as Array<Record<string, unknown>>,
   returned: [] as Array<{ id: string }>,
   updateError: null as { message: string } | null,
-  updates: [] as Array<{ patch: unknown; ids: string[] }>,
+  updates: [] as Array<{ patch: unknown; ids: string[]; from?: string }>,
 }));
 
 vi.mock("@/lib/supabase", () => ({
@@ -24,12 +24,15 @@ vi.mock("@/lib/supabase", () => ({
       return {
         update: (patch: unknown) => ({
           in: (_col: string, ids: string[]) => ({
-            select: async () => {
-              mocks.updates.push({ patch, ids });
-              return mocks.updateError
-                ? { data: null, error: mocks.updateError }
-                : { data: mocks.returned, error: null };
-            },
+            // INV-8: every batch write carries the status it was read at.
+            eq: (_c: string, from: string) => ({
+              select: async () => {
+                mocks.updates.push({ patch, ids, from });
+                return mocks.updateError
+                  ? { data: null, error: mocks.updateError }
+                  : { data: mocks.returned, error: null };
+              },
+            }),
           }),
         }),
       };
@@ -170,11 +173,13 @@ describe("pipeline batch advance", () => {
     await moveSelectedToNext();
 
     // One write for the one target stage, carrying both ids.
-    expect(mocks.updates).toEqual([{ patch: { status: "cataloged" }, ids: ["a", "b"] }]);
+    expect(mocks.updates).toEqual([
+      { patch: { status: "cataloged" }, ids: ["a", "b"], from: "sourced" },
+    ]);
     expect(resultsDialog().textContent).toContain("1 moved, 1 skipped.");
     expect(resultFor("Wool coat")).toMatch(/Cataloged/);
     expect(resultFor("Denim jacket")).toContain(
-      "Not updated. It may have been moved or deleted; refresh and try again.",
+      "Not updated. Changed since you loaded the board.",
     );
   });
 
@@ -193,5 +198,17 @@ describe("pipeline batch advance", () => {
     expect(resultsDialog().textContent).toContain("0 moved, 2 skipped.");
     expect(resultFor("Wool coat")).toContain("permission denied");
     expect(resultFor("Denim jacket")).toContain("permission denied");
+  });
+
+  it("splits a stage's writes by the status each card was read at (INV-8)", async () => {
+    // acquired folds into the Sourced column, so both advance to cataloged,
+    // but each write must carry its own from-status precondition.
+    mocks.items = [row("a", "Wool coat", "sourced"), row("b", "Denim jacket", "acquired")];
+    mocks.returned = [{ id: "a" }, { id: "b" }];
+    await renderBoard();
+    await moveSelectedToNext();
+    const froms = mocks.updates.map((u) => [u.from, u.ids]);
+    expect(froms).toContainEqual(["sourced", ["a"]]);
+    expect(froms).toContainEqual(["acquired", ["b"]]);
   });
 });

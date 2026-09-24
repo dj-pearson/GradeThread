@@ -8,7 +8,7 @@ import {
   type OverviewAgingRow,
 } from "@/hooks/use-flipdesk-overview";
 import { DEFAULT_OVERVIEW_RANGE } from "@/lib/overview-range";
-import { PREVIEW_ROWS } from "@/lib/flipdesk-overview-format";
+import { itemLabel, PREVIEW_ROWS } from "@/lib/flipdesk-overview-format";
 import {
   EmptyList,
   ListIntro,
@@ -81,7 +81,7 @@ function AgingRow({ row }: { row: OverviewAgingRow }) {
           to={`/dashboard/flipdesk/items/${row.id}`}
           className="block truncate font-medium hover:underline"
         >
-          {row.item_title}
+          {itemLabel(row)}
         </Link>
         <div className="text-xs text-muted-foreground">
           {ITEM_STATUS_LABELS[row.status as ItemStatus] ?? row.status}

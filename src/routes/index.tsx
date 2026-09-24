@@ -612,7 +612,9 @@ export const router = createBrowserRouter([
               // they are in bookmarks, in cross-surface nudge CTAs, in the
               // command palette and in the onboarding flow's destination. The
               // redirect MERGES the query string (ViewRedirect), so
-              // /dashboard/flipdesk?range=30d keeps its window.
+              // /dashboard/flipdesk?range=30d keeps its window: the Overview
+              // reads `30d` as an alias (parseOverviewRange) and rewrites the
+              // URL to the canonical `d30`.
               { path: "/dashboard/flipdesk", element: <ViewRedirect to="/dashboard" view="flipdesk" /> },
               { path: "/dashboard/flipdesk/overview", element: <ViewRedirect to="/dashboard" view="flipdesk" /> },
               { path: "/dashboard/flipdesk/search", element: <SuspenseWrapper><FlipdeskSearchPage /></SuspenseWrapper> },

@@ -28,6 +28,8 @@
 // cannot drift between the two.
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useSearchParams } from "react-router";
+import { useFocusParam } from "@/hooks/use-focus-param";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -129,6 +131,27 @@ export function BestOffersPanel() {
     setPage(0);
   }, [query, sort]);
 
+  // DASH-15: `?focus=<bestOfferId>` from a Needs-you row. Turn to the page the
+  // offer is on and open it; useFocusParam then scrolls to it and focuses it.
+  const [searchParams] = useSearchParams();
+  const focusId = searchParams.get("focus");
+  const focusIndex = focusId ? rows.findIndex((o) => o.bestOfferId === focusId) : -1;
+  const focusPage = focusIndex >= 0 ? Math.floor(focusIndex / PAGE_SIZE) : null;
+  // Once per focus id. Re-running on every focusPage change would yank the
+  // seller back to the offer each time they sort, search or page away.
+  const turnedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (focusPage == null || !focusId || turnedFor.current === focusId) return;
+    turnedFor.current = focusId;
+    setPage(focusPage);
+    setExpanded(focusId);
+  }, [focusPage, focusId]);
+  useFocusParam({
+    ready: !isLoading,
+    known: focusPage != null && focusPage === safePage,
+  });
+  const focusMissing = !!focusId && !isLoading && !error && focusIndex < 0;
+
   function toggleSort(field: OfferSortField) {
     setSort((s) => nextSort(s, field, naturalOfferDir(field)));
   }
@@ -166,6 +189,11 @@ export function BestOffersPanel() {
         )}
       </CardHeader>
       <CardContent className="space-y-3">
+        {focusMissing ? (
+          <p className="text-sm text-muted-foreground" role="status">
+            This offer is no longer open. It may have been answered or expired.
+          </p>
+        ) : null}
         {isLoading ? (
           <Skeleton className="h-32 w-full" />
         ) : error ? (
@@ -454,7 +482,8 @@ function OfferRows({
   return (
     <>
       <TableRow
-        className="cursor-pointer align-top"
+        className="cursor-pointer align-top data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none"
+        data-focus-id={offer.bestOfferId}
         data-state={open ? "selected" : undefined}
         onClick={onToggle}
       >
@@ -567,7 +596,7 @@ function OfferCard({
   }
 
   return (
-    <div className="rounded-md border">
+    <div className="rounded-md border data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none" data-focus-id={offer.bestOfferId}>
       <button
         type="button"
         aria-expanded={open}

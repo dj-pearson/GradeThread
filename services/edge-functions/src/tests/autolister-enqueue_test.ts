@@ -77,3 +77,29 @@ Deno.test("an over-used counter does not report a negative remainder", () => {
   assert(body !== null);
   assertEquals(body.remaining, 0);
 });
+
+// ── AL-08: Action Credits fund what the allowance cannot ─────────────────
+
+Deno.test("AL-08: 5 actions left and 200 credits (no self-cap) runs a 20-item batch", () => {
+  assertEquals(
+    insufficientAiActionsBody(20, 100, 95, { allowCredits: true, balance: 200 }),
+    null,
+  );
+});
+
+Deno.test("AL-08: credits the seller may not spend (self-cap) fund nothing", () => {
+  const body = insufficientAiActionsBody(20, 100, 95, { allowCredits: false, balance: 200 });
+  assert(body !== null);
+  assertEquals(body.remaining, 5);
+  assertEquals(body.can_top_up, false);
+  assertEquals(body.credit_balance, null);
+});
+
+Deno.test("AL-08: too few credits refuses with what CAN run and what it needs", () => {
+  const body = insufficientAiActionsBody(20, 100, 95, { allowCredits: true, balance: 10 });
+  assert(body !== null);
+  assertEquals(body.remaining, 15);
+  assertEquals(body.credits_needed, 15);
+  assertEquals(body.credit_balance, 10);
+  assertEquals(body.can_top_up, true);
+});

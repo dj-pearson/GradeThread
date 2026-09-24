@@ -60,6 +60,7 @@ import {
 } from "../lib/ai-reconcile.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import {
+  type AiSpendAuthority,
   QUOTA_EXHAUSTED_MESSAGE,
   refundAiAction,
   reserveAiActionSafe,
@@ -324,12 +325,13 @@ flipdeskAiRoutes.post("/extract", async (c) => {
   const quota = await checkQuota(userId);
   if (!quota.ok) return c.json(quota.body, quota.status);
   const { limit, used } = quota;
+  const spend = { limit, allowCredits: quota.allowCredits };
 
   const inputKind =
     cappedPhotos.length > 0 ? (text ? "both" : "photo") : "text";
 
   // US-387: reserve the action atomically before spending it.
-  if (!(await reserveAiAction(userId, limit))) {
+  if (!(await reserveAiAction(userId, spend))) {
     return c.json(QUOTA_EXHAUSTED_429, 429);
   }
 
@@ -499,7 +501,7 @@ flipdeskAiRoutes.post("/extract", async (c) => {
         await runEbayAspectsPhase({
           userId,
           itemId: bgItemId,
-          limit,
+          limit: spend,
           photos: cappedPhotos,
           extraction: result,
           // US-2765: already resolved by now - extractItemFields awaited this
@@ -865,7 +867,7 @@ function sanitizeAspectMap(raw: unknown): Record<string, string[]> {
 async function runEbayAspectsPhase(args: {
   userId: string;
   itemId: string;
-  limit: number;
+  limit: AiSpendAuthority;
   photos: ExtractPhoto[];
   extraction: ExtractionResult;
   /**
@@ -1321,8 +1323,7 @@ flipdeskAiRoutes.post("/size", async (c) => {
   // Enablement + monthly cap, then reserve atomically before the billable call.
   const quota = await checkQuota(userId);
   if (!quota.ok) return c.json(quota.body, quota.status);
-  const { limit } = quota;
-  if (!(await reserveAiAction(userId, limit))) {
+  if (!(await reserveAiAction(userId, quota))) {
     return c.json(QUOTA_EXHAUSTED_429, 429);
   }
 
@@ -1822,6 +1823,7 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
   // nested processItem() closure below, so read `quota.limit` once into a local
   // (mirrors the `const { limit, used } = quota` pattern used elsewhere).
   const quotaLimit = quota.limit;
+  const quotaSpend = { limit: quotaLimit, allowCredits: quota.allowCredits };
 
   // Clamp the batch to what the monthly allowance permits.
   const remaining =
@@ -1864,7 +1866,7 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
       // US-387: reserve this item's action atomically. If the cap is reached
       // (including by a concurrent batch), skip it rather than processing for
       // free — reserve_ai_action is the single enforcement point across batches.
-      if (!(await reserveAiAction(userId, quotaLimit))) {
+      if (!(await reserveAiAction(userId, quotaSpend))) {
         results.push({
           item_id: itemId,
           status: "failed",

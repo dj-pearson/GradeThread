@@ -86,7 +86,9 @@ export function PhotoDragTile({
         aria-label={groupId == null ? "Drag to add to a group" : "Drag to move or reorder"}
         title={groupId == null ? "Drag onto a group to add this photo" : "Drag to move"}
         className={cn(
-          "absolute left-1 top-7 z-10 cursor-grab rounded bg-black/55 p-1 text-white focus-visible:opacity-100 active:cursor-grabbing group-hover:opacity-100",
+          // AL-14: touch-none so a phone drags instead of scrolling; always shown
+          // where there is no hover, with a 32px target on a coarse pointer.
+          "absolute left-1 top-7 z-10 cursor-grab touch-none rounded bg-black/55 p-1 text-white focus-visible:opacity-100 active:cursor-grabbing group-hover:opacity-100 [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:p-2.5",
           // US-2621: inside a group the tiles are dense and every photo already
           // has a home, so the handle stays hover-only. An UNGROUPED tile is a
           // stray the seller still has to place — its handle is the whole way
@@ -128,7 +130,7 @@ export function MovePhotoMenu({
           aria-label={currentGroupId == null ? "Add to a group" : "Move to group"}
           title={currentGroupId == null ? "Add to a group…" : "Move to group…"}
           className={cn(
-            "z-10 rounded-full bg-black/55 p-1 text-white focus-visible:opacity-100 group-hover:opacity-100",
+            "z-10 rounded-full bg-black/55 p-1 text-white focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:p-2.5",
             alwaysVisible ? "opacity-100" : "opacity-0",
             className,
           )}

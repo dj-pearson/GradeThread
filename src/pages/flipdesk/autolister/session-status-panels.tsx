@@ -27,6 +27,18 @@ export interface GroupWarning {
   label: string;
 }
 
+/** AL-13: "5 min ago" for a parked batch; the exact time is the tooltip. */
+function relativeTime(iso: string, now = Date.now()): string {
+  const secs = Math.round((new Date(iso).getTime() - now) / 1000);
+  if (!Number.isFinite(secs)) return "";
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  const abs = Math.abs(secs);
+  if (abs < 60) return rtf.format(secs, "second");
+  if (abs < 3600) return rtf.format(Math.round(secs / 60), "minute");
+  if (abs < 86_400) return rtf.format(Math.round(secs / 3600), "hour");
+  return rtf.format(Math.round(secs / 86_400), "day");
+}
+
 /**
  * US-2374: batches parked by the phone. The photos are already uploaded and
  * grouped; loading one drops it into this session so the review and the AI
@@ -35,12 +47,16 @@ export interface GroupWarning {
 export function ParkedBatches({
   handoffs,
   loadingHandoffId,
+  discardingHandoffId = null,
   onLoad,
   onDiscard,
 }: {
   handoffs: HandoffBatch[];
   loadingHandoffId: string | null;
+  /** AL-13: the batch whose discard is in flight, so it can't double-fire. */
+  discardingHandoffId?: string | null;
   onLoad: (id: string) => void;
+  /** Asks first (AL-13); the page shows the confirm. */
   onDiscard: (id: string) => void;
 }) {
   if (handoffs.length === 0) return null;
@@ -65,9 +81,13 @@ export function ParkedBatches({
                 {h.group_count === 1 ? "" : "s"} already grouped
               </>
             )}
-            <span className="ml-2 text-xs text-muted-foreground">
-              {new Date(h.created_at).toLocaleString()}
-            </span>
+            <time
+              className="ml-2 text-xs text-muted-foreground"
+              dateTime={h.created_at}
+              title={new Date(h.created_at).toLocaleString()}
+            >
+              {relativeTime(h.created_at)}
+            </time>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -86,10 +106,15 @@ export function ParkedBatches({
               size="sm"
               variant="ghost"
               onClick={() => onDiscard(h.id)}
-              disabled={loadingHandoffId !== null}
+              disabled={loadingHandoffId !== null || discardingHandoffId === h.id}
               title="Discard this batch and delete its uploaded photos"
+              aria-label={`Discard the phone batch of ${h.photo_count} photo${h.photo_count === 1 ? "" : "s"}`}
             >
-              <Trash2 className="h-4 w-4" />
+              {discardingHandoffId === h.id ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
             </Button>
           </div>
         </div>
@@ -107,6 +132,7 @@ export function BatchSummaryBar({
   listableCount,
   ungroupedCount,
   aiActionsRemaining,
+  creditsInRemaining = 0,
   groupWarnings,
   onWarningClick,
 }: {
@@ -114,6 +140,8 @@ export function BatchSummaryBar({
   listableCount: number;
   ungroupedCount: number;
   aiActionsRemaining: number | null;
+  /** AL-08: how many of `aiActionsRemaining` are Action Credits. */
+  creditsInRemaining?: number;
   groupWarnings: GroupWarning[];
   onWarningClick: (groupId: string) => void;
 }) {
@@ -137,6 +165,7 @@ export function BatchSummaryBar({
         <span className="text-muted-foreground">
           ~{listableCount} AI action{listableCount === 1 ? "" : "s"}
           {aiActionsRemaining != null ? ` of ${aiActionsRemaining} left` : ""}
+          {creditsInRemaining > 0 ? ` (incl. ${creditsInRemaining} Action Credits)` : ""}
         </span>
       </div>
       {groupWarnings.length > 0 && (
@@ -168,19 +197,45 @@ export function BatchSummaryBar({
  * US-957: pre-generation cover-QA advisory. Non-blocking on purpose — it never
  * disables Generate, it just nudges a reshoot to save AI quota.
  */
-export function CoverQualityAdvisory({ lowCoverCount }: { lowCoverCount: number }) {
-  if (lowCoverCount <= 0) return null;
+export function CoverQualityAdvisory({
+  lowCoverCount,
+  uncheckedCount = 0,
+  checking = false,
+  onCheck,
+}: {
+  lowCoverCount: number;
+  /** AL-10: covers not scored yet. Scoring is one AI action each, on request. */
+  uncheckedCount?: number;
+  checking?: boolean;
+  onCheck?: () => void;
+}) {
+  if (lowCoverCount <= 0 && (uncheckedCount <= 0 || !onCheck)) return null;
   return (
-    <Card className="flex items-start gap-2 border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+    <Card className="flex flex-wrap items-start gap-2 border-amber-500/40 bg-amber-500/5 p-3 text-sm">
       <Camera className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-      <p className="text-amber-800 dark:text-amber-200">
-        <span className="font-medium">
-          {lowCoverCount} item{lowCoverCount === 1 ? "" : "s"} could use a better
-          cover photo.
-        </span>{" "}
-        Reshoot the flagged covers below for sharper listings — or generate
-        anyway, this is only a suggestion.
+      <p className="min-w-0 flex-1 text-amber-800 dark:text-amber-200">
+        {lowCoverCount > 0 ? (
+          <>
+            <span className="font-medium">
+              {lowCoverCount} item{lowCoverCount === 1 ? "" : "s"} could use a better
+              cover photo.
+            </span>{" "}
+            Reshoot the flagged covers below for sharper listings — or generate
+            anyway, this is only a suggestion.
+          </>
+        ) : (
+          <>
+            {uncheckedCount} cover photo{uncheckedCount === 1 ? " hasn't" : "s haven't"} been
+            checked. A quick AI check can flag a weak one before you generate.
+          </>
+        )}
       </p>
+      {onCheck && uncheckedCount > 0 && (
+        <Button size="sm" variant="outline" onClick={onCheck} disabled={checking}>
+          {checking && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+          Check covers ({uncheckedCount} AI action{uncheckedCount === 1 ? "" : "s"})
+        </Button>
+      )}
     </Card>
   );
 }

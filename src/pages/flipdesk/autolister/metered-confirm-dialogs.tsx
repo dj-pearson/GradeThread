@@ -36,8 +36,12 @@ function overBudget(count: number | undefined, remaining: number | null): boolea
   return remaining != null && count != null && count > remaining;
 }
 
-function remainingClause(remaining: number | null): string {
-  return remaining != null ? ` of your ${remaining} remaining` : "";
+/** AL-08: `credits` of `remaining` are Action Credits; say so. */
+function remainingClause(remaining: number | null, credits = 0): string {
+  if (remaining == null) return "";
+  return credits > 0
+    ? ` of your ${remaining} remaining (${remaining - credits} this month + ${credits} Action Credits)`
+    : ` of your ${remaining} remaining`;
 }
 
 export function GenerateConfirmDialog({
@@ -47,11 +51,16 @@ export function GenerateConfirmDialog({
   stagedCount,
   ungroupedCount,
   aiActionsRemaining,
+  creditsInRemaining = 0,
   groupWarnings,
   onWarningClick,
   ackUngrouped,
   onAckUngroupedChange,
   partial = null,
+  maxItems = Infinity,
+  protectedSkus = [],
+  attachProtected = false,
+  onAttachProtectedChange,
   onGenerate,
 }: {
   open: boolean;
@@ -60,6 +69,8 @@ export function GenerateConfirmDialog({
   stagedCount: number;
   ungroupedCount: number;
   aiActionsRemaining: number | null;
+  /** AL-08: how many of `aiActionsRemaining` are Action Credits. */
+  creditsInRemaining?: number;
   groupWarnings: { key: string; groupId: string; label: string }[];
   onWarningClick: (groupId: string) => void;
   ackUngrouped: boolean;
@@ -70,9 +81,22 @@ export function GenerateConfirmDialog({
    * end the session, so the counts above describe the chosen items alone.
    */
   partial?: { remainingGroups: number; remainingPhotos: number } | null;
-  onGenerate: () => void;
+  /**
+   * AL-07: the most this run can send, min(the edge's 300 cap, AI actions
+   * left). Over it, the full Generate is disabled and "Generate the first N"
+   * is offered instead of a batch the server will refuse.
+   */
+  maxItems?: number;
+  /** AL-07: SKU matches on items already listed, sold, shipped or archived. */
+  protectedSkus?: { groupId: string; name: string; sku: string; status: string }[];
+  attachProtected?: boolean;
+  onAttachProtectedChange?: (next: boolean) => void;
+  /** No argument: everything in scope. A number: only the first N items. */
+  onGenerate: (firstN?: number) => void;
 }) {
   const plural = listableCount === 1 ? "" : "s";
+  const tooMany = listableCount > maxItems;
+  const firstN = Number.isFinite(maxItems) ? Math.max(0, Math.floor(maxItems)) : 0;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
@@ -83,7 +107,7 @@ export function GenerateConfirmDialog({
           <DialogDescription>
             {stagedCount} photo{stagedCount === 1 ? "" : "s"} staged · ~
             {listableCount} AI action{plural}
-            {remainingClause(aiActionsRemaining)}
+            {remainingClause(aiActionsRemaining, creditsInRemaining)}
             {overBudget(listableCount, aiActionsRemaining)
               ? " — this batch won't fit; trim it or upgrade."
               : ""}
@@ -131,6 +155,32 @@ export function GenerateConfirmDialog({
           </p>
         )}
 
+        {protectedSkus.length > 0 && (
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-sm">
+            <input
+              type="checkbox"
+              checked={attachProtected}
+              onChange={(e) => onAttachProtectedChange?.(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+            />
+            <span>
+              <span className="font-medium">
+                {protectedSkus.length} SKU{protectedSkus.length === 1 ? " matches an item" : "s match items"} you already moved on:
+              </span>{" "}
+              {protectedSkus.map((m) => `${m.name} (${m.sku}, ${m.status})`).join(", ")}.
+              {" "}They are skipped unless you tick this. Their status won't change either way.
+            </span>
+          </label>
+        )}
+
+        {tooMany && (
+          <p className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm">
+            {firstN > 0
+              ? `This run can send at most ${firstN} item${firstN === 1 ? "" : "s"}. Send the first ${firstN} now; the rest stay here.`
+              : "No AI actions are left this month. Trim the batch or upgrade."}
+          </p>
+        )}
+
         {ungroupedCount > 0 && (
           <label className="flex cursor-pointer items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm">
             <input
@@ -153,9 +203,15 @@ export function GenerateConfirmDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Keep editing
           </Button>
+          {tooMany && firstN > 0 && (
+            <Button onClick={() => onGenerate(firstN)}>
+              <Sparkles className="mr-2 h-4 w-4" />
+              Generate the first {firstN}
+            </Button>
+          )}
           <Button
-            onClick={onGenerate}
-            disabled={ungroupedCount > 0 && !ackUngrouped}
+            onClick={() => onGenerate()}
+            disabled={tooMany || (ungroupedCount > 0 && !ackUngrouped)}
           >
             <Sparkles className="mr-2 h-4 w-4" />
             Generate {listableCount} listing{plural}
@@ -170,11 +226,14 @@ export function VerifyConfirmDialog<W>({
   confirm,
   onCancel,
   aiActionsRemaining,
+  creditsInRemaining = 0,
   onConfirm,
 }: {
   confirm: VerifyConfirmState<W> | null;
   onCancel: () => void;
   aiActionsRemaining: number | null;
+  /** AL-08: how many of `aiActionsRemaining` are Action Credits. */
+  creditsInRemaining?: number;
   onConfirm: (windows: W[]) => void;
 }) {
   return (
@@ -186,7 +245,7 @@ export function VerifyConfirmDialog<W>({
             This session is too large for one AI check, so it runs in{" "}
             {confirm?.windowCount} batches — {confirm?.windowCount} AI action
             {confirm?.windowCount === 1 ? "" : "s"}
-            {remainingClause(aiActionsRemaining)}. You can stop between batches;
+            {remainingClause(aiActionsRemaining, creditsInRemaining)}. You can stop between batches;
             suggestions appear as you go.
           </DialogDescription>
         </DialogHeader>
@@ -213,11 +272,14 @@ export function ProposeConfirmDialog({
   confirm,
   onCancel,
   aiActionsRemaining,
+  creditsInRemaining = 0,
   onConfirm,
 }: {
   confirm: ProposeConfirmState | null;
   onCancel: () => void;
   aiActionsRemaining: number | null;
+  /** AL-08: how many of `aiActionsRemaining` are Action Credits. */
+  creditsInRemaining?: number;
   onConfirm: (windows: string[][]) => void;
 }) {
   return (
@@ -229,7 +291,7 @@ export function ProposeConfirmDialog({
             Too many photos for one AI pass, so it runs in{" "}
             {confirm?.windowCount} batches — {confirm?.windowCount} AI action
             {confirm?.windowCount === 1 ? "" : "s"}
-            {remainingClause(aiActionsRemaining)}. You can stop between batches;
+            {remainingClause(aiActionsRemaining, creditsInRemaining)}. You can stop between batches;
             confident items are created (undoable), unsure ones show up to
             review.
           </DialogDescription>
@@ -246,6 +308,59 @@ export function ProposeConfirmDialog({
           >
             <Sparkles className="mr-2 h-4 w-4" />
             Group them
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * AL-10: the confirm for a pass that spends one AI action per item (auto-tag
+ * every group, check every cover). Neither used to ask: cover QA ran on every
+ * grouping change, and Auto-tag all fired straight away.
+ */
+export function MeteredCountConfirmDialog({
+  open,
+  title,
+  what,
+  count,
+  aiActionsRemaining,
+  creditsInRemaining = 0,
+  confirmLabel,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  title: string;
+  /** What each action buys, e.g. "one per group". */
+  what: string;
+  count: number;
+  aiActionsRemaining: number | null;
+  creditsInRemaining?: number;
+  confirmLabel: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const over = overBudget(count, aiActionsRemaining);
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            Uses ~{count} AI action{count === 1 ? "" : "s"} ({what})
+            {remainingClause(aiActionsRemaining, creditsInRemaining)}.
+            {over ? " That's more than you have left — trim it or upgrade." : " You can stop part way."}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button onClick={onConfirm} disabled={over || count === 0}>
+            <Sparkles className="mr-2 h-4 w-4" />
+            {confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

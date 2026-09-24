@@ -22,6 +22,8 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { checkQuota } from "./ai-quota.ts";
+import { ACTION_CREDIT_COSTS, readActionCreditBalanceSafe } from "./action-credits.ts";
+import type { AiSpendAuthority } from "./ai-metering.ts";
 import { featureAllowedForUser } from "./plan-gate.ts";
 import { featureDisabledBody, isFeatureEnabled } from "./feature-flags.ts";
 
@@ -38,7 +40,7 @@ export type BatchRunner = (
   ownerId: string,
   jobs: GenerationJob[],
   useComps: boolean,
-  limit: number,
+  limit: AiSpendAuthority,
 ) => Promise<void>;
 
 let runner: BatchRunner | null = null;
@@ -62,7 +64,7 @@ function startBatch(
   ownerId: string,
   jobs: GenerationJob[],
   useComps: boolean,
-  limit: number,
+  limit: AiSpendAuthority,
 ): void {
   if (!runner) {
     console.error(
@@ -85,25 +87,52 @@ function startBatch(
  * return the 402 body (with the numbers, so the UI can say "trim or upgrade")
  * — null means the batch fits (or the plan is unlimited). Pure + unit-tested;
  * the per-item atomic reservation (US-527) remains the authoritative gate.
+ *
+ * AL-08: `credits` is the Action Credit wallet, when the seller may spend it
+ * (checkQuota's allowCredits: no self-cap binding). The part of the batch the
+ * allowance cannot cover is funded from it, exactly as checkQuota(ownerId,
+ * itemCount - 1) would decide, so a seller with 5 actions and 200 credits can
+ * run a 20-item batch. Without it the check is allowance-only, as before.
  */
 export function insufficientAiActionsBody(
   itemCount: number,
   limit: number,
   used: number,
+  credits?: { allowCredits: boolean; balance: number },
 ):
-  | { error: string; code: "INSUFFICIENT_AI_ACTIONS"; needed: number; remaining: number; cap: number }
+  | {
+    error: string;
+    code: "INSUFFICIENT_AI_ACTIONS";
+    needed: number;
+    remaining: number;
+    cap: number;
+    credits_needed: number;
+    credit_balance: number | null;
+    can_top_up: boolean;
+  }
   | null {
   if (limit === -1) return null;
   const remaining = Math.max(0, limit - used);
   if (itemCount <= remaining) return null;
+  const creditsNeeded = (itemCount - remaining) * ACTION_CREDIT_COSTS.ai_action;
+  const canUseCredits = credits?.allowCredits === true;
+  if (canUseCredits && credits.balance >= creditsNeeded) return null;
+  const affordable = canUseCredits
+    ? remaining + Math.floor(credits.balance / ACTION_CREDIT_COSTS.ai_action)
+    : remaining;
   return {
     error:
-      `This batch needs ${itemCount} AI actions but only ${remaining} remain this month — ` +
+      `This batch needs ${itemCount} AI actions but only ${affordable} remain this month — ` +
       `remove some groups or upgrade your plan.`,
     code: "INSUFFICIENT_AI_ACTIONS",
     needed: itemCount,
-    remaining,
+    // What can actually run now (allowance plus any spendable credits), so
+    // "Generate the first N" offers a batch that fits.
+    remaining: affordable,
     cap: limit,
+    credits_needed: creditsNeeded,
+    credit_balance: canUseCredits ? credits.balance : null,
+    can_top_up: canUseCredits,
   };
 }
 
@@ -172,7 +201,16 @@ export async function enqueueGenerationBatch(
   if (!quota.ok) return { ok: false, status: quota.status, body: quota.body };
   const limit = quota.limit;
 
-  const insufficient = insufficientAiActionsBody(itemIds.length, limit, quota.used);
+  // AL-08: fund the overage from Action Credits when the seller allows it.
+  const needsCredits = limit !== -1 && itemIds.length > Math.max(0, limit - quota.used);
+  const insufficient = insufficientAiActionsBody(
+    itemIds.length,
+    limit,
+    quota.used,
+    needsCredits && quota.allowCredits
+      ? { allowCredits: true, balance: await readActionCreditBalanceSafe(ownerId) }
+      : { allowCredits: false, balance: 0 },
+  );
   if (insufficient) return { ok: false, status: 402, body: insufficient };
 
   // Tenant isolation: every requested item MUST belong to this workspace.
@@ -245,6 +283,9 @@ export async function enqueueGenerationBatch(
     return { ok: false, status: 500, body: { error: "Could not enqueue generation jobs." } };
   }
 
-  startBatch(batchId, ownerId, jobRows as GenerationJob[], useComps, limit);
+  startBatch(batchId, ownerId, jobRows as GenerationJob[], useComps, {
+    limit,
+    allowCredits: quota.allowCredits,
+  });
   return { ok: true, batchId, itemCount: itemIds.length };
 }

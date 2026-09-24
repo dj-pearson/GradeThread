@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
-import { ArrowRight, X, Compass, Loader2 } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { Link } from "react-router";
+import { ArrowRight, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
@@ -11,8 +10,10 @@ import type { UserUpdate } from "@/types/database";
 // Cross-promotion callout for FlipDesk shown on the GradeThread dashboard.
 // Only surfaces for users with no inventory yet (i.e. not active FlipDesk
 // users), and stays hidden once dismissed (US-136).
+//
+// Flat, because it renders inside a WidgetFrame that already draws the title:
+// no card, no gradient, no icon tile.
 export function FlipdeskPromoCard({ itemCount }: { itemCount: number | undefined }) {
-  const navigate = useNavigate();
   const { profile, refreshProfile } = useAuth();
   const user = useAuthStore((s) => s.user);
   const [dismissing, setDismissing] = useState(false);
@@ -42,42 +43,37 @@ export function FlipdeskPromoCard({ itemCount }: { itemCount: number | undefined
   }
 
   return (
-    <Card className="border-brand-red/30 bg-gradient-to-r from-brand-navy/5 to-brand-red/5">
-      <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-brand-navy/10">
-            <Compass className="h-5 w-5 text-brand-navy dark:text-foreground" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">
-              New: FlipDesk — your reseller command center
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Source, catalog, grade, list, and reconcile every flip in one
-              place. Built right into GradeThread.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => navigate("/dashboard/flipdesk")}>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="text-sm font-medium">
+          FlipDesk, your reseller workspace
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Source, catalog, grade, list, and reconcile every flip in one place.
+          Built right into GradeThread.
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button size="sm" asChild>
+          <Link to="/dashboard?view=flipdesk">
             Explore FlipDesk
-            <ArrowRight className="ml-1.5 h-3 w-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => void dismiss()}
-            disabled={dismissing}
-            aria-label="Dismiss"
-          >
-            {dismissing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <X className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+            <ArrowRight className="ml-1.5 h-3 w-3" aria-hidden="true" />
+          </Link>
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => void dismiss()}
+          disabled={dismissing}
+          aria-label="Dismiss the FlipDesk suggestion"
+        >
+          {dismissing ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <X className="h-4 w-4" aria-hidden="true" />
+          )}
+        </Button>
+      </div>
+    </div>
   );
 }

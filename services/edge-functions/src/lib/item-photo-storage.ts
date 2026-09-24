@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "./supabase.ts";
+import { isOwnedStoragePath } from "./staging-path.ts";
 
 // US-979: sensitive close-ups (size/care labels, second tags, grading
 // certificates) are uploaded to the PRIVATE `submission-images` bucket;
@@ -228,6 +229,11 @@ export const defaultItemPhotoStorage: ItemPhotoStorageApi = {
   },
 };
 
+/** AL-02: pass the item's owner id to refuse storage paths outside their folder. */
+export interface ItemPhotoAiUrlOptions {
+  ownerId?: string;
+}
+
 /**
  * A URL an AI pass can actually FETCH for one `item_photos` row.
  *
@@ -251,9 +257,21 @@ export const defaultItemPhotoStorage: ItemPhotoStorageApi = {
 export async function itemPhotoAiUrl(
   row: ItemPhotoUrlRow,
   storage: ItemPhotoStorageApi = defaultItemPhotoStorage,
+  opts: ItemPhotoAiUrlOptions = {},
 ): Promise<string | null> {
   const path = (row.storage_path ?? "").trim();
   if (!path) return null;
+  // AL-02: item_photos rows are browser-writable, and this helper SIGNS the
+  // private submission-images bucket with the service role. A forged row
+  // pointing at another seller's folder would hand the model their grading
+  // label. When the caller knows whose item this is, refuse any path outside
+  // that owner's folder (or one that could climb out of it).
+  if (opts.ownerId !== undefined && !isOwnedStoragePath(path, opts.ownerId)) {
+    console.warn(
+      "[item-photo-storage] skipped an item photo whose storage_path is outside the owner's folder",
+    );
+    return null;
+  }
 
   if (readBucketForItemPhoto(row.photo_url) === ITEM_PHOTOS_BUCKET) {
     return storage.publicUrl(ITEM_PHOTOS_BUCKET, path);
@@ -332,9 +350,10 @@ export function publicItemPhotoUrl(p: ItemPhotoUrlRow): string | null {
 export async function itemPhotoAiUrls<T extends ItemPhotoUrlRow>(
   rows: T[],
   storage: ItemPhotoStorageApi = defaultItemPhotoStorage,
+  opts: ItemPhotoAiUrlOptions = {},
 ): Promise<Array<{ row: T; url: string }>> {
   const resolved = await Promise.all(
-    rows.map(async (row) => ({ row, url: await itemPhotoAiUrl(row, storage) })),
+    rows.map(async (row) => ({ row, url: await itemPhotoAiUrl(row, storage, opts) })),
   );
   return resolved.filter((r): r is { row: T; url: string } => r.url !== null);
 }

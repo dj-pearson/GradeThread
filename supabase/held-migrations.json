@@ -80,6 +80,20 @@
       "story": "marketplaces plan action 3",
       "held_since": "2026-09-23",
       "what": "one AutoLister eBay draft per item"
+    },
+    {
+      "version": "00833",
+      "file": "00833_inventory_table_owner_scope.sql",
+      "story": "INV-D1",
+      "held_since": "2026-09-24",
+      "what": "Inventory table and tab counts mixed two workspaces"
+    },
+    {
+      "version": "00834",
+      "file": "00834_overview_metrics_owner_scope.sql",
+      "story": "INV-D1",
+      "held_since": "2026-09-24",
+      "what": "FlipDesk Overview on /dashboard mixed two workspaces"
     }
   ],
   "parked": [

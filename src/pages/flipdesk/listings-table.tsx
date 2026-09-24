@@ -67,6 +67,12 @@ import { needsSignedDisplayUrl } from "@/lib/item-photo-url";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
 import type { ListingPlatform } from "@/types/database";
 import { staleSinceLabel, usePendingRevises } from "@/hooks/use-pending-revises";
+import { safeHref } from "@/lib/safe-url";
+import { DEFAULT_AGED_THRESHOLD_DAYS } from "@/lib/aged-inventory";
+import { GradeChip } from "@/components/flipdesk/grade-chip";
+import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
+import { nextActionTarget } from "@/pages/flipdesk/next-action-target";
+import { nextAction } from "@/lib/workflow";
 import { useRelistExtension } from "@/hooks/use-relist-extension";
 import { useExtensionQueue, type ExtensionQueueItem } from "@/hooks/use-extension-queue";
 import { ChannelStrip } from "@/components/flipdesk/channel-strip";
@@ -132,8 +138,8 @@ interface Props {
 
   // ── inline edits ────────────────────────────────────────────────────────
   updateTracking: (it: ItemFullRow, raw: string) => Promise<void>;
-  updateListingPrice: (it: ItemFullRow, raw: string) => Promise<void>;
-  updateItemStatus: (it: ItemFullRow, next: ItemStatus) => Promise<void>;
+  updateListingPrice: (it: ItemFullRow, raw: string) => Promise<unknown>;
+  updateItemStatus: (it: ItemFullRow, next: ItemStatus) => Promise<unknown>;
   // The base column and the view alias differ (acquired_price vs
   // purchase_price), so both travel — that mismatch is why the optimistic
   // patch needs a separate key from the write.
@@ -160,9 +166,36 @@ interface Props {
   setShipItem: (it: ItemFullRow | null) => void;
   setEndTarget: (it: ItemFullRow | null) => void;
   setDeleteTarget: (it: ItemFullRow | null) => void;
+  /** INV-15: the keyboard cursor's row, highlighted and marked aria-current. */
+  cursorId?: string | null;
+  /** INV-15: the seller's Aged threshold; Days listed tints at 75% and 100%. */
+  agedThresholdDays?: number;
+  /**
+   * INV-4: hard delete is admin-only (the edge route returns 403 below admin),
+   * so the row's Delete is not offered to anyone who would only be refused.
+   */
+  canDelete?: boolean;
 
   ebayConnection: ReturnType<typeof useEbayConnection>["data"];
   navigate: NavigateFunction;
+}
+
+// INV-15: Days listed against the seller's own "too long" (the Aged threshold),
+// not a fixed number: amber from 75% of it, red at it.
+function listedAgeTone(days: number | null, threshold: number): string | undefined {
+  if (days == null || !(threshold > 0)) return undefined;
+  if (days >= threshold) return "font-medium text-destructive";
+  if (days >= threshold * 0.75) return "font-medium text-amber-700 dark:text-amber-400";
+  return undefined;
+}
+
+/** INV-15: the aria-sort value for a header, from the active column sort. */
+function ariaSortFor(
+  columnSort: ColumnSort,
+  field: keyof ItemFullRow,
+): "ascending" | "descending" | undefined {
+  if (!columnSort || columnSort.field !== field) return undefined;
+  return columnSort.dir === "asc" ? "ascending" : "descending";
 }
 
 // Sortable column header. Moved here with the table — the page has no other
@@ -258,6 +291,9 @@ export function ListingsTable({
   setShipItem,
   setEndTarget,
   setDeleteTarget,
+  canDelete = true,
+  cursorId = null,
+  agedThresholdDays = DEFAULT_AGED_THRESHOLD_DAYS,
   ebayConnection,
   navigate,
 }: Props) {
@@ -277,6 +313,8 @@ export function ListingsTable({
   // US-9203: relist a Poshmark/Mercari/Vinted row by copying it through the
   // extension (or the desktop queue). eBay rows keep their publish dialog.
   const relistExt = useRelistExtension();
+  // INV-14: the Next column, on every tab before the sale.
+  const showNext = !isSold && !isShipped;
   // US-3451: the seller's queue, grouped by item, for the channel strip. Read
   // only on the tabs that render the column, and once for the page rather
   // than once per row.
@@ -350,9 +388,13 @@ export function ListingsTable({
                   />
                 </TableHead>
               )}
-              <TableHead className="w-10" />
-              <TableHead className="w-12 px-1" />
-              <TableHead className="min-w-[220px]">
+              <TableHead className="w-10">
+                <span className="sr-only">Open</span>
+              </TableHead>
+              <TableHead className="w-12 px-1">
+                <span className="sr-only">Photo</span>
+              </TableHead>
+              <TableHead className="min-w-[220px]" aria-sort={ariaSortFor(columnSort, "item_title")}>
                 <SortHeader
                   field="item_title"
                   columnSort={columnSort}
@@ -361,7 +403,7 @@ export function ListingsTable({
                   Title
                 </SortHeader>
               </TableHead>
-              <TableHead className="w-24">
+              <TableHead className="w-24" aria-sort={ariaSortFor(columnSort, "item_number")}>
                 <SortHeader
                   field="item_number"
                   columnSort={columnSort}
@@ -373,7 +415,7 @@ export function ListingsTable({
               {/* The cell shows brand AND size; the sort is on brand, the one
                   a seller means by "sort by brand". Size is free text
                   ("M", "32x30", "10.5") and sorts as nonsense on its own. */}
-              <TableHead className="w-32">
+              <TableHead className="w-32" aria-sort={ariaSortFor(columnSort, "brand")}>
                 <SortHeader
                   field="brand"
                   columnSort={columnSort}
@@ -388,7 +430,7 @@ export function ListingsTable({
                   width on a table that already scrolls. The header still
                   toggles the direction, like every other sortable column. */}
               {showSourcer && (
-                <TableHead className="w-28">
+                <TableHead className="w-28" aria-sort={ariaSortFor(columnSort, "sourced_by")}>
                   <SortHeader
                     field="sourced_by"
                     columnSort={columnSort}
@@ -400,7 +442,7 @@ export function ListingsTable({
               )}
               {isSold ? (
                 <>
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-right" aria-sort={ariaSortFor(columnSort, "sale_price")}>
                     <SortHeader
                       field="sale_price"
                       align="right"
@@ -410,7 +452,7 @@ export function ListingsTable({
                       Sold $
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-right" aria-sort={ariaSortFor(columnSort, "net_profit")}>
                     <SortHeader
                       field="net_profit"
                       align="right"
@@ -425,7 +467,7 @@ export function ListingsTable({
                   <TableHead className="w-16 text-right">
                     Margin
                   </TableHead>
-                  <TableHead className="w-24">
+                  <TableHead className="w-24" aria-sort={ariaSortFor(columnSort, "payout")}>
                     <SortHeader
                       field="payout"
                       columnSort={columnSort}
@@ -439,7 +481,7 @@ export function ListingsTable({
                 </>
               ) : isUnlisted ? (
                 <>
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-right" aria-sort={ariaSortFor(columnSort, "purchase_price")}>
                     <SortHeader
                       field="purchase_price"
                       align="right"
@@ -449,7 +491,7 @@ export function ListingsTable({
                       Cost
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-right" aria-sort={ariaSortFor(columnSort, "target_price")}>
                     <SortHeader
                       field="target_price"
                       align="right"
@@ -477,7 +519,7 @@ export function ListingsTable({
                       and show Cost / Target / List / Sale / Net: four columns
                       about a sale that has not happened, on the one screen
                       whose whole subject is that it has not happened. */}
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-right" aria-sort={ariaSortFor(columnSort, "list_date")}>
                     <SortHeader
                       field="list_date"
                       align="right"
@@ -487,7 +529,7 @@ export function ListingsTable({
                       Days listed
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="w-16 text-right">
+                  <TableHead className="w-16 text-right" aria-sort={ariaSortFor(columnSort, "listing_views")}>
                     <SortHeader
                       field="listing_views"
                       align="right"
@@ -497,7 +539,7 @@ export function ListingsTable({
                       Views
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="w-16 text-right">
+                  <TableHead className="w-16 text-right" aria-sort={ariaSortFor(columnSort, "listing_watchers")}>
                     <SortHeader
                       field="listing_watchers"
                       align="right"
@@ -507,7 +549,7 @@ export function ListingsTable({
                       Watchers
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-right" aria-sort={ariaSortFor(columnSort, "purchase_price")}>
                     <SortHeader
                       field="purchase_price"
                       align="right"
@@ -517,7 +559,7 @@ export function ListingsTable({
                       Cost
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="w-24 text-right">
+                  <TableHead className="w-24 text-right" aria-sort={ariaSortFor(columnSort, "list_price")}>
                     <SortHeader
                       field="list_price"
                       align="right"
@@ -527,7 +569,7 @@ export function ListingsTable({
                       Price
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-right" aria-sort={ariaSortFor(columnSort, "floor_price")}>
                     <SortHeader
                       field="floor_price"
                       align="right"
@@ -540,7 +582,7 @@ export function ListingsTable({
                 </>
               ) : isActive ? (
                 <>
-                  <TableHead className="w-24 text-right">
+                  <TableHead className="w-24 text-right" aria-sort={ariaSortFor(columnSort, "list_price")}>
                     <SortHeader
                       field="list_price"
                       align="right"
@@ -550,7 +592,7 @@ export function ListingsTable({
                       Price
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="hidden w-16 text-right 2xl:table-cell">
+                  <TableHead className="hidden w-16 text-right 2xl:table-cell" aria-sort={ariaSortFor(columnSort, "listing_views")}>
                     <SortHeader
                       field="listing_views"
                       align="right"
@@ -560,7 +602,7 @@ export function ListingsTable({
                       Views
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="hidden w-16 text-right 2xl:table-cell">
+                  <TableHead className="hidden w-16 text-right 2xl:table-cell" aria-sort={ariaSortFor(columnSort, "listing_watchers")}>
                     <SortHeader
                       field="listing_watchers"
                       align="right"
@@ -572,7 +614,7 @@ export function ListingsTable({
                   </TableHead>
                   <TableHead className="hidden w-16 text-right 2xl:table-cell">Impr.</TableHead>
                   <TableHead className="hidden w-16 text-right 2xl:table-cell">CTR</TableHead>
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-right" aria-sort={ariaSortFor(columnSort, "list_date")}>
                     <SortHeader
                       field="list_date"
                       align="right"
@@ -585,7 +627,7 @@ export function ListingsTable({
                 </>
               ) : isShipped ? (
                 <>
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-right" aria-sort={ariaSortFor(columnSort, "net_profit")}>
                     <SortHeader
                       field="net_profit"
                       align="right"
@@ -595,7 +637,7 @@ export function ListingsTable({
                       Net
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="w-20">
+                  <TableHead className="w-20" aria-sort={ariaSortFor(columnSort, "carrier")}>
                     <SortHeader
                       field="carrier"
                       columnSort={columnSort}
@@ -604,7 +646,7 @@ export function ListingsTable({
                       Carrier
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="min-w-[150px]">
+                  <TableHead className="min-w-[150px]" aria-sort={ariaSortFor(columnSort, "tracking")}>
                     <SortHeader
                       field="tracking"
                       columnSort={columnSort}
@@ -613,7 +655,7 @@ export function ListingsTable({
                       Tracking
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="w-36">
+                  <TableHead className="w-36" aria-sort={ariaSortFor(columnSort, "delivered_at")}>
                     <SortHeader
                       field="delivered_at"
                       columnSort={columnSort}
@@ -625,7 +667,7 @@ export function ListingsTable({
                 </>
               ) : (
                 <>
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-right" aria-sort={ariaSortFor(columnSort, "purchase_price")}>
                     <SortHeader
                       field="purchase_price"
                       align="right"
@@ -635,7 +677,7 @@ export function ListingsTable({
                       Cost
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-right" aria-sort={ariaSortFor(columnSort, "target_price")}>
                     <SortHeader
                       field="target_price"
                       align="right"
@@ -645,7 +687,7 @@ export function ListingsTable({
                       Target / List
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-right" aria-sort={ariaSortFor(columnSort, "sale_price")}>
                     <SortHeader
                       field="sale_price"
                       align="right"
@@ -655,7 +697,7 @@ export function ListingsTable({
                       Sale
                     </SortHeader>
                   </TableHead>
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-right" aria-sort={ariaSortFor(columnSort, "net_profit")}>
                     <SortHeader
                       field="net_profit"
                       align="right"
@@ -667,7 +709,7 @@ export function ListingsTable({
                   </TableHead>
                 </>
               )}
-              <TableHead className="w-24">
+              <TableHead className="w-24" aria-sort={ariaSortFor(columnSort, "status")}>
                 <SortHeader
                   field="status"
                   columnSort={columnSort}
@@ -676,7 +718,7 @@ export function ListingsTable({
                   Status
                 </SortHeader>
               </TableHead>
-              <TableHead className="hidden min-w-[140px] 2xl:table-cell">
+              <TableHead className="hidden min-w-[140px] 2xl:table-cell" aria-sort={ariaSortFor(columnSort, "notes")}>
                 <SortHeader
                   field="notes"
                   columnSort={columnSort}
@@ -697,7 +739,7 @@ export function ListingsTable({
                   live listings on the Active tab and the weakest drafts,
                   so a seller fixes the lowest scores first. */}
               {(isUnlisted || isActive) && (
-                <TableHead className="w-20 text-center">
+                <TableHead className="w-20 text-center" aria-sort={ariaSortFor(columnSort, "quality_score")}>
                   <span
                     className="inline-flex"
                     title="Listing Quality Score — 0-100 across every ranking lever"
@@ -718,7 +760,7 @@ export function ListingsTable({
                   (highest age). Same shape as "Days listed", which has sorted
                   on list_date since it shipped. */}
               {!isSold && !isActive && !isAged && (
-                <TableHead className="w-16 text-right">
+                <TableHead className="w-16 text-right" aria-sort={ariaSortFor(columnSort, "updated_at")}>
                   <SortHeader
                     field="updated_at"
                     align="right"
@@ -739,9 +781,15 @@ export function ListingsTable({
                 <TableHead className="w-40">Draft</TableHead>
               )}
               {isUnlisted && (
-                <TableHead className="w-32 text-right" />
+                <TableHead className="w-32 text-right">
+                  <span className="sr-only">Publish</span>
+                </TableHead>
               )}
-              <TableHead className="w-8" />
+              {/* INV-14: the one step that moves each row toward a sale. */}
+              {showNext && <TableHead className="w-36">Next</TableHead>}
+              <TableHead className="w-8">
+                <span className="sr-only">Row actions</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -783,9 +831,12 @@ export function ListingsTable({
                   key={it.id}
                   ref={measureRef}
                   data-index={vIndex}
+                  data-row-id={it.id}
+                  aria-current={cursorId === it.id ? "true" : undefined}
                   className={cn(
                     "hover:bg-muted/30",
                     isSel && "bg-brand-navy/5",
+                    cursorId === it.id && "ring-2 ring-inset ring-ring",
                   )}
                   // One editor for every tab. This used to send Drafts to
                   // the composer and everything else to a narrower
@@ -885,19 +936,35 @@ export function ListingsTable({
                           </Badge>
                         );
                       })()}
+                      {/* INV-14: tier-tinted, certificate-linked grade. */}
                       {it.grade_value != null && (
-                        <Badge
-                          variant="secondary"
-                          className="shrink-0 px-1.5 py-0 text-[10px]"
-                          title={
-                            it.grade_label
-                              ? `Graded ${it.grade_label}`
-                              : "GradeThread grade"
-                          }
-                        >
-                          {Number(it.grade_value).toFixed(1)}
-                        </Badge>
+                        <GradeChip
+                          grade={Number(it.grade_value)}
+                          certificateUrl={it.certificate_url}
+                        />
                       )}
+                      {/* INV-14: an ungraded, photographed garment on its way
+                          to a sale gets a quiet way to grade it. */}
+                      {it.grade_value == null &&
+                        showNext &&
+                        it.status !== "grading" &&
+                        coverByItem?.get(it.id)?.hasRequiredPhotos &&
+                        // The Next column already says "Grade it" there.
+                        nextAction({ ...it, has_required_photos: true }).kind !== "grade" && (
+                          <button
+                            type="button"
+                            className="shrink-0 text-[11px] font-medium text-brand-red-text hover:underline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/dashboard/flipdesk/items/${encodeURIComponent(it.id)}`, {
+                                state: { from: `${window.location.pathname}${window.location.search}` },
+                              });
+                            }}
+                            aria-label={`Grade ${rowLabel}`}
+                          >
+                            Grade it
+                          </button>
+                        )}
                       {/* US-9202: never "applied" before the marketplace confirms. */}
                       {(staleByItem.get(it.id) ?? []).map((stale) => (
                         <Badge
@@ -1057,7 +1124,12 @@ export function ListingsTable({
                     </>
                   ) : isAged ? (
                     <>
-                      <TableCell className="text-right tabular-nums">
+                      <TableCell
+                        className={cn(
+                          "text-right tabular-nums",
+                          listedAgeTone(daysSince(it.list_date), agedThresholdDays),
+                        )}
+                      >
                         {daysSince(it.list_date) ?? "—"}
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-muted-foreground">
@@ -1123,7 +1195,12 @@ export function ListingsTable({
                           return ctr == null ? "—" : `${(ctr * 100).toFixed(1)}%`;
                         })()}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">
+                      <TableCell
+                        className={cn(
+                          "text-right tabular-nums",
+                          listedAgeTone(daysSince(it.list_date), agedThresholdDays),
+                        )}
+                      >
                         {daysSince(it.list_date) ?? "—"}
                       </TableCell>
                     </>
@@ -1285,13 +1362,15 @@ export function ListingsTable({
                                   : "Created in GradeThread; source of truth; edit here"
                               }
                               className={cn(
-                                "rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                                // INV-14: sentence case at 11px; a tracked
+                                // uppercase 9px tag was unreadable at a glance.
+                                "rounded border px-1 py-0.5 text-[11px] font-medium",
                                 l.origin === "ebay"
                                   ? "border-amber-400/60 text-amber-600 dark:text-amber-400"
                                   : "border-brand-navy/40 text-brand-navy dark:text-foreground",
                               )}
                             >
-                              {l.origin === "ebay" ? "eBay-made" : "GT"}
+                              {l.origin === "ebay" ? "Made on eBay" : "Made here"}
                             </span>
                           ))}
                       </div>
@@ -1339,7 +1418,10 @@ export function ListingsTable({
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="flex items-center justify-end gap-1">
-                        {ebayConnection && (
+                        {/* INV-10: the eBay relist dialog is for eBay rows only. On a
+                            Poshmark or Shopify row it would publish a second copy
+                            to eBay while the original stays live. */}
+                        {ebayConnection && it.listing_platform === "ebay" && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1519,11 +1601,58 @@ export function ListingsTable({
                       </div>
                     </TableCell>
                   )}
+                  {showNext && (
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      {(() => {
+                        // has_required_photos is not in the listings
+                        // projection; the page's own photo read answers it.
+                        // Until that read lands, show nothing rather than
+                        // telling every row to "Add photos".
+                        if (!coverByItem) return null;
+                        const facts = {
+                          ...it,
+                          has_required_photos:
+                            coverByItem.get(it.id)?.hasRequiredPhotos ?? false,
+                        };
+                        // A step with nowhere to go (waiting on grading, a
+                        // buyer, or nothing left) stays a plain badge rather
+                        // than a button that does nothing when pressed.
+                        const hasTarget =
+                          nextActionTarget(nextAction(facts).kind, it.id) != null;
+                        return (
+                          <NextActionBadge
+                            item={facts}
+                            label={rowLabel}
+                            onActivate={hasTarget ? (kind) => {
+                              const target = nextActionTarget(kind, it.id);
+                              if (!target) return;
+                              if ("publish" in target) {
+                                if (
+                                  ebayConnection &&
+                                  (!it.listing_platform || it.listing_platform === "ebay")
+                                ) {
+                                  setPublishItem(it);
+                                } else {
+                                  setMarkListedItem(it);
+                                }
+                              } else {
+                                navigate(target.to, {
+                                  state: { from: `${window.location.pathname}${window.location.search}` },
+                                });
+                              }
+                            } : undefined}
+                          />
+                        );
+                      })()}
+                    </TableCell>
+                  )}
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
-                      {it.link && (
+                      {/* INV-10: listing_url is imported and seller-editable; a
+                          javascript: or data: value must never become a link. */}
+                      {safeHref(it.link) && (
                         <a
-                          href={it.link}
+                          href={safeHref(it.link) ?? undefined}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex text-brand-red-text"
@@ -1536,7 +1665,7 @@ export function ListingsTable({
                           accounting tabs (sold/shipped/returned) where a
                           hard delete is never appropriate; the server
                           still guards live listings + any sale. */}
-                      {!isSold && !isShipped && tab !== "returned" && (
+                      {canDelete && !isSold && !isShipped && tab !== "returned" && (
                         <Button
                           variant="ghost"
                           size="icon"

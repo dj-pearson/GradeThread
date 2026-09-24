@@ -1,13 +1,16 @@
 import { useEffect } from "react";
+import { clearLayoutMirrors } from "@/lib/dashboard-layout-mirror";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/query-client";
 import { captureException } from "@/lib/sentry";
 import { useAuthStore } from "@/stores/auth-store";
 import { useAccountExportStore } from "@/stores/account-export-store";
+import { useInventorySelection } from "@/stores/inventory-selection";
 import { redeemStoredAffiliateRef } from "@/lib/affiliate";
 import { sendWelcomeEmailOnce } from "@/lib/welcome-email";
 import { confirmSignupConsentOnce } from "@/lib/signup-consent";
 import { initIdleLogout, clearIdleActivity } from "@/lib/idle-logout";
+import { removeAutolisterLocalStorage } from "@/lib/autolister-session-idb";
 import type {
   UserRow,
   WorkspaceMemberRow,
@@ -253,6 +256,23 @@ function initAuth() {
       // The previous user's in-flight ZIP export must not disable the button
       // for whoever signs in next.
       useAccountExportStore.getState().clear();
+      // INV-2: nor may their inventory selection, which a bulk action would
+      // otherwise send straight to an UPDATE.
+      useInventorySelection.getState().clear();
+      // Nor may their dashboard layout mirror paint first for the next user.
+      clearLayoutMirrors();
+      // AL-03: nor their AutoLister session. The session id, staged grid and
+      // the original files queued for resume all live in this browser, and the
+      // next user would otherwise rehydrate the grid and re-upload the files
+      // (EXIF intact) into their own account. localStorage goes now; the store
+      // (aborting in-flight uploads) and the IndexedDB database follow via a
+      // lazy import so the upload pipeline stays out of the auth bundle.
+      removeAutolisterLocalStorage();
+      void import("@/stores/autolister-upload-store")
+        .then((m) => m.clearAutolisterLocalState())
+        .catch(() => {
+          /* best-effort: a failed chunk load leaves nothing worse than before */
+        });
       s.reset();
     }
   });

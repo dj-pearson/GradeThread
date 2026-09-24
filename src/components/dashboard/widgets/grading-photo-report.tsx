@@ -1,5 +1,4 @@
 import { Link } from "react-router";
-import { Camera } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   type PhotoProblem,
@@ -57,11 +56,7 @@ export function GradingPhotoReportWidget() {
 export function PhotoReportCardView({ card }: { card: PhotoReportCard }) {
   if (card.photos_measured === 0) {
     return (
-      <div className="rounded-xl border px-4 py-4">
-        <p className="mb-2 flex items-center justify-between gap-2 text-sm font-medium">
-          Photo report card
-          <Camera className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-        </p>
+      <div>
         <p className="text-sm text-muted-foreground">
           After your first grade, this shows which of your photos come out blurry, dark
           or cut off, and how to fix them.
@@ -77,11 +72,8 @@ export function PhotoReportCardView({ card }: { card: PhotoReportCard }) {
   }
 
   return (
-    <div className="rounded-xl border px-4 py-4">
-      <p className="mb-1 flex items-center justify-between gap-2 text-sm font-medium">
-        Photo report card
-        <Camera className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-      </p>
+    // Flat: the frame already titles it "Photo report card".
+    <div>
       <p className="text-xs text-muted-foreground">
         {card.photos_measured} photos across your last {card.grades_counted}{" "}
         {card.grades_counted === 1 ? "grade" : "grades"}
