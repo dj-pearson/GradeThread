@@ -1151,10 +1151,24 @@ export function ReviewQueueCard({
   const dismissMutation = useReconciliationDismiss();
   const runMutation = useReconciliationRun();
   const [busyPayoutId, setBusyPayoutId] = useState<string | null>(null);
+  const [lastRun, setLastRun] = useState<{ scanned: number; total: number } | null>(
+    null,
+  );
 
   async function doAutoMatch() {
     try {
       const r = await runMutation.mutateAsync();
+      if (typeof r.total === "number") {
+        setLastRun({ scanned: r.scanned, total: r.total });
+      }
+      if ((r.errors ?? 0) > 0) {
+        // Some payouts could not be checked. Their counts are not "no match".
+        toast.warning(
+          `Auto-match could not finish, try again. Matched ${r.auto_matched} before it stopped.`,
+          { duration: 12_000 },
+        );
+        return;
+      }
       const parts: string[] = [];
       parts.push(`Auto-matched ${r.auto_matched}`);
       if (r.ambiguous > 0) parts.push(`${r.ambiguous} ambiguous`);
@@ -1256,9 +1270,21 @@ export function ReviewQueueCard({
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
               Showing the first {Math.min(limit, queue.length)} of {total}{" "}
-              unreconciled payouts. Run <strong>Auto-match</strong> to clear the
-              unambiguous ones across all of them — the list refreshes to reveal
-              the rest.
+              unreconciled payouts.{" "}
+              {lastRun ? (
+                <>
+                  The last Auto-match checked {lastRun.scanned} of{" "}
+                  {lastRun.total}
+                  {lastRun.scanned < lastRun.total
+                    ? ". Run it again to check the rest."
+                    : "."}
+                </>
+              ) : (
+                <>
+                  Run <strong>Auto-match</strong> to clear the unambiguous ones
+                  across all of them. The list refreshes to show the rest.
+                </>
+              )}
             </span>
           </div>
         )}

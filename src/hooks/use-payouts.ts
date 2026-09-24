@@ -122,6 +122,10 @@ export interface ReconciliationRunResponse {
   ambiguous: number;
   no_candidates: number;
   scanned: number;
+  /** Unreconciled payouts when the run started. Older servers omit it. */
+  total?: number;
+  /** Payouts that could not be checked, plus link failures. */
+  errors?: number;
 }
 
 // Sweeps all unreconciled payouts server-side, auto-matching only the

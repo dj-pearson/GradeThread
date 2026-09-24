@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { saleNetEstimate } from "../lib/reconciliation-scoring.ts";
+import { fetchAllPages } from "../lib/paged-read.ts";
 import {
   applyConflictResolutions,
   type SyncConflictRow,
@@ -149,17 +150,30 @@ async function loadCandidateSales(
   const select = SALE_CANDIDATE_COLUMNS + ", inventory_items!inner(user_id, title)";
 
   // Date-windowed set for fuzzy scoring. Tenant-scoped via inventory_items.user_id.
-  let windowQuery = supabaseAdmin
-    .from("sales")
-    .select(select)
-    .eq("inventory_items.user_id", userId);
-  if (lowerIso) windowQuery = windowQuery.gte("sale_date", lowerIso);
-  if (upperIso) windowQuery = windowQuery.lte("sale_date", upperIso);
-  const { data: windowRaw, error: windowErr } = await windowQuery;
-  if (windowErr) throw windowErr;
+  // Completed and not yet linked only: a refunded or cancelled sale never
+  // produced a payout, and a sale already carrying a payout_reference belongs
+  // to another payout (the exact-id read below still finds its own). Paged,
+  // because a busy seller's 28-day window can pass PostgREST's row cap, and
+  // a clipped read looked exactly like "no candidates".
+  const windowRaw = await fetchAllPages<SaleCandidate>(async (from, to) => {
+    let q = supabaseAdmin
+      .from("sales")
+      .select(select)
+      .eq("inventory_items.user_id", userId)
+      .eq("status", "completed")
+      .is("payout_reference", null);
+    if (lowerIso) q = q.gte("sale_date", lowerIso);
+    if (upperIso) q = q.lte("sale_date", upperIso);
+    const { data, error } = await q
+      .order("sale_date", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (error) throw error;
+    return (data ?? []) as unknown as SaleCandidate[];
+  });
 
   const byId = new Map<string, SaleCandidate>();
-  for (const s of (windowRaw ?? []) as unknown as SaleCandidate[]) byId.set(s.id, s);
+  for (const s of windowRaw) byId.set(s.id, s);
 
   // US-1453: exact payout-id matches, window-independent.
   const payoutIds = [
@@ -170,6 +184,7 @@ async function loadCandidateSales(
       .from("sales")
       .select(select)
       .eq("inventory_items.user_id", userId)
+      .eq("status", "completed")
       .in("payout_reference", payoutIds);
     if (exactErr) throw exactErr;
     for (const s of (exactRaw ?? []) as unknown as SaleCandidate[]) byId.set(s.id, s);
@@ -359,8 +374,79 @@ export interface ReconcileSweepCounts {
   auto_matched: number;
   ambiguous: number;
   no_candidates: number;
+  /** Unreconciled payouts this run looked at. */
   scanned: number;
+  /** Unreconciled payouts the owner had when the run started. */
+  total: number;
+  /** Payouts that could not be checked (a failed candidate read) plus link
+   *  RPC failures. Never folded into no_candidates: "we could not look" is
+   *  not "there was nothing to match". */
+  errors: number;
 }
+
+/** Payouts per keyset batch. */
+const SWEEP_BATCH = QUEUE_LIMIT;
+/** Wall-clock budget for one owner's sweep; the rest waits for the next run. */
+const SWEEP_TIME_BUDGET_MS = 20_000;
+
+/**
+ * The reads and the write one owner's sweep needs, injectable so the sweep's
+ * batching, filtering and error counting can be tested without a database
+ * (supabaseAdmin is a Proxy that cannot be stubbed). Every default is scoped
+ * to the owner id it is handed.
+ */
+export interface ReconcileSweepDeps {
+  countUnreconciled(userId: string): Promise<number>;
+  /** One batch of unreconciled payouts with id > afterId, ordered by id. */
+  loadPayoutBatch(
+    userId: string,
+    afterId: string | null,
+    limit: number,
+  ): Promise<PayoutRow[]>;
+  loadCandidateSales(userId: string, payouts: PayoutRow[]): Promise<SaleCandidate[]>;
+  link(args: {
+    userId: string;
+    payoutImportId: string;
+    saleId: string;
+    payoutReference: string | null;
+  }): Promise<{ ok: boolean; rpcError: unknown }>;
+  now(): number;
+}
+
+const defaultSweepDeps: ReconcileSweepDeps = {
+  async countUnreconciled(userId) {
+    const { count, error } = await supabaseAdmin
+      .from("payout_imports")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("reconciled", false);
+    if (error) throw error;
+    return count ?? 0;
+  },
+  async loadPayoutBatch(userId, afterId, limit) {
+    let q = supabaseAdmin
+      .from("payout_imports")
+      .select("id, user_id, payout_date, amount, reconciled, sale_id, raw_payload, created_at")
+      .eq("user_id", userId)
+      .eq("reconciled", false);
+    if (afterId) q = q.gt("id", afterId);
+    const { data, error } = await q.order("id", { ascending: true }).limit(limit);
+    if (error) throw error;
+    return (data ?? []) as PayoutRow[];
+  },
+  loadCandidateSales,
+  async link({ userId, payoutImportId, saleId, payoutReference }) {
+    const { data, error } = await supabaseAdmin.rpc("reconcile_payout_link", {
+      p_user_id: userId,
+      p_payout_import_id: payoutImportId,
+      p_sale_id: saleId,
+      p_payout_reference: payoutReference,
+    });
+    const res = (data ?? {}) as { ok?: boolean };
+    return { ok: !error && !!res.ok, rpcError: error ?? null };
+  },
+  now: () => Date.now(),
+};
 
 /**
  * Owners holding at least one unreconciled payout row. Used ONLY by the
@@ -397,119 +483,126 @@ export async function listOwnersWithUnreconciledPayouts(
  */
 export async function reconcilePayoutsForOwner(
   userId: string,
+  deps: ReconcileSweepDeps = defaultSweepDeps,
 ): Promise<ReconcileSweepCounts> {
-  const { data: payoutsRaw } = await supabaseAdmin
-    .from("payout_imports")
-    .select("id, user_id, payout_date, amount, reconciled, sale_id, raw_payload, created_at")
-    .eq("user_id", userId)
-    .eq("reconciled", false)
-    .order("payout_date", { ascending: false, nullsFirst: false })
-    .limit(QUEUE_LIMIT);
-  const payouts = (payoutsRaw ?? []) as PayoutRow[];
-
-  if (payouts.length === 0) {
-    return { auto_matched: 0, ambiguous: 0, no_candidates: 0, scanned: 0 };
-  }
-
-  // Same candidate set as /queue: date-windowed sales UNIONED with
-  // window-independent exact payout-id matches (US-1453). On a DB error we
-  // mirror the prior silent behavior (treat as no candidates) rather than 500
-  // the whole sweep — the queued rows simply stay for manual review.
-  type SaleRowWithItem = SaleCandidate;
-  let sales: SaleRowWithItem[] = [];
-  try {
-    sales = await loadCandidateSales(userId, payouts);
-  } catch (err) {
-    console.error(
-      `[reconciliation/run] loadCandidateSales failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
-  // Build a per-payout "claimed sale" set so a single auto-match pass
-  // doesn't double-assign one sale to two different payouts.
-  const claimedSales = new Set<string>();
-  let autoMatched = 0;
-  let ambiguous = 0;
-  let noCandidates = 0;
-
-  for (const p of payouts) {
-    const scored: Array<{ sale: SaleRowWithItem; score: number; reasons: string[] }> = [];
-    for (const s of sales) {
-      if (claimedSales.has(s.id)) continue;
-      const r = scoreCandidate(p, s);
-      if (!r) continue;
-      scored.push({ sale: s, score: r.score, reasons: r.reasons });
-    }
-    scored.sort((a, b) => b.score - a.score);
-
-    if (scored.length === 0) {
-      noCandidates++;
-      continue;
-    }
-
-    const top = scored[0]!;
-    const second = scored[1];
-    const margin = second ? top.score - second.score : Infinity;
-    const isExactPayoutId = top.score >= 1.0;
-    const isClear =
-      isExactPayoutId ||
-      (top.score >= AUTO_MATCH_MIN_SCORE && margin >= AUTO_MATCH_MIN_MARGIN);
-
-    if (!isClear) {
-      ambiguous++;
-      continue;
-    }
-
-    // Conflict guard mirrors /match — if the sale is already linked to a
-    // different payoutId, leave it queued for manual review.
-    const payoutId = extractPayoutId(p);
-    if (
-      top.sale.payout_reference &&
-      payoutId &&
-      top.sale.payout_reference !== payoutId
-    ) {
-      ambiguous++;
-      continue;
-    }
-
-    // Atomic two-table link via the RPC (US-462) — both writes commit together
-    // or not at all, so the sweep can't create a half-linked row. Idempotent,
-    // so re-running /run over an already-matched payout is a safe no-op.
-    const { data: linkRes, error: linkErr } = await supabaseAdmin.rpc(
-      "reconcile_payout_link",
-      {
-        p_user_id: userId,
-        p_payout_import_id: p.id,
-        p_sale_id: top.sale.id,
-        p_payout_reference: payoutId,
-      },
-    );
-    const res = (linkRes ?? {}) as { ok?: boolean; error?: string };
-    if (linkErr || !res.ok) {
-      // A conflict (sale/payout already linked elsewhere) isn't an error — leave
-      // it for manual review; a real DB error is logged and skipped.
-      if (linkErr) {
-        console.error("[reconciliation/run] reconcile_payout_link failed:", linkErr);
-      } else {
-        ambiguous++;
-      }
-      continue;
-    }
-    claimedSales.add(top.sale.id);
-    autoMatched++;
-  }
-
-  return {
-    auto_matched: autoMatched,
-    ambiguous,
-    no_candidates: noCandidates,
-    scanned: payouts.length,
+  // A failed payout read THROWS: the caller answers 500 (or counts a failed
+  // owner in the cron) rather than reporting a sweep that found nothing.
+  const total = await deps.countUnreconciled(userId);
+  const counts: ReconcileSweepCounts = {
+    auto_matched: 0,
+    ambiguous: 0,
+    no_candidates: 0,
+    scanned: 0,
+    total,
+    errors: 0,
   };
+  if (total === 0) return counts;
+
+  const started = deps.now();
+  // Across batches, so a sale matched in batch 1 is not offered again later.
+  const claimedSales = new Set<string>();
+  let afterId: string | null = null;
+
+  // Keyset batches over EVERY unreconciled payout. The sweep used to read the
+  // newest 100 only, while the UI promised it covered all of them. Keyset on
+  // id, not offset: matching removes rows from the unreconciled set as it
+  // goes, which would make an offset skip rows.
+  while (deps.now() - started < SWEEP_TIME_BUDGET_MS) {
+    const payouts = await deps.loadPayoutBatch(userId, afterId, SWEEP_BATCH);
+    if (payouts.length === 0) break;
+    afterId = payouts[payouts.length - 1]!.id;
+    counts.scanned += payouts.length;
+
+    let sales: SaleCandidate[];
+    try {
+      sales = await deps.loadCandidateSales(userId, payouts);
+    } catch (err) {
+      console.error(
+        `[reconciliation/run] loadCandidateSales failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      counts.errors += payouts.length;
+      continue;
+    }
+
+    for (const p of payouts) {
+      const scored: Array<{ sale: SaleCandidate; score: number; reasons: string[] }> = [];
+      for (const s of sales) {
+        if (claimedSales.has(s.id)) continue;
+        const r = scoreCandidate(p, s);
+        if (!r) continue;
+        scored.push({ sale: s, score: r.score, reasons: r.reasons });
+      }
+      scored.sort((a, b) => b.score - a.score);
+
+      if (scored.length === 0) {
+        counts.no_candidates++;
+        continue;
+      }
+
+      const top = scored[0]!;
+      const second = scored[1];
+      const margin = second ? top.score - second.score : Infinity;
+      const isExactPayoutId = top.score >= 1.0;
+      const isClear =
+        isExactPayoutId ||
+        (top.score >= AUTO_MATCH_MIN_SCORE && margin >= AUTO_MATCH_MIN_MARGIN);
+
+      if (!isClear) {
+        counts.ambiguous++;
+        continue;
+      }
+
+      // Conflict guard mirrors /match — if the sale is already linked to a
+      // different payoutId, leave it queued for manual review.
+      const payoutId = extractPayoutId(p);
+      if (
+        top.sale.payout_reference &&
+        payoutId &&
+        top.sale.payout_reference !== payoutId
+      ) {
+        counts.ambiguous++;
+        continue;
+      }
+
+      // Atomic two-table link via the RPC (US-462) — both writes commit
+      // together or not at all. Idempotent, so re-running /run over an
+      // already-matched payout is a safe no-op.
+      const link = await deps.link({
+        userId,
+        payoutImportId: p.id,
+        saleId: top.sale.id,
+        payoutReference: payoutId,
+      });
+      if (!link.ok) {
+        // A conflict (sale/payout already linked elsewhere) leaves it for
+        // manual review; a real DB error is counted, not hidden.
+        if (link.rpcError) {
+          console.error("[reconciliation/run] reconcile_payout_link failed:", link.rpcError);
+          counts.errors++;
+        } else {
+          counts.ambiguous++;
+        }
+        continue;
+      }
+      claimedSales.add(top.sale.id);
+      counts.auto_matched++;
+    }
+
+    if (payouts.length < SWEEP_BATCH) break;
+  }
+
+  return counts;
 }
 
 flipdeskReconciliationRoutes.post("/run", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
-  return c.json(await reconcilePayoutsForOwner(userId));
+  try {
+    return c.json(await reconcilePayoutsForOwner(userId));
+  } catch (err) {
+    // The payout read failed. A 200 with zero counts would read as "nothing
+    // to match", which is the false all-clear this route used to give.
+    return failSafe(c, 500, "Couldn't read your payouts. Try again.", err, "reconciliation.run");
+  }
 });
 
 // Manually apply a payout row to a specific sale. Writes the link both

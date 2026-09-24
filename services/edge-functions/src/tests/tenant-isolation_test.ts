@@ -4237,6 +4237,23 @@ Deno.test({
   },
 });
 
+// Money M10: POST /reconciliation/run now sweeps EVERY unreconciled payout of
+// the owner it resolves, in keyset batches, and links them. The owner comes
+// from workspaceOwnerId ?? userId only, so a non-member carrying A's workspace
+// header must be refused before the sweep reads a single one of A's payouts.
+Deno.test({
+  name: "M10: non-member B cannot run auto-match over A's payouts",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/reconciliation/run`, {
+      method: "POST",
+      headers: foreignWorkspaceHeaders(),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST reconciliation/run in A's workspace as non-member");
+  },
+});
+
 // ── US-1639: notifications.ts cross-tenant cases (was zero) ───────────────────
 
 // POST /dispute-filed is scoped to the caller's own dispute (US-1638). A foreign
