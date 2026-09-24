@@ -41,6 +41,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { notifyUser } from "./notify.ts";
+import { REWARDS_LINKS } from "./rewards-links.ts";
 import { getSetting } from "./system-settings.ts";
 import { isFeatureEnabled } from "./feature-flags.ts";
 import { getStripe } from "./stripe-client.ts";
@@ -1085,7 +1086,7 @@ export async function grantTangibleRewards(
         // An anniversary belongs beside the standing it celebrates, not in
         // billing: the gift is the smaller half of the moment.
         link: reward.triggerType === "anniversary"
-          ? "/dashboard/rewards?celebrate=anniversary"
+          ? REWARDS_LINKS.loyalty
           : "/dashboard/billing",
       }).catch(() => {});
     }

@@ -36,6 +36,7 @@ import {
   type LeaderboardIdentitySource,
 } from "./leaderboards.ts";
 import { notifyUser } from "./notify.ts";
+import { REWARDS_LINKS } from "./rewards-links.ts";
 import {
   clampQuestXp,
   frozenXpAward,
@@ -434,7 +435,7 @@ async function persistQuestProgress(
     message: xp > 0
       ? `${quest.name} — +${xp} XP.`
       : `${quest.name} — done.`,
-    link: "/dashboard/rewards",
+    link: REWARDS_LINKS.quests,
   }).catch(() => {});
 
   return { completedAt, xpAwarded: xp };

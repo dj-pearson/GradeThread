@@ -19,6 +19,8 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import { useEffect } from "react";
+import { useLocation, useSearchParams } from "react-router";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrivalMoment } from "@/components/rewards/arrival-moment";
@@ -84,6 +86,19 @@ const HONOUR_LABELS: Record<string, string> = {
   season_high_xp: "High XP season",
 };
 
+/** The page's tabs. `?tab=` must name one of these or it is ignored. */
+const REWARDS_TABS = ["standing", "season", "perks"] as const;
+type RewardsTab = (typeof REWARDS_TABS)[number];
+
+/** Read ?tab= defensively: anything unknown falls back to "standing". */
+const DEFAULT_TAB = "standing";
+
+function rewardsTabFrom(raw: string | null): RewardsTab {
+  return (REWARDS_TABS as readonly string[]).includes(raw ?? "")
+    ? (raw as RewardsTab)
+    : DEFAULT_TAB;
+}
+
 function RecapCard({ recap }: { recap: SeasonRecap }) {
   return (
     <div className="rounded-xl bg-muted/60 p-4">
@@ -113,6 +128,34 @@ export function RewardsPage() {
   const { rewards, isLoading, isError, refetch } = useRewards();
   // US-1859: a re-engagement nudge deep-links here with ?nudge=<sendId>.
   useNudgeAttribution();
+
+  // R6: the tab lives in the URL, so a notification can open the tab that holds
+  // what it is about ("Quest complete" -> ?tab=season#quests). Switching tabs
+  // REPLACES the entry rather than pushing one, so Back leaves the page instead
+  // of walking back through every tab the seller clicked. Other params
+  // (?nudge=) are kept.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = rewardsTabFrom(searchParams.get("tab"));
+  const onTabChange = (next: string) => {
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        p.set("tab", rewardsTabFrom(next));
+        return p;
+      },
+      { replace: true },
+    );
+  };
+
+  // Scroll to the #anchor a link named once the tab holding it has rendered.
+  // The browser's own jump happens before the data (and so the target) exists.
+  const { hash } = useLocation();
+  const ready = !!rewards;
+  useEffect(() => {
+    if (!ready || !hash) return;
+    const el = document.getElementById(decodeURIComponent(hash.slice(1)));
+    el?.scrollIntoView?.({ block: "start" });
+  }, [ready, hash, tab]);
 
   if (isLoading) {
     return (
@@ -225,7 +268,7 @@ export function RewardsPage() {
           seller opens this page to check sat below four cards they had
           already read. The level card stays above the tabs: it is the answer
           to "where am I" and belongs on every one of them. */}
-      <Tabs defaultValue="standing" className="space-y-6">
+      <Tabs value={tab} onValueChange={onTabChange} className="space-y-6">
         <TabsList>
           <TabsTrigger value="standing">Standing</TabsTrigger>
           <TabsTrigger value="season">This season</TabsTrigger>
@@ -237,15 +280,21 @@ export function RewardsPage() {
             above everything else on purpose — it is the only standing on this page
             a seller cannot earn by activity, so it should not sit below the things
             they can. */}
-        <IntegrityStandingCard integrity={integrity} />
+        <div id="integrity" className="scroll-mt-20">
+          <IntegrityStandingCard integrity={integrity} />
+        </div>
 
         {/* US-1914: tenure. Directly under integrity because the two together are
             the whole answer to "where do I stand", and both are things a quiet
             month cannot take away — unlike everything below them, which is a
             measure of activity and is allowed to be. */}
-        <LoyaltyStandingCard loyalty={loyalty} />
+        <div id="loyalty" className="scroll-mt-20">
+          <LoyaltyStandingCard loyalty={loyalty} />
+        </div>
         {/* US-1857: the badge gallery — earned medals plus what's still to earn. */}
-        <BadgeShelf shelf={badges} />
+        <div id="badges" className="scroll-mt-20">
+          <BadgeShelf shelf={badges} />
+        </div>
         </TabsContent>
 
         <TabsContent value="season" className="space-y-6">
@@ -303,10 +352,14 @@ export function RewardsPage() {
           </CardContent>
         </Card>
         {/* Quests — the week. Renders nothing when the program is off or empty. */}
-        <QuestsPanel />
+        <div id="quests" className="scroll-mt-20 space-y-6">
+          <QuestsPanel />
+        </div>
         {/* US-1857 over the US-1853 grant model: tangible rewards. No claim
             button — crossing the milestone grants it, and XP is never spent. */}
-        <MilestoneRewards milestones={milestones} />
+        <div id="milestones" className="scroll-mt-20">
+          <MilestoneRewards milestones={milestones} />
+        </div>
         {/* Past seasons. */}
         {recaps.length > 0 && (
           <Card>
@@ -358,7 +411,9 @@ export function RewardsPage() {
           </CardContent>
         </Card>
         {/* US-1856: the public boards. Opt-in, with its own consent copy. */}
-        <LeaderboardPanel />
+        <div id="leaderboard" className="scroll-mt-20">
+          <LeaderboardPanel />
+        </div>
         </TabsContent>
       </Tabs>
     </div>
