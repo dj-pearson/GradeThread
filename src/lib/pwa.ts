@@ -21,3 +21,24 @@ export interface BeforeInstallPromptEvent extends Event {
     platform: string;
   }>;
 }
+
+/**
+ * SNAP-12: iOS Safari never fires beforeinstallprompt, so an installable app
+ * showed nothing there at all. It gets the manual instruction instead, and only
+ * when the page is not already running from the home screen.
+ */
+export function isIosNotStandalone(): boolean {
+  try {
+    const nav = window.navigator as Navigator & { standalone?: boolean };
+    const ios =
+      /iphone|ipad|ipod/i.test(nav.userAgent) ||
+      (nav.platform === "MacIntel" && (nav.maxTouchPoints ?? 0) > 1);
+    if (!ios) return false;
+    const standalone =
+      nav.standalone === true ||
+      window.matchMedia?.("(display-mode: standalone)").matches === true;
+    return !standalone;
+  } catch {
+    return false;
+  }
+}

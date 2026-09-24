@@ -1064,7 +1064,18 @@ app.use(
 // dedicated burst limit (this runs IN ADDITION to the grade-group limiter).
 app.use(
   "/api/grade/snap",
-  rateLimiter((_) => getSettingSync<number>("rate_limit_snap_per_min", 10), 60_000, "grade-snap", undefined, { methods: ["POST"] }),
+  // SNAP-03: keyed on the workspace OWNER, since the owner's snap budget and
+  // AI spend are what a burst drains, so members cannot each bring a fresh
+  // bucket. The `user:` prefix keeps operator overrides (US-890) applying to
+  // that owner. Fail closed like the rest of the AI surfaces (US-2013).
+  rateLimiter((_) => getSettingSync<number>("rate_limit_snap_per_min", 10), 60_000, "grade-snap", undefined, {
+    methods: ["POST"],
+    failClosed: true,
+    subject: (c) => {
+      const owner = c.get("workspaceOwnerId") ?? c.get("userId");
+      return owner ? `user:${owner}` : null;
+    },
+  }),
 );
 app.use("/api/flipdesk/ebay/listings/*", rateLimiter(30, 60_000, "ebay-listings"));
 app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000, "flipdesk-grading"));

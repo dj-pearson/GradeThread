@@ -50,6 +50,34 @@ export interface EdgeFetchOptions extends RequestInit {
    * themselves, where the active workspace is the target).
    */
   skipWorkspaceHeader?: boolean;
+  /**
+   * SNAP-07: abort the request after this many milliseconds (combined with any
+   * caller `signal`). Off by default. The abort surfaces as a DOMException named
+   * "TimeoutError" so the caller can tell a slow answer from a cancel.
+   */
+  timeoutMs?: number;
+}
+
+/** Combine a caller signal with an optional timeout. Exported for tests. */
+export function combineSignals(
+  signal: AbortSignal | null | undefined,
+  timeoutMs: number | undefined,
+): AbortSignal | undefined {
+  const timeout =
+    timeoutMs && timeoutMs > 0 && typeof AbortSignal.timeout === "function"
+      ? AbortSignal.timeout(timeoutMs)
+      : null;
+  if (!timeout) return signal ?? undefined;
+  if (!signal) return timeout;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([signal, timeout]);
+  const ctrl = new AbortController();
+  const forward = (s: AbortSignal) => () => ctrl.abort(s.reason);
+  if (signal.aborted) ctrl.abort(signal.reason);
+  else {
+    signal.addEventListener("abort", forward(signal), { once: true });
+    timeout.addEventListener("abort", forward(timeout), { once: true });
+  }
+  return ctrl.signal;
 }
 
 // Shared helper for the (still many) hooks that call fetch() directly with
@@ -107,7 +135,8 @@ export async function edgeFetch(
   }
 
   const url = path.startsWith("http") ? path : `${edgeApiUrl()}${path}`;
-  let res = await fetch(url, { ...opts, headers, body });
+  const signal = combineSignals(opts.signal, opts.timeoutMs);
+  let res = await fetch(url, { ...opts, headers, body, signal });
 
   // One forced token-refresh + retry on a 401 from an authenticated request.
   // The access token lapsed (the SDK's auto-refresh timer is suspended while the
@@ -118,7 +147,7 @@ export async function edgeFetch(
     const fresh = await forceRefreshAccessToken();
     if (fresh) {
       headers.set("Authorization", `Bearer ${fresh}`);
-      res = await fetch(url, { ...opts, headers, body });
+      res = await fetch(url, { ...opts, headers, body, signal });
     } else {
       // US-3246: the refresh itself failed, so the refresh token is expired,
       // revoked, or the account was signed out elsewhere. The 401 below reaches
@@ -154,7 +183,7 @@ export async function edgeFetch(
         const stepped = await getFreshAccessToken();
         if (stepped) {
           headers.set("Authorization", `Bearer ${stepped}`);
-          res = await fetch(url, { ...opts, headers, body });
+          res = await fetch(url, { ...opts, headers, body, signal });
         }
       }
     }

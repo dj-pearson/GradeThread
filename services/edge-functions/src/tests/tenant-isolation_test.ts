@@ -4056,6 +4056,39 @@ Deno.test({
   },
 });
 
+// SNAP-03: Snap-to-Value spends the WORKSPACE OWNER's monthly snap allowance and
+// AI budget. A viewer must be refused before any reservation, and a non-member
+// naming A as the workspace must be refused by workspaceMiddleware, so neither
+// can move A's quota. The body is a deliberately invalid image: a pass here must
+// come from the role/workspace gate, never from reaching the model.
+Deno.test({
+  name: "C3: viewer cannot run Snap-to-Value on the owner's allowance",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/grade/snap`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ image: "data:image/png;base64,AAAA", brand: "x" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST snap as viewer");
+  },
+});
+
+Deno.test({
+  name: "B cannot spend A's Snap-to-Value allowance by naming A's workspace",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/grade/snap`, {
+      method: "POST",
+      headers: { ...authHeaders(B_JWT!), "X-Workspace-Owner": WS_OWNER! },
+      body: JSON.stringify({ image: "data:image/png;base64,AAAA", brand: "x" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST snap in a foreign workspace");
+  },
+});
+
 // MP-01: attaching or reshaping the owner's marketplace connection is
 // admin-only. The OAuth start route skips blockViewerWrites (it is a GET), so this is
 // the only thing stopping a viewer attaching their own eBay account to the

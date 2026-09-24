@@ -243,6 +243,12 @@ export const ANALYTICS_EVENTS = {
   // whether the nudges are trusted or ignored.
   "photo_precheck.warned": "A photo drew a blur, darkness or resolution warning before payment.",
   "photo_precheck.overridden": "A grade was submitted with photo warnings still showing.",
+  // SNAP-07: the free Snap-to-Value funnel. Properties are coarse on purpose:
+  // never the brand or item text a seller typed.
+  "snap.completed":
+    "A Snap-to-Value estimate came back. Properties `hasValue`, `sufficient`, `tier`.",
+  "snap.failed":
+    "A Snap-to-Value request ended without an estimate. Properties `kind`, `code`, `status`.",
   "credit_pack.opened": "The credit-pack surface was opened.",
   "credit_pack.cta_clicked": "A credit pack was chosen.",
   // US-3138. A SEPARATE funnel from credit_pack.*, which is grade credits.

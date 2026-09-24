@@ -8,10 +8,17 @@ code_refs:
   - src/lib/analytics.ts
   - src/lib/buyer-analytics.ts
   - src/lib/__tests__/analytics-events.test.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-24
 tags: [analytics, posthog, measurement, naming]
 summary: Every product event name is declared in src/lib/analytics-events.ts and enforced by tsc; two naming conventions are live and neither may be renamed.
 ---
+
+> **Re-reviewed 2026-09-24.** Drift flagged `analytics-events.ts` for two added
+> dotted keys, `snap.completed` and `snap.failed` (SNAP-07, the free
+> Snap-to-Value funnel). Additions only, no rename, each with its explanatory
+> comment in the array. Their properties are coarse on purpose (`hasValue`,
+> `sufficient`, `tier`; `kind`, `code`, `status`) and never carry the brand or
+> item text a seller typed. Re-read against the diff: still accurate.
 
 > **Re-reviewed 2026-09-11.** Drift flagged `analytics-events.ts` for two added keys, `photo_precheck.warned`
 > and `photo_precheck.overridden` (US-3331, the free pre-payment photo check).

@@ -45,6 +45,27 @@ export function isMeaningfulDraft(draft: SubmissionDraft | null): boolean {
   );
 }
 
+/**
+ * SNAP-05: what the autosave effect should do this render.
+ *
+ * A snap or retake arrival is resolved without reading the saved draft, and its
+ * seeded photo is not the seller's edit. Autosaving then either CLEARED an
+ * unrelated half-finished draft (no content yet) or overwrote it with the seed.
+ * Until the seller changes something themselves, a bridge arrival writes
+ * nothing.
+ */
+export function draftAutosaveAction(input: {
+  resolved: boolean;
+  ready: boolean;
+  bridgeArrival: boolean;
+  userTouched: boolean;
+  hasContent: boolean;
+}): "skip" | "clear" | "save" {
+  if (!input.resolved || !input.ready) return "skip";
+  if (input.bridgeArrival && !input.userTouched) return "skip";
+  return input.hasContent ? "save" : "clear";
+}
+
 export function useSubmissionDraft() {
   const userId = useAuthStore((s) => s.user?.id ?? null);
   const storageKey = userId ? `${KEY_PREFIX}${userId}` : null;

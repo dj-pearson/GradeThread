@@ -60,9 +60,21 @@ import {
 import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
 import { aiBudgetExceededBody, isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
+import { fileSnapUsage } from "../lib/ai-usage.ts";
 import { classifyGarment, type GarmentClassification } from "../lib/ai-extract.ts";
-import { valueAtGrade } from "../lib/condition-value.ts";
-import { suggestCategories } from "../lib/ebay-client.ts";
+import { cachedValueAtGrade } from "../lib/comps-cache.ts";
+import { cachedSuggestCategories } from "../lib/taxonomy-cache.ts";
+import { AiCeilingError } from "../lib/ai-limiter.ts";
+import {
+  normalizeSnapText,
+  SNAP_BRAND_MAX,
+  SNAP_KEYWORD_MAX,
+  SNAP_MAX_IMAGE_BYTES,
+  SNAP_MIN_IMAGE_EDGE,
+  snapImageRejection,
+  snapLimitBody,
+  snapUsageAfterReserve,
+} from "../lib/snap-input.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
 import { refundReservedSnap } from "../lib/grade-refund.ts";
 import { paymentErrorBody, refundAmbiguousDebit } from "../lib/ambiguous-debit-refund.ts";
@@ -1765,25 +1777,39 @@ gradeRoutes.post("/snap", async (c) => {
   if (typeof body.image !== "string" || body.image.length === 0) {
     return c.json({ error: "image (base64 or data URI) is required" }, 400);
   }
-  const brand = typeof body.brand === "string" ? body.brand.trim() : undefined;
-  const keyword = typeof body.keyword === "string" ? body.keyword.trim() : undefined;
+  // SNAP-03: bounded like ScoutAI's same two fields. Both reach the vision
+  // prompt, an eBay query and the comp-demand log.
+  const brand = normalizeSnapText(body.brand, SNAP_BRAND_MAX);
+  const keyword = normalizeSnapText(body.keyword, SNAP_KEYWORD_MAX);
 
   // US-276: sniff the real bytes (reject SVG/non-image, cap size/dims) + strip
   // EXIF/GPS before the photo ever reaches the model. Never stored.
   const rawBytes = decodeBase64Image(body.image);
   if (!rawBytes) return c.json({ error: "image is not valid base64" }, 400);
-  const verdict = validateImageUpload(rawBytes, { allow: ["jpeg", "png", "webp"] });
-  if (!verdict.ok) return c.json({ error: `Invalid image: ${verdict.reason}` }, 400);
+  // SNAP-03: capped at what the vision call accepts, not the bucket's 10 MB, so
+  // an oversized photo is refused here with copy that says so instead of
+  // failing inside the model call and reading as a bad photo.
+  const verdict = validateImageUpload(rawBytes, {
+    maxBytes: SNAP_MAX_IMAGE_BYTES,
+    minDimension: SNAP_MIN_IMAGE_EDGE,
+    allow: ["jpeg", "png", "webp"],
+  });
+  if (!verdict.ok) {
+    const refusal = snapImageRejection(verdict.reason);
+    return c.json({ error: refusal.error, code: "SNAP_IMAGE_INVALID" }, refusal.status);
+  }
   const { bytes: clean } = stripImageMetadata(rawBytes, verdict.format);
   const dataUri = `data:${verdict.contentType};base64,${bytesToBase64(clean)}`;
 
   // US-614: per-plan monthly snap cap. Free is the funnel — generous but bounded;
   // paid tiers get more / unlimited. Reserve BEFORE the (paid-for-us) grade so an
   // over-cap user can't burn AI budget; refund on failure.
-  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const ownerId = snapOwnerId;
   const { data: planRow } = await supabaseAdmin
     .from("users")
-    .select("flipdesk_plan, subscription_status, trial_ends_at, past_due_since")
+    .select(
+      "flipdesk_plan, subscription_status, trial_ends_at, past_due_since, snaps_used_this_month, snaps_reset_at",
+    )
     .eq("id", ownerId)
     .maybeSingle();
   const effPlan = effectivePlanFor(
@@ -1826,21 +1852,34 @@ gradeRoutes.post("/snap", async (c) => {
     }
   }
 
-  const { data: reserved } = await supabaseAdmin.rpc("reserve_snap", {
+  const { data: reserved, error: reserveError } = await supabaseAdmin.rpc("reserve_snap", {
     p_user_id: ownerId,
     p_limit: snapCap,
   });
-  if (reserved !== true) {
+  // SNAP-03: a failed reservation is OUR fault, not the seller's allowance.
+  // Dropping the error made a database blip read as "you've used all 15".
+  if (reserveError) {
+    captureException(reserveError, {
+      route: "grade.snap.reserve",
+      correlationId: readCtxVar(c, "correlationId"),
+    });
     return c.json(
       {
-        error:
-          `You've used all ${snapCap} free Snap-to-Value checks this month. Upgrade for more, or get a full certified grade.`,
-        code: "SNAP_LIMIT_REACHED",
-        action: "upgrade",
+        error: "Snap-to-Value is briefly unavailable. Your check was not used; try again in a minute.",
+        code: "SNAP_UNAVAILABLE",
       },
-      429,
+      503,
     );
   }
+  if (reserved !== true) {
+    return c.json(snapLimitBody(effPlan, snapCap), 429);
+  }
+  // SNAP-09: what the seller has left, so the wall is visible before they hit it.
+  const usage = snapUsageAfterReserve({
+    usedBefore: planRow?.snaps_used_this_month as number | null | undefined,
+    resetAt: planRow?.snaps_reset_at as string | null | undefined,
+    cap: snapCap,
+  });
 
   let grade;
   // US-952: AI-detect the garment type/category alongside the grade so the
@@ -1848,6 +1887,16 @@ gradeRoutes.post("/snap", async (c) => {
   // parallel so it hides under the grade latency; its own failure never fails
   // the snap (the .catch keeps Promise.all from rejecting on it).
   let garmentClassification: GarmentClassification | null = null;
+  // SNAP-09: the category lookup needs only the seller's text, so it starts
+  // now and hides under the vision latency instead of queueing after it.
+  // Cached: comp and taxonomy keys are query-shaped, with no tenant in them.
+  const compQuery = [brand, keyword].filter(Boolean).join(" ").trim();
+  const catsP = compQuery
+    ? cachedSuggestCategories(compQuery).catch((err) => {
+      captureException(err, { level: "warn", route: "grade.snap.value" });
+      return null;
+    })
+    : null;
   try {
     const [gradeResult, classification] = await Promise.all([
       quickGrade({
@@ -1861,6 +1910,9 @@ gradeRoutes.post("/snap", async (c) => {
     ]);
     grade = gradeResult;
     garmentClassification = classification;
+    // SNAP-02: file the vision spend under the grading budget that gates this
+    // route, or its kill switch never sees a snap.
+    void fileSnapUsage(ownerId, grade.usages);
   } catch (err) {
     // Refund the reserved snap so a transient grading failure isn't counted.
     //
@@ -1879,6 +1931,19 @@ gradeRoutes.post("/snap", async (c) => {
     // the path that matters most had no test — exercising it needed a database.
     // Behaviour is unchanged: still non-blocking, still reports.
     await refundReservedSnap(ownerId);
+    // SNAP-03: quickGrade rethrows the platform AI ceiling on purpose. That is
+    // capacity, not the seller's photo, so it gets its own calm answer.
+    if (err instanceof AiCeilingError) {
+      c.header("Retry-After", "60");
+      return c.json(
+        {
+          error: "Grading is at capacity right now. Your check was not used; try again in a minute.",
+          code: "AI_AT_CAPACITY",
+          retry_after: 60,
+        },
+        503,
+      );
+    }
     captureException(err, { route: "grade.snap", correlationId: readCtxVar(c, "correlationId") });
     return c.json({ error: "Couldn't grade that photo. Try a clearer, well-lit shot." }, 502);
   }
@@ -1886,13 +1951,16 @@ gradeRoutes.post("/snap", async (c) => {
   // Condition-adjusted value range — only when we can identify the item enough
   // to comp it (brand and/or keyword). Otherwise return the grade alone.
   let value = null;
-  if (brand || keyword) {
+  if (catsP) {
     try {
-      const query = [brand, keyword].filter(Boolean).join(" ").trim();
-      const cats = await suggestCategories(query);
-      const categoryId = cats[0]?.categoryId;
-      if (categoryId) {
-        value = await valueAtGrade({ categoryId, q: keyword, brand }, grade.overallScore);
+      const cats = await catsP;
+      const top = cats?.result[0];
+      if (top?.categoryId) {
+        const range = await cachedValueAtGrade(
+          { categoryId: top.categoryId, q: keyword, brand },
+          grade.overallScore,
+        );
+        value = { ...range, category_name: top.categoryName ?? null };
       }
     } catch (err) {
       // Value is a bonus — a comp/taxonomy hiccup shouldn't fail the snap.
@@ -1906,7 +1974,13 @@ gradeRoutes.post("/snap", async (c) => {
       grade_tier: grade.gradeTier,
       confidence: grade.confidence,
       factor_scores: grade.factorScores,
+      // SNAP-09: a capped or low-confidence grade says so, rather than looking
+      // as solid as any other. Codes only; screenshot is the boolean (US-1836).
+      needs_review: grade.needsHumanReview,
+      caps_applied: grade.capsApplied,
+      screenshot_detected: grade.imageAuthenticity.screenshot_or_watermark_detected,
     },
+    usage,
     value, // { lowCents, medianCents, highCents, sampleSize, confidence, sufficient } | null
     // US-952: best-effort AI-detected garment type/category to prefill the
     // certified-grade form. null when the model couldn't classify it.

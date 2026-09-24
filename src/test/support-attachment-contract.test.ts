@@ -181,7 +181,9 @@ describe("close and reopen match the server (AC4)", () => {
 
 describe("the on-device downscale matches the web picker (AC5)", () => {
   it("uses the same numbers compressImage defaults to", () => {
-    const m = /compressImage\([\s\S]{0,200}?maxWidth = (\d+),\s*quality = ([\d.]+)/
+    // SNAP-08 added an options form, so the first parameter carries a type
+    // annotation now; the positional defaults are what this pins.
+    const m = /compressImage\([\s\S]{0,200}?maxWidth\w*(?::[^=]+)? = (\d+),\s*quality = ([\d.]+)/
       .exec(code(IMAGE_UTILS));
     expect(m, "compressImage defaults moved").toBeTruthy();
     expect(Number(m![1])).toBe(SUPPORT_ATTACHMENT_MAX_WIDTH);
