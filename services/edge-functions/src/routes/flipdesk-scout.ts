@@ -1810,81 +1810,198 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   });
 });
 
+// ── SRC-4: the /buy body, parsed once ────────────────────────────────────
+//
+// PURE and exported so every refusal has a test without a request. The row
+// lands in inventory_items, whose grade_value is decimal(3,1): a gradeValue of
+// 100 used to reach the INSERT and come back as a 500.
+
+export const BUY_TITLE_MAX = 200;
+export const BUY_SHORT_MAX = 80;
+export const BUY_NOTES_MAX = 2000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export interface ScoutBuyInput {
+  title: string;
+  brand: string | null;
+  size: string | null;
+  color: string | null;
+  categoryId: string | null;
+  conditionNotes: string | null;
+  acquiredPrice: number | null;
+  targetPrice: number | null;
+  gradeValue: number | null;
+  gradeLabel: string | null;
+  sourceId: string | null;
+  sourcedBy: string | null;
+}
+
+export function parseScoutBuy(body: Record<string, unknown>): ScoutBuyInput | { error: string } {
+  const text = (key: string, max: number): string | null | { error: string } => {
+    const raw = body[key];
+    if (typeof raw !== "string" || !raw.trim()) return null;
+    const v = raw.trim();
+    if (v.length > max) return { error: `${key} must be ${max} characters or fewer` };
+    return v;
+  };
+  const isErr = (v: unknown): v is { error: string } =>
+    typeof v === "object" && v !== null && "error" in v;
+
+  const title = text("title", BUY_TITLE_MAX);
+  if (isErr(title)) return title;
+  if (!title) return { error: "title is required" };
+  const brand = text("brand", BUY_SHORT_MAX);
+  if (isErr(brand)) return brand;
+  const size = text("size", BUY_SHORT_MAX);
+  if (isErr(size)) return size;
+  const color = text("color", BUY_SHORT_MAX);
+  if (isErr(color)) return color;
+  const gradeLabel = text("gradeLabel", BUY_SHORT_MAX);
+  if (isErr(gradeLabel)) return gradeLabel;
+  const sourcedBy = text("sourcedBy", BUY_SHORT_MAX);
+  if (isErr(sourcedBy)) return sourcedBy;
+  let conditionNotes = text("conditionNotes", BUY_NOTES_MAX);
+  if (isErr(conditionNotes)) return conditionNotes;
+
+  // US-3100: the eBay leaf category the scan already resolved. Dropped until
+  // then, so a seller who prospected an item and added it then had to answer
+  // the category question again in the composer. Digits only: eBay category
+  // ids are numeric, and anything else would be written straight into the
+  // composer's category field to fail at publish time.
+  const categoryId = typeof body.categoryId === "string" && /^\d{1,20}$/.test(body.categoryId.trim())
+    ? body.categoryId.trim()
+    : null;
+
+  let gradeValue: number | null = null;
+  if (body.gradeValue != null) {
+    if (
+      typeof body.gradeValue !== "number" || !Number.isFinite(body.gradeValue) ||
+      body.gradeValue < 1 || body.gradeValue > 10
+    ) {
+      return { error: "gradeValue must be a number from 1.0 to 10.0" };
+    }
+    gradeValue = Math.round(body.gradeValue * 10) / 10;
+  }
+
+  let sourceId: string | null = null;
+  if (body.sourceId != null && body.sourceId !== "") {
+    if (typeof body.sourceId !== "string" || !UUID_RE.test(body.sourceId)) {
+      return { error: "sourceId must be a source id" };
+    }
+    sourceId = body.sourceId;
+  }
+
+  // The listing the seller bought from, so the item remembers where it was
+  // found. https only: this is shown back to the seller as a link.
+  if (body.sourceListingUrl != null && body.sourceListingUrl !== "") {
+    let url: URL | null = null;
+    try {
+      url = typeof body.sourceListingUrl === "string" ? new URL(body.sourceListingUrl) : null;
+    } catch {
+      url = null;
+    }
+    if (!url || url.protocol !== "https:" || body.sourceListingUrl.length > 500) {
+      return { error: "sourceListingUrl must be an https link" };
+    }
+    const line = `Found at ${url.toString()}`;
+    conditionNotes = conditionNotes ? `${conditionNotes}\n\n${line}` : line;
+    if (conditionNotes.length > BUY_NOTES_MAX) {
+      return { error: `conditionNotes must be ${BUY_NOTES_MAX} characters or fewer` };
+    }
+  }
+
+  return {
+    title,
+    brand,
+    size,
+    color,
+    categoryId,
+    conditionNotes,
+    acquiredPrice: typeof body.costCents === "number" && body.costCents > 0
+      ? Math.round(body.costCents) / 100
+      : null,
+    targetPrice: typeof body.targetCents === "number" && body.targetCents > 0
+      ? Math.round(body.targetCents) / 100
+      : null,
+    gradeValue,
+    gradeLabel,
+    sourceId,
+    sourcedBy,
+  };
+}
+
+/**
+ * The inventory_items row a Scout buy writes. user_id is the workspace OWNER
+ * and created_by is the person who pressed the button: the service-role insert
+ * has no auth.uid(), so the 00707 trigger would otherwise leave it NULL.
+ */
+export function scoutBuyRow(
+  input: ScoutBuyInput,
+  ids: { ownerId: string; actorId: string | null },
+): Record<string, unknown> {
+  return {
+    user_id: ids.ownerId,
+    created_by: ids.actorId,
+    title: input.title,
+    brand: input.brand,
+    size: input.size,
+    color: input.color,
+    acquired_price: input.acquiredPrice,
+    acquired_date: new Date().toISOString(),
+    acquired_source: "scout",
+    status: "sourced",
+    target_price: input.targetPrice,
+    grade_value: input.gradeValue,
+    grade_label: input.gradeLabel,
+    condition_notes: input.conditionNotes,
+    ebay_category_id: input.categoryId,
+    source_id: input.sourceId,
+    sourced_by: input.sourcedBy,
+  };
+}
+
 // POST /buy — commit a buy decision into the pipeline by creating the inventory
 // item at `sourced` (the existing already-bought start). Tenant-scoped: the row
-// is always written under the workspace owner's user_id.
+// is always written under the workspace owner's user_id, and a sourceId from
+// the body is verified against that owner before it is written (SRC-4).
 flipdeskScoutRoutes.post("/buy", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   const gate = await requireFlipdesk(c, { feature: "compPulls", userId });
   if (gate) return gate;
 
-  let body: {
-    title?: unknown;
-    brand?: unknown;
-    size?: unknown;
-    color?: unknown;
-    categoryId?: unknown;
-    costCents?: unknown;
-    targetCents?: unknown;
-    gradeValue?: unknown;
-    gradeLabel?: unknown;
-    conditionNotes?: unknown;
-  };
+  let body: Record<string, unknown>;
   try {
-    body = await c.req.json();
+    const parsed = await c.req.json();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return jsonError(c, 400, "Invalid JSON body");
+    }
+    body = parsed as Record<string, unknown>;
   } catch {
     return jsonError(c, 400, "Invalid JSON body");
   }
 
-  const title = typeof body.title === "string" ? body.title.trim() : "";
-  if (!title) return jsonError(c, 400, "title is required");
-  const brand = typeof body.brand === "string" && body.brand.trim() ? body.brand.trim() : null;
-  const size = typeof body.size === "string" && body.size.trim() ? body.size.trim() : null;
-  const color = typeof body.color === "string" && body.color.trim() ? body.color.trim() : null;
-  // US-3100: the eBay leaf category the scan already resolved. Dropped until
-  // now, so a seller who prospected an item and added it then had to answer the
-  // category question again in the composer — for a category the identify step
-  // had worked out and thrown away. Digits only: eBay category ids are numeric,
-  // and anything else here would be written straight into the composer's
-  // category field to fail at publish time.
-  const categoryId = typeof body.categoryId === "string" && /^\d{1,20}$/.test(body.categoryId.trim())
-    ? body.categoryId.trim()
-    : null;
-  const conditionNotes = typeof body.conditionNotes === "string" && body.conditionNotes.trim()
-    ? body.conditionNotes.trim()
-    : null;
-  const acquiredPrice = typeof body.costCents === "number" && body.costCents > 0
-    ? Math.round(body.costCents) / 100
-    : null;
-  const targetPrice = typeof body.targetCents === "number" && body.targetCents > 0
-    ? Math.round(body.targetCents) / 100
-    : null;
-  const gradeValue = typeof body.gradeValue === "number" && body.gradeValue > 0
-    ? Math.round(body.gradeValue * 10) / 10
-    : null;
-  const gradeLabel = typeof body.gradeLabel === "string" && body.gradeLabel.trim()
-    ? body.gradeLabel.trim()
-    : null;
+  const input = parseScoutBuy(body);
+  if ("error" in input) return jsonError(c, 400, input.error);
+
+  // US-268: the source id is attacker-controlled. Owner-verify it first, and
+  // answer a foreign id exactly like an unknown one.
+  if (input.sourceId) {
+    const { data: src, error: srcErr } = await supabaseAdmin
+      .from("sources")
+      .select("id")
+      .eq("id", input.sourceId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (srcErr) {
+      return failSafe(c, 500, "Couldn't check that source.", srcErr, "scout.buy.source");
+    }
+    if (!src) return jsonError(c, 404, "Source not found");
+  }
 
   const { data: row, error } = await supabaseAdmin
     .from("inventory_items")
-    .insert({
-      user_id: userId,
-      title,
-      brand,
-      size,
-      color,
-      acquired_price: acquiredPrice,
-      acquired_date: new Date().toISOString(),
-      acquired_source: "scout",
-      status: "sourced",
-      target_price: targetPrice,
-      grade_value: gradeValue,
-      grade_label: gradeLabel,
-      condition_notes: conditionNotes,
-      ebay_category_id: categoryId,
-    } as never)
+    .insert(scoutBuyRow(input, { ownerId: userId, actorId: c.get("userId") ?? null }) as never)
     .select("id")
     .single();
 
