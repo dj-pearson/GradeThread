@@ -1,7 +1,7 @@
 // AL-09: async AI passes fold their answers into the LIVE groups, and a delete
 // prunes the undo snapshot.
 import { describe, expect, it } from "vitest";
-import { mergeAutoTagResult, pruneDeletedPhotos } from "./autolister-group-edits";
+import { mergeAutoTagResult, pruneDeletedPhotos, restoreDeletedPhotos } from "./autolister-group-edits";
 
 type G = {
   id: string;
@@ -77,5 +77,32 @@ describe("pruneDeletedPhotos (AL-09)", () => {
   it("returns the same array when nothing was deleted", () => {
     const groups: G[] = [{ id: "g1", photoIds: ["a"], coverId: "a" }];
     expect(pruneDeletedPhotos(groups, new Set(["z"]))).toBe(groups);
+  });
+});
+
+
+describe("restoreDeletedPhotos (AL-13)", () => {
+  const before: G[] = [
+    { id: "g1", photoIds: ["a", "b", "c"], coverId: "a", roles: { a: "front", b: "back" } },
+    { id: "g2", photoIds: ["d"], coverId: "d" },
+  ];
+  const deleted = new Set(["a", "d"]);
+
+  it("Undo puts every photo back where it was, cover included, and revives a dissolved group", () => {
+    const live = pruneDeletedPhotos(before, deleted);
+    const out = restoreDeletedPhotos(live, before, deleted);
+    const g1 = out.find((g) => g.id === "g1")!;
+    expect([...g1.photoIds].sort()).toEqual(["a", "b", "c"]);
+    expect(g1.coverId).toBe("a");
+    expect(g1.roles?.a).toBe("front");
+    expect(out.find((g) => g.id === "g2")?.photoIds).toEqual(["d"]);
+  });
+
+  it("keeps an edit made after the delete", () => {
+    const live = pruneDeletedPhotos(before, deleted).map((g) =>
+      g.id === "g1" ? { ...g, name: "Renamed" } : g,
+    );
+    const out = restoreDeletedPhotos(live, before, deleted);
+    expect(out.find((g) => g.id === "g1")?.name).toBe("Renamed");
   });
 });

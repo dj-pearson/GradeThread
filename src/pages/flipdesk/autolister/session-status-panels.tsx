@@ -27,6 +27,18 @@ export interface GroupWarning {
   label: string;
 }
 
+/** AL-13: "5 min ago" for a parked batch; the exact time is the tooltip. */
+function relativeTime(iso: string, now = Date.now()): string {
+  const secs = Math.round((new Date(iso).getTime() - now) / 1000);
+  if (!Number.isFinite(secs)) return "";
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  const abs = Math.abs(secs);
+  if (abs < 60) return rtf.format(secs, "second");
+  if (abs < 3600) return rtf.format(Math.round(secs / 60), "minute");
+  if (abs < 86_400) return rtf.format(Math.round(secs / 3600), "hour");
+  return rtf.format(Math.round(secs / 86_400), "day");
+}
+
 /**
  * US-2374: batches parked by the phone. The photos are already uploaded and
  * grouped; loading one drops it into this session so the review and the AI
@@ -35,12 +47,16 @@ export interface GroupWarning {
 export function ParkedBatches({
   handoffs,
   loadingHandoffId,
+  discardingHandoffId = null,
   onLoad,
   onDiscard,
 }: {
   handoffs: HandoffBatch[];
   loadingHandoffId: string | null;
+  /** AL-13: the batch whose discard is in flight, so it can't double-fire. */
+  discardingHandoffId?: string | null;
   onLoad: (id: string) => void;
+  /** Asks first (AL-13); the page shows the confirm. */
   onDiscard: (id: string) => void;
 }) {
   if (handoffs.length === 0) return null;
@@ -65,9 +81,13 @@ export function ParkedBatches({
                 {h.group_count === 1 ? "" : "s"} already grouped
               </>
             )}
-            <span className="ml-2 text-xs text-muted-foreground">
-              {new Date(h.created_at).toLocaleString()}
-            </span>
+            <time
+              className="ml-2 text-xs text-muted-foreground"
+              dateTime={h.created_at}
+              title={new Date(h.created_at).toLocaleString()}
+            >
+              {relativeTime(h.created_at)}
+            </time>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -86,10 +106,15 @@ export function ParkedBatches({
               size="sm"
               variant="ghost"
               onClick={() => onDiscard(h.id)}
-              disabled={loadingHandoffId !== null}
+              disabled={loadingHandoffId !== null || discardingHandoffId === h.id}
               title="Discard this batch and delete its uploaded photos"
+              aria-label={`Discard the phone batch of ${h.photo_count} photo${h.photo_count === 1 ? "" : "s"}`}
             >
-              <Trash2 className="h-4 w-4" />
+              {discardingHandoffId === h.id ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
             </Button>
           </div>
         </div>

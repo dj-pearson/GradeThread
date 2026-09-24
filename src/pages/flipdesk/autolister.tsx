@@ -27,6 +27,8 @@ import { useWorkbenchPersistence } from "./autolister/use-workbench-persistence"
 import { aiActionBudget } from "./autolister/ai-budget";
 import { QUOTA_WALL_STATUSES, runMeteredWindows, trimTrailingPartialGroup } from "@/lib/metered-windows";
 import { usePhotoTools } from "./autolister/use-photo-tools";
+import { DELETE_UNDO_MS, usePendingStagedDeletes } from "./autolister/pending-deletes";
+import { DELETE_CONFIRM_AT, DeleteConfirmDialog } from "./autolister/delete-confirm-dialogs";
 import { uploadActions } from "./autolister/upload-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +64,7 @@ import {
   mergeAutoTagResult,
   movePhotosToGroup,
   pruneDeletedPhotos,
+  restoreDeletedPhotos,
   reorderWithinGroup,
 } from "@/lib/autolister-group-edits";
 import {
@@ -146,7 +149,6 @@ import {
   persistGroupsAsItems,
   type ProtectedSkuMatch,
 } from "./autolister/persist-groups-as-items";
-import { discardStagedObjects } from "./autolister/discard-staged-objects";
 import {
   GenerateConfirmDialog,
   MeteredCountConfirmDialog,
@@ -501,6 +503,7 @@ function AutolisterWorkbench() {
   const [autoPublishGreen, setAutoPublishGreen] = useState(false);
   // US-2374: batches waiting from the phone, and which one is being pulled in.
   const { data: handoffs = [] } = useAutolisterHandoffs();
+  const [discardHandoffTarget, setDiscardHandoffTarget] = useState<{ id: string; photo_count: number } | null>(null);
   const claimHandoff = useClaimAutolisterHandoff();
   const discardHandoff = useDiscardAutolisterHandoff();
   const [loadingHandoffId, setLoadingHandoffId] = useState<string | null>(null);
@@ -850,11 +853,17 @@ function AutolisterWorkbench() {
   // and best-effort removes the storage objects (current + pre-edit original).
   // The dedup sets rebuild from `staged`, so a deleted photo's source file
   // becomes re-addable automatically.
-  function removePhotos(ids: string[]) {
+  // AL-13: a delete leaves the grid at once but its storage objects go only
+  // when the Undo window closes; 10 or more ask first.
+  const pendingDeletes = usePendingStagedDeletes();
+  const [deleteConfirmIds, setDeleteConfirmIds] = useState<string[] | null>(null);
+  function removePhotos(ids: string[], confirmed = false) {
+    if (!confirmed && ids.length >= DELETE_CONFIRM_AT) return setDeleteConfirmIds(ids);
     const idSet = new Set(ids);
+    const removed = staged.filter((p) => idSet.has(p.id));
+    const groupsBefore = liveGroupsRef.current;
     const orphans: string[] = [];
-    for (const p of staged) {
-      if (!idSet.has(p.id)) continue;
+    for (const p of removed) {
       for (const path of [
         p.storagePath,
         p.thumbnailStoragePath,
@@ -873,10 +882,18 @@ function AutolisterWorkbench() {
       for (const id of ids) next.delete(id);
       return next;
     });
-    // US-3389: notified, because this is the one of the four where the seller
-    // pressed Delete and is about to read a success toast.
-    void discardStagedObjects(orphans, "delete staged photos", { notify: true });
-    toast.success(`Deleted ${ids.length} photo${ids.length === 1 ? "" : "s"}.`);
+    const handle = pendingDeletes.schedule(orphans);
+    toast.success(`Deleted ${ids.length} photo${ids.length === 1 ? "" : "s"}.`, {
+      duration: DELETE_UNDO_MS,
+      action: {
+        label: "Undo",
+        onClick: () => {
+          if (!pendingDeletes.cancel(handle)) return void toast.error("Too late to undo: those photos are gone.");
+          setStaged((prev) => [...prev, ...removed.filter((p) => !prev.some((x) => x.id === p.id))]);
+          setGroups((prev) => restoreDeletedPhotos(prev, groupsBefore, idSet));
+        },
+      },
+    });
   }
 
   // US-534/535/536: the per-photo tools (clean background, auto-enhance, edit)
@@ -2095,7 +2112,8 @@ function AutolisterWorkbench() {
         handoffs={handoffs}
         loadingHandoffId={loadingHandoffId}
         onLoad={loadHandoff}
-        onDiscard={(id) => discardHandoff.mutate(id)}
+        discardingHandoffId={discardHandoff.isPending ? (discardHandoff.variables ?? null) : null}
+        onDiscard={(id) => setDiscardHandoffTarget(handoffs.find((h) => h.id === id) ?? null)}
       />
 
       {(staged.length > 0 || groups.length > 0) && (
@@ -2843,6 +2861,28 @@ function AutolisterWorkbench() {
         }}
       />
 
+      <DeleteConfirmDialog
+        open={deleteConfirmIds != null}
+        title={`Delete ${deleteConfirmIds?.length ?? 0} photos?`}
+        description="They leave this session now. You can undo for a few seconds; after that their uploads are removed."
+        confirmLabel="Delete photos"
+        onCancel={() => setDeleteConfirmIds(null)}
+        onConfirm={() => {
+          if (deleteConfirmIds) removePhotos(deleteConfirmIds, true);
+          setDeleteConfirmIds(null);
+        }}
+      />
+      <DeleteConfirmDialog
+        open={discardHandoffTarget != null}
+        title="Discard this phone batch?"
+        description={`Its ${discardHandoffTarget?.photo_count ?? 0} uploaded photo${discardHandoffTarget?.photo_count === 1 ? "" : "s"} will be deleted. This can't be undone.`}
+        confirmLabel="Discard batch"
+        onCancel={() => setDiscardHandoffTarget(null)}
+        onConfirm={() => {
+          if (discardHandoffTarget) discardHandoff.mutate(discardHandoffTarget.id);
+          setDiscardHandoffTarget(null);
+        }}
+      />
       <MeteredCountConfirmDialog
         open={autoTagConfirmOpen}
         title={`Auto-tag all ${groups.length} items?`}
