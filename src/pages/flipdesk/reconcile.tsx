@@ -81,6 +81,7 @@ import {
 } from "@/lib/reconcile-cluster";
 import {
   commitClusters,
+  LINKABLE_STATUSES,
   type CommitCluster,
   type CommitResult,
 } from "@/hooks/use-reconcile-commit";
@@ -141,7 +142,6 @@ const ACCEPT = "image/*";
 const NEEDS_SORTING_DROP = "__needs_sorting__";
 const NEW_CLUSTER_DROP = "__new_cluster__";
 // item statuses eligible to receive a linked cluster (no photos yet)
-const LINKABLE_STATUSES = ["sourced", "cataloged", "drafted"] as const;
 // Candidates for the cluster-link picker. Well under any plausible server row
 // ceiling, so the fetchCapped +1 probe is always answerable (US-2169).
 const LINKABLE_PICKER_LIMIT = 200;
@@ -215,6 +215,7 @@ export function FlipdeskReconcilePage() {
         const { data, error } = await supabase
           .from("items_full")
           .select("id, item_title, brand, item_number, status")
+          .eq("user_id", workspaceOwnerId ?? "")
           .eq("photo_count", 0)
           .in("status", [...LINKABLE_STATUSES])
           .order("updated_at", { ascending: false })

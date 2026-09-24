@@ -38,15 +38,18 @@ export function netAfterOverhead(netProfit: number, overhead: number): number {
   return netProfit - overhead;
 }
 
-// Fetch the operating-expense total for the period. RLS scopes flipdesk_expenses
-// to the current user, so no explicit user filter is needed on the client.
+// Fetch the operating-expense total for the period, for ONE owner. RLS admits
+// a workspace member to every workspace they belong to, so without the owner
+// filter a member's total would sum several businesses' expenses together.
 export async function fetchOperatingExpensesTotal(
+  ownerId: string,
   periodStartISO: string | null,
 ): Promise<number> {
   const boundary = periodBoundary(periodStartISO);
   let query = supabase
     .from("flipdesk_expenses")
-    .select("amount, spent_on");
+    .select("amount, spent_on")
+    .eq("user_id", ownerId);
   if (boundary) query = query.gte("spent_on", boundary);
   const { data, error } = await query;
   if (error) throw new Error(error.message);

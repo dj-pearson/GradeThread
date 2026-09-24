@@ -134,13 +134,18 @@ async function insertRemotePhotosForItem(
 
 function useEbayListings() {
   const user = useAuthStore((s) => s.user);
+  // The workspace on screen: RLS admits a member to every workspace they
+  // belong to, and matching one business's listings against another's
+  // catalog creates items in the wrong place.
+  const { workspaceOwnerId: ownerId } = useWorkspace();
   return useQuery({
-    queryKey: ["ebay_listings", user?.id],
-    enabled: !!user,
+    queryKey: ["ebay_listings", ownerId],
+    enabled: !!user && !!ownerId,
     queryFn: async (): Promise<EbayListingRow[]> => {
       const { data, error } = await supabase
         .from("flipdesk_ebay_listings")
         .select("*")
+        .eq("user_id", ownerId ?? "")
         .order("imported_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as EbayListingRow[];

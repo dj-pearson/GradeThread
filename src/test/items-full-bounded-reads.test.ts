@@ -65,6 +65,13 @@ const DECLARED: readonly DeclaredRead[] = [
       "bounded by the ids it is putting back",
   },
   {
+    // The photo-board commit re-reads the ONE item a cluster is being linked
+    // to, to check its owner, status and photo count before writing to it.
+    file: "src/hooks/use-reconcile-commit.ts",
+    bounds: ['.eq("id", cluster.linkItemId)', ".maybeSingle()"],
+    why: "resolveItemId reads one row by id",
+  },
+  {
     // US-3175: Worth My Time plans over the seller's stock client-side, so it
     // issues the one read the whole pipeline runs on. It is bounded by
     // PLAN_ITEM_LIMIT, and -- this is the part that matters for the

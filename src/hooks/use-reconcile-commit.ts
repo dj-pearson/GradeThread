@@ -5,6 +5,9 @@ import { advanceItemStatus } from "@/lib/status-writer";
 import { REQUIRED_PHOTO_TYPES } from "@/lib/constants";
 import type { FlipdeskPhotoType, ItemStatus } from "@/types/database";
 
+/** Statuses a photo-less item can be in and still take a cluster (US-285). */
+export const LINKABLE_STATUSES = ["sourced", "cataloged", "drafted"] as const;
+
 // One photo as it goes into a commit. `file` is null for entries restored from
 // a persisted session (the blob is gone) — those are skipped with a note.
 export interface CommitPhoto {
@@ -153,21 +156,37 @@ async function uploadOnePhoto(
   return true;
 }
 
-async function resolveItemId(
+export async function resolveItemId(
   cluster: CommitCluster,
   workspaceOwnerId: string,
 ): Promise<{ itemId: string; currentStatus: ItemStatus; createdNew: boolean }> {
   if (cluster.linkItemId) {
-    // Re-verify ownership: RLS only returns rows the caller owns, so a missing
-    // row here means it isn't theirs (or doesn't exist).
+    // Re-verify ownership AND the picker's own rules. RLS admits a workspace
+    // member to every workspace they belong to, so a row coming back does not
+    // mean it belongs to the workspace on screen; and the picker's list can be
+    // a minute old, so the item may have been photographed since.
     const { data, error } = await supabase
-      .from("inventory_items")
-      .select("id, status")
+      .from("items_full")
+      .select("id, user_id, status, photo_count")
       .eq("id", cluster.linkItemId)
       .maybeSingle();
     if (error) throw error;
     if (!data) throw new Error("That item no longer exists or isn't yours.");
-    const row = data as { id: string; status: ItemStatus };
+    const row = data as {
+      id: string;
+      user_id: string;
+      status: ItemStatus;
+      photo_count: number | null;
+    };
+    if (row.user_id !== workspaceOwnerId) {
+      throw new Error("This item belongs to a different workspace.");
+    }
+    if (!(LINKABLE_STATUSES as readonly string[]).includes(row.status)) {
+      throw new Error("That item has moved past the photo step, so it can't be linked.");
+    }
+    if ((row.photo_count ?? 0) > 0) {
+      throw new Error("That item already has photos, so it can't be linked.");
+    }
     return { itemId: row.id, currentStatus: row.status, createdNew: false };
   }
 

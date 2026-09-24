@@ -3,6 +3,7 @@ import { toastError } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 
 import { edgeAuthHeaders } from "@/lib/edge-fetch";
 
@@ -23,15 +24,18 @@ export interface PayoutImportRow {
 // surface we just need to display the freshly-loaded rows.
 export function usePayoutImports() {
   const user = useAuthStore((s) => s.user);
+  // The workspace on screen, not every workspace RLS admits a member to.
+  const { workspaceOwnerId: ownerId } = useWorkspace();
   return useQuery({
-    queryKey: ["payout_imports", user?.id],
-    enabled: !!user,
+    queryKey: ["payout_imports", ownerId],
+    enabled: !!user && !!ownerId,
     queryFn: async (): Promise<PayoutImportRow[]> => {
       const { data, error } = await supabase
         .from("payout_imports")
         .select(
           "id, marketplace, import_method, payout_date, amount, reconciled, sale_id, raw_payload, created_at",
         )
+        .eq("user_id", ownerId ?? "")
         .order("payout_date", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
       if (error) throw error;

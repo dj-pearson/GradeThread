@@ -2,6 +2,7 @@ import { useState, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AdSpendCard } from "@/components/flipdesk/ad-spend-card";
 import { useAuth } from "@/hooks/use-auth";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { fetchFinancesDashboard } from "@/lib/finances-dashboard";
 import {
   fetchTaxProfile,
@@ -91,6 +92,7 @@ function formatCurrency(value: number): string {
 
 export function FinancesPage() {
   const { user } = useAuth();
+  const { workspaceOwnerId: ownerId } = useWorkspace();
   const [period, setPeriod] = useState<FiscalPeriod>("all_time");
 
   // The fiscal year start. Its own query rather than a prop: this page is
@@ -123,8 +125,9 @@ export function FinancesPage() {
   // page can show one reconciled "true net after overhead" figure instead of
   // leaving the Expenses page as a second, disconnected profit number.
   const { data: overhead = 0 } = useQuery({
-    queryKey: ["finances-overhead", period, fyStart, user?.id],
-    queryFn: () => fetchOperatingExpensesTotal(periodStart),
+    queryKey: ["finances-overhead", period, fyStart, ownerId],
+    enabled: !!ownerId,
+    queryFn: () => fetchOperatingExpensesTotal(ownerId ?? "", periodStart),
     staleTime: 5 * 60 * 1000,
   });
 

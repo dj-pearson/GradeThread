@@ -149,6 +149,9 @@ function expenseName(e: ExpenseRow): string {
 
 export function FlipdeskExpensesPage() {
   const user = useAuthStore((s) => s.user);
+  // RLS lets a workspace member read every workspace they belong to, so the
+  // list names the one on screen rather than trusting RLS to pick it.
+  const { workspaceOwnerId: ownerId } = useWorkspace();
   const qc = useQueryClient();
   const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -165,8 +168,8 @@ export function FlipdeskExpensesPage() {
     isFetching,
     refetch,
   } = useQuery({
-    queryKey: ["expenses", user?.id],
-    enabled: !!user,
+    queryKey: ["expenses", ownerId],
+    enabled: !!user && !!ownerId,
     // US-2169: paged, not a single unbounded read. This page sums every row
     // into per-month and year totals a seller files taxes against, and an
     // unbounded select is clipped at PostgREST's `db-max-rows` with no error
@@ -176,6 +179,7 @@ export function FlipdeskExpensesPage() {
         const { data, error } = await supabase
           .from("flipdesk_expenses")
           .select("*")
+          .eq("user_id", ownerId ?? "")
           .order("spent_on", { ascending: false })
           .order("id", { ascending: false })
           .range(from, to);

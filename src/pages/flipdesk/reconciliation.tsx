@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/table";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { useItemsList } from "@/hooks/use-items-full";
 import { detectDiscrepancies } from "@/lib/pnl";
 import {
@@ -133,6 +134,10 @@ function fmtRelative(iso: string | null | undefined): string {
 // and Cross-source flows are sibling tabs rendered by FlipdeskReconcilePage.
 export function ReconciliationPayoutsTab() {
   const user = useAuthStore((s) => s.user);
+  // The workspace on screen. RLS admits a member to every workspace they
+  // belong to, and COGS below comes from one business only, so an unscoped
+  // sales read mixed businesses into one discrepancy check.
+  const { workspaceOwnerId: ownerId } = useWorkspace();
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [importing, setImporting] = useState(false);
   const importPayouts = useImportPayoutsCsv();
@@ -172,8 +177,8 @@ export function ReconciliationPayoutsTab() {
     isFetching,
     refetch,
   } = useQuery({
-    queryKey: ["sales_all", user?.id],
-    enabled: !!user,
+    queryKey: ["sales_all", ownerId],
+    enabled: !!user && !!ownerId,
     // US-2169: paged, not a single unbounded read. Reconciliation decides
     // which sales are flagged as discrepancies; a response clipped at
     // PostgREST's `db-max-rows` (silent, header-only) would drop older sales
@@ -183,6 +188,7 @@ export function ReconciliationPayoutsTab() {
         const { data, error } = await supabase
           .from("sales")
           .select("*")
+          .eq("user_id", ownerId ?? "")
           .order("created_at", { ascending: false })
           .order("id", { ascending: false })
           .range(from, to);
