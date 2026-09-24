@@ -2998,15 +2998,20 @@ export interface BulkPriceQtyUpdate {
   listing_id: string;
   price?: number;
   quantity?: number;
+  /** The price the seller saw. The server refuses the row if it has moved. */
+  expected_price?: number;
 }
 
 export interface BulkPriceQtyResult {
   listing_id: string;
   ok: boolean;
   error?: string;
+  reason?: "floor" | "not_live" | "price_changed" | "origin_locked" | "local_write";
+  floor?: number;
 }
 
 export function useEbayBulkPriceQuantity() {
+  const queryClient = useQueryClient();
   return useMutation<
     { ok: true; results: BulkPriceQtyResult[]; succeeded: number; total: number },
     Error,
@@ -3024,6 +3029,12 @@ export function useEbayBulkPriceQuantity() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Bulk update failed.");
       return json;
+    },
+    // Prices moved on eBay: every view that shows one reads again.
+    onSuccess: () => {
+      for (const key of ["bulk_pricing_listings", "ebay_listings", "items_full", "repricing_suggestions"]) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
     },
   });
 }

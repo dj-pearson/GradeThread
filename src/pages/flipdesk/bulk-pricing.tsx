@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -21,13 +22,10 @@ import {
 } from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
 import { fetchAllPages, READ_PAGE_SIZE } from "@/lib/paged-read";
-import {
-  useEbayBulkPriceQuantity,
-  useEbayConnection,
-  type BulkPriceQtyUpdate,
-} from "@/hooks/use-ebay";
+import { useEbayBulkPriceQuantity, useEbayConnection } from "@/hooks/use-ebay";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { planBulk, remainingSelection, type PriceMode } from "./bulk-pricing-plan";
 
 interface BulkRow {
   id: string;
@@ -40,8 +38,6 @@ interface BulkRow {
   floorPrice: number | null;
 }
 
-// US-2229: reduce drives prices down, increase drives them up, set is absolute.
-type PriceMode = "none" | "set" | "reduce" | "increase";
 type SortKey = "age_new" | "age_old" | "price_high" | "price_low" | "title";
 
 // US-2229: load every active eBay listing in chunks so a seller past 500 rows
@@ -228,49 +224,32 @@ export function FlipdeskBulkPricingPage() {
   const qtyActive = qtyNum != null && Number.isInteger(qtyNum) && qtyNum >= 0;
   const canApply = selected.size > 0 && (priceActive || qtyActive) && !bulk.isPending;
 
-  // Round to the nearest .99 when the seller opts in (psychological pricing).
-  function applyRounding(p: number): number {
-    if (!roundTo99) return Number(p.toFixed(2));
-    return Math.max(0.99, Math.round(p) - 0.01);
-  }
-
-  /// Resolve the target price for a row given the chosen mode.
-  function targetPrice(row: BulkRow): number | undefined {
-    if (!priceActive || priceNum == null) return undefined;
-    let p: number;
-    if (priceMode === "set") p = priceNum;
-    else if (priceMode === "reduce") p = row.price * (1 - priceNum / 100);
-    else p = row.price * (1 + priceNum / 100); // increase
-    return applyRounding(p);
-  }
+  // US-2229: reduce drives prices down, increase drives them up, set is
+  // absolute. The per-row arithmetic, rounding and floor check live in
+  // bulk-pricing-plan.ts so the confirm, the summary and the send agree.
+  const visibleIds = useMemo(() => new Set(filtered.map((r) => r.id)), [filtered]);
+  const plan = useMemo(
+    () =>
+      planBulk(
+        rows,
+        selected,
+        visibleIds,
+        { mode: priceActive ? priceMode : "none", value: priceNum ?? null, roundTo99 },
+        qtyActive ? qtyNum : undefined,
+      ),
+    [rows, selected, visibleIds, priceActive, priceMode, priceNum, roundTo99, qtyActive, qtyNum],
+  );
 
   async function apply() {
-    const updates: BulkPriceQtyUpdate[] = [];
-    // US-3192: a garment the seller drew a line under is not priced through it
-    // by a bulk operation. The row is SKIPPED and named, rather than the whole
-    // batch failing or the price being silently clamped to the floor: the
-    // seller asked for a specific number, and quietly substituting a different
-    // one is the behaviour that makes a bulk tool untrustworthy.
-    const flooredOut: BulkRow[] = [];
-    for (const row of rows) {
-      if (!selected.has(row.id)) continue;
-      const price = targetPrice(row);
-      const quantity = qtyActive ? qtyNum : undefined;
-      if (price == null && quantity == null) continue;
-      if (price != null && row.floorPrice != null && price < row.floorPrice) {
-        flooredOut.push(row);
-        continue;
-      }
-      updates.push({ listing_id: row.id, price, quantity });
-    }
-    if (flooredOut.length > 0) {
-      const names = flooredOut.slice(0, 3).map((r) => r.title).join(", ");
-      const more = flooredOut.length > 3 ? ` and ${flooredOut.length - 3} more` : "";
-      toast.warning(
-        `Skipped ${flooredOut.length} listing${flooredOut.length === 1 ? "" : "s"} priced below their floor: ${names}${more}.`,
+    const { updates, floored, noChange, hidden } = plan;
+    if (updates.length === 0) {
+      toast.info(
+        floored.length > 0
+          ? "Every selected listing would go below its floor, so nothing was sent."
+          : "That change does not move any selected price.",
       );
+      return;
     }
-    if (updates.length === 0) return;
 
     const priceOp = !priceActive || priceNum == null
       ? null
@@ -282,9 +261,28 @@ export function FlipdeskBulkPricingPage() {
     const qtyOp = qtyActive ? `set quantity to ${qtyNum}` : null;
     const roundOp = priceActive && roundTo99 ? "round to .99" : null;
     const op = [priceOp, roundOp, qtyOp].filter(Boolean).join(", ");
+    const notes: string[] = [];
+    if (hidden > 0) {
+      notes.push(`${hidden} of these ${hidden === 1 ? "is" : "are"} hidden by your filters.`);
+    }
+    // US-3192: named in the confirm, before anything is sent, rather than in a
+    // toast the seller reads after the fact.
+    if (floored.length > 0) {
+      const names = floored.slice(0, 3).map((r) => r.title).join(", ");
+      const more = floored.length > 3 ? ` and ${floored.length - 3} more` : "";
+      notes.push(
+        `${floored.length} will be skipped because the new price is below their floor: ${names}${more}.`,
+      );
+    }
+    if (noChange > 0) {
+      notes.push(`${noChange} would not change and will not be sent.`);
+    }
     const ok = await confirm({
       title: `Apply changes to ${updates.length} listing${updates.length === 1 ? "" : "s"}?`,
-      description: `This will ${op} on ${updates.length} live eBay listing${updates.length === 1 ? "" : "s"} immediately.`,
+      description: [
+        `This will ${op} on ${updates.length} live eBay listing${updates.length === 1 ? "" : "s"} immediately.`,
+        ...notes,
+      ].join(" "),
       confirmLabel: "Apply changes",
     });
     if (!ok) return;
@@ -293,18 +291,18 @@ export function FlipdeskBulkPricingPage() {
       const res = await bulk.mutateAsync({ updates });
       const failed = res.results.filter((r) => !r.ok);
       setErrors(Object.fromEntries(failed.map((r) => [r.listing_id, r.error ?? "Failed"])));
-      // US-9202: rows on extension channels are QUEUED for the desktop
-      // extension, and the sentence has to say so rather than count them as
-      // updated on the marketplace.
-      const queued = res.results.filter((r) => r.ok && (r as { queued?: boolean }).queued).length;
-      const queuedNote = queued > 0
-        ? ` ${queued} on Poshmark/Mercari/Vinted wait for your desktop extension.`
-        : "";
       if (failed.length === 0) {
-        toast.success(`Updated ${res.succeeded} listing${res.succeeded === 1 ? "" : "s"}.${queuedNote}`);
+        toast.success(`Updated ${res.succeeded} listing${res.succeeded === 1 ? "" : "s"}.`);
         setSelected(new Set());
       } else {
-        toast.warning(`Updated ${res.succeeded}/${res.total}. ${failed.length} failed.${queuedNote}`);
+        // Keep ONLY the failures selected. Leaving every row selected meant a
+        // second Apply cut the rows that had already succeeded a second time.
+        setSelected(remainingSelection(res.results));
+        toast.warning(
+          `Updated ${res.succeeded} of ${res.total}. ${failed.length} failed and ${
+            failed.length === 1 ? "is" : "are"
+          } still selected. Apply again to retry ${failed.length === 1 ? "it" : "them"}.`,
+        );
       }
       await refetch();
     } catch (e) {
@@ -339,7 +337,7 @@ export function FlipdeskBulkPricingPage() {
           Connect your eBay account to bulk-update listing prices and quantities.
         </p>
         <Button asChild variant="outline">
-          <a href="/dashboard/flipdesk/marketplaces">Go to Marketplaces</a>
+          <Link to="/dashboard/flipdesk/marketplaces">Go to Marketplaces</Link>
         </Button>
       </div>
     );
@@ -353,10 +351,10 @@ export function FlipdeskBulkPricingPage() {
           subtitle="Select active eBay listings and update their price and/or quantity in one go. Changes push straight to eBay."
         />
         <Button asChild variant="outline" size="sm">
-          <a href="/dashboard/flipdesk/pricing?tab=repricing">
+          <Link to="/dashboard/flipdesk/pricing?tab=repricing">
             <TrendingUp className="mr-2 h-4 w-4" />
             Condition-aware repricing
-          </a>
+          </Link>
         </Button>
       </div>
 
@@ -365,6 +363,11 @@ export function FlipdeskBulkPricingPage() {
           <CardTitle className="flex items-center gap-2 text-base">
             <Tags className="h-4 w-4" />
             Apply to {selected.size} selected
+            {plan.hidden > 0 && (
+              <span className="text-sm font-normal text-muted-foreground">
+                ({plan.hidden} hidden by filters)
+              </span>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
