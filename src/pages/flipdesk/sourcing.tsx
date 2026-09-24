@@ -107,7 +107,10 @@ export function FlipdeskSourcingPage() {
   }, [activeTab]);
 
   return (
-    <div className="space-y-6">
+    // SRC-11: ONE content frame for every tab. Scout, Buy and Demand each set
+    // their own width and gutter, so the left edge jumped on every switch.
+    // Embedded, they now defer to this.
+    <div className="mx-auto w-full max-w-6xl space-y-6">
       <PageHeader
         icon={Search}
         title="Sourcing"

@@ -32,6 +32,7 @@ import { ValueBasisNote } from "@/components/value/value-basis-note";
 import { SourcingCeilingNote } from "@/components/value/sourcing-ceiling-note";
 import { SourcingTargetSetting } from "@/components/flipdesk/sourcing-target-setting";
 import { EbayAttribution } from "@/components/marketplace/ebay-attribution";
+import { usePageHost } from "@/hooks/use-page-host";
 
 function dollars(cents: number | null | undefined): string {
   if (cents == null) return "—";
@@ -207,6 +208,8 @@ function DecisionCard({
 }
 
 export function FlipdeskScoutBuyPage() {
+  // SRC-11: inside the Sourcing host the host owns width and gutter.
+  const { embedded } = usePageHost();
   const [photo, setPhoto] = useState<string | null>(null);
   const [barcode, setBarcode] = useState("");
   const [keyword, setKeyword] = useState("");
@@ -248,169 +251,177 @@ export function FlipdeskScoutBuyPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-xl space-y-6 p-4 sm:p-6">
-      <PageHeader
-        icon={Sparkles}
-        title="Buy decision"
-        subtitle={
-          <>
-            In the field, before you buy: snap the item (or scan its barcode), add
-            what you'd pay, and get an instant <strong>buy / maybe / skip</strong>
-            with condition, resale range, sell-through, and ROI.
-          </>
-        }
-      />
+    <div className={embedded ? "space-y-6" : "mx-auto w-full max-w-xl space-y-6 p-4 sm:p-6"}>
+      <PageHeader icon={Sparkles} title="Buy decision" />
 
-      {/* US-2851: the ceiling is quoted against this, so the seller has to be
-          able to see and change it on the same screen that spends it. */}
-      <SourcingTargetSetting />
+      {/* SRC-11: the how-to is body copy, not a subtitle. PageHeader drops its
+          subtitle when embedded, which took the page's only instructions with
+          it. */}
+      <p className="text-sm text-muted-foreground">
+        In the field, before you buy: snap the item (or scan its barcode), add
+        what you'd pay, and get an instant <strong>buy / maybe / skip</strong>{" "}
+        with condition, resale range, sell-through, and ROI.
+      </p>
 
-      <Card>
-        <CardContent className="space-y-4 p-4">
-          <form onSubmit={submit} className="space-y-4">
-            {/* Photo capture */}
-            <div className="space-y-1">
-              <Label>Item photo</Label>
-              {photo ? (
-                <div className="relative w-fit">
-                  <img src={photo} alt="Item" className="h-40 rounded-md object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPhoto(null);
-                      if (fileRef.current) fileRef.current.value = "";
-                    }}
-                    className="absolute -right-2 -top-2 rounded-full bg-background p-1 shadow ring-1 ring-border"
-                    aria-label="Remove photo"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+      {/* On a wide screen inside the host, the form sits beside the answer so
+          the seller can change the cost and read the verdict without
+          scrolling. */}
+      <div className={embedded ? "grid gap-6 lg:grid-cols-2 lg:items-start" : "space-y-6"}>
+        <div className="w-full max-w-xl space-y-6">
+          {/* US-2851: the ceiling is quoted against this, so the seller has to be
+              able to see and change it on the same screen that spends it. */}
+          <SourcingTargetSetting />
+
+          <Card>
+            <CardContent className="space-y-4 p-4">
+              <form onSubmit={submit} className="space-y-4">
+                {/* Photo capture */}
+                <div className="space-y-1">
+                  <Label>Item photo</Label>
+                  {photo ? (
+                    <div className="relative w-fit">
+                      <img src={photo} alt="Item" className="h-40 rounded-md object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPhoto(null);
+                          if (fileRef.current) fileRef.current.value = "";
+                        }}
+                        className="absolute -right-2 -top-2 rounded-full bg-background p-1 shadow ring-1 ring-border"
+                        aria-label="Remove photo"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => fileRef.current?.click()}
+                    >
+                      <Camera className="mr-2 h-4 w-4" /> Take / choose photo
+                    </Button>
+                  )}
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={onPickPhoto}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    A photo gives a condition signal. Without one you'll still get value
+                    + ROI at "used" condition.
+                  </p>
                 </div>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => fileRef.current?.click()}
-                >
-                  <Camera className="mr-2 h-4 w-4" /> Take / choose photo
+
+                {/* Barcode */}
+                <div className="space-y-1">
+                  <Label htmlFor="scout-barcode">Barcode / UPC (optional)</Label>
+                  <div className="relative">
+                    <ScanBarcode className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="scout-barcode"
+                      className="pl-8"
+                      inputMode="numeric"
+                      placeholder="012345678905"
+                      value={barcode}
+                      onChange={(e) => setBarcode(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="scout-keyword">Keyword</Label>
+                    <Input
+                      id="scout-keyword"
+                      placeholder="Patagonia Better Sweater"
+                      value={keyword}
+                      onChange={(e) => setKeyword(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="scout-brand">Brand (optional)</Label>
+                    <Input
+                      id="scout-brand"
+                      placeholder="Patagonia"
+                      value={brand}
+                      onChange={(e) => setBrand(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="scout-size">Size (optional)</Label>
+                    <Input
+                      id="scout-size"
+                      placeholder="M"
+                      value={size}
+                      onChange={(e) => setSize(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="scout-category">eBay category ID</Label>
+                    <Input
+                      id="scout-category"
+                      value={categoryId}
+                      onChange={(e) => setCategoryId(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="scout-cost">Your cost (what you'd pay)</Label>
+                  <div className="relative">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                    <Input
+                      id="scout-cost"
+                      className="pl-6"
+                      inputMode="decimal"
+                      placeholder="8.00"
+                      value={cost}
+                      onChange={(e) => setCost(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <Button type="submit" className="w-full" disabled={!canAppraise || appraise.isPending}>
+                  {appraise.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                  )}
+                  Should I buy it?
                 </Button>
-              )}
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={onPickPhoto}
-              />
-              <p className="text-xs text-muted-foreground">
-                A photo gives a condition signal. Without one you'll still get value
-                + ROI at "used" condition.
-              </p>
-            </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
 
-            {/* Barcode */}
-            <div className="space-y-1">
-              <Label htmlFor="scout-barcode">Barcode / UPC (optional)</Label>
-              <div className="relative">
-                <ScanBarcode className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="scout-barcode"
-                  className="pl-8"
-                  inputMode="numeric"
-                  placeholder="012345678905"
-                  value={barcode}
-                  onChange={(e) => setBarcode(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="scout-keyword">Keyword</Label>
-                <Input
-                  id="scout-keyword"
-                  placeholder="Patagonia Better Sweater"
-                  value={keyword}
-                  onChange={(e) => setKeyword(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="scout-brand">Brand (optional)</Label>
-                <Input
-                  id="scout-brand"
-                  placeholder="Patagonia"
-                  value={brand}
-                  onChange={(e) => setBrand(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="scout-size">Size (optional)</Label>
-                <Input
-                  id="scout-size"
-                  placeholder="M"
-                  value={size}
-                  onChange={(e) => setSize(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="scout-category">eBay category ID</Label>
-                <Input
-                  id="scout-category"
-                  value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="scout-cost">Your cost (what you'd pay)</Label>
-              <div className="relative">
-                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
-                <Input
-                  id="scout-cost"
-                  className="pl-6"
-                  inputMode="decimal"
-                  placeholder="8.00"
-                  value={cost}
-                  onChange={(e) => setCost(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <Button type="submit" className="w-full" disabled={!canAppraise || appraise.isPending}>
-              {appraise.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="mr-2 h-4 w-4" />
-              )}
-              Should I buy it?
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {appraise.isPending ? (
-        <div className="h-48 w-full animate-pulse rounded-lg bg-muted" />
-      ) : appraise.isError ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base text-destructive">Appraisal failed</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {appraise.error.message}
-          </CardContent>
-        </Card>
-      ) : result ? (
-        <DecisionCard
-          result={result}
-          keyword={keyword}
-          brand={brand}
-          size={size}
-          costCents={submittedCost}
-        />
-      ) : null}
+        <div className="space-y-6">
+          {appraise.isPending ? (
+            <div className="h-48 w-full animate-pulse rounded-lg bg-muted" />
+          ) : appraise.isError ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base text-destructive">Appraisal failed</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">
+                {appraise.error.message}
+              </CardContent>
+            </Card>
+          ) : result ? (
+            <DecisionCard
+              result={result}
+              keyword={keyword}
+              brand={brand}
+              size={size}
+              costCents={submittedCost}
+            />
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

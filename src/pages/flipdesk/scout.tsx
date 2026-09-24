@@ -35,6 +35,7 @@ import {
 } from "@/components/flipdesk/sourcing-target-setting";
 import { useSourcingSettings } from "@/hooks/use-sourcing-settings";
 import { usePlanUsage } from "@/hooks/use-plan-usage";
+import { usePageHost } from "@/hooks/use-page-host";
 import { ForecastCard } from "@/components/flipdesk/forecast-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ValueBasisNote } from "@/components/value/value-basis-note";
@@ -191,6 +192,8 @@ export function FlipdeskScoutPage() {
   // US-1064: community-insights "Source more <brand>" recommendations deep-link
   // here with ?brand=<brand> so the comps scan is prefilled.
   const [searchParams, setSearchParams] = useSearchParams();
+  // SRC-11: inside the Sourcing host the host owns width and gutter.
+  const { embedded } = usePageHost();
   //
   // SRC-8: the WHOLE search is seeded from the URL, not just the filter. The
   // bookmark US-3098 promised reopened with an empty keyword, because submit
@@ -384,7 +387,7 @@ export function FlipdeskScoutPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
+    <div className={embedded ? "space-y-6" : "mx-auto w-full max-w-4xl space-y-6 p-6"}>
       <PageHeader
         icon={Sparkles}
         title="ScoutAI"
