@@ -13,7 +13,11 @@ import {
   Trophy,
   type LucideIcon,
 } from "lucide-react";
+import { Link } from "react-router";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { actionForBadge } from "@/lib/reward-actions";
+import { RewardActionLink } from "@/components/rewards/reward-action-link";
 import type { RewardBadge, RewardBadgeShelf } from "@/hooks/use-rewards";
 import { shareRewardCard, type RewardShareSurface } from "@/lib/reward-share";
 import { cn } from "@/lib/utils";
@@ -174,9 +178,14 @@ export function BadgeShelf({ shelf }: { shelf: RewardBadgeShelf }) {
             {shelf.earned.map((b) => <BadgeMedal key={b.key} badge={b} />)}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            No medals yet. Grade your first item and the first one lands straight away.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              No medals yet. Grade your first item and the first one lands straight away.
+            </p>
+            <Button asChild size="sm" variant="outline">
+              <Link to="/dashboard/submissions/new">Grade your first item</Link>
+            </Button>
+          </div>
         )}
 
         {shelf.upcoming.length > 0 && (
@@ -190,7 +199,10 @@ export function BadgeShelf({ shelf }: { shelf: RewardBadgeShelf }) {
                   </span>
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-muted-foreground">{b.name}</p>
-                    <p className="text-xs text-muted-foreground">{b.description}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {actionForBadge(b.key)?.goal ?? b.description}
+                    </p>
+                    {actionForBadge(b.key) && <RewardActionLink action={actionForBadge(b.key)!} />}
                   </div>
                 </li>
               ))}

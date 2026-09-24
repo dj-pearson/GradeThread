@@ -1087,7 +1087,7 @@ export async function grantTangibleRewards(
         // billing: the gift is the smaller half of the moment.
         link: reward.triggerType === "anniversary"
           ? REWARDS_LINKS.loyalty
-          : "/dashboard/billing",
+          : grantDestination(reward.rewardType),
       }).catch(() => {});
     }
 
@@ -1119,6 +1119,18 @@ export interface MilestoneGrantView {
   status: string;
   granted_at: string | null;
   expires_at: string | null;
+  /** When a discount was redeemed. Credits land in the balance and never set it. */
+  consumed_at: string | null;
+}
+
+/**
+ * Where a granted reward is USED. Pure. The unlock notification and the
+ * rewards page both point here, so "Reward unlocked" opens the place to spend
+ * it: free grades and a per-grade discount at a new submission, a plan
+ * discount on Billing.
+ */
+export function grantDestination(rewardType: string): string {
+  return rewardType === "subscription_discount" ? "/dashboard/billing" : "/dashboard/submissions/new";
 }
 
 /** The next XP rung, with progress from the rung below it. */
@@ -1193,7 +1205,9 @@ export async function loadMilestoneProgress(
       loadMilestoneCatalog(),
       supabaseAdmin
         .from("reward_tangible_grants")
-        .select("milestone_key, reward_type, reward_value, status, granted_at, expires_at")
+        .select(
+          "milestone_key, reward_type, reward_value, status, granted_at, expires_at, consumed_at",
+        )
         .eq("user_id", userId)
         .order("granted_at", { ascending: false }),
     ]);
@@ -1211,6 +1225,7 @@ export async function loadMilestoneProgress(
       status: string;
       granted_at: string | null;
       expires_at: string | null;
+      consumed_at: string | null;
     }>;
 
     // 'claimed' is an internal reservation, not a delivered reward — showing it
@@ -1230,6 +1245,7 @@ export async function loadMilestoneProgress(
         status: r.status,
         granted_at: r.granted_at,
         expires_at: r.expires_at,
+        consumed_at: r.consumed_at ?? null,
       }));
 
     // A milestone with a row of ANY status is spoken for, so the horizon skips

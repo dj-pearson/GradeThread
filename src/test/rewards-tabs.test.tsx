@@ -118,3 +118,14 @@ describe("Rewards loading state (R8)", () => {
     expect(container!.querySelector(".animate-spin")).toBeNull();
   });
 });
+
+describe("season goals link to the work (R15)", () => {
+  it("an incomplete goal shows a working link and the pace line", () => {
+    mount("/dashboard/rewards?tab=season");
+    const link = [...container!.querySelectorAll("a")].find((a) =>
+      a.textContent?.includes("Grade an item")
+    );
+    expect(link?.getAttribute("href")).toBe("/dashboard/submissions/new");
+    expect(container!.textContent).toContain("On pace for 0 of 1 goal.");
+  });
+});

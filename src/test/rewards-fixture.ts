@@ -24,7 +24,7 @@ export function rewardsFixture(over: Partial<RewardsState> = {}): RewardsState {
       xp_earned: 120,
       goals: [
         {
-          key: "coverage_completed",
+          key: "full_coverage",
           name: "Grade 10 items",
           description: "Grade with full photo coverage.",
           target: 10,

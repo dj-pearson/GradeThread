@@ -2,6 +2,8 @@ import { Check, Gift } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LabeledProgress } from "@/components/rewards/labeled-progress";
 import type { MilestoneProgress } from "@/hooks/use-rewards";
+import { grantAction } from "@/lib/reward-actions";
+import { RewardActionLink } from "@/components/rewards/reward-action-link";
 
 // US-1857, over the US-1853 grant model: the tangible-reward area.
 //
@@ -69,8 +71,11 @@ export function MilestoneRewards({ milestones }: { milestones: MilestoneProgress
                     {g.granted_at
                       ? `Granted ${new Date(g.granted_at).toLocaleDateString()}`
                       : "Granted"}
-                    {expiryNote(g.expires_at)}
+                    {g.consumed_at ? null : expiryNote(g.expires_at)}
                   </p>
+                  {g.consumed_at
+                    ? <p className="text-xs font-medium text-muted-foreground">Used</p>
+                    : <RewardActionLink action={grantAction(g.reward_type)} />}
                 </div>
               </li>
             ))}

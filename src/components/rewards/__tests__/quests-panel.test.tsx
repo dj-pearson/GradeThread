@@ -214,6 +214,19 @@ describe("QuestsPanel loading and error (R11)", () => {
   });
 });
 
+describe("quest actions (R15)", () => {
+  it("an unfinished quest links to the work that moves it", () => {
+    const html = mount(state());
+    expect(html).toContain('href="/dashboard/submissions/new"');
+    expect(html).toContain("Grade an item");
+  });
+
+  it("a finished quest offers no link", () => {
+    const html = mount(state({ quests: [{ ...QUEST, completed_at: "2026-08-06T00:00:00Z" }] }));
+    expect(html).not.toContain("Grade an item");
+  });
+});
+
 describe("newlyCompletedQuests (R11)", () => {
   const since = Date.parse("2026-09-24T12:00:00Z");
   const done = (at: string) => ({ ...QUEST, completed_at: at, xp_awarded: 30 });

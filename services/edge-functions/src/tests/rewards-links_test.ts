@@ -120,3 +120,20 @@ Deno.test("R6: the expiring nudge names the catalog label, never the raw key", (
   assertEquals(expiringGrantLabel("anniversary_gift:y3", labels), "A free grade");
   assert(!expiringGrantLabel("mystery_key", labels).includes("mystery"));
 });
+
+// ── R15: a granted reward's notification opens where it is used ─────────────
+
+import { grantDestination } from "../lib/rewards-tangible.ts";
+
+Deno.test("R15: grant notifications point where the reward is spent", async () => {
+  assertEquals(grantDestination("free_grade_credits"), "/dashboard/submissions/new");
+  assertEquals(grantDestination("per_grade_discount"), "/dashboard/submissions/new");
+  assertEquals(grantDestination("subscription_discount"), "/dashboard/billing");
+  const src = await Deno.readTextFile(new URL("../lib/rewards-tangible.ts", import.meta.url));
+  assert(src.includes(": grantDestination(reward.rewardType)"));
+  assert(
+    /\.select\(\s*"milestone_key, reward_type, reward_value, status, granted_at, expires_at, consumed_at"/
+      .test(src),
+    "the owner's grant view reads consumed_at",
+  );
+});

@@ -1,7 +1,15 @@
 // US-1857: the badge shelf and the milestone-rewards area — the two panels the
 // story adds to the rewards page.
 import { describe, expect, it } from "vitest";
-import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactElement } from "react";
+import { renderToStaticMarkup as renderBare } from "react-dom/server";
+import { MemoryRouter } from "react-router";
+
+// The shelf and the ladder link to the work that moves them (R15), so they
+// render inside a router.
+function renderToStaticMarkup(el: ReactElement): string {
+  return renderBare(<MemoryRouter>{el}</MemoryRouter>);
+}
 
 import { BadgeShelf } from "@/components/rewards/badge-shelf";
 import { MilestoneRewards } from "@/components/rewards/milestone-rewards";
@@ -150,5 +158,61 @@ describe("MilestoneRewards (US-1857 over the US-1853 grant model)", () => {
     );
     expect(html).toContain("1 free grade");
     expect(html).toContain("yours to keep");
+  });
+});
+
+describe("reward actions (R15)", () => {
+  const GRANT = {
+    milestone_key: "pgd_10_off",
+    label: "10% off a grade",
+    reward_type: "per_grade_discount",
+    reward_value: 10,
+    status: "granted",
+    granted_at: "2026-07-01T00:00:00.000Z",
+    expires_at: null,
+  };
+
+  it("a locked badge reads as a goal and links to the work", () => {
+    const html = renderToStaticMarkup(<BadgeShelf shelf={shelf()} />);
+    expect(html).toContain("Grade 100 items");
+    expect(html).toContain('href="/dashboard/submissions/new"');
+  });
+
+  it("an empty shelf offers a button to the first grade", () => {
+    const html = renderToStaticMarkup(
+      <BadgeShelf shelf={shelf({ earned: [], earned_count: 0, total: 1 })} />,
+    );
+    expect(html).toContain("Grade your first item");
+  });
+
+  it("a consumed grant reads Used and offers nothing", () => {
+    const html = renderToStaticMarkup(
+      <MilestoneRewards
+        milestones={milestones({ granted: [{ ...GRANT, consumed_at: "2026-07-05T00:00:00Z" }] })}
+      />,
+    );
+    expect(html).toContain(">Used<");
+    expect(html).not.toContain("Use it on a grade");
+  });
+
+  it("a live grant links to where it is spent", () => {
+    const html = renderToStaticMarkup(
+      <MilestoneRewards
+        milestones={milestones({
+          granted: [
+            { ...GRANT, consumed_at: null },
+            {
+              ...GRANT,
+              milestone_key: "sub_20",
+              reward_type: "subscription_discount",
+              label: "20% off your plan",
+            },
+          ],
+        })}
+      />,
+    );
+    expect(html).toContain("Use it on a grade");
+    expect(html).toContain("Apply to your plan");
+    expect(html).toContain('href="/dashboard/billing"');
   });
 });

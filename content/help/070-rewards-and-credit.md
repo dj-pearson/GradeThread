@@ -105,7 +105,7 @@ There is nothing to claim.
   time. Some of these have an end date, and we send you a reminder before one
   runs out.
 
-Each reward on the season tab shows whether it has been used yet.
+Each reward on the season tab links to the place you use it, and a discount you have already used is marked Used.
 
 ## The public leaderboards
 

@@ -108,6 +108,8 @@ export interface MilestoneGrant {
   status: string;
   granted_at: string | null;
   expires_at: string | null;
+  /** When a discount was redeemed. Absent on an older edge. */
+  consumed_at?: string | null;
 }
 
 export interface NextMilestone {

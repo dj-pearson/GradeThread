@@ -18,6 +18,8 @@ import { LabeledProgress } from "@/components/rewards/labeled-progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { lastPeriodLine, useQuests, type Challenge, type Quest } from "@/hooks/use-quests";
 import { cn } from "@/lib/utils";
+import { actionForMetric } from "@/lib/reward-actions";
+import { RewardActionLink } from "@/components/rewards/reward-action-link";
 
 // US-1852: quests are the SHORT loop on the rewards page — the week, sitting
 // under the level (identity, permanent) and the season (the quarter).
@@ -99,6 +101,9 @@ function QuestRow({ quest }: { quest: Quest }) {
         <p className="text-xs text-muted-foreground">
           {CADENCE_LABEL[quest.cadence] ?? "Now"} · {questTimeLeft(quest.window_ends_at)}
         </p>
+        {!done && actionForMetric(quest.metric) && (
+          <RewardActionLink action={actionForMetric(quest.metric)!} />
+        )}
       </div>
     </li>
   );

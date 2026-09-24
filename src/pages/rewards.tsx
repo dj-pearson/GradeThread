@@ -38,6 +38,8 @@ import { LoyaltyStandingCard } from "@/components/rewards/loyalty-standing";
 import { MilestoneRewards } from "@/components/rewards/milestone-rewards";
 import { RewardCelebrations } from "@/components/rewards/reward-celebrations";
 import { shareRewardCard } from "@/lib/reward-share";
+import { actionForGoal, seasonPaceLine } from "@/lib/reward-actions";
+import { RewardActionLink } from "@/components/rewards/reward-action-link";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { PageHelp } from "@/components/help/page-help";
@@ -213,6 +215,7 @@ export function RewardsPage() {
     rewards;
   const TierIcon = ICONS[level.tier.icon] ?? Trophy;
   const remaining = daysLeft(season.ends_at);
+  const pace = seasonPaceLine(season.goals, season.elapsed);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -340,6 +343,7 @@ export function RewardsPage() {
               {nf(season.xp_earned)} XP this season ·{" "}
               {remaining === 0 ? "ends today" : `${remaining} day${remaining === 1 ? "" : "s"} left`}
             </p>
+            {pace && <p className="text-sm font-medium">{pace}</p>}
           </CardHeader>
           <CardContent className="space-y-4">
             <ul className="space-y-3">
@@ -375,6 +379,9 @@ export function RewardsPage() {
                         className="h-1.5"
                       />
                       <p className="text-xs text-muted-foreground">{goal.description}</p>
+                      {!goal.complete && actionForGoal(goal.key) && (
+                        <RewardActionLink action={actionForGoal(goal.key)!} />
+                      )}
                     </div>
                   </li>
                 );
