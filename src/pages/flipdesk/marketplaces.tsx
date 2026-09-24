@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useLocation, useSearchParams } from "react-router";
 import { finishedRunNote, marketplaceLabel } from "@/lib/finished-queue-run";
 import { LinkDuplicatesCard } from "@/components/flipdesk/link-duplicates-card";
 import {
@@ -170,6 +170,12 @@ const COMING_SOON_CHANNELS = Object.keys(MARKETPLACE_TIER).filter(
 // The tab the page opens on. The Tabs are controlled so the Ads and Settings
 // prompts can send a seller back to Connections.
 const DEFAULT_TAB = "connections";
+// MP-14: the tab lives in the URL (?tab=), so a reload, the back button and a
+// link from elsewhere all land on the tab they name.
+const TABS = ["connections", "ads", "settings", "how"] as const;
+// Anchors that live on the Connections tab. A link to one of them opens that
+// tab first, or the element does not exist to scroll to.
+const CONNECTIONS_ANCHORS = new Set(["extension-queue", "ebay-setup", "shopify-setup"]);
 
 // User-facing copy for the Shopify OAuth callback result codes.
 const SHOPIFY_CALLBACK_MESSAGES: Record<
@@ -900,7 +906,14 @@ function EbaySetup({
           <>
             {!allReady && (
               <div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  role="progressbar"
+                  aria-label="eBay setup progress"
+                  aria-valuemin={0}
+                  aria-valuemax={3}
+                  aria-valuenow={doneCount}
+                  className="h-2 w-full overflow-hidden rounded-full bg-muted"
+                >
                   <div
                     className="h-full bg-brand-navy transition-all"
                     style={{ width: `${pct}%` }}
@@ -1646,11 +1659,19 @@ function ConfirmMatch({ review }: { review: SyncReview }) {
 // appears anywhere, and that channel never runs again until the seller opens it
 // themselves. Resuming is a button and not a timer, because GradeThread never
 // decides a human check has passed.
-function StoppedChannels({ platforms }: { platforms: string[] }) {
-  if (platforms.length === 0) return null;
+function StoppedChannels({
+  platforms,
+  alreadyShown,
+}: {
+  platforms: string[];
+  /** MP-14: channels the status rows above already show as stopped. */
+  alreadyShown: ReadonlySet<string>;
+}) {
+  const fresh = platforms.filter((p) => !alreadyShown.has(p));
+  if (fresh.length === 0) return null;
   return (
     <div className="mt-3 rounded-lg border border-dashed p-3">
-      {platforms.map((platform) => {
+      {fresh.map((platform) => {
         const copy = stoppedChannelCopy(platform);
         return (
           <div key={platform}>
@@ -1663,8 +1684,15 @@ function StoppedChannels({ platforms }: { platforms: string[] }) {
   );
 }
 
-function SoldSyncSchedule() {
-  const { data: poll, isLoading } = usePollState();
+function SoldSyncSchedule({
+  poll,
+  isLoading,
+  stoppedInRows,
+}: {
+  poll: ReturnType<typeof usePollState>["data"];
+  isLoading: boolean;
+  stoppedInRows: ReadonlySet<string>;
+}) {
   const stop = useStopPoll();
   const setInterval = useSetPollInterval();
 
@@ -1733,7 +1761,7 @@ function SoldSyncSchedule() {
           </Button>
         </div>
       </div>
-      <StoppedChannels platforms={stopped} />
+      <StoppedChannels platforms={stopped} alreadyShown={stoppedInRows} />
     </div>
   );
 }
@@ -1752,8 +1780,14 @@ function SoldSyncSection() {
     refetch: refetchReviews,
   } = useSyncReviews();
   const dismiss = useDismissSyncReview();
+  // MP-14: lifted here so the blurb can say whether reads also run on a
+  // schedule. It used to say "Nothing is read on a schedule" directly above
+  // "Checking on a schedule".
+  const { data: poll, isLoading: pollLoading } = usePollState();
+  const scheduled = !!poll?.available && !!poll.accepted && !!poll.enabled;
 
   const rows = channels ?? [];
+  const stoppedInRows = new Set(rows.filter((r) => r.status === "stopped").map((r) => r.platform));
   // MP-08: this is the double-sale guard. A failed status read used to hide
   // the whole section, which reads exactly like "no channel to guard".
   if (isError) {
@@ -1793,9 +1827,12 @@ function SoldSyncSection() {
       <p className="mb-3 max-w-prose text-xs text-muted-foreground">
         When one of these channels sells a garment, GradeThread ends your other
         listings for it so the same item cannot sell twice. It reads your own
-        sold page while you are on it, from your browser. Nothing is read on a
-        schedule, and GradeThread never receives your marketplace password,
-        session, or the name or address of anyone who bought from you.
+        sold page while you are on it, from your browser
+        {scheduled
+          ? ", and on the schedule below in a background tab while your browser is open."
+          : ". Nothing is read on a schedule."}{" "}
+        GradeThread never receives your marketplace password, session, or the
+        name or address of anyone who bought from you.
       </p>
 
       <div className="rounded-lg border">
@@ -1831,7 +1868,7 @@ function SoldSyncSection() {
         </ul>
       </div>
 
-      <SoldSyncSchedule />
+      <SoldSyncSchedule poll={poll} isLoading={pollLoading} stoppedInRows={stoppedInRows} />
 
       {reviewsError && (
         <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-xs">
@@ -1997,6 +2034,17 @@ function QueueSummary({
 
 function ExtensionQueueSection() {
   const { data, isLoading, isError, isFetching, refetch } = useExtensionQueue();
+  const { hash } = useLocation();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  // MP-14: the attention rail links here. Scroll once the queue has settled,
+  // so the layout below does not jump the section away again, and move focus
+  // to the heading so a keyboard or screen-reader user lands on it too.
+  useEffect(() => {
+    if (hash !== "#extension-queue" || isLoading) return;
+    const el = document.getElementById("extension-queue");
+    el?.scrollIntoView({ block: "start" });
+    headingRef.current?.focus();
+  }, [hash, isLoading]);
   const cancel = useCancelExtensionWork();
   const requeue = useRequeueExtensionWork();
   // MP-10: only the row being acted on is busy, not every row on the list.
@@ -2053,7 +2101,7 @@ function ExtensionQueueSection() {
     // US-3032: h3 and <div> — a part of the "Browser extension" section.
     // The id is the attention rail's extension chips' anchor.
     <div id="extension-queue" className="scroll-mt-20">
-      <h3 className="mb-3 text-sm font-semibold text-foreground">
+      <h3 ref={headingRef} tabIndex={-1} className="mb-3 text-sm font-semibold text-foreground">
         Queued for your desktop
       </h3>
 
@@ -2399,7 +2447,25 @@ export function FlipdeskMarketplacesPage() {
   }, [params, setParams, connection?.last_synced_at, syncBaseline]);
 
   const syncing = syncListings.isPending || syncBaseline != null;
-  const [tab, setTab] = useState<string>(DEFAULT_TAB);
+  const { hash } = useLocation();
+  const anchor = hash.replace(/^#/, "");
+  const tabParam = params.get("tab");
+  const tab = CONNECTIONS_ANCHORS.has(anchor)
+    ? "connections"
+    : TABS.includes(tabParam as (typeof TABS)[number])
+      ? (tabParam as string)
+      : DEFAULT_TAB;
+  const setTab = (next: string) => {
+    const p = new URLSearchParams(params);
+    p.set("tab", next);
+    setParams(p, { replace: true });
+  };
+  // MP-14: the summary rows link to #ebay-setup and #shopify-setup. The queue
+  // anchor scrolls itself once its data settles (ExtensionQueueSection).
+  useEffect(() => {
+    if (anchor !== "ebay-setup" && anchor !== "shopify-setup") return;
+    document.getElementById(anchor)?.scrollIntoView({ block: "start" });
+  }, [anchor]);
   // MP-07: a failed read, a pending read and a real "not connected" are three
   // different answers in the Ads and Settings tabs too.
   const connCouldNotCheck = (
@@ -2542,11 +2608,19 @@ export function FlipdeskMarketplacesPage() {
           that spends money on eBay where they can be read against each other.
           The programs card went to Settings, which is what it always was. */}
       <Tabs value={tab} onValueChange={setTab} className="space-y-6">
-        <TabsList>
+        {/* MP-14: four triggers overflow at 375px. Short labels below sm, and
+            the list scrolls sideways rather than pushing the page wider. */}
+        <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="connections">Connections</TabsTrigger>
-          <TabsTrigger value="ads">Ads &amp; promotions</TabsTrigger>
+          <TabsTrigger value="ads">
+            <span className="sm:hidden">Ads</span>
+            <span className="hidden sm:inline">Ads &amp; promotions</span>
+          </TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
-          <TabsTrigger value="how">How channels work</TabsTrigger>
+          <TabsTrigger value="how">
+            <span className="sm:hidden">How it works</span>
+            <span className="hidden sm:inline">How channels work</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="connections" className="space-y-8">

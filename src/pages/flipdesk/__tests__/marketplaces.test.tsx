@@ -13,7 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // React 19 requires this flag for act() to flush effects in a test env.
@@ -45,6 +45,7 @@ const state = {
   disconnect: vi.fn(),
   toastErrors: [] as string[],
   entry: "/dashboard/flipdesk/marketplaces",
+  poll: undefined as unknown,
 };
 
 vi.mock("@/hooks/use-workspace", async () => {
@@ -157,7 +158,7 @@ vi.mock("@/hooks/use-sold-sync", async (importOriginal) => ({
     isError: state.candidatesError,
     refetch: vi.fn(),
   }),
-  usePollState: () => ({ data: undefined, isLoading: false }),
+  usePollState: () => ({ data: state.poll, isLoading: false }),
   useStopPoll: mutation,
   useSetPollInterval: mutation,
 }));
@@ -207,6 +208,12 @@ vi.mock("@/lib/supabase", () => {
 
 const { FlipdeskMarketplacesPage } = await import("@/pages/flipdesk/marketplaces");
 
+let lastSearch = "";
+function LocationProbe() {
+  lastSearch = useLocation().search;
+  return null;
+}
+
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
@@ -220,6 +227,7 @@ function render() {
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={[state.entry]}>
           <FlipdeskMarketplacesPage />
+          <LocationProbe />
         </MemoryRouter>
       </QueryClientProvider>,
     );
@@ -273,6 +281,7 @@ beforeEach(() => {
     disconnect: vi.fn(),
     toastErrors: [],
     entry: "/dashboard/flipdesk/marketplaces",
+    poll: undefined,
   });
 });
 
@@ -387,10 +396,18 @@ describe("Marketplaces page: roles (MP-01)", () => {
   });
 });
 
+const TAB_VALUE: Record<string, string> = {
+  Connections: "connections",
+  "Ads & promotions": "ads",
+  Settings: "settings",
+  "How channels work": "how",
+};
+
 async function openTab(name: string) {
-  const trigger = [...document.querySelectorAll("[role=tab]")].find(
-    (t) => t.textContent?.trim() === name,
-  ) as HTMLElement | undefined;
+  const value = TAB_VALUE[name] ?? name;
+  const trigger = document.querySelector(
+    `[role=tab][id$="-trigger-${value}"]`,
+  ) as HTMLElement | null;
   expect(trigger, `tab ${name}`).toBeTruthy();
   await act(async () => {
     trigger!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
@@ -839,5 +856,74 @@ describe("Marketplaces page: setup dialogs (MP-13)", () => {
     expect(buttonIn(dialog, "I accept returns")!.getAttribute("aria-pressed")).toBe("true");
     expect(buttonIn(dialog, "No returns")!.getAttribute("aria-pressed")).toBe("false");
     expect(dialog.textContent).toContain("Ships within 1 day");
+  });
+});
+
+describe("Marketplaces page: tabs in the URL and deep links (MP-14)", () => {
+  it("?tab=settings opens on Settings", async () => {
+    state.entry = "/dashboard/flipdesk/marketplaces?tab=settings";
+    render();
+    await settle();
+    expect(document.getElementById("auto-end-cross")).toBeTruthy();
+  });
+
+  it("clicking Ads writes tab=ads into the URL", async () => {
+    render();
+    await openTab("Ads & promotions");
+    const ads = document.querySelector('[role=tab][id$="-trigger-ads"]');
+    expect(ads?.getAttribute("aria-selected")).toBe("true");
+    expect(new URLSearchParams(lastSearch).get("tab")).toBe("ads");
+    // The Connections content is gone, so the URL-driven value took effect.
+    expect(document.body.textContent).not.toContain("Queued for your desktop");
+  });
+
+  it("#extension-queue opens Connections and scrolls the queue into view", async () => {
+    const spy = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = spy;
+    try {
+      state.entry = "/dashboard/flipdesk/marketplaces?tab=settings#extension-queue";
+      render();
+      await settle();
+      expect(document.getElementById("extension-queue")).toBeTruthy();
+      expect(spy).toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("the setup checklist bar is a labelled progressbar", () => {
+    state.connection = CONNECTED;
+    render();
+    const bar = document.querySelector("[role=progressbar]");
+    expect(bar?.getAttribute("aria-valuenow")).toBe("1");
+    expect(bar?.getAttribute("aria-valuemax")).toBe("3");
+  });
+});
+
+describe("Marketplaces page: sold-sync copy (MP-14)", () => {
+  it("with the schedule on, the blurb does not say nothing is read on a schedule", () => {
+    state.syncChannels = [
+      {
+        platform: "poshmark",
+        status: "ok",
+        failure_reason: null,
+        listings_seen: 3,
+        last_ok_at: null,
+        last_read_at: null,
+        open_reviews: 0,
+        live_listings: 3,
+      },
+    ];
+    state.poll = {
+      available: true,
+      accepted: true,
+      enabled: true,
+      intervalMin: 60,
+      stoppedChannels: [],
+    };
+    render();
+    expect(document.body.textContent).toContain("Checking on a schedule");
+    expect(document.body.textContent).not.toContain("Nothing is read on a schedule");
   });
 });
