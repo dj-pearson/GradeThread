@@ -82,14 +82,48 @@ export interface ListingPageCriteria {
  * seller's Aged threshold, so "Select all" on Unlisted > Ready picked undrafted
  * rows and then offered Publish.
  */
-export function listingPageArgs(c: ListingPageCriteria) {
+/**
+ * The 90-day Sold window, expressed without a migration.
+ *
+ * flipdesk_listing_page's p_sold_filter knows d7/d30/ytd and treats anything
+ * else as "all". 'd90' is sent instead as a sale_date >= rule in p_filter,
+ * which flipdesk_filter_matches already evaluates. That only composes with an
+ * AND filter: under an OR filter the rule would widen the result rather than
+ * narrow it, so there the window is dropped and the tab shows every sale.
+ */
+function soldWindowArgs(
+  soldFilter: SoldFilter,
+  filterQuery: FilterQuery,
+  now: Date,
+): { p_sold_filter: string; p_filter: FilterQuery } {
+  if (soldFilter !== "d90") return { p_sold_filter: soldFilter, p_filter: filterQuery };
+  if (filterQuery.combinator === "or" && filterQuery.rules.length > 0) {
+    return { p_sold_filter: "all", p_filter: filterQuery };
+  }
+  const from = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  return {
+    p_sold_filter: "all",
+    p_filter: {
+      combinator: "and",
+      rules: [
+        ...filterQuery.rules,
+        { id: "sold-window-d90", field: "sale_date", op: "gte", value: from },
+      ],
+    },
+  };
+}
+
+export function listingPageArgs(c: ListingPageCriteria, now: Date = new Date()) {
+  const window = c.tab === "sold"
+    ? soldWindowArgs(c.soldFilter, c.filterQuery, now)
+    : { p_sold_filter: c.soldFilter, p_filter: c.filterQuery };
   return {
     p_tab: c.tab,
     p_search: c.search,
-    p_sold_filter: c.soldFilter,
+    p_sold_filter: window.p_sold_filter,
     // Only consulted on the Unlisted tab, like p_sold_filter on Sold.
     p_unlisted_filter: c.unlistedFilter,
-    p_filter: c.filterQuery,
+    p_filter: window.p_filter,
     p_column_sort: c.columnSort,
     p_sort_preset: c.sortPreset,
     // "Year to date" means the VIEWER's year; the database cannot know it.

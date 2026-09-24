@@ -1,6 +1,10 @@
 import { DollarSign } from "lucide-react";
 import { useFlipdeskOverview } from "@/hooks/use-flipdesk-overview";
-import { DEFAULT_OVERVIEW_RANGE, overviewRangeDef } from "@/lib/overview-range";
+import {
+  DEFAULT_OVERVIEW_RANGE,
+  overviewRangeDef,
+  soldWindowHref,
+} from "@/lib/overview-range";
 import { fmtMoney, fmtMoneyShort } from "@/lib/flipdesk-overview-format";
 import {
   MetricsUnavailable,
@@ -18,7 +22,7 @@ import type { WidgetProps } from "@/lib/dashboard-widgets";
 export function FlipdeskStatNetWidget({ range }: WidgetProps) {
   const rangeId = range ?? DEFAULT_OVERVIEW_RANGE;
   const rangeDef = overviewRangeDef(rangeId);
-  const { data: metrics, isLoading, isError, isFetching, refetch } =
+  const { data: metrics, isLoading, isError, isFetching, isPlaceholderData, refetch } =
     useFlipdeskOverview(rangeId);
 
   if (isLoading) return <StatTileSkeleton label="net profit" />;
@@ -39,7 +43,8 @@ export function FlipdeskStatNetWidget({ range }: WidgetProps) {
           ? `${fmtMoneyShort(net / sold)} avg / item`
           : `no sales ${rangeDef.phrase}`
       }
-      to="/dashboard/flipdesk/items?tab=sold"
+      to={soldWindowHref(rangeId)}
+      stale={isPlaceholderData}
     />
   );
 }

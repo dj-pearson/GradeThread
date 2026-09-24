@@ -103,3 +103,12 @@ export function overviewRangeDays(
   const startOfYear = new Date(now.getFullYear(), 0, 1).getTime();
   return Math.max(1, Math.ceil((now.getTime() - startOfYear) / DAY_MS));
 }
+
+/**
+ * The Sold tab, filtered to the same window a ranged tile counted. The Sold
+ * tab's ?window= values use the same ids as the overview range (d7, d30, d90,
+ * ytd, all), so this is a straight pass-through with one spelling.
+ */
+export function soldWindowHref(id: OverviewRangeId): string {
+  return `/dashboard/flipdesk/items?tab=sold&window=${id}`;
+}

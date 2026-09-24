@@ -13,7 +13,7 @@ import type { WidgetProps } from "@/lib/dashboard-widgets";
 export function FlipdeskStatListedWidget({ range }: WidgetProps) {
   const rangeId = range ?? DEFAULT_OVERVIEW_RANGE;
   const rangeDef = overviewRangeDef(rangeId);
-  const { data: metrics, isLoading, isError, isFetching, refetch } =
+  const { data: metrics, isLoading, isError, isFetching, isPlaceholderData, refetch } =
     useFlipdeskOverview(rangeId);
 
   if (isLoading) return <StatTileSkeleton label="items listed" />;
@@ -28,6 +28,11 @@ export function FlipdeskStatListedWidget({ range }: WidgetProps) {
       value={(metrics?.listedInRange ?? 0).toLocaleString()}
       sub={`items moved to listed ${rangeDef.phrase}`}
       to="/dashboard/flipdesk/items?status=listed"
+      // The list has no list_date filter, so it cannot show only the items
+      // listed in this window. Say where the link goes instead of implying
+      // the list matches the number.
+      cta="See all listed"
+      stale={isPlaceholderData}
     />
   );
 }

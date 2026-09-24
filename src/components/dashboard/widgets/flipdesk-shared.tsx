@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 import { Link } from "react-router";
 import { ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +30,8 @@ export function StatTile({
   sub,
   to,
   label,
+  cta,
+  stale = false,
 }: {
   icon: ReactNode;
   value: string;
@@ -36,12 +39,23 @@ export function StatTile({
   to: string;
   /** What the link is called for a screen reader, since the heading is outside it. */
   label: string;
+  /**
+   * Say where the link goes when it is NOT the list the number came from,
+   * e.g. "See all listed" when the list cannot apply the tile's window.
+   */
+  cta?: string;
+  /** Showing the previous range's value while the new one loads. */
+  stale?: boolean;
 }) {
   return (
     <Link
       to={to}
-      aria-label={`${label}: ${value}. ${sub}`}
-      className="group block rounded-xl border bg-card p-4 transition-colors hover:border-brand-navy focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+      aria-label={`${label}: ${value}. ${sub}${cta ? `. ${cta}` : ""}`}
+      aria-busy={stale || undefined}
+      className={cn(
+        "group block rounded-xl border bg-card p-4 transition-[colors,opacity] hover:border-brand-navy focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+        stale && "opacity-60",
+      )}
     >
       <div className="flex items-start justify-between gap-2">
         <span className="text-2xl font-bold tabular-nums">{value}</span>
@@ -50,7 +64,10 @@ export function StatTile({
         </span>
       </div>
       <div className="mt-1 flex items-center justify-between gap-2">
-        <span className="text-xs text-muted-foreground">{sub}</span>
+        <span className="text-xs text-muted-foreground">
+          {sub}
+          {cta ? <span className="block font-medium text-foreground">{cta}</span> : null}
+        </span>
         <ArrowRight
           className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-60"
           aria-hidden="true"

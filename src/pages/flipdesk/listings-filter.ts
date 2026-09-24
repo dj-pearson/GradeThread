@@ -89,6 +89,7 @@ export type SoldFilter =
   | "discrepancy"
   | "d7"
   | "d30"
+  | "d90"
   | "ytd";
 
 /**
@@ -114,6 +115,7 @@ export function matchesSoldFilter(
   if (soldAt == null || Number.isNaN(soldAt)) return false;
   if (filter === "d7") return soldAt >= now - 7 * DAY_MS;
   if (filter === "d30") return soldAt >= now - 30 * DAY_MS;
+  if (filter === "d90") return soldAt >= now - 90 * DAY_MS;
   // Year to date, in the viewer's local year — the boundary a seller's tax year
   // actually uses.
   return soldAt >= new Date(new Date(now).getFullYear(), 0, 1).getTime();

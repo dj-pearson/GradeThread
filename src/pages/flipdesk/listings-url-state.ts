@@ -65,6 +65,9 @@ const SOLD_WINDOWS: readonly SoldFilter[] = [
   "discrepancy",
   "d7",
   "d30",
+  // The overview's 90-day range links here, so the Sold tab has to be able to
+  // show the same window the tile counted.
+  "d90",
   "ytd",
 ];
 

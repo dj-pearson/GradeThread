@@ -238,6 +238,7 @@ const SOLD_FILTER_LABELS: Record<SoldFilter, string> = {
   discrepancy: "Discrepancy",
   d7: "Last 7 days",
   d30: "Last 30 days",
+  d90: "Last 90 days",
   ytd: "Year to date",
 };
 

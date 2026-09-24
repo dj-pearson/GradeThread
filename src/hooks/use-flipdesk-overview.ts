@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import {
@@ -113,6 +113,9 @@ export function useFlipdeskOverview(range: OverviewRangeId, enabled = true) {
     queryKey: ["items_full", "overview_metrics", user?.id, range],
     enabled: enabled && !!user,
     staleTime: 5 * 60 * 1000,
+    // A range click keeps the previous numbers on screen (dimmed by the tiles
+    // while isPlaceholderData) instead of blanking eleven widgets to skeletons.
+    placeholderData: keepPreviousData,
     queryFn: async (): Promise<OverviewMetrics> => {
       // Bounds are computed at FETCH time, not at render time: a tab left open
       // overnight would otherwise keep asking for yesterday's seven days.
