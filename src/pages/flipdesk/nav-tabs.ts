@@ -51,6 +51,22 @@ export const SOURCING_TABS = [
 ] as const;
 export type SourcingTab = (typeof SOURCING_TABS)[number];
 
+/**
+ * What each Sourcing tab is called, for the tab strip and the phone picker.
+ *
+ * SRC-10: one source for the words. The strip said "ScoutAI" while the surface
+ * registry, the palette and iOS said "Scout deals"; nav-tabs.test.ts holds the
+ * registry's ?tab= entries to these.
+ */
+export const SOURCING_TAB_LABELS: Readonly<Record<SourcingTab, string>> = {
+  scout: "Scout deals",
+  buy: "Buy decision",
+  radar: "Radar",
+  stores: "My stores",
+  sources: "Sources",
+  demand: "Buyer demand",
+};
+
 export function resolveSourcingTab(
   raw: string | null | undefined,
 ): SourcingTab {

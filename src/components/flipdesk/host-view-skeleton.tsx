@@ -1,3 +1,5 @@
+import { Component, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
 
@@ -28,4 +30,49 @@ export function HostViewSkeleton({ label = "Loading" }: { label?: string }) {
       </div>
     </LoadingRegion>
   );
+}
+
+/**
+ * SRC-10: a tab whose lazy chunk fails to load (a deploy swapped the hashes, a
+ * flaky connection) used to throw past the host and tear the whole page down,
+ * tab strip included. This catches it inside the tab, so the seller can switch
+ * to another tab, retry this one, or reload.
+ */
+export class HostViewBoundary extends Component<
+  { children: ReactNode; onRetry?: () => void },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div role="alert" className="space-y-3 rounded-lg border p-6 text-sm">
+        <p className="font-medium">This tab did not load</p>
+        <p className="text-muted-foreground">
+          The rest of the page is fine. Try it again, or reload if a new version
+          of the app was just released.
+        </p>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              this.setState({ failed: false });
+              this.props.onRetry?.();
+            }}
+          >
+            Retry
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => window.location.reload()}>
+            Reload
+          </Button>
+        </div>
+      </div>
+    );
+  }
 }

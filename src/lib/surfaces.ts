@@ -246,12 +246,13 @@ export const SURFACES = [
   },
   {
     // US-2161: ScoutAI + Buy Decision + Sources + Buyer Demand were four
-    // entries answering one question. NOT plan-gated at the nav level: two of
-    // the four tabs need compPulls and two do not, so gating the whole entry
-    // would hide Sources from a seller who is entitled to it.
+    // entries answering one question; Radar and My stores made it six tabs.
+    // NOT plan-gated at the nav level: some of the tabs need compPulls and
+    // Sources and My stores do not, so gating the whole entry would hide
+    // Sources from a seller who is entitled to it.
     id: "sourcing",
     label: "Sourcing",
-    description: "What to buy and where from: Scout, buy calls, sources, demand.",
+    description: "What to buy and where from: Scout, buy calls, Radar, your stores, sources, demand.",
     web: "/dashboard/flipdesk/sourcing",
     nav: { group: "FlipDesk", subgroup: "Sourcing" },
     ios: null,
