@@ -34,7 +34,10 @@ export function RewardsWidget() {
   // A brand-new seller has no widget to show, but they DO need their baseline
   // snapshot recorded — otherwise their very first badge diffs against nothing
   // and the one moment most worth marking is the one that gets skipped.
-  const celebrations = <RewardCelebrations />;
+  // Baseline-only while the rewards page's one-time arrival moment is pending:
+  // that card is the celebration for the backfill, and a toast here for the
+  // same levels and badges would be a second one.
+  const celebrations = <RewardCelebrations baselineOnly={!!rewards?.arrival} />;
 
   // A failed rewards read is not worth a red block on the dashboard: it is an
   // extra here, and the rewards page states the error properly.

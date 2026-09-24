@@ -216,19 +216,19 @@ export function RewardsPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
+      {header}
+
       {/* US-1857: the tiered celebration runner. Mounted here as well as in the
           dashboard widget because both surfaces already hold this exact read —
           neither mount costs a request, and whichever the seller opens first is
-          where the moment lands. */}
-      {/* US-2973: the backfill's one moment, above the celebration runner. When
-          an arrival is pending the runner is suppressed — the seller should get
-          one clear "your work counted", not that plus a stack of badge toasts
-          for badges the same backfill just awarded. */}
-      {arrival
-        ? <ArrivalMoment arrival={arrival} tierName={level.tier.name} />
-        : <RewardCelebrations />}
-
-      {header}
+          where the moment lands.
+          US-2973: the backfill's one moment. While an arrival is pending the
+          runner still runs, but baseline-only: it records the new snapshot and
+          announces nothing, so the seller gets one clear "your work counted"
+          and no replayed level or badge toasts after "Got it". Below the
+          header so the page's h1 comes first. */}
+      <RewardCelebrations baselineOnly={!!arrival} />
+      {arrival ? <ArrivalMoment arrival={arrival} tierName={level.tier.name} /> : null}
 
       {/* Level — the identity. Never decreases. */}
       <Card>

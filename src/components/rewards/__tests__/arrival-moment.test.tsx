@@ -50,6 +50,11 @@ describe("ArrivalMoment", () => {
     expect(render({ level: 7, badgeCount: 0 })).toContain("never go down");
   });
 
+  it("uses the right article for every tier name", () => {
+    expect(render({ level: 12, badgeCount: 0 }, "Archivist")).toContain("an Archivist");
+    expect(render({ level: 7, badgeCount: 0 }, "Curator")).toContain("a Curator");
+  });
+
   it("offers a dismiss control", () => {
     expect(render({ level: 7, badgeCount: 2 })).toContain("Got it");
   });
@@ -58,11 +63,18 @@ describe("ArrivalMoment", () => {
 describe("the rewards page wiring", () => {
   const page = readFileSync(resolve(process.cwd(), "src/pages/rewards.tsx"), "utf8");
 
-  it("renders the arrival INSTEAD of the celebration runner, not alongside it", () => {
-    // Both at once is the failure this replaces: an arrival card plus a toast
-    // per badge the backfill just granted.
+  it("keeps the celebration runner mounted, baseline-only, while the arrival shows", () => {
+    // R10: unmounting the runner left its snapshot stale, so "Got it" mounted
+    // it into a replay of the same backfill. It now runs silently instead.
     expect(page).toContain("<ArrivalMoment");
-    expect(page).toMatch(/arrival[\s\S]{0,200}<ArrivalMoment[\s\S]{0,200}<RewardCelebrations \/>/);
+    expect(page).toContain("<RewardCelebrations baselineOnly={!!arrival} />");
+    expect(page).not.toMatch(/arrival\s*\?\s*<ArrivalMoment[^:]*:\s*<RewardCelebrations/);
+  });
+
+  it("renders the arrival below the page header so the h1 comes first", () => {
+    expect(page.indexOf("{header}\n\n      {/* US-1857")).toBeGreaterThan(-1);
+    const main = page.slice(page.indexOf("  return (\n    <div className=\"mx-auto max-w-3xl space-y-6\">\n      {header}\n\n"));
+    expect(main.indexOf("{header}")).toBeLessThan(main.indexOf("<ArrivalMoment"));
   });
 
   it("takes the tier name from the level block rather than re-deriving it", () => {
@@ -93,6 +105,12 @@ describe("the arrival component", () => {
 
   it("fires confetti, which already declines under reduced motion", () => {
     expect(src).toContain("<ConfettiBurst");
+  });
+
+  it("clears the arrival in the cache instead of refetching the whole state", () => {
+    expect(src).toContain("setQueriesData<RewardsState>");
+    expect(src).not.toContain("invalidateQueries");
+    expect(src).toContain("skipWorkspaceHeader: true");
   });
 
   it("dismisses optimistically and swallows an ack failure", () => {
