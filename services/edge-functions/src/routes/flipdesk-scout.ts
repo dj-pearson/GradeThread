@@ -233,33 +233,94 @@ export function parseScanFilters(body: Record<string, unknown>): ScanFilters | {
   };
 }
 
+/** SRC-6: a condition bucket needs this many prices before its median is used. */
+export const PHASE_ONE_MIN_BUCKET = 5;
+/** Unknown shipping is a real cost we cannot see; rank it a little behind. */
+const UNKNOWN_SHIPPING_PENALTY = 1.1;
+/** Lots, parts and kids' sizes are rarely what an adult-garment search wants. */
+const OFF_TARGET_PENALTY = 1.3;
+const OFF_TARGET_RE = /\b(lot|lots|bundle|parts|repair|kids?|youth|boys|girls|toddler|infant|baby)\b/i;
+
+function tokens(text: string | undefined | null): string[] {
+  return (text ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((x, y) => x - y);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
 /**
- * Phase one: rank by how far the asking price sits under a rough value, with
- * NO AI spent.
+ * Phase one: pick which listings are worth a paid shadow grade, with NO AI.
  *
- * The rough value is one `cachedValueAtGrade` read at a nominal grade for the
- * whole search — one question to eBay for the entire phase, not one per
- * listing. It is deliberately crude: its only job is to decide WHICH eight of
- * fifty listings are worth a real shadow grade, and being approximately right
- * about the ordering costs nothing, while grading all fifty would cost the
- * seller fifty AI actions to answer a question about eight.
+ * SRC-6: this used to divide every total by one constant, so the order was
+ * exactly cheapest-first and the eight paid grades went to the eight cheapest
+ * listings, which are often worn or off-target. Each listing is now priced
+ * against the median of listings in the SAME eBay condition: a $40 new-with-
+ * tags coat in a bucket whose median is $80 is a better lead than a $20
+ * pre-owned one in a bucket whose median is $22.
  *
- * Cheapest-relative-to-value first. A listing with no asking price sorts last:
- * it cannot be compared, and it cannot be bought on a number either.
+ * A bucket with fewer than PHASE_ONE_MIN_BUCKET prices is too thin to have a
+ * median, so it falls back to `fallbackMedianCents` (the one rough value read at
+ * a nominal grade) and then to the median of every price in the search. Unknown
+ * shipping ranks slightly behind, a title that shares the search's words ranks
+ * slightly ahead, and lots, parts and kids' sizes fall back unless the search
+ * asked for them.
+ *
+ * A listing with no asking price sorts last: it cannot be compared, and it
+ * cannot be bought on a number either.
  */
 export function rankByRoughValue(
   candidates: ScoutCandidate[],
-  roughMedianCents: number | null,
+  fallbackMedianCents: number | null,
+  search: { q?: string; brand?: string } = {},
 ): ScoutCandidate[] {
-  return [...candidates].sort((a, b) => {
-    const ratio = (cand: ScoutCandidate): number => {
-      const total = totalPriceCents(cand.askingCents, cand.shippingCents).cents;
-      if (total == null || total <= 0) return Number.POSITIVE_INFINITY;
-      if (roughMedianCents == null || roughMedianCents <= 0) return total;
-      return total / roughMedianCents;
-    };
-    return ratio(a) - ratio(b);
-  });
+  const totalOf = (cand: ScoutCandidate) => totalPriceCents(cand.askingCents, cand.shippingCents).cents;
+  const bucketOf = (cand: ScoutCandidate) => (cand.sellerCondition ?? "").trim().toLowerCase();
+
+  const byBucket = new Map<string, number[]>();
+  const all: number[] = [];
+  for (const cand of candidates) {
+    const total = totalOf(cand);
+    if (total == null || total <= 0) continue;
+    all.push(total);
+    const key = bucketOf(cand);
+    byBucket.set(key, [...(byBucket.get(key) ?? []), total]);
+  }
+  const globalMedian = median(all);
+  const bucketMedian = new Map<string, number | null>();
+  for (const [key, totals] of byBucket) {
+    bucketMedian.set(key, totals.length >= PHASE_ONE_MIN_BUCKET ? median(totals) : null);
+  }
+
+  const searchTokens = new Set([...tokens(search.q), ...tokens(search.brand)]);
+  const searchWantsOffTarget = OFF_TARGET_RE.test(`${search.q ?? ""} ${search.brand ?? ""}`);
+
+  const score = (cand: ScoutCandidate): number => {
+    const total = totalOf(cand);
+    if (total == null || total <= 0) return Number.POSITIVE_INFINITY;
+    const ref = bucketMedian.get(bucketOf(cand)) ??
+      (fallbackMedianCents != null && fallbackMedianCents > 0 ? fallbackMedianCents : null) ??
+      globalMedian;
+    let ratio = ref != null && ref > 0 ? total / ref : total;
+    if (cand.shippingCents == null) ratio *= UNKNOWN_SHIPPING_PENALTY;
+    if (searchTokens.size > 0) {
+      const titleTokens = new Set(tokens(cand.title));
+      let hits = 0;
+      for (const t of searchTokens) if (titleTokens.has(t)) hits++;
+      ratio *= 1 - 0.1 * (hits / searchTokens.size);
+    }
+    if (!searchWantsOffTarget && OFF_TARGET_RE.test(cand.title)) ratio *= OFF_TARGET_PENALTY;
+    return ratio;
+  };
+
+  const scored = candidates.map((cand) => ({ cand, s: score(cand) }));
+  // Stable: equal scores keep eBay's order.
+  return scored
+    .sort((a, b) => (a.s === b.s ? 0 : a.s - b.s))
+    .map((x) => x.cand);
 }
 
 /** A shadow grade: what the AI said about one listing's photo. */
@@ -411,6 +472,19 @@ flipdeskScoutRoutes.post("/", async (c) => {
   // filters, and ranks the rest against ONE rough value read. No AI is spent
   // here at all, which is the point: the expensive step gets the best eight
   // rather than the first eight.
+  // SRC-6: the rough value does not depend on the search results, so ask for it
+  // at the same time. It never rejects; a failure is logged and means null.
+  const roughValuePromise: Promise<number | null> = cachedValueAtGrade(
+    { categoryId, q, brand },
+    PHASE_ONE_NOMINAL_GRADE,
+  ).then(
+    (rough) => (rough.sufficient ? rough.medianCents : null),
+    (err) => {
+      captureException(err, { level: "warn", route: "scout.rough-value" });
+      return null;
+    },
+  );
+
   let considered: ScoutCandidate[];
   try {
     const search = await searchBrowseComps({
@@ -433,6 +507,7 @@ flipdeskScoutRoutes.post("/", async (c) => {
         itemWebUrl: i.itemWebUrl,
         askingCents: i.price != null && i.price > 0 ? Math.round(i.price * 100) : null,
         shippingCents: i.shippingCents,
+        sellerCondition: i.condition,
       }));
   } catch (err) {
     return failSafe(c, 502, "Couldn't reach eBay to search candidates. Try again shortly.", err, "scout.search");
@@ -470,17 +545,14 @@ flipdeskScoutRoutes.post("/", async (c) => {
   // grade. Crude on purpose — see rankByRoughValue. A failure here is not fatal;
   // the phase falls back to cheapest-first, which is still a better eight than
   // whichever eight eBay listed first.
-  let roughMedianCents: number | null = null;
-  try {
-    const rough = await cachedValueAtGrade({ categoryId, q, brand }, PHASE_ONE_NOMINAL_GRADE);
-    roughMedianCents = rough.sufficient ? rough.medianCents : null;
-  } catch (err) {
-    captureException(err, { level: "warn", route: "scout.rough-value" });
-  }
+  //
+  // SRC-6: only the FALLBACK now, for condition buckets too thin to have their
+  // own median, and started alongside the search (below) rather than after it.
+  const roughMedianCents = await roughValuePromise;
 
   // A candidate with no photo cannot be shadow-graded, so it never enters the
   // queue rather than being skipped inside it.
-  const queue = rankByRoughValue(considered, roughMedianCents)
+  const queue = rankByRoughValue(considered, roughMedianCents, { q, brand })
     .filter((cand): cand is ScoutCandidate & { imageUrl: string } => Boolean(cand.imageUrl))
     .slice(0, limit);
 

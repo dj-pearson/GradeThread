@@ -40,6 +40,12 @@ export interface ScoutCandidate {
    * null when eBay's summary carried no shipping at all.
    */
   shippingCents?: number | null;
+  /**
+   * SRC-6/SRC-14: the seller's own eBay condition text ("Pre-owned", "New with
+   * tags"). Phase one buckets by it, and the arbitrage badge compares it with
+   * the shadow grade. Absent on callers that do not have it.
+   */
+  sellerCondition?: string | null;
 }
 
 // ── US-3098: what the buyer actually pays ───────────────────────────────────
