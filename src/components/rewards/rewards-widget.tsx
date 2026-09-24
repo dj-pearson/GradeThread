@@ -2,7 +2,7 @@ import { Link } from "react-router";
 import { ArrowRight, CalendarRange, Target, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { LabeledProgress } from "@/components/rewards/labeled-progress";
 import { useRewards } from "@/hooks/use-rewards";
 import { useQuests } from "@/hooks/use-quests";
 import { BadgeMedalStrip } from "@/components/rewards/badge-shelf";
@@ -79,11 +79,13 @@ export function RewardsWidget() {
           </div>
 
           <div className="space-y-1.5">
-            <Progress value={level.percent_to_next_level} />
+            <LabeledProgress
+              value={level.percent_to_next_level}
+              label={`Progress to level ${level.level + 1}`}
+              valueText={`${nf(level.xp_to_next_level)} XP to go`}
+            />
             <p className="text-xs text-muted-foreground">
-              {level.xp_to_next_level > 0
-                ? `${nf(level.xp_to_next_level)} XP to level ${level.level + 1}`
-                : "Level up ready"}
+              {nf(level.xp_to_next_level)} XP to level {level.level + 1}
             </p>
           </div>
 
@@ -130,7 +132,12 @@ export function RewardsWidget() {
                   {nf(milestones.next.xp_remaining)} XP to go
                 </p>
               </div>
-              <Progress value={milestones.next.percent} className="h-1.5" />
+              <LabeledProgress
+                value={milestones.next.percent}
+                label={`Progress to ${milestones.next.label}`}
+                valueText={`${nf(milestones.next.xp_remaining)} XP to go`}
+                className="h-1.5"
+              />
             </div>
           )}
         </CardContent>

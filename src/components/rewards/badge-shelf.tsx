@@ -53,6 +53,9 @@ const TIER_BG: Record<string, string> = {
   gold: "#d4af37",
 };
 
+/** Tiers whose fill is too light for a white glyph. */
+const DARK_GLYPH_TIERS = new Set(["silver", "gold"]);
+
 const TIER_LABEL: Record<string, string> = {
   bronze: "Bronze",
   silver: "Silver",
@@ -106,7 +109,10 @@ function BadgeMedal({
     >
       <span
         className={cn(
-          "flex flex-shrink-0 items-center justify-center rounded-full text-white",
+          "flex flex-shrink-0 items-center justify-center rounded-full",
+          // White on the silver and gold fills measured about 2.1-2.5:1. The
+          // brand night glyph clears 4.5:1 on both; bronze keeps white.
+          DARK_GLYPH_TIERS.has(badge.tier) ? "text-brand-night" : "text-white",
           size === "sm" ? "h-10 w-10" : "h-14 w-14",
         )}
         style={{ background: TIER_BG[badge.tier] ?? "#0F3460" }}
@@ -115,7 +121,7 @@ function BadgeMedal({
       </span>
       <span
         className={cn(
-          "w-full truncate font-medium leading-tight",
+          "line-clamp-2 w-full font-medium leading-tight",
           size === "sm" ? "text-[11px]" : "text-xs",
         )}
       >
@@ -152,7 +158,7 @@ export function BadgeMedalStrip({
 
 export function BadgeShelf({ shelf }: { shelf: RewardBadgeShelf }) {
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-lg">
           <Medal className="h-5 w-5 text-primary" />

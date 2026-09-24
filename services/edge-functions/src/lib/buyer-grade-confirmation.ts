@@ -772,6 +772,14 @@ export interface SellerIntegrityStanding {
   next_tier: SellerIntegrityTier | null;
   next_tier_gaps: string[];
   tier_changed_at: string | null;
+  /**
+   * True when the standing could not be READ, as opposed to a seller who has
+   * no history yet. The two used to look identical: a failed read returned the
+   * empty "Building history" standing, which told a Trusted seller they had
+   * no standing at all. The fields beside it are the neutral empty standing so
+   * a caller that ignores this flag still gets a valid shape.
+   */
+  unavailable?: true;
 }
 
 interface StoredIntegrityRow {
@@ -865,7 +873,7 @@ export async function loadSellerIntegrityStanding(
       "[BuyerGradeConfirm] integrity standing load failed:",
       err instanceof Error ? err.message : String(err),
     );
-    return emptyStanding();
+    return { ...emptyStanding(), unavailable: true };
   }
 }
 

@@ -157,6 +157,8 @@ export interface IntegrityStanding {
   next_tier: string | null;
   next_tier_gaps: string[];
   tier_changed_at: string | null;
+  /** The standing could not be read. Not the same as "Building history". */
+  unavailable?: true;
 }
 
 const EMPTY_INTEGRITY: IntegrityStanding = {

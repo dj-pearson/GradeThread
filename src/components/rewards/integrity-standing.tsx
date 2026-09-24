@@ -1,5 +1,6 @@
 import { BadgeCheck, ShieldCheck } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { IntegrityStanding } from "@/hooks/use-rewards";
 
@@ -18,13 +19,41 @@ import type { IntegrityStanding } from "@/hooks/use-rewards";
 
 interface IntegrityStandingCardProps {
   integrity: IntegrityStanding;
+  /** Re-read the rewards state. Offered when the standing could not be read. */
+  onRetry?: () => void;
 }
 
-export function IntegrityStandingCard({ integrity }: IntegrityStandingCardProps) {
+export function IntegrityStandingCard({ integrity, onRetry }: IntegrityStandingCardProps) {
   const building = !integrity.displayable;
 
+  // A failed read is NOT "Building history". Showing that told a Trusted
+  // seller, the standing buyers weigh most, that they had none. Say plainly
+  // that we could not read it and that nothing moved.
+  if (integrity.unavailable) {
+    return (
+      <Card className="shadow-none">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <ShieldCheck className="h-5 w-5 text-primary" />
+            Grade Integrity
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            Couldn&apos;t load your integrity standing right now. Nothing has changed.
+          </p>
+          {onRetry && (
+            <Button variant="outline" size="sm" onClick={onRetry}>
+              Try again
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-lg">
           <ShieldCheck className="h-5 w-5 text-primary" />
@@ -51,7 +80,7 @@ export function IntegrityStandingCard({ integrity }: IntegrityStandingCardProps)
         </div>
 
         <p className="text-sm text-muted-foreground">
-          This is the one number here that buyers, not you, decide. It comes from
+          This is the one standing here that buyers, not you, decide. It comes from
           what they told us after delivery: did the item match the grade.
         </p>
 
@@ -99,7 +128,7 @@ export function IntegrityStandingCard({ integrity }: IntegrityStandingCardProps)
         </p>
 
         {integrity.next_tier && integrity.next_tier_gaps.length > 0 && (
-          <div className="rounded-lg bg-muted/50 p-3">
+          <div className="border-t pt-3">
             <p className="text-sm font-medium">
               To reach {integrity.next_tier}
             </p>

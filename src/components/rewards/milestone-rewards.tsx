@@ -1,6 +1,6 @@
 import { Check, Gift } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { LabeledProgress } from "@/components/rewards/labeled-progress";
 import type { MilestoneProgress } from "@/hooks/use-rewards";
 
 // US-1857, over the US-1853 grant model: the tangible-reward area.
@@ -42,7 +42,7 @@ export function MilestoneRewards({ milestones }: { milestones: MilestoneProgress
   if (!enabled && granted.length === 0) return null;
 
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-lg">
           <Gift className="h-5 w-5 text-primary" />
@@ -85,7 +85,12 @@ export function MilestoneRewards({ milestones }: { milestones: MilestoneProgress
                 {nf(next.xp_remaining)} XP to go
               </p>
             </div>
-            <Progress value={next.percent} className="h-1.5" />
+            <LabeledProgress
+              value={next.percent}
+              label={`Progress to ${next.label}`}
+              valueText={`${next.xp_remaining.toLocaleString()} XP to go`}
+              className="h-1.5"
+            />
             <p className="text-xs text-muted-foreground">
               Unlocks at {nf(next.xp_threshold)} XP. Nothing to press — it arrives when you
               cross the line.

@@ -27,7 +27,7 @@ import { ArrivalMoment } from "@/components/rewards/arrival-moment";
 import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Progress } from "@/components/ui/progress";
+import { LabeledProgress } from "@/components/rewards/labeled-progress";
 import { useRewards, type SeasonRecap } from "@/hooks/use-rewards";
 import { useNudgeAttribution } from "@/hooks/use-nudge-attribution";
 import { QuestsPanel } from "@/components/rewards/quests-panel";
@@ -101,7 +101,7 @@ function rewardsTabFrom(raw: string | null): RewardsTab {
 
 function RecapCard({ recap }: { recap: SeasonRecap }) {
   return (
-    <div className="rounded-xl bg-muted/60 p-4">
+    <div className="py-3 first:pt-0 last:pb-0">
       <div className="flex items-baseline justify-between gap-3">
         <p className="font-semibold">{recap.season_label}</p>
         <p className="text-sm text-muted-foreground">
@@ -231,7 +231,7 @@ export function RewardsPage() {
       {arrival ? <ArrivalMoment arrival={arrival} tierName={level.tier.name} /> : null}
 
       {/* Level — the identity. Never decreases. */}
-      <Card>
+      <Card className="shadow-none">
         <CardContent className="space-y-4 py-5">
           <div className="flex items-center gap-4">
             <span className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl bg-brand-navy text-white">
@@ -248,14 +248,17 @@ export function RewardsPage() {
           </div>
 
           <div className="space-y-1.5">
-            <Progress value={level.percent_to_next_level} />
+            <LabeledProgress
+              value={level.percent_to_next_level}
+              label={`Progress to level ${level.level + 1}`}
+              valueText={`${nf(level.xp_to_next_level)} XP to go`}
+            />
             <div className="flex justify-between text-xs text-muted-foreground">
-              <span>{nf(level.xp_total)} XP earned</span>
-              <span>
-                {level.xp_to_next_level > 0
-                  ? `${nf(level.xp_to_next_level)} XP to level ${level.level + 1}`
-                  : "Level up ready"}
-              </span>
+              {/* The level is computed from the PEAK, so the figure beside its
+                  bar is the peak too. Showing xp_total here put a refunded
+                  seller's lower live total beside peak-based progress. */}
+              <span>{nf(level.xp_peak)} XP earned</span>
+              <span>{`${nf(level.xp_to_next_level)} XP to level ${level.level + 1}`}</span>
             </div>
           </div>
 
@@ -308,7 +311,7 @@ export function RewardsPage() {
             a seller cannot earn by activity, so it should not sit below the things
             they can. */}
         <div id="integrity" className="scroll-mt-20">
-          <IntegrityStandingCard integrity={integrity} />
+          <IntegrityStandingCard integrity={integrity} onRetry={() => void refetch()} />
         </div>
 
         {/* US-1914: tenure. Directly under integrity because the two together are
@@ -326,7 +329,7 @@ export function RewardsPage() {
 
         <TabsContent value="season" className="space-y-6">
         {/* Season — the clock. Resets clean; takes nothing with it. */}
-        <Card>
+        <Card className="shadow-none">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-lg">
               <CalendarRange className="h-5 w-5 text-primary" />
@@ -365,7 +368,12 @@ export function RewardsPage() {
                           {nf(Math.min(goal.current, goal.target))}/{nf(goal.target)}
                         </p>
                       </div>
-                      <Progress value={goal.percent} className="h-1.5" />
+                      <LabeledProgress
+                        value={goal.percent}
+                        label={goal.name}
+                        valueText={`${nf(Math.min(goal.current, goal.target))} of ${nf(goal.target)}`}
+                        className="h-1.5"
+                      />
                       <p className="text-xs text-muted-foreground">{goal.description}</p>
                     </div>
                   </li>
@@ -389,11 +397,11 @@ export function RewardsPage() {
         </div>
         {/* Past seasons. */}
         {recaps.length > 0 && (
-          <Card>
+          <Card className="shadow-none">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">Past seasons</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="divide-y">
               {recaps.map((r) => (
                 <RecapCard key={r.season_key} recap={r} />
               ))}
@@ -404,7 +412,7 @@ export function RewardsPage() {
 
         <TabsContent value="perks" className="space-y-6">
         {/* Cosmetic perks — free, always. */}
-        <Card>
+        <Card className="shadow-none">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-lg">
               <Frame className="h-5 w-5 text-primary" />
@@ -414,9 +422,9 @@ export function RewardsPage() {
               Profile flair and share-card frames. All free — levels unlock them, money never does.
             </p>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="divide-y">
             {perks.unlocked.map((perk) => (
-              <div key={perk.key} className="flex items-start gap-3 rounded-lg bg-muted/60 p-3">
+              <div key={perk.key} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
                 <Award className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600" aria-hidden="true" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{perk.name}</p>
@@ -425,7 +433,7 @@ export function RewardsPage() {
               </div>
             ))}
             {perks.locked.map((perk) => (
-              <div key={perk.key} className="flex items-start gap-3 rounded-lg p-3">
+              <div key={perk.key} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
                 <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-muted-foreground">{perk.name}</p>

@@ -101,11 +101,17 @@ export function RewardCelebrations({ baselineOnly = false }: { baselineOnly?: bo
     // celebrate. A demotion is never celebrated either: detectCelebrations only
     // fires on a change, and the edge tells the seller about a drop privately,
     // so the toast this can raise is always good news.
+    const previous = readCelebrationState(userId);
+    // A failed integrity read carries the last known tier forward. Recording it
+    // as null would make the next good read look like a promotion.
     const next = snapshotFromRewards(
       rewards,
-      rewards.integrity?.displayable ? rewards.integrity.tier : null,
+      rewards.integrity?.unavailable
+        ? previous.snapshot?.integrityTier ?? null
+        : rewards.integrity?.displayable
+        ? rewards.integrity.tier
+        : null,
     );
-    const previous = readCelebrationState(userId);
     const { detected: events, show, state } = celebrationPass(
       previous,
       next,
