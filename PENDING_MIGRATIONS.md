@@ -71,7 +71,7 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
-## HELD: 00835_flipdesk_search_v2_owner_scope.sql (INV-D1 - Search ranked every workspace before dropping other ones, so a small workspace got crowded out)
+## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00835_flipdesk_search_v2_owner_scope.sql (INV-D1 - Search ranked every workspace before dropping other ones, so a small workspace got crowded out)
 
 **What it does.** Adds a NEW function, `flipdesk_search_v2`, beside
 `flipdesk_search`. It takes v1's four arguments plus

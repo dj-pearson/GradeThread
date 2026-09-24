@@ -10,18 +10,29 @@
 // Everything runs inside ONE TRANSACTION THAT ROLLS BACK, so it can be run
 // against any database with the migrations applied without leaving a row.
 //
-// Usage: node scripts/check-one-open-grade.mjs --dsn postgres://...
+// Usage: node scripts/check-one-open-grade.mjs [--dsn postgres://...]
 
 import { argv, exit, env } from "node:process";
 import { execFileSync } from "node:child_process";
+import { psqlTarget } from "./lib/psql-target.mjs";
 
-function arg(name, fallback = null) {
-  const i = argv.indexOf(`--${name}`);
-  return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
-}
-const DSN = arg("dsn", env.SUPABASE_DB_URL ?? null);
-if (!DSN) {
-  console.error("need --dsn or SUPABASE_DB_URL");
+// --dsn wins, then SUPABASE_DB_URL, then the Supabase CLI's Docker container,
+// which is what the DB Migrations workflow uses (it passes no flag).
+const cli = argv.slice(2);
+const target = psqlTarget(
+  !cli.includes("--dsn") && env.SUPABASE_DB_URL ? ["--dsn", env.SUPABASE_DB_URL] : cli,
+);
+
+// Reach the database first, so an unreachable server is not read as a
+// statement the database refused.
+try {
+  execFileSync(target.cmd, [...target.argv, "-c", "select 1"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+} catch (e) {
+  console.error(`[one-open-grade] cannot reach ${target.how}: ${String(e.stderr || e).trim().slice(0, 300)}`);
+  console.error(`  ${target.hint}`);
   exit(2);
 }
 
@@ -30,7 +41,7 @@ const failures = [];
 
 function psql(text, { expectFailure = false } = {}) {
   try {
-    const out = execFileSync("psql", [DSN, "-tA", "-v", "ON_ERROR_STOP=1", "-c", text], {
+    const out = execFileSync(target.cmd, [...target.argv, "-v", "ON_ERROR_STOP=1", "-c", text], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     });

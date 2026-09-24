@@ -11,18 +11,36 @@
 // Everything runs inside ONE TRANSACTION THAT ROLLS BACK, so it can be run
 // against any database with the migrations applied without leaving a row.
 //
-// Usage: node scripts/check-work-override-storage.mjs --dsn postgres://...
+// Usage: node scripts/check-work-override-storage.mjs [--dsn postgres://...]
 
 import { argv, exit, env } from "node:process";
 import { execFileSync } from "node:child_process";
+import { psqlTarget } from "./lib/psql-target.mjs";
 
-function arg(name, fallback = null) {
-  const i = argv.indexOf(`--${name}`);
-  return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
+// Same target rules as the other fixture scripts: --dsn wins, then
+// SUPABASE_DB_URL, then the Supabase CLI's Docker container. The DB
+// Migrations workflow passes nothing, so the container path is the one CI
+// uses; before this, a bare run exited 2 with "need --dsn" and the step
+// had never gone green there.
+const cli = argv.slice(2);
+const target = psqlTarget(
+  !cli.includes("--dsn") && env.SUPABASE_DB_URL ? ["--dsn", env.SUPABASE_DB_URL] : cli,
+);
+
+function psql(text, stdio) {
+  return execFileSync(target.cmd, [...target.argv, "-v", "ON_ERROR_STOP=1", "-c", text], {
+    encoding: "utf8",
+    ...(stdio ? { stdio } : {}),
+  });
 }
-const DSN = arg("dsn", env.SUPABASE_DB_URL ?? null);
-if (!DSN) {
-  console.error("need --dsn or SUPABASE_DB_URL");
+
+// Reach the database first. Every `refuses` case counts a psql failure as a
+// pass, so an unreachable server would otherwise read as all rules holding.
+try {
+  psql("select 1", ["ignore", "pipe", "pipe"]);
+} catch (e) {
+  console.error(`[work-override-storage] cannot reach ${target.how}: ${String(e.stderr || e).trim().slice(0, 300)}`);
+  console.error(`  ${target.hint}`);
   exit(2);
 }
 
@@ -30,16 +48,13 @@ let passed = 0;
 const failures = [];
 
 function sql(text) {
-  return execFileSync("psql", [DSN, "-tA", "-v", "ON_ERROR_STOP=1", "-c", text], {
-    encoding: "utf8",
-  }).trim();
+  return psql(text).trim();
 }
 
 /** Run a statement expecting it to FAIL, and say why it should. */
 function refuses(name, statement) {
   try {
-    execFileSync("psql", [DSN, "-tA", "-v", "ON_ERROR_STOP=1", "-c",
-      `begin; ${statement}; rollback;`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    psql(`begin; ${statement}; rollback;`, ["ignore", "pipe", "pipe"]);
     failures.push(`${name} -- the database ACCEPTED a row it should refuse`);
     console.log(`  FAIL  ${name}`);
   } catch {
@@ -51,8 +66,7 @@ function refuses(name, statement) {
 /** Run a statement expecting it to SUCCEED. */
 function accepts(name, statement) {
   try {
-    execFileSync("psql", [DSN, "-tA", "-v", "ON_ERROR_STOP=1", "-c",
-      `begin; ${statement}; rollback;`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    psql(`begin; ${statement}; rollback;`, ["ignore", "pipe", "pipe"]);
     passed += 1;
     console.log(`  ok    ${name}`);
   } catch (e) {
