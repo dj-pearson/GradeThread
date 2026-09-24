@@ -12,6 +12,10 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useListerLocales } from "@/hooks/use-lister-locales";
+import { useOwnsActiveWorkspace } from "@/hooks/use-tenant-key";
+import { SETTINGS_OWNER_ONLY } from "@/lib/workspace-permissions";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   LISTER_LOCALE_DEFAULT,
   MULTI_DOMAIN_PLATFORMS,
@@ -36,11 +40,16 @@ import { MARKETPLACE_LABELS } from "@/lib/constants";
 export function ListerLocalePicker() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
-  const { data: stored, isLoading } = useListerLocales();
+  // MP-06: see useOwnsActiveWorkspace.
+  const own = useOwnsActiveWorkspace();
+  const { data: stored, isLoading, isError, refetch } = useListerLocales(own);
   const [saving, setSaving] = useState(false);
+  // normalizeLocaleSelection merges into `stored`; merging into a value we
+  // could not read would wipe every other platform's choice.
+  const readable = own && !isError && !isLoading && stored !== undefined;
 
   async function pick(platform: (typeof MULTI_DOMAIN_PLATFORMS)[number], value: string) {
-    if (!user) return;
+    if (!user || !readable) return;
     setSaving(true);
     try {
       const { error } = await supabase
@@ -71,6 +80,20 @@ export function ListerLocalePicker() {
         </p>
       </div>
 
+      {!own ? (
+        <p className="text-xs text-muted-foreground">{SETTINGS_OWNER_ONLY}</p>
+      ) : isError ? (
+        <div role="alert" className="flex flex-wrap items-center gap-2 text-xs">
+          <span>Couldn&apos;t load this setting.</span>
+          <Button size="sm" variant="outline" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
+
+      {own && isLoading ? (
+        <Skeleton className="h-9 w-full" />
+      ) : (
       <ul className="space-y-2">
         {MULTI_DOMAIN_PLATFORMS.map((platform) => {
           // The stored value, or the default. The picker always shows a
@@ -89,7 +112,7 @@ export function ListerLocalePicker() {
               </Label>
               <Select
                 value={current}
-                disabled={saving || isLoading}
+                disabled={saving || !readable}
                 onValueChange={(v) => void pick(platform, v)}
               >
                 <SelectTrigger id={`locale-${platform}`} className="w-56">
@@ -109,6 +132,7 @@ export function ListerLocalePicker() {
           );
         })}
       </ul>
+      )}
 
       <p className="text-xs text-muted-foreground">
         This applies to cross-posts you start here and to ones you queue from

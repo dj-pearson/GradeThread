@@ -30,6 +30,8 @@ const state = {
   queue: undefined as unknown,
   queueLoading: false,
   role: "owner" as string,
+  activeOwner: null as string | null,
+  settingsError: false,
 };
 
 vi.mock("@/hooks/use-workspace", async () => {
@@ -116,7 +118,8 @@ vi.mock("@/components/flipdesk/listing-badge-toggle", () => ({ ListingBadgeToggl
 vi.mock("@/components/help/help-link", () => ({ HelpLink: none }));
 
 vi.mock("@/stores/auth-store", () => ({
-  useAuthStore: (selector: (s: unknown) => unknown) => selector({ user: { id: "owner-1" } }),
+  useAuthStore: (selector: (s: unknown) => unknown) =>
+    selector({ user: { id: "owner-1" }, activeWorkspaceOwnerId: state.activeOwner }),
 }));
 
 // Imported at load time and throws without the env vars. The one direct read
@@ -124,7 +127,10 @@ vi.mock("@/stores/auth-store", () => ({
 vi.mock("@/lib/supabase", () => {
   const chain: Record<string, unknown> = {};
   for (const m of ["select", "eq", "order", "limit"]) chain[m] = () => chain;
-  chain.maybeSingle = async () => ({ data: null, error: null });
+  chain.maybeSingle = async () =>
+    state.settingsError
+      ? { data: null, error: { message: "boom", code: "XX000" } }
+      : { data: null, error: null };
   return {
     supabase: {
       from: () => chain,
@@ -186,6 +192,8 @@ beforeEach(() => {
     queue: { pending: [], needsAttention: [], finishedNeedsReview: [], lastDrainedAt: null },
     queueLoading: false,
     role: "owner",
+    activeOwner: null,
+    settingsError: false,
   });
 });
 
@@ -297,6 +305,60 @@ describe("Marketplaces page: roles (MP-01)", () => {
     state.connection = CONNECTED;
     render();
     expect(buttonIn(stepRow("Connect your eBay account"), "Disconnect")).toBeTruthy();
+  });
+});
+
+async function openTab(name: string) {
+  const trigger = [...document.querySelectorAll("[role=tab]")].find(
+    (t) => t.textContent?.trim() === name,
+  ) as HTMLElement | undefined;
+  expect(trigger, `tab ${name}`).toBeTruthy();
+  await act(async () => {
+    trigger!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
+async function settle() {
+  for (let i = 0; i < 3; i++) {
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
+}
+
+describe("Marketplaces page: settings (MP-06)", () => {
+  it("inside another owner's workspace, auto-end is disabled and says who sets it", async () => {
+    state.activeOwner = "someone-else";
+    render();
+    await openTab("Settings");
+    await settle();
+    const sw = document.getElementById("auto-end-cross") as HTMLButtonElement | null;
+    expect(sw).toBeTruthy();
+    expect(sw!.disabled).toBe(true);
+    expect(document.body.textContent).toContain("Set by the workspace owner.");
+  });
+
+  it("a failed auto-end read shows Retry and no switch", async () => {
+    state.settingsError = true;
+    render();
+    await openTab("Settings");
+    await settle();
+    expect(document.getElementById("auto-end-cross")).toBeNull();
+    expect(document.body.textContent).toContain("Couldn't load this setting.");
+    const retry = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Retry",
+    );
+    expect(retry).toBeTruthy();
+  });
+
+  it("in the seller's own workspace the switch renders ON by default", async () => {
+    render();
+    await openTab("Settings");
+    await settle();
+    const sw = document.getElementById("auto-end-cross") as HTMLButtonElement | null;
+    expect(sw?.getAttribute("aria-checked")).toBe("true");
+    expect(sw?.disabled).toBe(false);
   });
 });
 

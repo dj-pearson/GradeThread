@@ -15,11 +15,11 @@ import { useAuthStore } from "@/stores/auth-store";
 // this reads Supabase directly rather than through an edge route, exactly as
 // the auto_end_cross_listings toggle already does.
 
-export function useCrossPostChannels() {
+export function useCrossPostChannels(enabled = true) {
   const user = useAuthStore((s) => s.user);
   return useQuery({
     queryKey: ["cross_post_channels", user?.id],
-    enabled: !!user,
+    enabled: !!user && enabled,
     // Config, not data. It changes when the seller changes it, and the write
     // invalidates this key.
     staleTime: 30 * 60 * 1000,

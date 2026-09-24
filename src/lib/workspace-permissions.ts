@@ -44,6 +44,10 @@ const CAPABILITY_MIN_ROLE: Record<WorkspaceCapability, WorkspaceRole> = {
 export const MARKETPLACE_ADMIN_ONLY =
   "Only a workspace admin can change marketplace connections.";
 
+// MP-06: shown on a per-user setting while acting in another owner's workspace.
+export const SETTINGS_OWNER_ONLY =
+  "Set by the workspace owner. Switch to your own workspace to change your settings.";
+
 export function roleAtLeast(role: WorkspaceRole, min: WorkspaceRole): boolean {
   return ROLE_RANK[role] >= ROLE_RANK[min];
 }

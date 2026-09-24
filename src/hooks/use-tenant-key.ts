@@ -10,3 +10,18 @@ import { useAuthStore } from "@/stores/auth-store";
 export function useTenantKey(): string | undefined {
   return useAuthStore((s) => s.activeWorkspaceOwnerId ?? s.user?.id);
 }
+
+/**
+ * MP-06: true when the signed-in user is acting in their OWN workspace.
+ *
+ * flipdesk_settings is per-user and RLS lets a user write only their own row
+ * (00134), while the edge reads the workspace OWNER's row. A member changing a
+ * setting inside someone else's workspace was saving to a row nothing reads,
+ * behind a success toast. Settings controls disable themselves when this is
+ * false.
+ */
+export function useOwnsActiveWorkspace(): boolean {
+  return useAuthStore(
+    (s) => s.activeWorkspaceOwnerId == null || s.activeWorkspaceOwnerId === s.user?.id,
+  );
+}

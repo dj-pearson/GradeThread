@@ -126,7 +126,9 @@ import {
 } from "@/hooks/use-sold-sync";
 import { HelpLink } from "@/components/help/help-link";
 import { useWorkspace } from "@/hooks/use-workspace";
-import { MARKETPLACE_ADMIN_ONLY } from "@/lib/workspace-permissions";
+import { MARKETPLACE_ADMIN_ONLY, SETTINGS_OWNER_ONLY } from "@/lib/workspace-permissions";
+import { useOwnsActiveWorkspace } from "@/hooks/use-tenant-key";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // US-718: the non-API channels, grouped by their REAL tier (read from the
 // MARKETPLACE_TIER single source of truth). eBay + Shopify are tier "api" and
@@ -2054,9 +2056,18 @@ export function FlipdeskMarketplacesPage() {
   // Per-user FlipDesk behavior settings (migration 00134). Absent row =
   // defaults (auto-end ON), so the toggle reads that until the user changes it.
   const user = useAuthStore((s) => s.user);
-  const { data: fdSettings } = useQuery({
+  // MP-06: flipdesk_settings is per-user (RLS 00134) and the edge reads the
+  // OWNER's row, so inside someone else's workspace a change here saved to a
+  // row nothing reads. The control is withheld there instead.
+  const ownSettings = useOwnsActiveWorkspace();
+  const {
+    data: fdSettings,
+    isLoading: fdLoading,
+    isError: fdError,
+    refetch: refetchFdSettings,
+  } = useQuery({
     queryKey: ["flipdesk_settings", user?.id],
-    enabled: !!user,
+    enabled: !!user && ownSettings,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("flipdesk_settings")
@@ -2075,7 +2086,7 @@ export function FlipdeskMarketplacesPage() {
   const [autoEndSaving, setAutoEndSaving] = useState(false);
 
   async function toggleAutoEnd(next: boolean) {
-    if (!user) return;
+    if (!user || !ownSettings || autoEndSetting === undefined) return;
     setAutoEndSaving(true);
     try {
       const { error } = await supabase
@@ -2089,7 +2100,7 @@ export function FlipdeskMarketplacesPage() {
       toast.success(
         next
           ? "Cross-listed siblings will end automatically when one sells."
-          : "Auto-end disabled — end other listings yourself after a sale.",
+          : "Auto-end is off. End the other listings yourself after a sale.",
       );
     } catch (err) {
       toastError(err, "Couldn't save the setting.");
@@ -2413,13 +2424,31 @@ export function FlipdeskMarketplacesPage() {
                 When an item pushed to multiple marketplaces sells on one of
                 them, automatically end its listings on the others.
               </p>
+              {!ownSettings && (
+                <p className="text-xs text-muted-foreground">{SETTINGS_OWNER_ONLY}</p>
+              )}
+              {ownSettings && fdError && (
+                <p role="alert" className="text-xs">
+                  Couldn&apos;t load this setting.
+                </p>
+              )}
             </div>
-            <Switch
-              id="auto-end-cross"
-              checked={autoEndSetting ?? true}
-              disabled={autoEndSaving || autoEndSetting === undefined}
-              onCheckedChange={(v) => void toggleAutoEnd(v)}
-            />
+            {!ownSettings ? (
+              <Switch id="auto-end-cross" checked={false} disabled />
+            ) : fdError ? (
+              <Button size="sm" variant="outline" onClick={() => void refetchFdSettings()}>
+                Retry
+              </Button>
+            ) : fdLoading || autoEndSetting === undefined ? (
+              <Skeleton className="h-5 w-9 rounded-full" />
+            ) : (
+              <Switch
+                id="auto-end-cross"
+                checked={autoEndSetting}
+                disabled={autoEndSaving}
+                onCheckedChange={(v) => void toggleAutoEnd(v)}
+              />
+            )}
           </div>
           {/* US-2721: which channels a draft is offered at all. Beside the
               auto-end toggle because both answer "how does cross-listing

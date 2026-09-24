@@ -16,11 +16,11 @@ import type { ListerLocaleMap } from "@/lib/lister-locales";
 // RLS on flipdesk_settings scopes the row to the signed-in user (00134), so
 // this reads Supabase directly rather than through an edge route.
 
-export function useListerLocales() {
+export function useListerLocales(enabled = true) {
   const user = useAuthStore((s) => s.user);
   return useQuery({
     queryKey: ["lister_locales", user?.id],
-    enabled: !!user,
+    enabled: !!user && enabled,
     // Config, not data. It changes when the seller changes it, and the write
     // invalidates this key.
     staleTime: 30 * 60 * 1000,

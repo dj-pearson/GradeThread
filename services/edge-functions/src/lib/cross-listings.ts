@@ -208,11 +208,20 @@ export async function endOtherListings(
     if (!target.itemId && !target.draftId) return EMPTY_SUMMARY();
 
     if (opts.honorSetting) {
-      const { data: settings } = await supabaseAdmin
+      const { data: settings, error: settingsError } = await supabaseAdmin
         .from("flipdesk_settings")
         .select("auto_end_cross_listings")
         .eq("user_id", ownerId)
         .maybeSingle();
+      // MP-06: the read's error used to be dropped. Defaulting ON is the safe
+      // direction (a double sale costs more than an unwanted delist), but a
+      // seller who switched it off should be able to find out why it ran.
+      if (settingsError) {
+        console.error(
+          `[cross-listings] auto-end setting read failed for ${ownerId}; defaulted ON:`,
+          settingsError.message,
+        );
+      }
       const enabled =
         (settings as { auto_end_cross_listings: boolean } | null)
           ?.auto_end_cross_listings !== false;
