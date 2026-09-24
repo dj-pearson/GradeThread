@@ -1,6 +1,9 @@
 // Snap-to-Value formatting and input helpers, kept out of the page so they can
 // be unit-tested and shared.
 
+import { GRADE_FACTORS, GRADING_REVIEW_CONFIDENCE_THRESHOLD } from "@/lib/constants";
+import type { SnapResult, SnapUsage, SnapValue } from "@/hooks/use-snap";
+
 // SNAP-08: what Snap sends. The vision model downsamples to about 1568px, 1600
 // is still above the certified bridge's 1200px minimum, and JPEG never comes
 // back from Safari as a multi-MB PNG.
@@ -17,4 +20,88 @@ export function snapFileProblem(file: File): string | null {
     return "HEIC photos can't be read here. Choose a JPEG, or set your iPhone camera to Most Compatible (Settings, Camera, Formats).";
   }
   return null;
+}
+
+// ── SNAP-11: the result card explains itself ─────────────────────────────────
+
+
+/** Money in the comp currency. The old helper hardcoded "$". */
+export function formatMoney(cents: number, currency = "USD"): string {
+  const whole = Math.abs(cents) % 100 === 0;
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: whole ? 0 : 2,
+      maximumFractionDigits: whole ? 0 : 2,
+    }).format(cents / 100);
+  } catch {
+    // An unknown currency code: say the number and the code plainly.
+    return `${(cents / 100).toFixed(2)} ${currency}`;
+  }
+}
+
+export type SnapValueDisplay =
+  | { kind: "none" }
+  | { kind: "insufficient"; text: string }
+  | {
+      kind: "priced";
+      headline: string;
+      range: string;
+      comps: string | null;
+      category: string | null;
+    };
+
+/** The median is the headline; the range and the comp count sit under it. */
+export function valueDisplay(value: SnapValue | null | undefined): SnapValueDisplay {
+  if (!value) return { kind: "none" };
+  const { lowCents: low, highCents: high } = value;
+  if (!value.sufficient || low == null || high == null) {
+    return { kind: "insufficient", text: "not enough sales to price" };
+  }
+  const cur = value.currency || "USD";
+  const median = value.medianCents ?? Math.round((low + high) / 2);
+  const n = Number.isFinite(value.sampleSize) ? Math.max(0, Math.trunc(value.sampleSize)) : 0;
+  return {
+    kind: "priced",
+    headline: formatMoney(median, cur),
+    range: `${formatMoney(low, cur)} to ${formatMoney(high, cur)}`,
+    comps: n > 0 ? `from ${n} sold comp${n === 1 ? "" : "s"}` : null,
+    category: value.category_name ? value.category_name : null,
+  };
+}
+
+/** Below the human-review bar, or flagged by the grader: say so. */
+export function isLowConfidence(grade: SnapResult["grade"]): boolean {
+  return grade.confidence < GRADING_REVIEW_CONFIDENCE_THRESHOLD || grade.needs_review === true;
+}
+
+export function formatSnapScore(grade: SnapResult["grade"]): string {
+  const n = grade.overall_score.toFixed(1);
+  return isLowConfidence(grade) ? `~${n}` : n;
+}
+
+export interface SnapFactorRow {
+  key: string;
+  label: string;
+  score: number;
+}
+
+/** The five factors, weakest first, labeled from GRADE_FACTORS. */
+export function weakestFirst(scores: Record<string, number> | null | undefined): SnapFactorRow[] {
+  if (!scores) return [];
+  return Object.entries(GRADE_FACTORS)
+    .filter(([key]) => typeof scores[key] === "number" && Number.isFinite(scores[key]))
+    .map(([key, f]) => ({ key, label: f.label, score: scores[key] as number }))
+    .sort((a, b) => a.score - b.score);
+}
+
+/** "12 of 15 checks left this month", amber at 3 or fewer. null = unlimited or unknown. */
+export function usageLine(usage: SnapUsage | null | undefined): { text: string; low: boolean } | null {
+  if (!usage || usage.cap == null) return null;
+  const left = Math.max(0, usage.cap - usage.used);
+  return {
+    text: `${left} of ${usage.cap} check${usage.cap === 1 ? "" : "s"} left this month`,
+    low: left <= 3,
+  };
 }

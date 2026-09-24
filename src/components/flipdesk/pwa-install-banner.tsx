@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { Download, X, Loader2, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ensureServiceWorker, type BeforeInstallPromptEvent } from "@/lib/pwa";
+import {
+  ensureServiceWorker,
+  isIosNotStandalone,
+  type BeforeInstallPromptEvent,
+} from "@/lib/pwa";
 import { readStored, writeStored } from "@/lib/safe-storage";
 
 // US-744: a single shared dismiss key across every mount point so installing /
@@ -19,11 +23,11 @@ export type PwaInstallVariant = "flipdesk" | "snap" | "general";
 const COPY: Record<PwaInstallVariant, { title: string; body: string }> = {
   flipdesk: {
     title: "Install FlipDesk on this device",
-    body: "Catalog items faster — works offline on thrift trips with spotty signal.",
+    body: "Catalog items faster. Works offline on thrift trips with spotty signal.",
   },
   snap: {
     title: "Install GradeThread on this device",
-    body: "Snap, value, and grade items in seconds — add it to your home screen for one-tap capture.",
+    body: "Snap, value, and grade items in seconds. Add it to your home screen for one-tap capture.",
   },
   general: {
     title: "Install GradeThread on this device",
@@ -41,6 +45,7 @@ export function PwaInstallBanner({
   const [promptEvent, setPromptEvent] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [iosHint, setIosHint] = useState(false);
 
   useEffect(() => {
     ensureServiceWorker();
@@ -50,6 +55,7 @@ export function PwaInstallBanner({
     ) {
       return;
     }
+    if (isIosNotStandalone()) setIosHint(true);
 
     const onPrompt = (e: Event) => {
       e.preventDefault();
@@ -64,6 +70,38 @@ export function PwaInstallBanner({
     };
   }, []);
 
+  function dismiss() {
+    writeStored(DISMISS_KEY, "1");
+    setPromptEvent(null);
+    setIosHint(false);
+  }
+
+  const copy = COPY[variant];
+
+  if (!promptEvent && iosHint) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-brand-navy/30 bg-brand-navy/5 p-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-brand-navy/10">
+            <Smartphone className="h-5 w-5 text-brand-navy dark:text-foreground" />
+          </div>
+          <div>
+            <p className="text-sm font-medium">{copy.title}</p>
+            <p className="text-xs text-muted-foreground">Tap Share, then Add to Home Screen.</p>
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={dismiss}
+          aria-label="Dismiss install prompt"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }
+
   if (!promptEvent) return null;
 
   async function install() {
@@ -71,19 +109,15 @@ export function PwaInstallBanner({
     setInstalling(true);
     try {
       await promptEvent.prompt();
-      await promptEvent.userChoice;
+      const choice = await promptEvent.userChoice;
+      // SNAP-12: a "no" in the browser's own sheet is a dismissal too, or the
+      // banner comes straight back on the next visit.
+      if (choice?.outcome === "dismissed") writeStored(DISMISS_KEY, "1");
     } finally {
       setInstalling(false);
       setPromptEvent(null);
     }
   }
-
-  function dismiss() {
-    writeStored(DISMISS_KEY, "1");
-    setPromptEvent(null);
-  }
-
-  const copy = COPY[variant];
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-brand-navy/30 bg-brand-navy/5 p-3 sm:flex-row sm:items-center sm:justify-between">
