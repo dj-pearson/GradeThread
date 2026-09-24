@@ -23,10 +23,17 @@ export type { SellThroughDatum };
 // Isolated so the FlipDesk Analytics route can lazy-load Recharts (~346KB) at
 // the chart boundary instead of shipping it in the route-entry chunk (US-408).
 export function SellThroughChart({ data }: { data: SellThroughDatum[] }) {
+  // The bar is drawn from a copy capped at 100, and the label reads the real
+  // rate. Plotting the raw rate past a clipped axis put the bar's end, and
+  // so the insideRight label, past the plot edge, where it was never visible.
+  const plotted = data.map((d) => ({
+    ...d,
+    bar: d.rate == null ? null : Math.min(d.rate, 100),
+  }));
   return (
     <ResponsiveContainer width="100%" height={Math.max(220, data.length * 34)}>
       <BarChart
-        data={data}
+        data={plotted}
         layout="vertical"
         margin={{ top: 5, right: 16, bottom: 5, left: 10 }}
       >
@@ -38,7 +45,6 @@ export function SellThroughChart({ data }: { data: SellThroughDatum[] }) {
         <XAxis
           type="number"
           domain={[0, 100]}
-          allowDataOverflow
           fontSize={11}
           tickLine={false}
           axisLine={false}
@@ -59,7 +65,7 @@ export function SellThroughChart({ data }: { data: SellThroughDatum[] }) {
             "Sell-through",
           ]}
         />
-        <Bar dataKey="rate" fill={SERIES.primary} radius={[0, 4, 4, 0]}>
+        <Bar dataKey="bar" fill={SERIES.primary} radius={[0, 4, 4, 0]}>
           <LabelList
             dataKey="rate"
             position="insideRight"

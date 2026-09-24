@@ -34,13 +34,18 @@ describe("sellThroughDatum", () => {
 });
 
 describe("the chart stops at 100% and marks overflow", () => {
-  it("clips the axis at 100 with allowDataOverflow and labels bars past it", () => {
+  it("caps the drawn bar at 100 and labels bars past it with the real rate", () => {
     const src = readFileSync(
       resolve(process.cwd(), "src/components/flipdesk/sell-through-chart.tsx"),
       "utf8",
     );
     expect(src).toContain("domain={[0, 100]}");
-    expect(src).toContain("allowDataOverflow");
+    // The bar reads a copy capped at 100; the label reads the real rate. With
+    // allowDataOverflow the bar end, and so the label, sat outside the plot.
+    expect(src).not.toContain("allowDataOverflow");
+    expect(src).toContain("Math.min(d.rate, 100)");
+    expect(src).toContain('<Bar dataKey="bar"');
+    expect(src).toMatch(/<LabelList\s+dataKey="rate"/);
     expect(src).toMatch(/v > 100 \? `\$\{v\}%\*`/);
   });
 });
