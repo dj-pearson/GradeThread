@@ -148,7 +148,7 @@ EBAY_REDIRECT_URI=https://functions.gradethread.com/api/flipdesk/ebay/oauth/call
 
 # OAuth scopes — defaults match what the Week 1 / Week 3 code needs.
 # Leave commented to use the defaults baked into ebay-client.ts.
-# EBAY_SCOPES=https://api.ebay.com/oauth/api_scope https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/sell.marketing https://api.ebay.com/oauth/api_scope/sell.account
+# EBAY_SCOPES=<see .env.example; never include the bare https://api.ebay.com/oauth/api_scope>
 
 # Marketplace + taxonomy tree the Taxonomy API uses. US is "0".
 EBAY_MARKETPLACE_ID=EBAY_US
@@ -211,25 +211,49 @@ every callback failure is a RuName/URL mismatch.
 
 ## Reference: scopes we request
 
-The defaults in `ebay-client.ts:getScopes()` are:
+Two different tokens, two different scope lists.
+
+**User consent (Authorization Code grant)**, `ebay-client.ts:getScopes()`.
+The seller approves these on eBay's consent screen; every seller-context call
+(Sell REST APIs, Trading, Post-Order) runs on the resulting user token.
 
 | Scope                                                            | Why we ask for it                                  |
 |------------------------------------------------------------------|----------------------------------------------------|
-| `https://api.ebay.com/oauth/api_scope`                           | Baseline. Required by Browse + Taxonomy APIs.      |
-| `https://api.ebay.com/oauth/api_scope/sell.inventory`            | Creating inventory items, offers, and listings.    |
-| `https://api.ebay.com/oauth/api_scope/sell.marketing`            | Promoting listings (Promoted Listings — Week 3+).  |
-| `https://api.ebay.com/oauth/api_scope/sell.account`              | Reading business policies (shipping/return/payment) needed to publish an offer. |
-| `https://api.ebay.com/oauth/api_scope/sell.fulfillment`          | Orders, returns/cancellations, and **payment disputes** (accept/contest/evidence — US-1049). |
+| `https://api.ebay.com/oauth/api_scope/sell.inventory`            | Inventory items, offers, listings, locations, Compliance listing violations, Recommendation (ad suggestions). |
+| `https://api.ebay.com/oauth/api_scope/sell.marketing`            | Promoted Listings campaigns, markdowns, keywords.  |
+| `https://api.ebay.com/oauth/api_scope/sell.account`              | Business policies and program opt-in, needed to publish an offer. |
+| `https://api.ebay.com/oauth/api_scope/sell.fulfillment`          | Orders, shipping fulfillments, Feed order reports. Post-Order (returns, cancellations, inquiries, cases) also runs on the user token; which scope eBay checks there is not settled, see the vault note. |
+| `https://api.ebay.com/oauth/api_scope/sell.finances`             | Transactions and payouts.                          |
+| `https://api.ebay.com/oauth/api_scope/sell.analytics.readonly`   | Traffic report, seller standards, customer service metrics. |
+| `https://api.ebay.com/oauth/api_scope/sell.payment.dispute`      | Payment disputes. `sell.fulfillment` does NOT cover `/sell/fulfillment/v1/payment_dispute*`. |
+| `https://api.ebay.com/oauth/api_scope/sell.logistics`            | Shipping labels (US-2160). NOT in the default: add it to `EBAY_SCOPES` only once eBay has assigned it to the keyset. `isLogisticsScopeAvailable()` reads the same list. |
 
-Override via `EBAY_SCOPES` (space-separated) if you need to add or
-remove any. Reducing scopes means re-consenting the user.
+**The bare base scope `https://api.ebay.com/oauth/api_scope` is not in the
+user consent list.** eBay Developer Support (ticket 260829-000039, 2026-09-25)
+asked us to skip it in the Authorization Code grant; it is removed from that
+grant once `sell.logistics` is assigned. `getScopes()` strips it from an
+`EBAY_SCOPES` override too, so an old pasted value cannot bring it back and fail
+the consent screen. Every Sell REST call we make on the user token is covered
+by a `sell.*` scope above. Two families are not confirmed: the Trading API and
+Post-Order v2 both run on the user token and eBay's docs do not say which scope
+they check. The audit is in `vault/30-platform/ebay-oauth-scopes.md`.
 
-**Payment disputes (US-1049):** the Fulfillment Payment Disputes API
-(`/sell/fulfillment/v1/payment_dispute*`) is covered by the existing
-`sell.fulfillment` scope — no new scope is needed. If eBay ever returns an
-insufficient-scope error there, add
-`https://api.ebay.com/oauth/api_scope/sell.payment.dispute` to `EBAY_SCOPES`
-and have every connected seller re-consent (the OAuth grant is per-scope).
+**App token (Client Credentials grant)**, `ebay-client.ts:getAppAccessToken()`.
+Requests the bare base scope `https://api.ebay.com/oauth/api_scope`, which eBay
+still allows in this grant. Used for Browse, Taxonomy, Catalog, Metadata,
+Notification (destinations, subscriptions, public keys) and the Developer
+Analytics rate-limit read. Marketplace Insights mints its own app token with
+`buy.marketplace.insights`.
+
+**Refresh** (`refreshUserToken`) sends no `scope`, so a refreshed access token
+carries the scopes the seller originally consented to and never asks for new
+ones.
+
+Override the user list via `EBAY_SCOPES` (space-separated). Scopes are fixed
+at consent: adding one means every connected seller re-consents at
+`/oauth/start`. The restricted scopes `commerce.identity.readonly` and
+`sell.negotiation` stay out until eBay licenses them to the production keyset;
+requesting an unlicensed scope fails the whole consent screen.
 
 ---
 

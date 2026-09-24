@@ -30,7 +30,6 @@ import { pollMarketplaceEventsForUser } from "../lib/marketplace-event-poll.ts";
 import type { MarketplacePollDeps } from "../lib/marketplace-event-poll.ts";
 
 const BASE_SCOPES = [
-  "https://api.ebay.com/oauth/api_scope",
   "https://api.ebay.com/oauth/api_scope/sell.inventory",
   "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
 ].join(" ");

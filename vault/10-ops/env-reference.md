@@ -521,7 +521,7 @@ The first three are a **feature group** (`quickbooks`) on `/health/ready`, so an
 | `EBAY_APP_ID` / `EBAY_CERT_ID` 🔒 / `EBAY_DEV_ID` | 🟡 Coolify edge | eBay OAuth client ID / secret / dev ID; also gates eBay endpoints. |
 | `EBAY_REDIRECT_URI` | 🟡 Coolify edge | eBay OAuth callback (RuName target). |
 | `EBAY_RU_NAME` | 🟡 Coolify edge | The RuName itself — eBay's opaque handle for the redirect, which is what the authorize URL carries, not the URI. |
-| `EBAY_SCOPES` | ⬜ Coolify edge | Space-separated OAuth scope list; falls back to a built-in set. Restricted scopes (negotiation) are not in it — see US-1421. |
+| `EBAY_SCOPES` | ⬜ Coolify edge | Space-separated OAuth scope list; falls back to a built-in set. Restricted scopes (negotiation) are not in it — see US-1421. The bare `api_scope` is stripped from it and never sent in user consent — see [[ebay-oauth-scopes]]. |
 | `EBAY_MARKETPLACE_ID` | ⬜ Coolify edge | Target marketplace (default `EBAY_US`). |
 | `EBAY_CATEGORY_TREE_ID` | ⬜ Coolify edge | Taxonomy tree id (default `0`, which is the US tree). Must match the marketplace or category lookups resolve against the wrong tree. |
 | `EBAY_TOKEN_REVOKE_URL` | ⬜ Coolify edge | Revocation endpoint. Disconnect only calls eBay to revoke when this is set; unset ⇒ local disconnect only. |

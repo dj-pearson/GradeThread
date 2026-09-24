@@ -326,11 +326,30 @@ export function apizHost(): string {
     : "https://apiz.sandbox.ebay.com";
 }
 
+// The bare base scope. It belongs to the client_credentials APP token only
+// (getAppAccessToken: Browse, Taxonomy, Catalog, Metadata, Notification, the
+// Developer Analytics rate-limit read). It is NOT requested in the user consent
+// (Authorization Code grant).
+//
+// eBay Developer Support, ticket 260829-000039 (2026-09-25), on our Sell
+// Logistics application: skip this scope when generating the user OAuth token;
+// it is removed from our Authorization Code grant once sell.logistics is
+// assigned, and stays available through the Client Credential grant. Asking for
+// a scope the keyset no longer allows in that grant fails the whole consent
+// screen, so it is also stripped from an EBAY_SCOPES override below: an old
+// value pasted into Coolify must not bring it back. Every user-token call we
+// make is covered by one of the sell.* scopes (audit in
+// vault/30-platform/ebay-oauth-scopes.md).
+export const EBAY_BASE_SCOPE = "https://api.ebay.com/oauth/api_scope";
+
+/**
+ * The user consent (Authorization Code grant) scope list, space-separated.
+ * EBAY_SCOPES overrides the built-in default; the bare base scope is removed
+ * from either source (see EBAY_BASE_SCOPE).
+ */
 function getScopes(): string {
-  return (
-    readEnv("EBAY_SCOPES") ??
+  const raw = readEnv("EBAY_SCOPES") ??
     [
-      "https://api.ebay.com/oauth/api_scope",
       "https://api.ebay.com/oauth/api_scope/sell.inventory",
       "https://api.ebay.com/oauth/api_scope/sell.marketing",
       "https://api.ebay.com/oauth/api_scope/sell.account",
@@ -368,8 +387,11 @@ function getScopes(): string {
       //   sell.negotiation            (US-673): /sell/negotiation/v1 send-
       //     offer-to-interested-buyers.
       //   "https://api.ebay.com/oauth/api_scope/sell.negotiation",
-    ].join(" ")
-  );
+    ].join(" ");
+  return raw
+    .split(/\s+/)
+    .filter((s) => s.length > 0 && s !== EBAY_BASE_SCOPE)
+    .join(" ");
 }
 
 // US-1510: whether this deployment's OAuth consent requests the sell.negotiation
@@ -5834,8 +5856,11 @@ export async function searchSoldComps(
 
 // ── App token (client_credentials) ──────────────────────────────────
 // Used for Taxonomy + Browse — endpoints that don't need a seller context.
+// This is the one place the bare base scope is requested (ticket
+// 260829-000039: available through the Client Credential grant; see
+// EBAY_BASE_SCOPE).
 
-const DEFAULT_APP_SCOPE = "https://api.ebay.com/oauth/api_scope";
+const DEFAULT_APP_SCOPE = EBAY_BASE_SCOPE;
 // US-571: the app token is shared across the cluster (not minted per replica).
 // One cache per scope: Marketplace Insights (US-542) needs an extra scope and
 // would otherwise thrash a single slot with the default-scope token. The cache

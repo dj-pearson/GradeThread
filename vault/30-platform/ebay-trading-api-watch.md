@@ -19,6 +19,8 @@ migration stance. **Review it each eBay release-notes cycle** (see below) and
 migrate any call the moment a usable REST equivalent ships or a sunset date is
 announced.
 
+Which OAuth scope eBay checks on these calls is an open question since the base scope left our user grant: [[ebay-oauth-scopes]].
+
 All Trading calls live in `services/edge-functions/src/lib/ebay-trading.ts`
 (consumed by `routes/flipdesk-ebay.ts` and `lib/marketplace-event-poll.ts`).
 
