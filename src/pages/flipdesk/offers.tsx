@@ -42,7 +42,9 @@ import {
   type OffersTabId,
 } from "@/pages/flipdesk/offers-tabs";
 import {
+  MEMBER_MESSAGE_MAX,
   parseDiscountInput,
+  SEND_OFFER_MAX_LISTINGS,
   SEND_OFFER_MAX_PCT,
   SEND_OFFER_MIN_PCT,
   SEND_OFFER_RANGE_COPY,
@@ -291,13 +293,16 @@ function SendOfferCard() {
   const { data: capability, isLoading: capLoading } =
     useEbayNegotiationCapability();
   const unavailable = capability?.sendOfferAvailable === false;
+  // Waits for the capability answer too. The picker now opens by default, so
+  // without this the eligible call fired before we knew whether it could only
+  // ever come back 501 (US-1967).
   const {
     data: items = [],
     isLoading,
     isError,
     refetch,
     isFetching,
-  } = useEbayEligibleOffers(open && !unavailable);
+  } = useEbayEligibleOffers(open && !capLoading && !unavailable);
   const send = useEbaySendOffer();
   const confirm = useConfirm();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -307,6 +312,9 @@ function SendOfferCard() {
   );
   const [message, setMessage] = useState("");
   const pct = parseDiscountInput(discount);
+  // The edge takes at most SEND_OFFER_MAX_LISTINGS per send and refuses the
+  // whole request past that, so the button says so before the press.
+  const tooMany = selected.size > SEND_OFFER_MAX_LISTINGS;
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -318,14 +326,18 @@ function SendOfferCard() {
   }
 
   async function submit() {
-    if (selected.size === 0 || pct == null) return;
+    if (selected.size === 0 || pct == null || tooMany) return;
     const picked = items.filter((it) => selected.has(it.listingId));
-    const exposure = discountExposureCents(
-      picked.map((it) =>
-        typeof it.price === "number" && it.price > 0 ? Math.round(it.price * 100) : null,
-      ),
-      pct,
-    );
+    // A selected id the refreshed list no longer carries has no price here, so
+    // the total is unknown rather than quietly smaller.
+    const exposure = picked.length < selected.size
+      ? null
+      : discountExposureCents(
+          picked.map((it) =>
+            typeof it.price === "number" && it.price > 0 ? Math.round(it.price * 100) : null,
+          ),
+          pct,
+        );
     const ok = await confirm({
       ...sendConfirmCopy(selected.size, pct, exposure),
       confirmLabel: "Send offers",
@@ -498,13 +510,20 @@ function SendOfferCard() {
               aria-label="Message to buyers"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
+              maxLength={MEMBER_MESSAGE_MAX}
               rows={2}
               placeholder="Optional message to buyers"
             />
+            {tooMany && (
+              <p className="text-xs font-medium text-destructive" role="status">
+                Send to at most {SEND_OFFER_MAX_LISTINGS} listings at a time. You have{" "}
+                {selected.size} picked.
+              </p>
+            )}
             <div className="flex gap-2">
               <Button
                 onClick={submit}
-                disabled={send.isPending || pct == null || selected.size === 0}
+                disabled={send.isPending || pct == null || selected.size === 0 || tooMany}
               >
                 {send.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

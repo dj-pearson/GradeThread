@@ -19,6 +19,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { ErrorState } from "@/components/ui/error-state";
 import {
   parseDiscountInput,
+  SEND_OFFER_MAX_LISTINGS,
   SEND_OFFER_MAX_PCT,
   SEND_OFFER_MIN_PCT,
   SEND_OFFER_RANGE_COPY,
@@ -77,11 +78,14 @@ export function SendOffersToday() {
     () => (data?.candidates ?? []).filter((c) => picked.has(c.listingId)),
     [data, picked],
   );
+  // The edge refuses a send of more than SEND_OFFER_MAX_LISTINGS outright, and
+  // this list can run to hundreds, so the cap is shown before the press.
+  const tooMany = selected.length > SEND_OFFER_MAX_LISTINGS;
   // The worst case for the SELECTION, recomputed here rather than reusing the
   // whole-list figure the server sent — a seller who ticked four of forty items
   // must not be shown the exposure of all forty.
   async function sendSelected() {
-    if (selected.length === 0 || pct == null) return;
+    if (selected.length === 0 || pct == null || tooMany) return;
     const exposure = discountExposureCents(selected.map((c) => c.priceCents), pct);
     const ok = await confirm({
       ...sendConfirmCopy(selected.length, pct, exposure, "item"),
@@ -212,7 +216,7 @@ export function SendOffersToday() {
           <Button
             size="sm"
             className="ml-auto"
-            disabled={selected.length === 0 || pct == null || send.isPending}
+            disabled={selected.length === 0 || pct == null || tooMany || send.isPending}
             onClick={sendSelected}
           >
             {send.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
@@ -223,6 +227,12 @@ export function SendOffersToday() {
                 : `Send ${pct}% off to ${selected.length}`}
           </Button>
         </div>
+        {tooMany && (
+          <p className="text-xs font-medium text-destructive" role="status">
+            Send to at most {SEND_OFFER_MAX_LISTINGS} items at a time. You have{" "}
+            {selected.length} picked.
+          </p>
+        )}
 
         <ul className="space-y-1">
           {data.candidates.map((c) => (

@@ -109,8 +109,8 @@ export interface ExpiryReading {
  *
  * HOURS, not days, and that is the point: eBay offers commonly run 48 hours, so
  * a day-granularity countdown spends half its life saying "1d left" on
- * something that expires before lunch. Hours up to 48, then days and hours. `last_hours` is under two hours, which
- * is the band where a seller should stop what they are doing.
+ * something that expires before lunch. Hours up to 48, then days and hours.
+ * `last_hours` is under two hours, which is the band where a seller should stop what they are doing.
  *
  * Returns null for a missing or unreadable date rather than inventing urgency —
  * the same rule the post-sale deadline badge follows.

@@ -18,7 +18,9 @@ const state = {
   issue: null as null | { is_active: boolean; refresh_error: string | null },
   eligible: [] as Array<Record<string, unknown>>,
   conflicts: {} as Record<string, unknown>,
+  capLoading: false,
 };
+const eligibleEnabled = vi.fn();
 const sendMutate = vi.fn();
 const confirmMock = vi.fn();
 const refetchConnection = vi.fn();
@@ -32,11 +34,11 @@ vi.mock("@/hooks/use-ebay", () => ({
   reauthMessage: () => "Your eBay sign-in expired or was revoked.",
   useEbayBestOffers: () => ({ data: [], isLoading: false, isError: false }),
   useEbayMessages: () => ({ data: [], isLoading: false, isError: false }),
-  useEbayNegotiationCapability: () => ({
-    data: { sendOfferAvailable: true, code: null, detail: null },
-    isLoading: false,
-  }),
-  useEbayEligibleOffers: () => ({
+  useEbayNegotiationCapability: () =>
+    state.capLoading
+      ? { data: undefined, isLoading: true }
+      : { data: { sendOfferAvailable: true, code: null, detail: null }, isLoading: false },
+  useEbayEligibleOffers: (enabled: boolean) => (eligibleEnabled(enabled), {
     data: state.eligible,
     isLoading: false,
     isError: false,
@@ -126,6 +128,8 @@ beforeEach(() => {
   state.eligible = [];
   state.today = { available: true, candidates: [], suppressed: [] };
   state.conflicts = { data: undefined, isError: false, refetch: refetchConflicts };
+  state.capLoading = false;
+  eligibleEnabled.mockReset();
 });
 
 afterEach(() => {
@@ -256,6 +260,38 @@ describe("Send tab (OM-12)", () => {
       expect.objectContaining({ listingIds: ["111", "222"], discountPct: 10 }),
     );
     expect(button("Send 10% off to 1")).toBeTruthy();
+  });
+});
+
+describe("Send tab guards", () => {
+  it("the eligible list waits for the capability answer before it fetches", () => {
+    state.capLoading = true;
+    render(<FlipdeskOffersPage />, "/dashboard/flipdesk/offers?tab=send");
+    expect(eligibleEnabled).toHaveBeenCalled();
+    expect(eligibleEnabled.mock.calls.every(([on]) => on === false)).toBe(true);
+  });
+
+  it("more than 100 picked disables Send and says the cap", () => {
+    state.today = {
+      available: true,
+      candidates: Array.from({ length: 101 }, (_, i) => ({
+        listingId: String(1000 + i),
+        title: `Item ${i}`,
+        priceCents: 1000,
+        watchers: 2,
+        daysListed: 5,
+        lastOfferedAt: null,
+      })),
+      suppressed: [],
+    };
+    render(<FlipdeskOffersPage />, "/dashboard/flipdesk/offers?tab=send");
+    const boxes = [...container!.querySelectorAll('[id^="cand-"]')];
+    expect(boxes.length).toBe(101);
+    for (const box of boxes) act(() => (box as HTMLElement).click());
+    expect(container!.textContent).toContain("Send to at most 100 items at a time");
+    expect(button("Send 10% off to 101")!.disabled).toBe(true);
+    act(() => (boxes[0] as HTMLElement).click());
+    expect(button("Send 10% off to 100")!.disabled).toBe(false);
   });
 });
 
