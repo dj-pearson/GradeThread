@@ -4,7 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
 import { KIND_LABEL, needsYouKey } from "@/pages/flipdesk/needs-you";
 import { deadlineBucket, deadlineLabel } from "@/pages/flipdesk/post-sale-state";
-import { NEEDS_YOU_HREF, useNeedsYou } from "@/hooks/use-needs-you";
+import { needsYouHref, useNeedsYou } from "@/hooks/use-needs-you";
 import { useEbayConnection } from "@/hooks/use-ebay";
 import {
   EmptyList,
@@ -120,7 +120,7 @@ export function FlipdeskNeedsYouWidget({ size }: WidgetProps) {
               return (
                 <li key={needsYouKey(it)}>
                   <Link
-                    to={NEEDS_YOU_HREF[it.kind]}
+                    to={needsYouHref(it)}
                     className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-sm hover:bg-muted/50"
                   >
                     <Badge variant="outline" className="text-[10px]">

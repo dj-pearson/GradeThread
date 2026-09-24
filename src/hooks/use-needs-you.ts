@@ -5,6 +5,7 @@ import {
   type NeedsYouKind,
 } from "@/pages/flipdesk/needs-you";
 import { isClosedCase, splitByOpenState } from "@/pages/flipdesk/post-sale-state";
+import { tabForKind } from "@/pages/flipdesk/post-sale-tabs";
 import {
   useEbayBestOffers,
   useEbayCancellations,
@@ -98,6 +99,20 @@ export const NEEDS_YOU_HREF: Record<NeedsYouKind, string> = {
  *   getUserAccessToken), which used to read as "one of your eBay queues did
  *   not answer" on every load. Pass false for them; shipments still run.
  */
+/**
+ * DASH-15: a link to the exact item, not just its queue. The post-sale page
+ * opens the item's tab from `?tab=` and finds the row from `?focus=`; offers
+ * live on their own page and take `?focus=` alone.
+ */
+export function needsYouHref(item: Pick<NeedsYouItem, "kind" | "id">): string {
+  const focus = `focus=${encodeURIComponent(item.id)}`;
+  if (item.kind === "offer") return `/dashboard/flipdesk/offers?${focus}`;
+  const tab = tabForKind(item.kind);
+  return tab
+    ? `/dashboard/flipdesk/post-sale?tab=${tab}&${focus}`
+    : `/dashboard/flipdesk/post-sale?${focus}`;
+}
+
 export function useNeedsYou(enabled = true, ebayEnabled = true): NeedsYouState {
   const ebay = enabled && ebayEnabled;
   const returns = useEbayReturns(ebay);

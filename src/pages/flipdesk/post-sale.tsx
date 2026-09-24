@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   byDeadline,
@@ -90,12 +90,14 @@ import { ShipQueueCard } from "@/components/flipdesk/ship-queue-card";
 import { useSearchParams } from "react-router";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNeedsYou } from "@/hooks/use-needs-you";
+import { useFocusParam } from "@/hooks/use-focus-param";
 import {
   DEFAULT_POST_SALE_TAB,
   POST_SALE_TABS,
   postSaleTabCounts,
   resolvePostSaleTabId,
   type PostSaleTabId,
+  tabForKind,
 } from "@/pages/flipdesk/post-sale-tabs";
 import {
   centsToDisplay,
@@ -194,8 +196,35 @@ function PostSaleTabs() {
     setSearchParams(params, { replace: true });
   }
 
+  // DASH-15: `?focus=<id>` from a Needs-you row on the Overview. Open the tab
+  // that owns the item (a link without `?tab=` still lands right), then the
+  // hook scrolls to the row, highlights it and moves focus to it.
+  const focusParam = searchParams.get("focus");
+  const focusItem = focusParam
+    ? needsYou.items.find((i) => i.id === focusParam) ?? null
+    : null;
+  const focusTab = focusItem ? tabForKind(focusItem.kind) : null;
+  useEffect(() => {
+    if (focusTab && focusTab !== tab) setTab(focusTab);
+    // setTab is recreated each render; the tab it moves to is the dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTab, tab]);
+  const queuesLoaded = !needsYou.isLoading && needsYou.pending.length === 0;
+  useFocusParam({
+    ready: queuesLoaded,
+    // Only once its tab is showing, so the row exists to be found.
+    known: focusItem != null && (focusTab == null || focusTab === tab),
+  });
+  const focusMissing = !!focusParam && queuesLoaded && focusItem == null;
+
   return (
     <>
+      {focusMissing ? (
+        <p className="mb-3 text-sm text-muted-foreground" role="status">
+          This case is no longer open. It may have been resolved or closed on
+          eBay.
+        </p>
+      ) : null}
       <Tabs value={tab} onValueChange={(v) => setTab(v as PostSaleTabId)}>
         <TabsList className="flex flex-wrap">
           {POST_SALE_TABS.map((t) => (
@@ -364,7 +393,8 @@ function DisputesCard() {
             return (
               <div
                 key={d.paymentDisputeId}
-                className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
+                data-focus-id={d.paymentDisputeId}
+                className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none"
               >
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
@@ -791,7 +821,8 @@ function ReturnsCard() {
             // card edge and squeezed the details into a one-word column.
             <div
               key={r.returnId}
-              className="flex flex-col gap-3 rounded-md border p-3"
+              data-focus-id={r.returnId}
+              className="flex flex-col gap-3 rounded-md border p-3 data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none"
             >
               <div className="min-w-0 space-y-2">
                 <div className="flex items-center gap-2">
@@ -1139,7 +1170,8 @@ function CancellationsCard() {
           visible.map((ca) => (
             <div
               key={ca.cancelId}
-              className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
+              data-focus-id={ca.cancelId}
+              className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none"
             >
               <div className="min-w-0 space-y-2">
                 <div className="flex items-center gap-2">
@@ -1396,7 +1428,8 @@ function InquiriesCard() {
           visible.map((inq) => (
             <div
               key={inq.inquiryId}
-              className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
+              data-focus-id={inq.inquiryId}
+              className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none"
             >
               <div className="min-w-0 space-y-2">
                 <div className="flex items-center gap-2">
@@ -1579,7 +1612,8 @@ function CasesCard() {
           visible.map((kase) => (
             <div
               key={kase.caseId}
-              className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
+              data-focus-id={kase.caseId}
+              className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none"
             >
               <div className="min-w-0 space-y-2">
                 <div className="flex items-center gap-2">
