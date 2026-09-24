@@ -38,6 +38,7 @@ import {
   useApplyReprice,
   useBulkRepriceApply,
   useDismissReprice,
+  useRestoreReprice,
   useRepriceRules,
   useRunRepriceRules,
   useCreateRepriceRule,
@@ -162,7 +163,9 @@ function SuggestionRow({
   const confirm = useConfirm();
   const apply = useApplyReprice();
   const dismiss = useDismissReprice();
+  const restore = useRestoreReprice();
   const meta = REASON_META[s.reason_code] ?? REASON_META.OK;
+  const title = s.inventory_items?.title ?? "Untitled item";
   const Icon = meta.icon;
   const up = s.suggested_price_cents >= s.current_price_cents;
 
@@ -181,13 +184,17 @@ function SuggestionRow({
   return (
     <Card>
       <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
-        <Checkbox
-          checked={selected}
-          onCheckedChange={() => onToggleSelect(s.id)}
-          aria-label={`Select ${s.inventory_items?.title ?? "item"} for bulk repricing`}
-          className="mt-1 sm:mt-0"
-        />
         <div className="min-w-0 flex-1 space-y-1.5">
+          {/* The checkbox and the title share a row so the box never sits
+              alone above the item it selects on a phone. */}
+          <div className="flex items-center gap-2">
+            <Checkbox
+              checked={selected}
+              onCheckedChange={() => onToggleSelect(s.id)}
+              aria-label={`Select ${title} for bulk repricing`}
+            />
+            <span className="min-w-0 truncate font-medium">{title}</span>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className={cn("gap-1", meta.classes)}>
               <Icon className="h-3.5 w-3.5" />
@@ -200,12 +207,9 @@ function SuggestionRow({
                   ` · ${s.inventory_items.grade_value.toFixed(1)}`}
               </Badge>
             )}
-            <span className="truncate font-medium">
-              {s.inventory_items?.title ?? "Untitled item"}
-            </span>
           </div>
           <p className="text-sm text-muted-foreground">{s.message}</p>
-          <div className="flex items-center gap-2 text-sm">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
             <span className="text-muted-foreground line-through">
               {money(s.current_price_cents)}
             </span>
@@ -251,10 +255,14 @@ function SuggestionRow({
             variant="outline"
             onClick={() =>
               dismiss.mutate(s.id, {
-                onSuccess: () => toast.success("Suggestion dismissed."),
+                onSuccess: () =>
+                  toast.success("Suggestion dismissed.", {
+                    action: { label: "Undo", onClick: () => restore.mutate(s.id) },
+                  }),
               })
             }
             disabled={dismiss.isPending}
+            aria-label={`Dismiss suggestion for ${title}`}
           >
             <X className="h-4 w-4" />
           </Button>
@@ -857,6 +865,7 @@ export function FlipdeskRepricingPage() {
                 variant="outline"
                 disabled={safePage === 0}
                 onClick={() => setPage(safePage - 1)}
+                aria-label="Previous page"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -868,6 +877,7 @@ export function FlipdeskRepricingPage() {
                 variant="outline"
                 disabled={safePage >= pageCount - 1}
                 onClick={() => setPage(safePage + 1)}
+                aria-label="Next page"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>

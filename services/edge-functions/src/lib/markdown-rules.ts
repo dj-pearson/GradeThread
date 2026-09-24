@@ -39,8 +39,15 @@ export interface MarkdownRuleConfig {
   /** Minimum margin over acquisition cost the marked-down price must clear. */
   marginFloorPct: number;
   /**
-   * Items graded below this are excluded. Null includes every grade, INCLUDING
-   * ungraded items — see selectMarkdownItems for why that direction is safe.
+   * The HIGHEST grade the sale may include: items graded above it are kept out,
+   * so a clearance does not discount the best-condition pieces. Null includes
+   * every grade, INCLUDING ungraded items — see selectMarkdownItems for why that
+   * direction is safe.
+   *
+   * The name is historical (the wire field is `min_grade`). It was read as a
+   * minimum here while the form said "keep grades above N out" and the summary
+   * said "grade N and under only", so a seller asking to protect their best
+   * stock got a sale of ONLY their best stock.
    */
   minGrade: number | null;
 }
@@ -110,7 +117,7 @@ export function selectMarkdownItems(
       excluded.push({ item, reason: "too_new" });
       continue;
     }
-    if (cfg.minGrade != null && item.grade != null && item.grade < cfg.minGrade) {
+    if (cfg.minGrade != null && item.grade != null && item.grade > cfg.minGrade) {
       excluded.push({ item, reason: "below_min_grade" });
       continue;
     }

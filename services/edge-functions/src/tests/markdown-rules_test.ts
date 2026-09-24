@@ -69,13 +69,20 @@ Deno.test("an item with NO cost is INCLUDED, unlike the offer rules", () => {
   assertEquals(out.included.map((i) => i.listingId), ["unknown"]);
 });
 
-Deno.test("a minimum grade keeps the good stuff out of a clearance", () => {
+Deno.test("a grade cut-off keeps the good stuff out of a clearance", () => {
+  // Pricing plan P14. This test's title always said the good stuff stays out,
+  // and the form says "keep grades above N out", but it asserted the opposite:
+  // the grade-9 was IN the sale and the grade-6 was out. The cut-off is the
+  // highest grade the sale may include.
   const cfg = { ...CFG, minGrade: 8 };
   const out = selectMarkdownItems(cfg, [
     item({ listingId: "rough", grade: 6 }),
     item({ listingId: "good", grade: 9 }),
+    item({ listingId: "edge", grade: 8 }),
   ]);
-  assertEquals(out.included.map((i) => i.listingId), ["good"]);
+  assertEquals(out.included.map((i) => i.listingId), ["rough", "edge"]);
+  assertEquals(out.excluded.map((e) => e.item.listingId), ["good"]);
+  // The wire reason keeps its old name; its copy says what happened.
   assertEquals(out.excluded[0]!.reason, "below_min_grade");
 });
 

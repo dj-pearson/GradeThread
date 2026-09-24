@@ -1264,11 +1264,12 @@ Deno.test({
   // listings and stale prices with a 409 that NAMES the reason. That refusal
   // must never become a way for B to learn about A's suggestion: the lookup is
   // owner-scoped first, so B gets a plain 404 before any of those checks run.
-  name: "B cannot apply or dismiss A's repricing suggestion",
+  // P14 added restore (the dismiss toast's Undo); it is held to the same rule.
+  name: "B cannot apply, dismiss or restore A's repricing suggestion",
   ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SUGGESTION_ID"),
   fn: async () => {
     const aId = Deno.env.get("TEST_USER_A_SUGGESTION_ID")!;
-    for (const verb of ["apply", "dismiss"]) {
+    for (const verb of ["apply", "dismiss", "restore"]) {
       const res = await fetch(
         `${BASE}/api/flipdesk/pricing/suggestions/${aId}/${verb}`,
         { method: "POST", headers: authHeaders(B_JWT!) },

@@ -629,6 +629,15 @@ flipdeskPricingRoutes.post("/suggestions/:id/dismiss", async (c) => {
   return c.json(outcome.body, outcome.status as 200);
 });
 
+// ── POST /suggestions/:id/restore ─────────────────────────────────
+// The Undo on the dismiss toast. Only a dismissed row can come back, and only
+// the caller's own: scoped by id AND user_id, like dismiss (US-268).
+flipdeskPricingRoutes.post("/suggestions/:id/restore", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const outcome = await restorePriceSuggestion(ownerId, c.req.param("id"));
+  return c.json(outcome.body, outcome.status as 200);
+});
+
 // ══════════════════════════════════════════════════════════════════
 // Bulk match-to-comp reprice (US-962)
 // ══════════════════════════════════════════════════════════════════
@@ -1577,6 +1586,26 @@ export async function dismissPriceSuggestion(
   }
   if (!data) return jsonErrorOutcome(404, "Suggestion not found");
   return json({ dismissed: true });
+}
+
+export async function restorePriceSuggestion(
+  ownerId: string,
+  id: string,
+): Promise<PricingOutcome> {
+  const { data, error } = await supabaseAdmin
+    .from("repricing_suggestions")
+    .update({ status: "pending", dismissed_at: null })
+    .eq("id", id)
+    .eq("user_id", ownerId)
+    .eq("status", "dismissed")
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error(`[${"repricing.restore"}] `, error);
+    return json({ error: "Couldn't bring the suggestion back." }, 500);
+  }
+  if (!data) return jsonErrorOutcome(404, "Suggestion not found");
+  return json({ restored: true });
 }
 
 async function previewRepriceFor(

@@ -276,6 +276,27 @@ export function useDismissReprice() {
   });
 }
 
+/** Undo a Dismiss: put the nudge back in the queue. Owner-scoped on the server. */
+export function useRestoreReprice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await edgeFetch(`/api/flipdesk/pricing/suggestions/${id}/restore`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? "Couldn't bring the suggestion back.");
+      }
+      return true;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
+    },
+    onError: (err: Error) => toastError(err),
+  });
+}
+
 // US-2171 AC4: the repricing RULES that generate nudges automatically. The
 // /api/flipdesk/pricing/rules + /rules/run endpoints were server-only; the
 // repricing page now surfaces the rules and lets the seller run them on demand

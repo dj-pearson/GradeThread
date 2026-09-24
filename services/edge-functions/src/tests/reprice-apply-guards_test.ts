@@ -370,3 +370,24 @@ Deno.test("P11: 50 rows make 2 bulk eBay calls, not 50 single ones, and a refuse
     pricingEbay.bulkUpdatePriceQuantity = realBulk;
   }
 });
+
+// ── P14: the dismiss toast's Undo ───────────────────────────────────
+
+Deno.test("P14: restore brings back the caller's dismissed nudge, and nobody else's", async () => {
+  seed({ status: "dismissed", dismissedAt: new Date().toISOString() });
+  const foreign = await call(`/suggestions/${SUG}/restore`, {}, "99999999-9999-4999-8999-999999999999");
+  assertEquals(foreign.status, 404);
+  assertEquals(db.tables.repricing_suggestions[0].status, "dismissed");
+
+  const mine = await call(`/suggestions/${SUG}/restore`, {});
+  assertEquals(mine.status, 200);
+  assertEquals(db.tables.repricing_suggestions[0].status, "pending");
+  assertEquals(db.tables.repricing_suggestions[0].dismissed_at, null);
+});
+
+Deno.test("P14: restore does not reopen an applied nudge", async () => {
+  seed({ status: "applied" });
+  const out = await call(`/suggestions/${SUG}/restore`, {});
+  assertEquals(out.status, 404);
+  assertEquals(db.tables.repricing_suggestions[0].status, "applied");
+});

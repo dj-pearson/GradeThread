@@ -72,6 +72,7 @@ import {
   AUTOMATION_SCOPE_FIELDS,
 } from "@/hooks/use-automations";
 import { ErrorState } from "@/components/ui/error-state";
+import { platformLabel, statusLabel } from "./automation-labels";
 import {
   automationFormError,
   SELF_ACTING_TRIGGERS,
@@ -112,7 +113,7 @@ function describeTrigger(t: AutomationTrigger): string {
         ? `graded within ${t.days} days`
         : `graded ${t.max_grade} or lower within ${t.days} days`;
     case "item_status_changed":
-      return `moved to ${t.status} within ${t.days} days`;
+      return `moved to ${statusLabel(t.status)} within ${t.days} days`;
     case "comp_price_moved":
       return t.direction === "above"
         ? `priced more than ${t.pct}% above comps`
@@ -161,11 +162,11 @@ function describeAction(a: AutomationAction): string {
     case "relist":
       return "end it and send the item back to Drafts to relist";
     case "crosslist_to":
-      return `cross-list it to ${a.platform}`;
+      return `cross-list it to ${platformLabel(a.platform)}`;
     case "send_offer_to_watchers":
       return `offer watchers ${a.discount_pct}% off`;
     case "advance_status":
-      return `move the item to ${a.status}`;
+      return `move the item to ${statusLabel(a.status)}`;
     case "notify":
       return `notify me: “${a.message}”`;
   }
@@ -1231,7 +1232,7 @@ function RuleActivity({ ruleId }: { ruleId: string }) {
               Array.isArray(a.after_json?.queued_revises) &&
               (a.after_json.queued_revises as string[]).length > 0 && (
                 <span className="text-amber-600 dark:text-amber-400">
-                  queued on {(a.after_json.queued_revises as string[]).join(", ")}
+                  queued on {(a.after_json.queued_revises as string[]).map(platformLabel).join(", ")}
                 </span>
               )}
             {a.action_type === "end_listing" && (
@@ -1243,7 +1244,7 @@ function RuleActivity({ ruleId }: { ruleId: string }) {
                 live, so the log must not read it as done. */}
             {a.action_type === "relist" && a.after_json?.queued === true && (
               <span className="text-amber-600 dark:text-amber-400">
-                queued on {String(a.after_json?.platform ?? "the marketplace")}
+                queued on {a.after_json?.platform ? platformLabel(a.after_json.platform) : "the marketplace"}
               </span>
             )}
             {a.action_type === "relist" && a.after_json?.queued !== true && (
@@ -1251,7 +1252,8 @@ function RuleActivity({ ruleId }: { ruleId: string }) {
             )}
             {a.action_type === "crosslist_to" && (
               <span className="text-muted-foreground">
-                cross-listed to {String(a.after_json?.platform ?? "another marketplace")}
+                cross-listed to{" "}
+                {a.after_json?.platform ? platformLabel(a.after_json.platform) : "another marketplace"}
               </span>
             )}
             {a.action_type === "send_offer_to_watchers" && (
@@ -1261,8 +1263,8 @@ function RuleActivity({ ruleId }: { ruleId: string }) {
             )}
             {a.action_type === "advance_status" && (
               <span className="text-muted-foreground">
-                {String(a.before_json?.status ?? "?")} →{" "}
-                {String(a.after_json?.status ?? "?")}
+                {a.before_json?.status ? statusLabel(a.before_json.status) : "?"} →{" "}
+                {a.after_json?.status ? statusLabel(a.after_json.status) : "?"}
               </span>
             )}
             {a.action_type === "notify" && (
@@ -1362,7 +1364,7 @@ function RuleCard({
               size="sm"
               variant="ghost"
               onClick={() => onEdit(rule)}
-              aria-label="Edit rule"
+              aria-label={`Edit rule: ${rule.name}`}
             >
               <Pencil className="h-3.5 w-3.5" />
             </Button>
@@ -1371,7 +1373,7 @@ function RuleCard({
               variant="ghost"
               onClick={remove}
               disabled={del.isPending}
-              aria-label="Delete rule"
+              aria-label={`Delete rule: ${rule.name}`}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
@@ -1880,7 +1882,7 @@ function MarkdownRuleFields({
           value={mdMinGrade}
           onChange={(e) => setMdMinGrade(e.target.value)}
           className="w-20"
-          aria-label="Minimum grade to include in the markdown"
+          aria-label="Maximum grade to include in the markdown"
         />
         out
       </div>
