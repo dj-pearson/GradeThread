@@ -673,10 +673,9 @@ function AutolisterWorkbench() {
   // dnd-kit's viewport-edge auto-scroll keeps working untouched. Each needs its
   // list's distance from the top of the document (`scrollMargin`); the grid also
   // needs its width, because a square tile's height IS its width.
-  const gridRef = useRef<HTMLDivElement>(null);
-  const groupsRef = useRef<HTMLDivElement>(null);
-  const gridAnchor = useWindowVirtualAnchor(gridRef);
-  const groupsAnchor = useWindowVirtualAnchor(groupsRef);
+  // AL-12: callback refs, so a list that mounts after the page still measures.
+  const [gridRef, gridAnchor] = useWindowVirtualAnchor<HTMLDivElement>();
+  const [groupsRef, groupsAnchor] = useWindowVirtualAnchor<HTMLDivElement>();
 
   // Columns follow the grid's VIEWPORT breakpoints; the tile size follows the
   // container's own width. Feeding the container width to the breakpoints would
