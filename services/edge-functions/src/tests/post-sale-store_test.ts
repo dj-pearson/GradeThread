@@ -151,3 +151,64 @@ Deno.test("a row with no last_seen_at is never fresh", () => {
   assertFalse(isSummarySetFresh([{ last_seen_at: null }], Date.parse(NOW)));
   assertFalse(isSummarySetFresh([{ last_seen_at: "not a date" }], Date.parse(NOW)));
 });
+
+// ── PS-06: an action we took shows on the next list read ────────────
+//
+// The list routes serve `raw`, and the page reads open or closed from its
+// state. markPostSaleCaseClosed wrote only the columns, so a refunded return
+// came back Open with its Refund button still on it.
+
+const { SERVED_CLOSED_STATE, loadCachedSummaries, markPostSaleCaseClosed, overlayServedItem, recordPostSaleCases, updatePostSaleCaseState } =
+  await import("../lib/post-sale-store.ts");
+const { isClosedCase } = await import("../lib/post-sale-state.ts");
+const { fakeOutcomeDb } = await import("./_fake-outcome-db.ts");
+
+function openReturn(id: string) {
+  return {
+    returnId: id,
+    state: "RETURN_REQUESTED",
+    orderId: "O-1",
+    itemId: null,
+    reason: "NOT_AS_DESCRIBED",
+    creationDate: "2026-08-20T00:00:00.000Z",
+    respondBy: null,
+    buyerUsername: null,
+    sellerActions: ["REFUND", "DECLINE"],
+  };
+}
+
+Deno.test("PS-06: a return closed by our own action is served closed with no seller actions", async () => {
+  const w = fakeOutcomeDb({ marketplace_post_sale_cases: [] });
+  await recordPostSaleCases("u1", [returnToCaseInput(openReturn("r1"), NOW)], NOW, w.db);
+  const before = await loadCachedSummaries<Record<string, unknown>>("u1", "return", { db: w.db });
+  assertFalse(isClosedCase(before.items[0]!.state as string));
+
+  await markPostSaleCaseClosed("u1", "return", "r1", "refunded", w.db);
+  const after = await loadCachedSummaries<Record<string, unknown>>("u1", "return", { db: w.db });
+  assertEquals(after.items.length, 1);
+  assert(isClosedCase(after.items[0]!.state as string));
+  assertEquals(after.items[0]!.sellerActions, []);
+});
+
+Deno.test("PS-06: a state set by updatePostSaleCaseState is served", async () => {
+  const w = fakeOutcomeDb({ marketplace_post_sale_cases: [] });
+  await recordPostSaleCases("u1", [returnToCaseInput(openReturn("r2"), NOW)], NOW, w.db);
+  await updatePostSaleCaseState("u1", "return", "r2", { state: "RETURN_APPROVED" }, w.db);
+  const served = await loadCachedSummaries<Record<string, unknown>>("u1", "return", { db: w.db });
+  assertEquals(served.items[0]!.state, "RETURN_APPROVED");
+});
+
+Deno.test("PS-06: the overlay is owner-scoped and closes a dispute through `status`", async () => {
+  const w = fakeOutcomeDb({ marketplace_post_sale_cases: [] });
+  await recordPostSaleCases("u1", [returnToCaseInput(openReturn("r3"), NOW)], NOW, w.db);
+  // Another owner closing the same external id touches nothing of u1's.
+  await markPostSaleCaseClosed("u2", "return", "r3", "refunded", w.db);
+  const served = await loadCachedSummaries<Record<string, unknown>>("u1", "return", { db: w.db });
+  assertFalse(isClosedCase(served.items[0]!.state as string));
+
+  const dispute = overlayServedItem({ paymentDisputeId: "d1", status: "OPEN" }, "payment_dispute", {
+    closed_at: NOW,
+  }) as Record<string, unknown>;
+  assertEquals(dispute.status, SERVED_CLOSED_STATE);
+  assertEquals(dispute.state, SERVED_CLOSED_STATE);
+});

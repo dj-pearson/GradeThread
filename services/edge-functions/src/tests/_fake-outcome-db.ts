@@ -5,7 +5,7 @@
 
 export interface RecordedCall {
   table: string;
-  op: "select" | "update";
+  op: "select" | "update" | "upsert";
   patch?: Record<string, unknown>;
   eq: Record<string, unknown>;
   in: Record<string, unknown[]>;
@@ -58,6 +58,21 @@ export function fakeOutcomeDb(rows: FakeRows) {
       },
       limit(_n: number) {
         return b;
+      },
+      order(_col: string, _opts?: unknown) {
+        return b;
+      },
+      upsert(input: Array<Record<string, unknown>>, opts: { onConflict: string }) {
+        call.op = "upsert";
+        record();
+        const keys = opts.onConflict.split(",");
+        const list = (tables[table] ??= []);
+        for (const row of input) {
+          const hit = list.find((r) => keys.every((k) => r[k] === row[k]));
+          if (hit) Object.assign(hit, row);
+          else list.push({ ...row });
+        }
+        return Promise.resolve({ data: null, error: null });
       },
       in(col: string, vs: unknown[]) {
         call.in[col] = vs;
