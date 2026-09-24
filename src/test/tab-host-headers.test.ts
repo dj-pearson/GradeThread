@@ -122,6 +122,28 @@ describe("a hosted page has no second h1 (US-2548 AC2)", () => {
   }
 });
 
+describe("embedded Sourcing tabs defer to the host frame (SRC-11)", () => {
+  // Scout, Buy decision and Buyer demand each set their own max width and
+  // gutter, so the left edge jumped on every tab switch. The render test in
+  // src/pages/flipdesk/__tests__/sourcing-embedded-frame.test.tsx proves the
+  // classes; this pins that each still asks whether it is embedded.
+  for (const rel of [
+    "src/pages/flipdesk/scout.tsx",
+    "src/pages/flipdesk/scout-buy.tsx",
+    "src/pages/flipdesk/demand.tsx",
+  ]) {
+    it(`${rel} reads usePageHost`, () => {
+      expect(read(rel)).toContain("usePageHost()");
+    });
+  }
+
+  it("the Sourcing host owns one content width", () => {
+    expect(read("src/pages/flipdesk/sourcing.tsx")).toContain(
+      'className="mx-auto w-full max-w-6xl space-y-6"',
+    );
+  });
+});
+
 describe("a page reached from a batch still owns its h1", () => {
   for (const rel of STANDALONE) {
     it(rel + " renders a PageHeader", () => {

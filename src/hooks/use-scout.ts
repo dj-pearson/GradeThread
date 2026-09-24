@@ -1,5 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import type { ValueBasis } from "@/components/value/value-basis-note";
@@ -20,6 +19,12 @@ export interface ScoutScored {
   valueHighCents: number | null;
   /** US-2850: what the estimated value is. Absent on an older edge response. */
   valueBasis?: ValueBasis;
+  /** SRC-14: the seller's own eBay condition text, e.g. "Pre-owned". */
+  sellerCondition?: string | null;
+  /** SRC-14: shadow grade minus the seller's stated condition, when positive. */
+  conditionGap?: number;
+  /** SRC-14: confidently better than the seller's own condition says. */
+  arbitrage?: boolean;
   estMarginCents: number | null;
   estMarginPct: number | null;
   underpriced: boolean;
@@ -55,7 +60,21 @@ export interface ScoutScanResult {
   considered?: number;
   /** How many phase two actually shadow-graded. Equals `scanned`. */
   graded?: number;
+  /**
+   * SRC-3: the AI cap stopped the scan early. An empty list with this set is
+   * "you ran out of actions", not "nothing matched".
+   */
+  capReached?: boolean;
+  /** How many listings phase two meant to grade. */
+  queued?: number;
+  /** Grades that failed and were refunded. */
+  failed?: number;
+  /** SRC-7: rows scored from an earlier scan's grade, with no AI spent. */
+  cachedGrades?: number;
 }
+
+/** SRC-3: the most AI actions one scan can use (MAX_CANDIDATES on the edge). */
+export const SCOUT_MAX_AI_ACTIONS = 8;
 
 /** US-3098: eBay's three buying options, as the route validates them. */
 export type ScoutBuyingOption = "FIXED_PRICE" | "AUCTION" | "BEST_OFFER";
@@ -81,7 +100,57 @@ export interface ScoutScanInput {
   sort?: ScoutSort;
 }
 
-export function useScoutScan() {
+// ── SRC-8: the last scan outlives the tab ───────────────────────────────────
+//
+// Results lived only in useMutation state, so switching to Buy decision and
+// back threw away a scan the seller had paid up to eight AI actions for. The
+// last result is parked in the query cache next to the URL it answered, and the
+// page shows it again when it mounts on that same URL.
+
+export const SCOUT_LAST_SCAN_KEY = ["scout-scan", "last"] as const;
+/** Keep the parked scan for half an hour of tab-switching. */
+export const SCOUT_LAST_SCAN_GC_MS = 30 * 60 * 1000;
+
+export interface ScoutLastScan {
+  /** The URL search keys the scan was run from; see scoutUrlKey. */
+  urlKey: string;
+  input: ScoutScanInput;
+  result: ScoutScanResult;
+}
+
+/** The URL keys that define a scan, in a stable order. */
+export const SCOUT_URL_KEYS = [
+  "q",
+  "brand",
+  "cat",
+  "maxTotal",
+  "minMarginPct",
+  "minMargin",
+  "sort",
+  "bin",
+  "freeShip",
+] as const;
+
+export function scoutUrlKey(params: URLSearchParams): string {
+  return SCOUT_URL_KEYS.map((k) => `${k}=${params.get(k) ?? ""}`).join("&");
+}
+
+/** Read the parked scan without ever fetching. */
+export function useScoutLastScan(): ScoutLastScan | undefined {
+  const { data } = useQuery<ScoutLastScan | null>({
+    queryKey: SCOUT_LAST_SCAN_KEY,
+    // Never runs: enabled is false and the data only ever arrives by
+    // setQueryData from useScoutScan.
+    queryFn: () => null,
+    enabled: false,
+    staleTime: Infinity,
+    gcTime: SCOUT_LAST_SCAN_GC_MS,
+  });
+  return data ?? undefined;
+}
+
+export function useScoutScan(opts: { urlKey?: () => string } = {}) {
+  const qc = useQueryClient();
   return useMutation<ScoutScanResult, Error, ScoutScanInput>({
     mutationFn: async (input) => {
       const res = await edgeFetch("/api/flipdesk/scout", {
@@ -99,13 +168,17 @@ export function useScoutScan() {
         note: data.note,
         considered: data.considered,
         graded: data.graded,
+        capReached: data.capReached,
+        queued: data.queued,
+        failed: data.failed,
+        cachedGrades: data.cachedGrades,
       };
     },
-    onSuccess: (r) => {
-      const actionable = r.candidates.filter((c) => c.actionable).length;
-      toast.success(
-        `Scanned ${r.scanned} listing${r.scanned === 1 ? "" : "s"} — ${actionable} deal${actionable === 1 ? "" : "s"} worth a look.`,
-      );
+    // SRC-3: no success toast. The results render inline right under the
+    // button, and a toast saying the same thing covers them on a phone.
+    onSuccess: (result, input) => {
+      const parked: ScoutLastScan = { urlKey: opts.urlKey?.() ?? "", input, result };
+      qc.setQueryData(SCOUT_LAST_SCAN_KEY, parked);
     },
     onError: (err) => toastError(err),
   });

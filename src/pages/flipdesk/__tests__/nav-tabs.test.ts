@@ -389,3 +389,27 @@ describe("the ?view= hosts (US-2161 second pass)", () => {
     }
   });
 });
+
+// SRC-10: one set of words for the Sourcing tabs. The strip said "ScoutAI"
+// while the registry, the palette and iOS said "Scout deals".
+import { SOURCING_TAB_LABELS } from "@/pages/flipdesk/nav-tabs";
+
+describe("Sourcing tab labels", () => {
+  it("name exactly the declared tabs", () => {
+    expect(Object.keys(SOURCING_TAB_LABELS).sort()).toEqual([...SOURCING_TABS].sort());
+  });
+
+  it("match the surface registry for every ?tab= entry", () => {
+    const entries = ALL_SURFACES.filter((s) =>
+      s.web?.startsWith("/dashboard/flipdesk/sourcing?tab="),
+    );
+    expect(entries.length).toBeGreaterThan(0);
+    for (const s of entries) {
+      const tab = new URLSearchParams(s.web!.split("?")[1]).get("tab");
+      expect(resolveSourcingTab(tab), `${s.id} names an unknown tab`).toBe(tab);
+      expect(s.label, `${s.id}: registry and tab strip disagree`).toBe(
+        SOURCING_TAB_LABELS[tab as keyof typeof SOURCING_TAB_LABELS],
+      );
+    }
+  });
+});

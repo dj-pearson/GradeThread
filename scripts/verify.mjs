@@ -647,6 +647,13 @@ if (on("db")) {
       "db: the FlipDesk Overview reads one workspace (00834)",
       "node scripts/check-overview-owner-scope.mjs",
     );
+    // 00835: flipdesk_search_v2 searches one workspace and filters before it
+    // limits, so a big workspace cannot crowd a small one off the page. A
+    // stranger naming another workspace gets 42501; v1 is pinned unchanged.
+    run(
+      "db: search reads one workspace (00835)",
+      "node scripts/check-search-owner-scope.mjs",
+    );
     // 00825: api-key-auth trusts rate_tier and monthly_quota off the row, so
     // no client UPDATE or INSERT policy may exist on api_keys. The owner still
     // reads and deletes; the service role still mints.

@@ -69,10 +69,37 @@ select 'second_active_session=ALLOWED_BUG';
 rollback to savepoint s1;
 select 'second_active_session=refused';
 
--- ...but a second PLANNED session is fine: a seller may line up tomorrow's.
+-- ...and so must a second PLANNED or PAUSED one. 00819 widened 00818's
+--    one-ACTIVE index to one OPEN session (planned, active, paused): a session
+--    is created planned, so the narrower rule did not bind at creation, and a
+--    seller could pause, plan again, and lose the paused session from the UI.
+--    This case used to assert "planned is allowed" without a savepoint, so
+--    after 00819 its unique violation aborted the transaction and every later
+--    case reported "no result line" instead of the one real disagreement.
+savepoint s1b;
 insert into public.flipdesk_work_sessions (user_id, state, work_context, budget_minutes)
 values ('${A}', 'planned', 'home', 15);
-select 'second_planned_session=allowed';
+select 'second_planned_session=ALLOWED_BUG';
+rollback to savepoint s1b;
+select 'second_planned_session=refused';
+
+savepoint s1c;
+insert into public.flipdesk_work_sessions (user_id, state, work_context, budget_minutes)
+values ('${A}', 'paused', 'home', 15);
+select 'second_paused_session=ALLOWED_BUG';
+rollback to savepoint s1c;
+select 'second_paused_session=refused';
+
+-- The index is PARTIAL: once the open session ends, a new plan is fine. An
+-- index that forgot its WHERE would pass every refusal above and lock the
+-- seller out after their first session, so this is the other half.
+savepoint s1d;
+update public.flipdesk_work_sessions set state = 'completed', ended_at = now()
+ where id = '11111111-0000-4000-8000-00000000000a';
+insert into public.flipdesk_work_sessions (user_id, state, work_context, budget_minutes)
+values ('${A}', 'planned', 'home', 15);
+select 'planned_after_close=allowed';
+rollback to savepoint s1d;
 
 -- 3. INVALID STATE: the CHECK refuses anything outside the five.
 savepoint s2;
@@ -179,7 +206,9 @@ const EXPECTED = [
   ["isolation_a", "1"],
   ["isolation_b", "1"],
   ["second_active_session", "refused"],
-  ["second_planned_session", "allowed"],
+  ["second_planned_session", "refused"],
+  ["second_paused_session", "refused"],
+  ["planned_after_close", "allowed"],
   ["invalid_session_state", "refused"],
   ["second_active_task", "refused"],
   ["invalid_task_state", "refused"],
@@ -208,6 +237,32 @@ for (const [key, want] of EXPECTED) {
 if (problems.length > 0) {
   console.error(`[work-session-storage] ${problems.length} problem(s) against ${target.how}:`);
   for (const p of problems) console.error(`  - ${p}`);
+  // A missing line almost always means an unsavepointed statement failed and
+  // aborted the transaction, so everything after it printed nothing. Name that
+  // statement's error: fourteen "did not run" lines hid a single unique
+  // violation on CI for days (00819 vs the old planned-session case).
+  //
+  // Every refusal case produces one expected error and ONE aborted statement
+  // (its ALLOWED_BUG select) before its ROLLBACK TO SAVEPOINT, so the culprit
+  // is the first real error followed by two or more aborted statements in a
+  // row.
+  const lines = out.split("\n").map((l) => l.trim());
+  const isAborted = (l) => /current transaction is aborted/.test(l);
+  const isError = (l) => /^(psql:.*)?ERROR:/.test(l);
+  for (let i = 0; i < lines.length; i++) {
+    if (!isError(lines[i]) || isAborted(lines[i])) continue;
+    let aborted = 0;
+    for (let j = i + 1; j < lines.length; j++) {
+      if (isAborted(lines[j])) aborted++;
+      else if (/^(DETAIL|HINT|LINE|CONTEXT)\b|^\^$|^$/.test(lines[j])) continue;
+      else break;
+    }
+    if (aborted >= 2) {
+      const detail = lines[i + 1]?.startsWith("DETAIL") ? ` (${lines[i + 1]})` : "";
+      console.error(`  the transaction aborted at: ${lines[i]}${detail}`);
+      break;
+    }
+  }
   process.exit(1);
 }
 console.log(

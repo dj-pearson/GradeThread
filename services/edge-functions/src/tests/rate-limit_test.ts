@@ -405,3 +405,57 @@ Deno.test("content-public: bypass is inert when CF_PAGES_ORIGIN_SECRET is unset"
   const over = await call(mw, { cfIp: "198.51.100.8", method: "GET", headers: hdr });
   assertEquals(over.rec.status, 429);
 });
+
+// ─── SRC-5: /scout/buy has its own bucket ────────────────────────────
+
+import { Hono } from "hono";
+import { SCOUT_BUY_PATH, scoutBuyBypass } from "../middleware/rate-limit.ts";
+
+// Mounted exactly as main.ts mounts them, against a real Hono router so the
+// path matching is Hono's rather than a stand-in's.
+function scoutApp() {
+  const store = memoryStore();
+  const app = new Hono<{ Variables: { userId: string } }>();
+  app.use("*", async (c, next) => {
+    c.set("userId", "seller-1");
+    await next();
+  });
+  app.use(
+    "/api/flipdesk/scout/*",
+    rateLimiter(6, 60_000, "flipdesk-scout", store, { failClosed: true, bypass: scoutBuyBypass }),
+  );
+  app.use(SCOUT_BUY_PATH, rateLimiter(30, 60_000, "flipdesk-scout-buy", store));
+  app.post("/api/flipdesk/scout", (c) => c.json({ ok: true }));
+  app.post("/api/flipdesk/scout/buy", (c) => c.json({ ok: true }, 201));
+  return app;
+}
+
+Deno.test("SRC-5: seven buys in a minute are not 429'd by the scan bucket", async () => {
+  const app = scoutApp();
+  for (let i = 1; i <= 7; i++) {
+    const res = await app.request("/api/flipdesk/scout/buy", { method: "POST" });
+    await res.body?.cancel();
+    assertEquals(res.status, 201, `buy ${i}`);
+    assertEquals(res.headers.get("X-RateLimit-Limit"), "30");
+  }
+});
+
+Deno.test("SRC-5: the seventh scan in a minute is still refused", async () => {
+  const app = scoutApp();
+  for (let i = 1; i <= 6; i++) {
+    const res = await app.request("/api/flipdesk/scout", { method: "POST" });
+    await res.body?.cancel();
+    assertEquals(res.status, 200, `scan ${i}`);
+  }
+  const seventh = await app.request("/api/flipdesk/scout", { method: "POST" });
+  await seventh.body?.cancel();
+  assertEquals(seventh.status, 429);
+});
+
+Deno.test("SRC-5: main.ts mounts the buy bypass and the buy bucket", async () => {
+  const main = await Deno.readTextFile(new URL("../main.ts", import.meta.url));
+  assert(/"flipdesk-scout", undefined, \{\s*failClosed: true,\s*bypass: scoutBuyBypass,/.test(main));
+  const buy = main.indexOf('app.use(SCOUT_BUY_PATH, rateLimiter(30, 60_000, "flipdesk-scout-buy"))');
+  const route = main.indexOf('app.route("/api/flipdesk/scout", flipdeskScoutRoutes)');
+  assert(buy > 0 && route > buy, "the buy limiter must be mounted before the scout routes");
+});

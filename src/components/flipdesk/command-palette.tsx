@@ -260,8 +260,8 @@ export function CommandPalette() {
     [qc, ownerId, open],
   );
   const sources = useMemo(
-    () => (open ? (qc.getQueryData<SourceRow[]>(["sources", user?.id]) ?? []) : []),
-    [qc, user?.id, open],
+    () => (open ? (qc.getQueryData<SourceRow[]>(["sources", ownerId]) ?? []) : []),
+    [qc, ownerId, open],
   );
 
   const go = (to: string) => {

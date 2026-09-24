@@ -210,3 +210,58 @@ Deno.test("phase one looks wider than phase two grades", () => {
     "the middle of the used band — a ranking input, never a number shown to anyone",
   );
 });
+
+// ── SRC-6: priced against its own condition, not cheapest-first ────────────
+
+function condCand(itemId: string, askingCents: number, sellerCondition: string) {
+  return { ...cand(itemId, askingCents), sellerCondition };
+}
+
+Deno.test("SRC-6: at the same price, the listing cheap FOR ITS CONDITION leads", () => {
+  // New-with-tags listings go for about $80 here and pre-owned for about $20,
+  // so a $40 NWT is half its bucket's price and a $40 pre-owned is double.
+  const nwt = [8000, 7500, 8500, 9000, 7000].map((p, i) => condCand(`nwt-${i}`, p, "New with tags"));
+  const used = [2000, 1800, 2200, 2500, 1500].map((p, i) => condCand(`used-${i}`, p, "Pre-owned"));
+  const ranked = rankByRoughValue(
+    [condCand("used-40", 4000, "Pre-owned"), condCand("nwt-40", 4000, "New with tags"), ...nwt, ...used],
+    null,
+  ).map((c) => c.itemId);
+  assert(ranked.indexOf("nwt-40") < ranked.indexOf("used-40"));
+});
+
+Deno.test("SRC-6: with a ten-listing bucket the order is not simply ascending by total", () => {
+  const used = Array.from({ length: 10 }, (_, i) => condCand(`used-${i}`, 1500 + i * 200, "Pre-owned"));
+  const nwt = [9000, 8500, 9500, 10000, 4500].map((p, i) => condCand(`nwt-${i}`, p, "New with tags"));
+  const input = [...used, ...nwt];
+  const ranked = rankByRoughValue(input, null).map((c) => c.itemId);
+  const byTotal = [...input].sort((a, b) => (a.askingCents ?? 0) - (b.askingCents ?? 0)).map((c) => c.itemId);
+  assert(JSON.stringify(ranked) !== JSON.stringify(byTotal), "phase one must not be cheapest-first");
+  // The $45 NWT (about half its bucket) beats the $17 pre-owned (about 0.8 of its).
+  assert(ranked.indexOf("nwt-4") < ranked.indexOf("used-1"));
+});
+
+Deno.test("SRC-6: lots and kids' sizes fall back unless the search asked for them", () => {
+  const ranked = rankByRoughValue(
+    [
+      { ...cand("kids", 2000), title: "Patagonia fleece kids size 10" },
+      { ...cand("adult", 2100), title: "Patagonia fleece mens large" },
+    ],
+    10000,
+    { q: "fleece", brand: "Patagonia" },
+  );
+  assertEquals(ranked.map((c) => c.itemId), ["adult", "kids"]);
+  const asked = rankByRoughValue(
+    [
+      { ...cand("kids", 2000), title: "Patagonia fleece kids size 10" },
+      { ...cand("adult", 2100), title: "Patagonia fleece mens large" },
+    ],
+    10000,
+    { q: "kids fleece", brand: "Patagonia" },
+  );
+  assertEquals(asked[0].itemId, "kids");
+});
+
+Deno.test("SRC-6: unknown shipping ranks just behind an equal known total", () => {
+  const ranked = rankByRoughValue([cand("unknown", 2000, null), cand("known", 2000, 0)], 10000);
+  assertEquals(ranked.map((c) => c.itemId), ["known", "unknown"]);
+});

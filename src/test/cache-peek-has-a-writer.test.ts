@@ -59,9 +59,9 @@ const DECLARED: readonly DeclaredPeek[] = [
   },
   {
     file: "src/components/flipdesk/command-palette.tsx",
-    key: '["sources", user?.id]',
+    key: '["sources", ownerId]',
     writer: "src/hooks/use-sources.ts",
-    writes: 'queryKey: ["sources", user?.id]',
+    writes: 'queryKey: ["sources", workspaceOwnerId]',
     why: "instant source matches; useSources owns the key",
   },
   {

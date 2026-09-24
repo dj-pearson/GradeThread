@@ -134,22 +134,17 @@ describe("the field table itself", () => {
   });
 });
 
-describe("the settings card and the scan page share one cache key", () => {
-  // Found 2026-09-10 while closing US-3193. scout.tsx read the standing target
-  // under ["sourcing-target", id] while sourcing-target-setting.tsx reads AND
-  // invalidates ["sourcing_target", id] — a hyphen against an underscore. So
-  // saving a new target refreshed the card and left the scan page showing the
-  // old number until a full reload, which is the worst shape of this bug: the
-  // seller changed the figure, watched it save, and got priced off the one
-  // they replaced.
-  //
-  // Pinned as source text because the two keys live in a component and a page
-  // that cannot be rendered together in a unit test without a Supabase client.
+describe("the settings card and the scan page share one query", () => {
+  // Found 2026-09-10 while closing US-3193: the two files spelled the key
+  // differently, so a save refreshed one and not the other. SRC-2 then found
+  // the worse half: with the spelling fixed, the two cached DIFFERENT SHAPES
+  // under one key (a number and an object), so whichever mounted second read
+  // garbage. Both now go through useSourcingSettings; neither may declare its
+  // own sourcing query key again.
   const read = (p: string) => readFileSync(resolve(process.cwd(), p), "utf8");
   const KEY = /queryKey:\s*\["([a-z_-]*sourcing[a-z_-]*)",/g;
 
-  it("uses the same string in both files", () => {
-    const keys = new Set<string>();
+  it("neither file declares its own sourcing query", () => {
     for (
       const file of [
         "src/pages/flipdesk/scout.tsx",
@@ -157,19 +152,15 @@ describe("the settings card and the scan page share one cache key", () => {
       ]
     ) {
       const src = read(file);
-      const found = [...src.matchAll(KEY)].map((m) => m[1]);
-      expect(found.length, `no sourcing query key found in ${file}`)
-        .toBeGreaterThan(0);
-      for (const k of found) keys.add(k!);
+      expect([...src.matchAll(KEY)].map((m) => m[1]), file).toEqual([]);
+      expect(src, file).toContain("useSourcingSettings(");
     }
-    expect([...keys]).toEqual(["sourcing_target"]);
   });
 
-  it("invalidates the key it reads", () => {
-    const src = read("src/components/flipdesk/sourcing-target-setting.tsx");
-    const invalidated = [
-      ...src.matchAll(/invalidateQueries\(\{\s*queryKey:\s*\["([a-z_-]*sourcing[a-z_-]*)",/g),
-    ].map((m) => m[1]);
-    expect(invalidated).toContain("sourcing_target");
+  it("the card invalidates the key the hook reads", () => {
+    const hook = read("src/hooks/use-sourcing-settings.ts");
+    expect(hook).toContain("queryKey: [SOURCING_SETTINGS_KEY, workspaceOwnerId]");
+    const card = read("src/components/flipdesk/sourcing-target-setting.tsx");
+    expect(card).toContain("invalidateQueries({ queryKey: [SOURCING_SETTINGS_KEY] })");
   });
 });

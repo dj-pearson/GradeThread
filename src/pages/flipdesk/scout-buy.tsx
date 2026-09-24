@@ -1,4 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router";
+import { toast } from "sonner";
 import {
   Camera,
   Loader2,
@@ -25,17 +27,51 @@ import { PageHeader } from "@/components/ui/page-header";
 import {
   useScoutAppraise,
   useScoutBuy,
+  type AppraiseInput,
   type AppraiseResult,
   type BuyRecommendation,
 } from "@/hooks/use-scout-appraise";
+import { compressImage } from "@/lib/image-utils";
+import {
+  costFieldFromCents,
+  inventoryItemHref,
+  readLastSourceId,
+  writeLastSourceId,
+} from "@/lib/scout-links";
+import { useSources } from "@/hooks/use-sources";
+import { useWorkspace } from "@/hooks/use-workspace";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ValueBasisNote } from "@/components/value/value-basis-note";
 import { SourcingCeilingNote } from "@/components/value/sourcing-ceiling-note";
 import { SourcingTargetSetting } from "@/components/flipdesk/sourcing-target-setting";
 import { EbayAttribution } from "@/components/marketplace/ebay-attribution";
+import { usePageHost } from "@/hooks/use-page-host";
 
 function dollars(cents: number | null | undefined): string {
   if (cents == null) return "—";
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+/** SRC-12: the grading contract's review line, the same one grading uses. */
+export const BUY_REVIEW_CONFIDENCE = 0.75;
+
+/** Blob to a data: URI. */
+function blobToDataUri(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () =>
+      typeof reader.result === "string"
+        ? resolve(reader.result)
+        : reject(new Error("Could not read that photo."));
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read that photo."));
+    reader.readAsDataURL(blob);
+  });
 }
 
 // Parse a dollars string ("12.50") to integer cents, or null when blank/invalid.
@@ -74,16 +110,22 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
 
 function DecisionCard({
   result,
-  keyword,
-  brand,
-  size,
+  appraised,
   costCents,
+  sourceId,
+  onNextItem,
 }: {
   result: AppraiseResult;
-  keyword: string;
-  brand: string;
-  size: string;
+  /**
+   * SRC-12: what was APPRAISED, snapshotted from the mutation's variables. The
+   * form fields are live, so a seller who retyped the brand after the verdict
+   * used to save the new words against the old verdict.
+   */
+  appraised: AppraiseInput;
   costCents: number | null;
+  /** SRC-13: the Source picked on the form, if any. */
+  sourceId: string | null;
+  onNextItem: () => void;
 }) {
   const buy = useScoutBuy();
   const { decision, grade, value, sellThrough, ceiling } = result;
@@ -148,7 +190,10 @@ function DecisionCard({
             </div>
           )}
 
-          {grade.value != null && grade.confidence < 0.6 && (
+          {/* SRC-12: the grading contract's line is 0.75, and a grade the
+              engine already flagged for review is uncertain whatever its
+              number says. This used 0.6 and ignored the flag. */}
+          {grade.value != null && (grade.needsHumanReview || grade.confidence < BUY_REVIEW_CONFIDENCE) && (
             <div className="flex items-start gap-2 rounded-md bg-background/60 p-2 text-xs">
               <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
               Low grade confidence ({Math.round(grade.confidence * 100)}%) — inspect the item closely in person.
@@ -162,21 +207,29 @@ function DecisionCard({
             // hook's onError toast.)
             disabled={buy.isPending || buy.isSuccess}
             onClick={() =>
-              buy.mutate({
-                // US-2763: only an AUTHORITATIVE match may name the item.
-                // A visual match is a look-alike listing's title, and saving it
-                // silently is how a garment with no brand mark in frame ends up
-                // named after somebody else's Lululemon tank. What the seller
-                // typed wins over a guess; the guess is shown, not stored.
-                title: (result.identityIsAuthoritative ? result.matchedTitle : null) ||
-                  keyword.trim() || "Scout item",
-                brand: brand.trim() || undefined,
-                size: size.trim() || undefined,
-                costCents: costCents ?? undefined,
-                targetCents: value.medianCents ?? undefined,
-                gradeValue: grade.value ?? undefined,
-                gradeLabel: grade.tier ?? undefined,
-              })
+              buy.mutate(
+                {
+                  // US-2763: only an AUTHORITATIVE match may name the item.
+                  // A visual match is a look-alike listing's title, and saving it
+                  // silently is how a garment with no brand mark in frame ends up
+                  // named after somebody else's Lululemon tank. What the seller
+                  // typed wins over a guess; the guess is shown, not stored.
+                  title: (result.identityIsAuthoritative ? result.matchedTitle : null) ||
+                    appraised.q?.trim() || "Scout item",
+                  brand: appraised.brand?.trim() || undefined,
+                  size: appraised.size?.trim() || undefined,
+                  // SRC-12 / US-3100: the leaf the appraisal resolved, else the
+                  // one the seller asked about.
+                  categoryId: result.matchedCategoryId ?? appraised.categoryId ?? undefined,
+                  costCents: costCents ?? undefined,
+                  // SRC-12: a thin-comp median is not a price to aim at. Sent
+                  // only when the value range was sufficient.
+                  targetCents: value.sufficient ? (value.medianCents ?? undefined) : undefined,
+                  gradeValue: grade.value ?? undefined,
+                  gradeLabel: grade.tier ?? undefined,
+                  sourceId: sourceId ?? undefined,
+                },
+              )
             }
           >
             {buy.isPending ? (
@@ -186,6 +239,20 @@ function DecisionCard({
             )}
             {buy.isSuccess ? "Added to inventory" : "Bought it — add to inventory"}
           </Button>
+
+          {/* SRC-12: what to do after "Bought it". The id used to be dropped,
+              so there was no way to the new item and nothing reset the form
+              for the next one on the rack. */}
+          {buy.isSuccess && buy.data?.id ? (
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="sm" variant="outline">
+                <Link to={inventoryItemHref(buy.data.id)}>Open item</Link>
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={onNextItem}>
+                Next item
+              </Button>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -207,26 +274,71 @@ function DecisionCard({
 }
 
 export function FlipdeskScoutBuyPage() {
+  // SRC-11: inside the Sourcing host the host owns width and gutter.
+  const { embedded } = usePageHost();
   const [photo, setPhoto] = useState<string | null>(null);
+  // SRC-13: a Scout row's "Check in Buy decision" arrives with the listing in
+  // the URL, so nothing is retyped between finding a deal and checking it.
+  const [searchParams] = useSearchParams();
   const [barcode, setBarcode] = useState("");
-  const [keyword, setKeyword] = useState("");
-  const [brand, setBrand] = useState("");
-  const [size, setSize] = useState("");
-  const [categoryId, setCategoryId] = useState("11450"); // Clothing, Shoes & Accessories
-  const [cost, setCost] = useState("");
+  const [keyword, setKeyword] = useState(() => searchParams.get("q") ?? "");
+  const [brand, setBrand] = useState(() => searchParams.get("brand") ?? "");
+  const [size, setSize] = useState(() => searchParams.get("size") ?? "");
+  const [categoryId, setCategoryId] = useState(
+    () => searchParams.get("cat") ?? "11450", // Clothing, Shoes & Accessories
+  );
+  const [cost, setCost] = useState(() => costFieldFromCents(searchParams.get("cost")));
+
+  // SRC-13: which Source this is bought from, so per-source ROI starts here.
+  // Remembered per workspace in this browser; a remembered id that is no
+  // longer in the workspace's list is ignored rather than sent to a 404.
+  const { workspaceOwnerId } = useWorkspace();
+  const { data: sources = [] } = useSources();
+  const [pickedSourceId, setPickedSourceId] = useState<string | null>(
+    () => searchParams.get("sourceId") ?? readLastSourceId(workspaceOwnerId),
+  );
+  const sourceId = sources.some((s) => s.id === pickedSourceId) ? pickedSourceId : null;
+  useEffect(() => {
+    if (sourceId) writeLastSourceId(workspaceOwnerId, sourceId);
+  }, [sourceId, workspaceOwnerId]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const appraise = useScoutAppraise();
   const result = appraise.data;
   const submittedCost = result ? result.costCents : null;
 
-  function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = () => setPhoto(typeof reader.result === "string" ? reader.result : null);
-    reader.readAsDataURL(file);
+    if (!file.type.startsWith("image/")) {
+      toast.error("That file isn't a photo. Pick a JPEG, PNG or HEIC image.");
+      return;
+    }
+    // SRC-12: a phone photo is 4-8 MB, which base64 turns into a request body
+    // near the edge's 12 MB cap. 1600px is plenty for a condition read.
+    try {
+      let blob: Blob = file;
+      try {
+        blob = (await compressImage(file, 1600, 0.85)).blob;
+      } catch {
+        // A photo the canvas cannot decode is still sent as it is; the edge
+        // enforces its own cap.
+      }
+      setPhoto(await blobToDataUri(blob));
+    } catch {
+      toast.error("Couldn't read that photo. Try taking it again.");
+    }
+  }
+
+  /** SRC-12: ready for the next garment. The cost usually stays the same. */
+  function nextItem() {
+    setPhoto(null);
+    if (fileRef.current) fileRef.current.value = "";
+    setBarcode("");
+    setKeyword("");
+    setBrand("");
+    setSize("");
+    appraise.reset();
   }
 
   const canAppraise =
@@ -248,169 +360,208 @@ export function FlipdeskScoutBuyPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-xl space-y-6 p-4 sm:p-6">
-      <PageHeader
-        icon={Sparkles}
-        title="Buy decision"
-        subtitle={
-          <>
-            In the field, before you buy: snap the item (or scan its barcode), add
-            what you'd pay, and get an instant <strong>buy / maybe / skip</strong>
-            with condition, resale range, sell-through, and ROI.
-          </>
-        }
-      />
+    <div className={embedded ? "space-y-6" : "mx-auto w-full max-w-xl space-y-6 p-4 sm:p-6"}>
+      <PageHeader icon={Sparkles} title="Buy decision" />
 
-      {/* US-2851: the ceiling is quoted against this, so the seller has to be
-          able to see and change it on the same screen that spends it. */}
-      <SourcingTargetSetting />
+      {/* SRC-11: the how-to is body copy, not a subtitle. PageHeader drops its
+          subtitle when embedded, which took the page's only instructions with
+          it. */}
+      <p className="text-sm text-muted-foreground">
+        In the field, before you buy: snap the item (or scan its barcode), add
+        what you'd pay, and get an instant <strong>buy / maybe / skip</strong>{" "}
+        with condition, resale range, sell-through, and ROI.
+      </p>
 
-      <Card>
-        <CardContent className="space-y-4 p-4">
-          <form onSubmit={submit} className="space-y-4">
-            {/* Photo capture */}
-            <div className="space-y-1">
-              <Label>Item photo</Label>
-              {photo ? (
-                <div className="relative w-fit">
-                  <img src={photo} alt="Item" className="h-40 rounded-md object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPhoto(null);
-                      if (fileRef.current) fileRef.current.value = "";
-                    }}
-                    className="absolute -right-2 -top-2 rounded-full bg-background p-1 shadow ring-1 ring-border"
-                    aria-label="Remove photo"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+      {/* On a wide screen inside the host, the form sits beside the answer so
+          the seller can change the cost and read the verdict without
+          scrolling. */}
+      <div className={embedded ? "grid gap-6 lg:grid-cols-2 lg:items-start" : "space-y-6"}>
+        <div className="w-full max-w-xl space-y-6">
+          {/* US-2851: the ceiling is quoted against this, so the seller has to be
+              able to see and change it on the same screen that spends it. */}
+          <SourcingTargetSetting />
+
+          <Card>
+            <CardContent className="space-y-4 p-4">
+              <form onSubmit={submit} className="space-y-4">
+                {/* Photo capture */}
+                <div className="space-y-1">
+                  <Label>Item photo</Label>
+                  {photo ? (
+                    <div className="relative w-fit">
+                      <img src={photo} alt="Item" className="h-40 rounded-md object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPhoto(null);
+                          if (fileRef.current) fileRef.current.value = "";
+                        }}
+                        className="absolute -right-2 -top-2 rounded-full bg-background p-1 shadow ring-1 ring-border"
+                        aria-label="Remove photo"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => fileRef.current?.click()}
+                    >
+                      <Camera className="mr-2 h-4 w-4" /> Take / choose photo
+                    </Button>
+                  )}
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => void onPickPhoto(e)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    A photo gives a condition signal. Without one you'll still get value
+                    + ROI at "used" condition.
+                  </p>
                 </div>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => fileRef.current?.click()}
-                >
-                  <Camera className="mr-2 h-4 w-4" /> Take / choose photo
+
+                {/* Barcode */}
+                <div className="space-y-1">
+                  <Label htmlFor="scout-barcode">Barcode / UPC (optional)</Label>
+                  <div className="relative">
+                    <ScanBarcode className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="scout-barcode"
+                      className="pl-8"
+                      inputMode="numeric"
+                      placeholder="012345678905"
+                      value={barcode}
+                      onChange={(e) => setBarcode(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="scout-keyword">Keyword</Label>
+                    <Input
+                      id="scout-keyword"
+                      placeholder="Patagonia Better Sweater"
+                      value={keyword}
+                      onChange={(e) => setKeyword(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="scout-brand">Brand (optional)</Label>
+                    <Input
+                      id="scout-brand"
+                      placeholder="Patagonia"
+                      value={brand}
+                      onChange={(e) => setBrand(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="scout-size">Size (optional)</Label>
+                    <Input
+                      id="scout-size"
+                      placeholder="M"
+                      value={size}
+                      onChange={(e) => setSize(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="scout-category">eBay category ID</Label>
+                    <Input
+                      id="scout-category"
+                      value={categoryId}
+                      onChange={(e) => setCategoryId(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {sources.length > 0 ? (
+                  <div className="space-y-1">
+                    <Label htmlFor="scout-source">Bought from (optional)</Label>
+                    <Select
+                      value={sourceId ?? "none"}
+                      onValueChange={(v) => {
+                        const next = v === "none" ? null : v;
+                        setPickedSourceId(next);
+                        if (!next) writeLastSourceId(workspaceOwnerId, null);
+                      }}
+                    >
+                      <SelectTrigger id="scout-source">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No source</SelectItem>
+                        {sources.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+
+                <div className="space-y-1">
+                  <Label htmlFor="scout-cost">Your cost (what you'd pay)</Label>
+                  <div className="relative">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                    <Input
+                      id="scout-cost"
+                      className="pl-6"
+                      inputMode="decimal"
+                      placeholder="8.00"
+                      value={cost}
+                      onChange={(e) => setCost(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <Button type="submit" className="w-full" disabled={!canAppraise || appraise.isPending}>
+                  {appraise.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                  )}
+                  Should I buy it?
                 </Button>
-              )}
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={onPickPhoto}
-              />
-              <p className="text-xs text-muted-foreground">
-                A photo gives a condition signal. Without one you'll still get value
-                + ROI at "used" condition.
-              </p>
-            </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
 
-            {/* Barcode */}
-            <div className="space-y-1">
-              <Label htmlFor="scout-barcode">Barcode / UPC (optional)</Label>
-              <div className="relative">
-                <ScanBarcode className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="scout-barcode"
-                  className="pl-8"
-                  inputMode="numeric"
-                  placeholder="012345678905"
-                  value={barcode}
-                  onChange={(e) => setBarcode(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="scout-keyword">Keyword</Label>
-                <Input
-                  id="scout-keyword"
-                  placeholder="Patagonia Better Sweater"
-                  value={keyword}
-                  onChange={(e) => setKeyword(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="scout-brand">Brand (optional)</Label>
-                <Input
-                  id="scout-brand"
-                  placeholder="Patagonia"
-                  value={brand}
-                  onChange={(e) => setBrand(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="scout-size">Size (optional)</Label>
-                <Input
-                  id="scout-size"
-                  placeholder="M"
-                  value={size}
-                  onChange={(e) => setSize(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="scout-category">eBay category ID</Label>
-                <Input
-                  id="scout-category"
-                  value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="scout-cost">Your cost (what you'd pay)</Label>
-              <div className="relative">
-                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
-                <Input
-                  id="scout-cost"
-                  className="pl-6"
-                  inputMode="decimal"
-                  placeholder="8.00"
-                  value={cost}
-                  onChange={(e) => setCost(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <Button type="submit" className="w-full" disabled={!canAppraise || appraise.isPending}>
-              {appraise.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="mr-2 h-4 w-4" />
-              )}
-              Should I buy it?
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {appraise.isPending ? (
-        <div className="h-48 w-full animate-pulse rounded-lg bg-muted" />
-      ) : appraise.isError ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base text-destructive">Appraisal failed</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {appraise.error.message}
-          </CardContent>
-        </Card>
-      ) : result ? (
-        <DecisionCard
-          result={result}
-          keyword={keyword}
-          brand={brand}
-          size={size}
-          costCents={submittedCost}
-        />
-      ) : null}
+        <div className="space-y-6">
+          {appraise.isPending ? (
+            <div className="h-48 w-full animate-pulse rounded-lg bg-muted" />
+          ) : appraise.isError ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base text-destructive">Appraisal failed</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <p>{appraise.error.message}</p>
+                {appraise.error.status === 402 || appraise.error.status === 429 ? (
+                  <Button asChild size="sm">
+                    <Link to="/dashboard/billing">See plans</Link>
+                  </Button>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : result ? (
+            <DecisionCard
+              result={result}
+              appraised={appraise.variables ?? {}}
+              costCents={submittedCost}
+              sourceId={sourceId}
+              onNextItem={nextItem}
+            />
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

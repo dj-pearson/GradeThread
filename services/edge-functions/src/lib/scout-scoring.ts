@@ -40,6 +40,12 @@ export interface ScoutCandidate {
    * null when eBay's summary carried no shipping at all.
    */
   shippingCents?: number | null;
+  /**
+   * SRC-6/SRC-14: the seller's own eBay condition text ("Pre-owned", "New with
+   * tags"). Phase one buckets by it, and the arbitrage badge compares it with
+   * the shadow grade. Absent on callers that do not have it.
+   */
+  sellerCondition?: string | null;
 }
 
 // ── US-3098: what the buyer actually pays ───────────────────────────────────
@@ -115,6 +121,10 @@ export interface ScoutScored extends ScoutCandidate {
    * tell a measured number from an unadjusted median.
    */
   valueBasis?: ValueBasis;
+  /** SRC-14: shadow grade minus the seller's stated condition, when positive. */
+  conditionGap?: number;
+  /** SRC-14: confidently better than the seller's own condition says. */
+  arbitrage?: boolean;
 }
 
 export interface ScoreOptions {
@@ -226,4 +236,54 @@ export function rankCandidates(scored: ScoutScored[]): ScoutScored[] {
     if (a.actionable !== b.actionable) return a.actionable ? -1 : 1;
     return (b.estMarginCents ?? -Infinity) - (a.estMarginCents ?? -Infinity);
   });
+}
+
+// ── SRC-14: condition arbitrage ─────────────────────────────────────────────
+//
+// A listing whose SELLER-stated eBay condition is worse than its shadow grade
+// (seller says Good, the photo reads 8.5) is priced for the condition the
+// seller claimed. That is the underpriced signal only a grading company can
+// compute, and a scan already holds both halves.
+
+/** The minimum gap, in grade points, before a row is called better than listed. */
+export const ARBITRAGE_MIN_GAP = 1.5;
+/** Below this the shadow grade is not trusted enough to contradict the seller. */
+export const ARBITRAGE_MIN_CONFIDENCE = 0.75;
+
+/**
+ * What an eBay condition string means on the 1-10 scale. Null when the text is
+ * not one we recognise, so an unknown condition never manufactures a gap.
+ * Most specific first: "New with defects" must not read as "New".
+ */
+export function nominalGradeForCondition(condition: string | null | undefined): number | null {
+  const c = (condition ?? "").trim().toLowerCase();
+  if (!c) return null;
+  if (/for parts|not working/.test(c)) return 3;
+  if (/new with defects/.test(c)) return 8;
+  if (/new without tags|new without box|new other/.test(c)) return 9.5;
+  if (/^(brand )?new( with (tags|box))?$/.test(c)) return 10;
+  if (/like new|excellent/.test(c)) return 9;
+  if (/very good/.test(c)) return 8;
+  if (/\bfair\b|acceptable/.test(c)) return 5;
+  if (/\bgood\b|pre-?owned|used/.test(c)) return 7;
+  return null;
+}
+
+/** How far the shadow grade sits ABOVE the seller's condition; 0 when not above. */
+export function conditionGap(
+  sellerCondition: string | null | undefined,
+  shadowGrade: number | null,
+): number {
+  const nominal = nominalGradeForCondition(sellerCondition);
+  if (nominal == null || shadowGrade == null) return 0;
+  return Math.max(0, Math.round((shadowGrade - nominal) * 10) / 10);
+}
+
+export function isConditionArbitrage(
+  sellerCondition: string | null | undefined,
+  shadowGrade: number | null,
+  confidence: number,
+): boolean {
+  return confidence >= ARBITRAGE_MIN_CONFIDENCE &&
+    conditionGap(sellerCondition, shadowGrade) >= ARBITRAGE_MIN_GAP;
 }

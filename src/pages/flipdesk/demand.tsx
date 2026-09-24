@@ -5,12 +5,24 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { useFlipdeskDemand, type DemandFacet } from "@/hooks/use-flipdesk-demand";
 import { PageHeader } from "@/components/ui/page-header";
+import { scoutHrefForFacet } from "@/lib/scout-links";
+import { usePageHost } from "@/hooks/use-page-host";
 
 // US-1831: seller demand signal — what buyers are actively hunting (PII-safe
 // aggregate). Sellers act by sourcing/grading the wanted brand. Dataviz
 // conventions: ranked horizontal bars sized by demand, emerald accent.
 
-function FacetBars({ title, facets, max }: { title: string; facets: DemandFacet[]; max: number }) {
+function FacetBars({
+  title,
+  facets,
+  max,
+  kind,
+}: {
+  title: string;
+  facets: DemandFacet[];
+  max: number;
+  kind: "brand" | "category";
+}) {
   return (
     <Card>
       <CardHeader><CardTitle className="text-lg">{title}</CardTitle></CardHeader>
@@ -26,7 +38,7 @@ function FacetBars({ title, facets, max }: { title: string; facets: DemandFacet[
             <div key={f.term} className="space-y-1">
               <div className="flex items-center justify-between text-sm">
                 <Link
-                  to={`/dashboard/flipdesk/scout?q=${encodeURIComponent(f.term)}`}
+                  to={scoutHrefForFacet(f.term, kind)}
                   className="truncate font-medium capitalize hover:underline"
                   title={`Source ${f.term}`}
                 >
@@ -54,6 +66,9 @@ function FacetBars({ title, facets, max }: { title: string; facets: DemandFacet[
 
 export function FlipdeskDemandPage() {
   const { demand, isLoading, error, isFetching, refetch } = useFlipdeskDemand();
+  // SRC-11: inside the Sourcing host the host owns width and gutter.
+  const { embedded } = usePageHost();
+  const frame = embedded ? "" : "mx-auto max-w-3xl py-8";
 
   if (isLoading) {
     return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
@@ -62,7 +77,7 @@ export function FlipdeskDemandPage() {
   // quiet market and a failed request, and only one of those is worth acting on.
   if (error) {
     return (
-      <div className="mx-auto max-w-3xl py-8">
+      <div className={frame}>
         <ErrorState
           title="Couldn't load buyer demand"
           description={(error as Error).message}
@@ -74,7 +89,7 @@ export function FlipdeskDemandPage() {
   }
   if (!demand || demand.totalWants === 0) {
     return (
-      <div className="mx-auto max-w-3xl py-8">
+      <div className={frame}>
         <EmptyState
           icon={Megaphone}
           title="No buyer demand yet"
@@ -88,21 +103,17 @@ export function FlipdeskDemandPage() {
   const maxCat = Math.max(1, ...demand.categories.map((f) => f.wantCount));
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <PageHeader
-        icon={Megaphone}
-        title="Buyer demand"
-        subtitle={
-          <>
-            What buyers are actively hunting right now ({demand.totalWants} open
-            want{demand.totalWants === 1 ? "" : "s"}). Source and grade these to
-            meet demand — click a brand to scout it.
-          </>
-        }
-      />
+    <div className={embedded ? "space-y-6" : "mx-auto max-w-3xl space-y-6"}>
+      <PageHeader icon={Megaphone} title="Buyer demand" />
+      {/* SRC-11: body copy, so the want count survives embedding. As a
+          PageHeader subtitle it vanished inside the Sourcing host. */}
+      <p className="text-sm text-muted-foreground">
+        What buyers are hunting right now. {demand.totalWants} open want
+        {demand.totalWants === 1 ? "" : "s"}. Click a brand to scout it.
+      </p>
       <div className="grid gap-6 md:grid-cols-2">
-        <FacetBars title="Top wanted brands" facets={demand.brands} max={maxBrand} />
-        <FacetBars title="Top wanted categories" facets={demand.categories} max={maxCat} />
+        <FacetBars title="Top wanted brands" facets={demand.brands} max={maxBrand} kind="brand" />
+        <FacetBars title="Top wanted categories" facets={demand.categories} max={maxCat} kind="category" />
       </div>
     </div>
   );

@@ -6627,6 +6627,95 @@ Deno.test({
   },
 });
 
+// ── SRC-4: POST /scout (the scan) and POST /scout/buy ───────────────────────
+//
+// The scan spends the owner's AI actions, and /buy INSERTs an inventory row
+// and now takes a sourceId FROM THE BODY, which is the shape US-268 exists
+// for. Neither had a case here. A_SOURCE_ID is declared with the Radar cases
+// below; `const` is hoisted as far as these async test bodies are concerned.
+const SCOUT_SCAN_BODY = JSON.stringify({ categoryId: "11450", q: "patagonia" });
+const SCOUT_BUY_BODY = JSON.stringify({ title: "Tenant isolation probe", costCents: 100 });
+
+Deno.test({
+  name: "SRC-4: viewer cannot run a scan or log a buy in the owner's workspace",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    for (
+      const [path, body] of [
+        ["/api/flipdesk/scout", SCOUT_SCAN_BODY],
+        ["/api/flipdesk/scout/buy", SCOUT_BUY_BODY],
+      ] as const
+    ) {
+      const res = await fetch(`${BASE}${path}`, {
+        method: "POST",
+        headers: viewerHeaders(),
+        body,
+      });
+      await res.body?.cancel();
+      assertDenied(res.status, `POST ${path} as viewer`);
+    }
+  },
+});
+
+Deno.test({
+  name: "SRC-4: non-member B cannot scan or buy against A's workspace",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    for (
+      const [path, body] of [
+        ["/api/flipdesk/scout", SCOUT_SCAN_BODY],
+        ["/api/flipdesk/scout/buy", SCOUT_BUY_BODY],
+      ] as const
+    ) {
+      const res = await fetch(`${BASE}${path}`, {
+        method: "POST",
+        headers: foreignWorkspaceHeaders(),
+        body,
+      });
+      await res.body?.cancel();
+      assertDenied(res.status, `POST ${path} as a non-member of A's workspace`);
+    }
+  },
+});
+
+Deno.test({
+  // B is a legitimate account in their OWN workspace naming A's source id.
+  // Only the owner check inside /buy can stop it, and it must answer 404 and
+  // insert nothing -- a foreign id answered like an unknown one.
+  name: "SRC-4: B in their own workspace cannot attach A's sourceId to a buy",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SOURCE_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/scout/buy`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        title: "Tenant isolation probe",
+        sourceId: Deno.env.get("TEST_USER_A_SOURCE_ID"),
+      }),
+    });
+    const text = await res.text();
+    assertEquals(res.status, 404, `POST scout/buy with A's sourceId as B: ${text}`);
+    const fake = await fetch(`${BASE}/api/flipdesk/scout/buy`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        title: "Tenant isolation probe",
+        sourceId: "00000000-0000-4000-8000-000000000000",
+      }),
+    });
+    assertEquals(
+      [res.status, text],
+      [fake.status, await fake.text()],
+      "a foreign source id and an unknown one must be indistinguishable",
+    );
+  },
+});
+
+// The fourth SRC-4 property, "a member's buy lands with user_id = owner and
+// created_by = member", needs a NON-viewer member fixture, which the seed does
+// not emit. It is pinned at the unit level instead, on the row builder the
+// route calls: scout-buy-validation_test.ts.
+
 // ── US-1864: Thrift Radar — the PERSONAL layer ───────────────────────────────
 //
 // The network endpoints above are gated by plan and by the k-anonymity floor.

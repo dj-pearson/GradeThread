@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { escapeLikePattern } from "@/lib/utils";
 import { captureException } from "@/lib/sentry";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
@@ -109,7 +110,7 @@ export function useAddSourcer() {
             .from("sourcers")
             .select("id, name, archived_at")
             .eq("user_id", workspaceOwnerId)
-            .ilike("name", name)
+            .ilike("name", escapeLikePattern(name))
             .maybeSingle();
           if (existingReadError) throw existingReadError;
           const row = existing as

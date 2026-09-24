@@ -1,4 +1,6 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router";
+import { inventoryItemHref } from "@/lib/scout-links";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -98,8 +100,19 @@ export interface AppraiseInput {
   costCents?: number;
 }
 
+/**
+ * SRC-12: an appraisal failure that carries the HTTP status, so the page can
+ * offer an upgrade on 402 (plan) and 429 (allowance) instead of a dead end.
+ */
+export class AppraiseError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "AppraiseError";
+  }
+}
+
 export function useScoutAppraise() {
-  return useMutation<AppraiseResult, Error, AppraiseInput>({
+  return useMutation<AppraiseResult, AppraiseError, AppraiseInput>({
     mutationFn: async (input) => {
       const res = await edgeFetch("/api/flipdesk/scout/appraise", {
         method: "POST",
@@ -108,10 +121,11 @@ export function useScoutAppraise() {
       const data = (await res.json().catch(() => ({}))) as
         & Partial<AppraiseResult>
         & { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Appraisal failed");
+      if (!res.ok) throw new AppraiseError(data.error ?? "Appraisal failed", res.status);
       return data as AppraiseResult;
     },
-    onError: (err) => toastError(err),
+    // SRC-12: no toast. The page shows the failure inline, right where the
+    // answer would have been, and a toast saying the same thing covered it.
   });
 }
 
@@ -120,6 +134,12 @@ export interface ScoutBuyInput {
   brand?: string;
   size?: string;
   color?: string;
+  /** SRC-12 / US-3100: the eBay leaf category, so the composer does not ask again. */
+  categoryId?: string;
+  /** SRC-13: the Source this was bought from. Owner-verified by the edge. */
+  sourceId?: string;
+  /** SRC-13: the eBay listing it was bought from (https only). */
+  sourceListingUrl?: string;
   costCents?: number;
   targetCents?: number;
   gradeValue?: number;
@@ -133,6 +153,8 @@ export interface ScoutBuyResult {
 }
 
 export function useScoutBuy() {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
   return useMutation<ScoutBuyResult, Error, ScoutBuyInput>({
     mutationFn: async (input) => {
       const res = await edgeFetch("/api/flipdesk/scout/buy", {
@@ -145,8 +167,21 @@ export function useScoutBuy() {
       if (!res.ok) throw new Error(data.error ?? "Could not add to inventory");
       return data as ScoutBuyResult;
     },
-    onSuccess: () =>
-      toast.success("Added to inventory at the “sourced” stage — it's now in your pipeline."),
+    // SRC-13: the toast carries the way to the new item, because a buy logged
+    // from a Scout row has no Open item button of its own.
+    //
+    // Invalidated here rather than by each caller: a buy from a Scout row left
+    // the pipeline and the per-source counts stale, because only the Buy
+    // decision card refreshed them.
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: ["items_full"] });
+      void qc.invalidateQueries({ queryKey: ["inventory_items_source_counts"] });
+      toast.success("Added to inventory at the “sourced” stage — it's now in your pipeline.", {
+        action: r.id
+          ? { label: "Open item", onClick: () => navigate(inventoryItemHref(r.id)) }
+          : undefined,
+      });
+    },
     onError: (err) => toastError(err),
   });
 }

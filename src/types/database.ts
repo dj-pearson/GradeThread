@@ -5192,7 +5192,7 @@ export interface Database {
     Functions: {
       // US-1050 / 00248: SECURITY INVOKER full-text + fuzzy search. RLS scopes
       // the rows to what the caller may read, which is NOT the same as the
-      // active workspace (see src/hooks/use-flipdesk-search.ts).
+      // active workspace. The mobile apps call this; the web calls v2 below.
       flipdesk_search: {
         Args: {
           p_query: string;
@@ -5204,6 +5204,27 @@ export interface Database {
           result_type: "item" | "listing" | "sale";
           result_id: string;
           // NOT NULL on items (its own id), listings and sales (00002 FKs).
+          inventory_item_id: string;
+          title: string;
+          snippet: string;
+          rank: number;
+        }[];
+      };
+      // 00835: v1 for ONE workspace. p_owner_id is checked (owner, member or
+      // service role, else 42501) and filters every branch before the limit.
+      // NULL means the caller's own rows. The web client calls this; the
+      // mobile apps still call v1.
+      flipdesk_search_v2: {
+        Args: {
+          p_query: string;
+          p_scope?: "all" | "items" | "listings" | "sales";
+          p_limit?: number;
+          p_fuzzy_threshold?: number;
+          p_owner_id?: string | null;
+        };
+        Returns: {
+          result_type: "item" | "listing" | "sale";
+          result_id: string;
           inventory_item_id: string;
           title: string;
           snippet: string;

@@ -1,59 +1,81 @@
-import { lazy, Suspense } from "react";
+import {
+  type ComponentType,
+  lazy,
+  type LazyExoticComponent,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useSearchParams } from "react-router";
 import { Search, ScanLine } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { PageHostContext } from "@/hooks/use-page-host";
-import { HostViewSkeleton } from "@/components/flipdesk/host-view-skeleton";
-import { resolveSourcingTab } from "@/pages/flipdesk/nav-tabs";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  HostViewBoundary,
+  HostViewSkeleton,
+} from "@/components/flipdesk/host-view-skeleton";
+import {
+  resolveSourcingTab,
+  SOURCING_TAB_LABELS,
+  SOURCING_TABS,
+  type SourcingTab,
+} from "@/pages/flipdesk/nav-tabs";
 import { PageHelp } from "@/components/help/page-help";
 import { PhoneOnlyRow } from "@/components/flipdesk/phone-only-row";
 import { ALL_SURFACES } from "@/lib/surfaces";
 
 // US-2161: ScoutAI, Buy Decision, Sources and Buyer Demand were four sidebar
 // entries answering one question — "what should I buy, and from where?" They are
-// one destination now, with ?tab= carrying the choice.
+// one destination now, with ?tab= carrying the choice. Radar and My stores
+// joined later (US-1864/1865), so it is six tabs.
 //
 // Same contract as the Pricing host: the tab lives in the URL so deep links, the
 // command palette and flipdesk-search keep working. US-2548 gave the host its
 // own title; each tab keeps every action it owns and loses only its duplicate
 // heading. Import and Consignment deliberately stay separate entries — they are
-// not part of the buy decision, and the story names exactly these four.
+// not part of the buy decision.
 //
-// Each page is lazy so opening Sourcing pulls one tab's bundle, not four.
+// Each page is lazy so opening Sourcing pulls one tab's bundle, not six.
+//
+// SRC-10: the six tabs render from one table, so a seventh cannot be half-wired
+// (a trigger with no content, or a content block with the wrong Suspense). The
+// import thunks are hoisted so hovering or focusing a tab starts its chunk
+// before the click; calling one twice is free, the module is cached.
 
-const ScoutPage = lazy(() =>
-  import("@/pages/flipdesk/scout").then((m) => ({
-    default: m.FlipdeskScoutPage,
-  }))
-);
-const ScoutBuyPage = lazy(() =>
-  import("@/pages/flipdesk/scout-buy").then((m) => ({
-    default: m.FlipdeskScoutBuyPage,
-  }))
-);
-const RadarPage = lazy(() =>
-  import("@/pages/flipdesk/radar").then((m) => ({
-    default: m.FlipdeskRadarPage,
-  }))
-);
-const MyStoresPage = lazy(() =>
-  import("@/pages/flipdesk/my-stores").then((m) => ({
-    default: m.FlipdeskMyStoresPage,
-  }))
-);
-const SourcesPage = lazy(() =>
-  import("@/pages/flipdesk/sources").then((m) => ({
-    default: m.FlipdeskSourcesPage,
-  }))
-);
-const DemandPage = lazy(() =>
-  import("@/pages/flipdesk/demand").then((m) => ({
-    default: m.FlipdeskDemandPage,
-  }))
-);
+type TabModule = { default: ComponentType };
 
+const SOURCING_LOADERS: Record<SourcingTab, () => Promise<TabModule>> = {
+  scout: () => import("@/pages/flipdesk/scout").then((m) => ({ default: m.FlipdeskScoutPage })),
+  buy: () => import("@/pages/flipdesk/scout-buy").then((m) => ({ default: m.FlipdeskScoutBuyPage })),
+  radar: () => import("@/pages/flipdesk/radar").then((m) => ({ default: m.FlipdeskRadarPage })),
+  stores: () =>
+    import("@/pages/flipdesk/my-stores").then((m) => ({ default: m.FlipdeskMyStoresPage })),
+  sources: () =>
+    import("@/pages/flipdesk/sources").then((m) => ({ default: m.FlipdeskSourcesPage })),
+  demand: () => import("@/pages/flipdesk/demand").then((m) => ({ default: m.FlipdeskDemandPage })),
+};
 
+function prefetch(tab: SourcingTab) {
+  // A failed prefetch is not an error: the click loads it again and the tab's
+  // boundary shows the real failure if there is one.
+  SOURCING_LOADERS[tab]().catch(() => undefined);
+}
+
+function lazyPages(): Record<SourcingTab, LazyExoticComponent<ComponentType>> {
+  return Object.fromEntries(
+    SOURCING_TABS.map((t) => [t, lazy(SOURCING_LOADERS[t])]),
+  ) as Record<SourcingTab, LazyExoticComponent<ComponentType>>;
+}
 
 // Read from the registry (US-2876) rather than retyped, so the row and the
 // iOS Tools hub cannot end up describing Prospect differently.
@@ -74,68 +96,76 @@ export function FlipdeskSourcingPage() {
     );
   }
 
+  // Recreated on Retry, because React.lazy caches a rejected import for good.
+  const [attempt, setAttempt] = useState(0);
+  const pages = useMemo(lazyPages, [attempt]);
+
+  // The next step after finding a deal is checking it, so Buy decision's
+  // chunk is warmed as soon as Scout is on screen.
+  useEffect(() => {
+    if (activeTab === "scout") prefetch("buy");
+  }, [activeTab]);
+
   return (
-    <div className="space-y-6">
+    // SRC-11: ONE content frame for every tab. Scout, Buy and Demand each set
+    // their own width and gutter, so the left edge jumped on every switch.
+    // Embedded, they now defer to this.
+    <div className="mx-auto w-full max-w-6xl space-y-6">
       <PageHeader
         icon={Search}
         title="Sourcing"
         subtitle="What to buy, what to pay, and where to find it."
-              actions={<PageHelp slug="deciding-what-to-buy" />}
+        actions={<PageHelp slug="deciding-what-to-buy" />}
       />
       <PageHostContext.Provider value={{ embedded: true }}>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList>
-            <TabsTrigger value="scout">ScoutAI</TabsTrigger>
-            <TabsTrigger value="buy">Buy decision</TabsTrigger>
-            <TabsTrigger value="radar">Radar</TabsTrigger>
-            <TabsTrigger value="stores">My stores</TabsTrigger>
-            <TabsTrigger value="sources">Sources</TabsTrigger>
-            <TabsTrigger value="demand">Buyer demand</TabsTrigger>
+          {/* Six tabs are about 550px as a strip and a phone is 360, so below
+              md it is a picker (the Pricing host's pattern). */}
+          <div className="md:hidden">
+            <Label htmlFor="sourcing-tab" className="sr-only">
+              Which part of Sourcing
+            </Label>
+            <Select value={activeTab} onValueChange={setActiveTab}>
+              <SelectTrigger id="sourcing-tab" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SOURCING_TABS.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {SOURCING_TAB_LABELS[t]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <TabsList className="hidden md:inline-flex">
+            {SOURCING_TABS.map((t) => (
+              <TabsTrigger
+                key={t}
+                value={t}
+                onPointerEnter={() => prefetch(t)}
+                onFocus={() => prefetch(t)}
+              >
+                {SOURCING_TAB_LABELS[t]}
+              </TabsTrigger>
+            ))}
           </TabsList>
 
           {/* Only the active tab mounts — each of these runs its own queries. */}
-          <TabsContent value="scout" className="mt-6">
-            {activeTab === "scout" && (
-              <Suspense fallback={<HostViewSkeleton label="Loading this tab" />}>
-                <ScoutPage />
-              </Suspense>
-            )}
-          </TabsContent>
-          <TabsContent value="buy" className="mt-6">
-            {activeTab === "buy" && (
-              <Suspense fallback={<HostViewSkeleton label="Loading this tab" />}>
-                <ScoutBuyPage />
-              </Suspense>
-            )}
-          </TabsContent>
-          <TabsContent value="radar" className="mt-6">
-            {activeTab === "radar" && (
-              <Suspense fallback={<HostViewSkeleton label="Loading this tab" />}>
-                <RadarPage />
-              </Suspense>
-            )}
-          </TabsContent>
-          <TabsContent value="stores" className="mt-6">
-            {activeTab === "stores" && (
-              <Suspense fallback={<HostViewSkeleton label="Loading this tab" />}>
-                <MyStoresPage />
-              </Suspense>
-            )}
-          </TabsContent>
-          <TabsContent value="sources" className="mt-6">
-            {activeTab === "sources" && (
-              <Suspense fallback={<HostViewSkeleton label="Loading this tab" />}>
-                <SourcesPage />
-              </Suspense>
-            )}
-          </TabsContent>
-          <TabsContent value="demand" className="mt-6">
-            {activeTab === "demand" && (
-              <Suspense fallback={<HostViewSkeleton label="Loading this tab" />}>
-                <DemandPage />
-              </Suspense>
-            )}
-          </TabsContent>
+          {SOURCING_TABS.map((t) => {
+            const Page = pages[t];
+            return (
+              <TabsContent key={t} value={t} className="mt-6">
+                {activeTab === t && (
+                  <HostViewBoundary onRetry={() => setAttempt((n) => n + 1)}>
+                    <Suspense fallback={<HostViewSkeleton label="Loading this tab" />}>
+                      <Page />
+                    </Suspense>
+                  </HostViewBoundary>
+                )}
+              </TabsContent>
+            );
+          })}
         </Tabs>
       </PageHostContext.Provider>
 

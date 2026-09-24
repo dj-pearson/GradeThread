@@ -54,7 +54,11 @@ import {
   SPECULATIVE_CONDITION_ID,
 } from "../lib/comp-speculation.ts";
 import { whichRefusal } from "../lib/gate-order.ts";
-import { cachedSearchBrowseComps, cachedValueAtGrade } from "../lib/comps-cache.ts";
+import {
+  cachedSearchBrowseComps,
+  cachedValueAtGrade,
+  scoutShadowCache,
+} from "../lib/comps-cache.ts";
 import {
   pickVisualImageIndex,
   planProspectIdentification,
@@ -74,6 +78,8 @@ import { ebaySoldSearchUrl } from "../lib/sold-comps.ts";
 import { decideBuy, DECISION_FEE_RATE, sourcingCeiling } from "../lib/scout-decision.ts";
 import { sourcingParams } from "../lib/sourcing-target.ts";
 import {
+  conditionGap,
+  isConditionArbitrage,
   rankCandidates,
   scoreCandidate,
   type ScoutCandidate,
@@ -233,33 +239,200 @@ export function parseScanFilters(body: Record<string, unknown>): ScanFilters | {
   };
 }
 
+/** SRC-6: a condition bucket needs this many prices before its median is used. */
+export const PHASE_ONE_MIN_BUCKET = 5;
+/** Unknown shipping is a real cost we cannot see; rank it a little behind. */
+const UNKNOWN_SHIPPING_PENALTY = 1.1;
+/** Lots, parts and kids' sizes are rarely what an adult-garment search wants. */
+const OFF_TARGET_PENALTY = 1.3;
+const OFF_TARGET_RE = /\b(lot|lots|bundle|parts|repair|kids?|youth|boys|girls|toddler|infant|baby)\b/i;
+
+function tokens(text: string | undefined | null): string[] {
+  return (text ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((x, y) => x - y);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
 /**
- * Phase one: rank by how far the asking price sits under a rough value, with
- * NO AI spent.
+ * Phase one: pick which listings are worth a paid shadow grade, with NO AI.
  *
- * The rough value is one `cachedValueAtGrade` read at a nominal grade for the
- * whole search — one question to eBay for the entire phase, not one per
- * listing. It is deliberately crude: its only job is to decide WHICH eight of
- * fifty listings are worth a real shadow grade, and being approximately right
- * about the ordering costs nothing, while grading all fifty would cost the
- * seller fifty AI actions to answer a question about eight.
+ * SRC-6: this used to divide every total by one constant, so the order was
+ * exactly cheapest-first and the eight paid grades went to the eight cheapest
+ * listings, which are often worn or off-target. Each listing is now priced
+ * against the median of listings in the SAME eBay condition: a $40 new-with-
+ * tags coat in a bucket whose median is $80 is a better lead than a $20
+ * pre-owned one in a bucket whose median is $22.
  *
- * Cheapest-relative-to-value first. A listing with no asking price sorts last:
- * it cannot be compared, and it cannot be bought on a number either.
+ * A bucket with fewer than PHASE_ONE_MIN_BUCKET prices is too thin to have a
+ * median, so it falls back to `fallbackMedianCents` (the one rough value read at
+ * a nominal grade) and then to the median of every price in the search. Unknown
+ * shipping ranks slightly behind, a title that shares the search's words ranks
+ * slightly ahead, and lots, parts and kids' sizes fall back unless the search
+ * asked for them.
+ *
+ * A listing with no asking price sorts last: it cannot be compared, and it
+ * cannot be bought on a number either.
  */
 export function rankByRoughValue(
   candidates: ScoutCandidate[],
-  roughMedianCents: number | null,
+  fallbackMedianCents: number | null,
+  search: { q?: string; brand?: string } = {},
 ): ScoutCandidate[] {
-  return [...candidates].sort((a, b) => {
-    const ratio = (cand: ScoutCandidate): number => {
-      const total = totalPriceCents(cand.askingCents, cand.shippingCents).cents;
-      if (total == null || total <= 0) return Number.POSITIVE_INFINITY;
-      if (roughMedianCents == null || roughMedianCents <= 0) return total;
-      return total / roughMedianCents;
-    };
-    return ratio(a) - ratio(b);
-  });
+  const totalOf = (cand: ScoutCandidate) => totalPriceCents(cand.askingCents, cand.shippingCents).cents;
+  const bucketOf = (cand: ScoutCandidate) => (cand.sellerCondition ?? "").trim().toLowerCase();
+
+  const byBucket = new Map<string, number[]>();
+  const all: number[] = [];
+  for (const cand of candidates) {
+    const total = totalOf(cand);
+    if (total == null || total <= 0) continue;
+    all.push(total);
+    const key = bucketOf(cand);
+    byBucket.set(key, [...(byBucket.get(key) ?? []), total]);
+  }
+  const globalMedian = median(all);
+  const bucketMedian = new Map<string, number | null>();
+  for (const [key, totals] of byBucket) {
+    bucketMedian.set(key, totals.length >= PHASE_ONE_MIN_BUCKET ? median(totals) : null);
+  }
+
+  const searchTokens = new Set([...tokens(search.q), ...tokens(search.brand)]);
+  const searchWantsOffTarget = OFF_TARGET_RE.test(`${search.q ?? ""} ${search.brand ?? ""}`);
+
+  const score = (cand: ScoutCandidate): number => {
+    const total = totalOf(cand);
+    if (total == null || total <= 0) return Number.POSITIVE_INFINITY;
+    const ref = bucketMedian.get(bucketOf(cand)) ??
+      (fallbackMedianCents != null && fallbackMedianCents > 0 ? fallbackMedianCents : null) ??
+      globalMedian;
+    let ratio = ref != null && ref > 0 ? total / ref : total;
+    if (cand.shippingCents == null) ratio *= UNKNOWN_SHIPPING_PENALTY;
+    if (searchTokens.size > 0) {
+      const titleTokens = new Set(tokens(cand.title));
+      let hits = 0;
+      for (const t of searchTokens) if (titleTokens.has(t)) hits++;
+      ratio *= 1 - 0.1 * (hits / searchTokens.size);
+    }
+    if (!searchWantsOffTarget && OFF_TARGET_RE.test(cand.title)) ratio *= OFF_TARGET_PENALTY;
+    return ratio;
+  };
+
+  const scored = candidates.map((cand) => ({ cand, s: score(cand) }));
+  // Stable: equal scores keep eBay's order.
+  return scored
+    .sort((a, b) => (a.s === b.s ? 0 : a.s - b.s))
+    .map((x) => x.cand);
+}
+
+/** A shadow grade: what the AI said about one listing's photo. */
+export interface ShadowGrade {
+  overallScore: number;
+  confidence: number;
+}
+
+export interface ShadowGradeDeps<C> {
+  /** Atomically reserve one AI action. False means the cap refused it. */
+  reserve: () => Promise<boolean>;
+  /** Return a reserved action after a failed grade, so it is not billed. */
+  refund: () => Promise<void>;
+  /** The paid step: grade one listing's photo. */
+  grade: (cand: C) => Promise<ShadowGrade>;
+  /** Value and score a graded listing. No AI. */
+  score: (cand: C, grade: ShadowGrade) => Promise<ScoutScored>;
+  concurrency: number;
+  /**
+   * SRC-7: a grade from an earlier scan, or null. Checked BEFORE reserve(), so
+   * a hit costs no AI action. Must not throw.
+   */
+  cached?: (cand: C) => Promise<ShadowGrade | null>;
+  /** SRC-7: keep a fresh grade for the next scan. Must not throw. */
+  remember?: (cand: C, grade: ShadowGrade) => Promise<void>;
+  /** Called when a grade throws, for logging. */
+  onError?: (cand: C, err: unknown) => void;
+}
+
+export interface ShadowGradeRun {
+  scored: ScoutScored[];
+  /** True when the AI cap refused a reservation and the run stopped early. */
+  capReached: boolean;
+  /** Grades that threw (and were refunded). */
+  failed: number;
+  /** How many listings were queued for grading. */
+  queued: number;
+  /** SRC-7: rows scored from an earlier scan's grade, with no AI spent. */
+  cachedGrades: number;
+}
+
+/**
+ * Phase two: shadow-grade the queue with bounded concurrency.
+ *
+ * SRC-3: pulled out of the route so a cap hit and an all-failed run have tests.
+ * Both used to come back as `candidates: []` with no flag, and the page told
+ * the seller to broaden a search that was fine. The run now says which one it
+ * was.
+ */
+export async function runShadowGrades<C>(
+  queue: readonly C[],
+  deps: ShadowGradeDeps<C>,
+): Promise<ShadowGradeRun> {
+  const pending = [...queue];
+  const scored: ScoutScored[] = [];
+  let failed = 0;
+  let cachedGrades = 0;
+  // Set when the AI cap refuses a reservation. Every worker checks it, so one
+  // refusal stops the whole scan instead of each worker discovering the cap
+  // separately and burning a round trip to do it.
+  let capReached = false;
+
+  await Promise.all(
+    Array.from({ length: Math.min(deps.concurrency, pending.length) }, async () => {
+      while (!capReached) {
+        const cand = pending.shift();
+        if (!cand) return;
+
+        // SRC-7: a listing graded by an earlier scan is scored again without
+        // reserving anything. Only the value lookup runs.
+        const earlier = deps.cached ? await deps.cached(cand) : null;
+        if (earlier) {
+          try {
+            scored.push(await deps.score(cand, earlier));
+            cachedGrades += 1;
+          } catch (err) {
+            failed += 1;
+            deps.onError?.(cand, err);
+          }
+          continue;
+        }
+
+        // US-619: atomically reserve one AI action; stop cleanly when the cap is
+        // hit. The reservation is atomic, so concurrent workers cannot together
+        // reserve past the cap.
+        const reserved = await deps.reserve();
+        if (reserved !== true) {
+          capReached = true;
+          return;
+        }
+
+        try {
+          const grade = await deps.grade(cand);
+          await deps.remember?.(cand, grade);
+          scored.push(await deps.score(cand, grade));
+        } catch (err) {
+          failed += 1;
+          // Refund the reserved action on failure so a transient error isn't billed.
+          await deps.refund();
+          deps.onError?.(cand, err);
+        }
+      }
+    }),
+  );
+
+  return { scored, capReached, failed, queued: queue.length, cachedGrades };
 }
 
 flipdeskScoutRoutes.post("/", async (c) => {
@@ -330,6 +503,19 @@ flipdeskScoutRoutes.post("/", async (c) => {
   // filters, and ranks the rest against ONE rough value read. No AI is spent
   // here at all, which is the point: the expensive step gets the best eight
   // rather than the first eight.
+  // SRC-6: the rough value does not depend on the search results, so ask for it
+  // at the same time. It never rejects; a failure is logged and means null.
+  const roughValuePromise: Promise<number | null> = cachedValueAtGrade(
+    { categoryId, q, brand },
+    PHASE_ONE_NOMINAL_GRADE,
+  ).then(
+    (rough) => (rough.sufficient ? rough.medianCents : null),
+    (err) => {
+      captureException(err, { level: "warn", route: "scout.rough-value" });
+      return null;
+    },
+  );
+
   let considered: ScoutCandidate[];
   try {
     const search = await searchBrowseComps({
@@ -352,6 +538,7 @@ flipdeskScoutRoutes.post("/", async (c) => {
         itemWebUrl: i.itemWebUrl,
         askingCents: i.price != null && i.price > 0 ? Math.round(i.price * 100) : null,
         shippingCents: i.shippingCents,
+        sellerCondition: i.condition,
       }));
   } catch (err) {
     return failSafe(c, 502, "Couldn't reach eBay to search candidates. Try again shortly.", err, "scout.search");
@@ -389,70 +576,65 @@ flipdeskScoutRoutes.post("/", async (c) => {
   // grade. Crude on purpose — see rankByRoughValue. A failure here is not fatal;
   // the phase falls back to cheapest-first, which is still a better eight than
   // whichever eight eBay listed first.
-  let roughMedianCents: number | null = null;
-  try {
-    const rough = await cachedValueAtGrade({ categoryId, q, brand }, PHASE_ONE_NOMINAL_GRADE);
-    roughMedianCents = rough.sufficient ? rough.medianCents : null;
-  } catch (err) {
-    captureException(err, { level: "warn", route: "scout.rough-value" });
-  }
+  //
+  // SRC-6: only the FALLBACK now, for condition buckets too thin to have their
+  // own median, and started alongside the search (below) rather than after it.
+  const roughMedianCents = await roughValuePromise;
 
   // A candidate with no photo cannot be shadow-graded, so it never enters the
   // queue rather than being skipped inside it.
-  const queue = rankByRoughValue(considered, roughMedianCents)
+  const queue = rankByRoughValue(considered, roughMedianCents, { q, brand })
     .filter((cand): cand is ScoutCandidate & { imageUrl: string } => Boolean(cand.imageUrl))
     .slice(0, limit);
 
-  const scored: ScoutScored[] = [];
-  let graded = 0;
-  // Set when the AI cap refuses a reservation. Every worker checks it, so one
-  // refusal stops the whole scan instead of each worker discovering the cap
-  // separately and burning a round trip to do it.
-  let capHit = false;
+  const run = await runShadowGrades(queue, {
+    reserve: () => reserveAiActionSafe(userId, quota),
+    refund: () => refundAiAction(userId),
+    concurrency: SCAN_CONCURRENCY,
+    cached: (cand) => scoutShadowCache.lookup(userId, cand.itemId, cand.imageUrl),
+    remember: (cand, grade) => scoutShadowCache.remember(userId, cand.itemId, cand.imageUrl, grade),
+    // US-616: PRIVATE shadow grade from the listing's own photo.
+    grade: (cand) =>
+      quickGrade({
+        images: [{ url: cand.imageUrl, type: "front" }],
+        garment: { brand: brand ?? null, title: cand.title },
+      }),
+    score: async (cand, grade) => {
+      // US-610: condition-adjusted value at that grade, same search identity.
+      // Through the cache: the only field that varies across candidates here
+      // is the condition the grade maps to, and there are about five of those,
+      // so a scan asks eBay a handful of questions rather than one per
+      // candidate.
+      const value = await cachedValueAtGrade({ categoryId, q, brand }, grade.overallScore);
+      // US-617: score by condition-adjusted margin.
+      const row = scoreCandidate(cand, grade.overallScore, grade.confidence, value, {
+        targetRoi,
+        costs: scanCosts,
+      });
+      // SRC-14: priced for a worse condition than the photo shows.
+      return {
+        ...row,
+        conditionGap: conditionGap(cand.sellerCondition, grade.overallScore),
+        arbitrage: isConditionArbitrage(cand.sellerCondition, grade.overallScore, grade.confidence),
+      };
+    },
+    onError: (cand, err) =>
+      captureException(err, { level: "warn", route: "scout.grade", extra: { itemId: cand.itemId } }),
+  });
+  const scored = run.scored;
+  const graded = scored.length;
 
-  await Promise.all(
-    Array.from({ length: Math.min(SCAN_CONCURRENCY, queue.length) }, async () => {
-      while (!capHit) {
-        const cand = queue.shift();
-        if (!cand) return;
-
-        // US-619: atomically reserve one AI action; stop cleanly when the cap is
-        // hit. The reservation is atomic, so concurrent workers cannot together
-        // reserve past the cap.
-        const reserved = await reserveAiActionSafe(userId, quota);
-        if (reserved !== true) {
-          capHit = true;
-          return;
-        }
-
-        try {
-          // US-616: PRIVATE shadow grade from the listing's own photo.
-          const grade = await quickGrade({
-            images: [{ url: cand.imageUrl, type: "front" }],
-            garment: { brand: brand ?? null, title: cand.title },
-          });
-          // US-610: condition-adjusted value at that grade, same search
-          // identity. Through the cache: the only field that varies across
-          // candidates here is the condition the grade maps to, and there are
-          // about five of those, so a scan asks eBay a handful of questions
-          // rather than one per candidate.
-          const value = await cachedValueAtGrade({ categoryId, q, brand }, grade.overallScore);
-          // US-617: score by condition-adjusted margin.
-          scored.push(
-            scoreCandidate(cand, grade.overallScore, grade.confidence, value, {
-              targetRoi,
-              costs: scanCosts,
-            }),
-          );
-          graded += 1;
-        } catch (err) {
-          // Refund the reserved action on failure so a transient error isn't billed.
-          await refundAiAction(userId);
-          captureException(err, { level: "warn", route: "scout.grade", extra: { itemId: cand.itemId } });
-        }
-      }
-    }),
-  );
+  // SRC-3: nothing graded because every grade threw (an Anthropic outage, not
+  // the search) is a failure, not an empty result. The actions were refunded.
+  if (graded === 0 && run.failed > 0 && !run.capReached) {
+    return failSafe(
+      c,
+      502,
+      `Couldn't grade any of the ${run.queued} listings right now. Try again shortly.`,
+      new Error(`scout: ${run.failed} of ${run.queued} shadow grades failed`),
+      "scout.grade-all-failed",
+    );
+  }
 
   // US-3098: the margin bar, applied AFTER scoring because the margin is only
   // known once the shadow grade and the condition-adjusted value are.
@@ -471,7 +653,10 @@ flipdeskScoutRoutes.post("/", async (c) => {
     return true;
   });
 
-  recordMetric("scout.scan", graded, { actionable: String(cleared.filter((s) => s.actionable).length) });
+  recordMetric("scout.scan", graded, {
+    actionable: String(cleared.filter((s) => s.actionable).length),
+    cachedGrades: String(run.cachedGrades),
+  });
 
   return c.json({
     // `scanned` is what phase two actually graded, unchanged from before so no
@@ -482,10 +667,21 @@ flipdeskScoutRoutes.post("/", async (c) => {
     considered: consideredCount,
     graded,
     candidates: rankCandidates(cleared),
+    // SRC-3: why the list may be short. A client that ignores these still
+    // gets the note below.
+    capReached: run.capReached,
+    queued: run.queued,
+    failed: run.failed,
+    // SRC-7: rows scored from an earlier scan's grade, with no AI spent.
+    cachedGrades: run.cachedGrades,
     // US-620: be explicit about what this is.
     disclaimer:
       "Shadow grades are private estimates from the listing's photos — not a GradeThread certificate, and not visible to the seller. Verify condition before buying.",
-    ...(cleared.length === 0 && scored.length > 0
+    ...(run.capReached
+      ? {
+        note: `AI limit reached after grading ${graded} of ${run.queued}. Upgrade or wait for the reset.`,
+      }
+      : cleared.length === 0 && scored.length > 0
       ? {
         note: `Graded ${graded} of ${consideredCount} listings; none of them cleared your margin filter.`,
       }
@@ -1730,81 +1926,199 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   });
 });
 
+// ── SRC-4: the /buy body, parsed once ────────────────────────────────────
+//
+// PURE and exported so every refusal has a test without a request. The row
+// lands in inventory_items, whose grade_value is decimal(3,1): a gradeValue of
+// 100 used to reach the INSERT and come back as a 500.
+
+export const BUY_TITLE_MAX = 200;
+export const BUY_SHORT_MAX = 80;
+export const BUY_NOTES_MAX = 2000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export interface ScoutBuyInput {
+  title: string;
+  brand: string | null;
+  size: string | null;
+  color: string | null;
+  categoryId: string | null;
+  conditionNotes: string | null;
+  acquiredPrice: number | null;
+  targetPrice: number | null;
+  gradeValue: number | null;
+  gradeLabel: string | null;
+  sourceId: string | null;
+  sourcedBy: string | null;
+}
+
+export function parseScoutBuy(body: Record<string, unknown>): ScoutBuyInput | { error: string } {
+  const text = (key: string, max: number): string | null | { error: string } => {
+    const raw = body[key];
+    if (typeof raw !== "string" || !raw.trim()) return null;
+    const v = raw.trim();
+    if (v.length > max) return { error: `${key} must be ${max} characters or fewer` };
+    return v;
+  };
+  const isErr = (v: unknown): v is { error: string } =>
+    typeof v === "object" && v !== null && "error" in v;
+
+  const title = text("title", BUY_TITLE_MAX);
+  if (isErr(title)) return title;
+  if (!title) return { error: "title is required" };
+  const brand = text("brand", BUY_SHORT_MAX);
+  if (isErr(brand)) return brand;
+  const size = text("size", BUY_SHORT_MAX);
+  if (isErr(size)) return size;
+  const color = text("color", BUY_SHORT_MAX);
+  if (isErr(color)) return color;
+  const gradeLabel = text("gradeLabel", BUY_SHORT_MAX);
+  if (isErr(gradeLabel)) return gradeLabel;
+  const sourcedBy = text("sourcedBy", BUY_SHORT_MAX);
+  if (isErr(sourcedBy)) return sourcedBy;
+  let conditionNotes = text("conditionNotes", BUY_NOTES_MAX);
+  if (isErr(conditionNotes)) return conditionNotes;
+
+  // US-3100: the eBay leaf category the scan already resolved. Dropped until
+  // then, so a seller who prospected an item and added it then had to answer
+  // the category question again in the composer. Digits only: eBay category
+  // ids are numeric, and anything else would be written straight into the
+  // composer's category field to fail at publish time.
+  const categoryId = typeof body.categoryId === "string" && /^\d{1,20}$/.test(body.categoryId.trim())
+    ? body.categoryId.trim()
+    : null;
+
+  let gradeValue: number | null = null;
+  if (body.gradeValue != null) {
+    if (
+      typeof body.gradeValue !== "number" || !Number.isFinite(body.gradeValue) ||
+      body.gradeValue < 1 || body.gradeValue > 10
+    ) {
+      return { error: "gradeValue must be a number from 1.0 to 10.0" };
+    }
+    gradeValue = Math.round(body.gradeValue * 10) / 10;
+  }
+
+  let sourceId: string | null = null;
+  if (body.sourceId != null && body.sourceId !== "") {
+    if (typeof body.sourceId !== "string" || !UUID_RE.test(body.sourceId)) {
+      return { error: "sourceId must be a source id" };
+    }
+    sourceId = body.sourceId;
+  }
+
+  // The listing the seller bought from, so the item remembers where it was
+  // found. https only: this is shown back to the seller as a link.
+  if (body.sourceListingUrl != null && body.sourceListingUrl !== "") {
+    const raw = typeof body.sourceListingUrl === "string" ? body.sourceListingUrl : "";
+    let url: URL | null = null;
+    try {
+      url = raw ? new URL(raw) : null;
+    } catch {
+      url = null;
+    }
+    if (!url || url.protocol !== "https:" || raw.length > 500) {
+      return { error: "sourceListingUrl must be an https link" };
+    }
+    const line = `Found at ${url.toString()}`;
+    conditionNotes = conditionNotes ? `${conditionNotes}\n\n${line}` : line;
+    if (conditionNotes.length > BUY_NOTES_MAX) {
+      return { error: `conditionNotes must be ${BUY_NOTES_MAX} characters or fewer` };
+    }
+  }
+
+  return {
+    title,
+    brand,
+    size,
+    color,
+    categoryId,
+    conditionNotes,
+    acquiredPrice: typeof body.costCents === "number" && body.costCents > 0
+      ? Math.round(body.costCents) / 100
+      : null,
+    targetPrice: typeof body.targetCents === "number" && body.targetCents > 0
+      ? Math.round(body.targetCents) / 100
+      : null,
+    gradeValue,
+    gradeLabel,
+    sourceId,
+    sourcedBy,
+  };
+}
+
+/**
+ * The inventory_items row a Scout buy writes. user_id is the workspace OWNER
+ * and created_by is the person who pressed the button: the service-role insert
+ * has no auth.uid(), so the 00707 trigger would otherwise leave it NULL.
+ */
+export function scoutBuyRow(
+  input: ScoutBuyInput,
+  ids: { ownerId: string; actorId: string | null },
+): Record<string, unknown> {
+  return {
+    user_id: ids.ownerId,
+    created_by: ids.actorId,
+    title: input.title,
+    brand: input.brand,
+    size: input.size,
+    color: input.color,
+    acquired_price: input.acquiredPrice,
+    acquired_date: new Date().toISOString(),
+    acquired_source: "scout",
+    status: "sourced",
+    target_price: input.targetPrice,
+    grade_value: input.gradeValue,
+    grade_label: input.gradeLabel,
+    condition_notes: input.conditionNotes,
+    ebay_category_id: input.categoryId,
+    source_id: input.sourceId,
+    sourced_by: input.sourcedBy,
+  };
+}
+
 // POST /buy — commit a buy decision into the pipeline by creating the inventory
 // item at `sourced` (the existing already-bought start). Tenant-scoped: the row
-// is always written under the workspace owner's user_id.
+// is always written under the workspace owner's user_id, and a sourceId from
+// the body is verified against that owner before it is written (SRC-4).
 flipdeskScoutRoutes.post("/buy", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   const gate = await requireFlipdesk(c, { feature: "compPulls", userId });
   if (gate) return gate;
 
-  let body: {
-    title?: unknown;
-    brand?: unknown;
-    size?: unknown;
-    color?: unknown;
-    categoryId?: unknown;
-    costCents?: unknown;
-    targetCents?: unknown;
-    gradeValue?: unknown;
-    gradeLabel?: unknown;
-    conditionNotes?: unknown;
-  };
+  let body: Record<string, unknown>;
   try {
-    body = await c.req.json();
+    const parsed = await c.req.json();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return jsonError(c, 400, "Invalid JSON body");
+    }
+    body = parsed as Record<string, unknown>;
   } catch {
     return jsonError(c, 400, "Invalid JSON body");
   }
 
-  const title = typeof body.title === "string" ? body.title.trim() : "";
-  if (!title) return jsonError(c, 400, "title is required");
-  const brand = typeof body.brand === "string" && body.brand.trim() ? body.brand.trim() : null;
-  const size = typeof body.size === "string" && body.size.trim() ? body.size.trim() : null;
-  const color = typeof body.color === "string" && body.color.trim() ? body.color.trim() : null;
-  // US-3100: the eBay leaf category the scan already resolved. Dropped until
-  // now, so a seller who prospected an item and added it then had to answer the
-  // category question again in the composer — for a category the identify step
-  // had worked out and thrown away. Digits only: eBay category ids are numeric,
-  // and anything else here would be written straight into the composer's
-  // category field to fail at publish time.
-  const categoryId = typeof body.categoryId === "string" && /^\d{1,20}$/.test(body.categoryId.trim())
-    ? body.categoryId.trim()
-    : null;
-  const conditionNotes = typeof body.conditionNotes === "string" && body.conditionNotes.trim()
-    ? body.conditionNotes.trim()
-    : null;
-  const acquiredPrice = typeof body.costCents === "number" && body.costCents > 0
-    ? Math.round(body.costCents) / 100
-    : null;
-  const targetPrice = typeof body.targetCents === "number" && body.targetCents > 0
-    ? Math.round(body.targetCents) / 100
-    : null;
-  const gradeValue = typeof body.gradeValue === "number" && body.gradeValue > 0
-    ? Math.round(body.gradeValue * 10) / 10
-    : null;
-  const gradeLabel = typeof body.gradeLabel === "string" && body.gradeLabel.trim()
-    ? body.gradeLabel.trim()
-    : null;
+  const input = parseScoutBuy(body);
+  if ("error" in input) return jsonError(c, 400, input.error);
+
+  // US-268: the source id is attacker-controlled. Owner-verify it first, and
+  // answer a foreign id exactly like an unknown one.
+  if (input.sourceId) {
+    const { data: src, error: srcErr } = await supabaseAdmin
+      .from("sources")
+      .select("id")
+      .eq("id", input.sourceId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (srcErr) {
+      return failSafe(c, 500, "Couldn't check that source.", srcErr, "scout.buy.source");
+    }
+    if (!src) return jsonError(c, 404, "Source not found");
+  }
 
   const { data: row, error } = await supabaseAdmin
     .from("inventory_items")
-    .insert({
-      user_id: userId,
-      title,
-      brand,
-      size,
-      color,
-      acquired_price: acquiredPrice,
-      acquired_date: new Date().toISOString(),
-      acquired_source: "scout",
-      status: "sourced",
-      target_price: targetPrice,
-      grade_value: gradeValue,
-      grade_label: gradeLabel,
-      condition_notes: conditionNotes,
-      ebay_category_id: categoryId,
-    } as never)
+    .insert(scoutBuyRow(input, { ownerId: userId, actorId: c.get("userId") ?? null }) as never)
     .select("id")
     .single();
 

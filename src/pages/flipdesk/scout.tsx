@@ -1,5 +1,13 @@
-import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router";
+import { useScoutBuy } from "@/hooks/use-scout-appraise";
+import { useSources } from "@/hooks/use-sources";
+import { useWorkspace } from "@/hooks/use-workspace";
+import {
+  isEbayListingUrl,
+  readLastSourceId,
+  scoutBuyHref,
+} from "@/lib/scout-links";
 import {
   Search,
   Loader2,
@@ -20,6 +28,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
+  SCOUT_MAX_AI_ACTIONS,
+  scoutUrlKey,
+  useScoutLastScan,
   useScoutScan,
   type ScoutBuyingOption,
   type ScoutScanInput,
@@ -30,9 +41,9 @@ import {
   DEFAULT_SOURCING_TARGET_PCT,
   SourcingTargetSetting,
 } from "@/components/flipdesk/sourcing-target-setting";
-import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/hooks/use-auth";
-import { useQuery } from "@tanstack/react-query";
+import { useSourcingSettings } from "@/hooks/use-sourcing-settings";
+import { usePlanUsage } from "@/hooks/use-plan-usage";
+import { usePageHost } from "@/hooks/use-page-host";
 import { ForecastCard } from "@/components/flipdesk/forecast-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ValueBasisNote } from "@/components/value/value-basis-note";
@@ -50,16 +61,65 @@ function gradeClasses(grade: number | null): string {
   return "bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-300";
 }
 
-type SortKey = "margin" | "grade" | "confidence";
+type SortKey = "margin" | "grade" | "confidence" | "arbitrage";
+/** SRC-9: the URL keys that make up the deal filter. */
+const FILTER_URL_KEYS = ["maxTotal", "minMarginPct", "minMargin", "sort", "bin", "freeShip"] as const;
+const SORT_LABELS: Record<ScoutSort, string> = {
+  bestMatch: "best match",
+  newlyListed: "newly listed",
+  endingSoonest: "ending soonest",
+  priceAsc: "cheapest first",
+};
+const SORT_KEYS: readonly SortKey[] = ["margin", "grade", "confidence", "arbitrage"];
+const SCOUT_SORTS: readonly ScoutSort[] = ["bestMatch", "newlyListed", "endingSoonest", "priceAsc"];
+const DEFAULT_CATEGORY_ID = "11450"; // Clothing, Shoes & Accessories
 
-function CandidateRow({ c }: { c: ScoutScored }) {
+function buyingOptionsLabel(buyItNowOnly: boolean): string | null {
+  return buyItNowOnly ? "Buy It Now" : null;
+}
+
+function pick<T extends string>(value: string | null, allowed: readonly T[], fallback: T): T {
+  return value != null && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
+}
+
+/** SRC-13: what a row needs to hand itself on to Buy decision or inventory. */
+interface RowContext {
+  brand: string;
+  categoryId: string;
+  /** The remembered Source, already checked against this workspace's list. */
+  sourceId: string | null;
+  canBuy: boolean;
+}
+
+function CandidateRow({ c, ctx }: { c: ScoutScored; ctx: RowContext }) {
+  const buy = useScoutBuy();
+  const payCents = c.totalCents ?? c.askingCents;
+  const ebayUrl = isEbayListingUrl(c.itemWebUrl) ? c.itemWebUrl : null;
+
+  function boughtIt() {
+    buy.mutate({
+      title: c.title.slice(0, 200) || "Scout item",
+      brand: ctx.brand.trim() || undefined,
+      costCents: payCents ?? undefined,
+      // The margin exists only when the value range was sufficient, so it is
+      // the row's "sufficient" flag. A thin-comp median is not a target.
+      targetCents:
+        c.estMarginCents != null && c.valueMedianCents != null ? c.valueMedianCents : undefined,
+      gradeValue: c.shadowGrade ?? undefined,
+      categoryId: ctx.categoryId.trim() || undefined,
+      sourceListingUrl: ebayUrl ?? undefined,
+      sourceId: ctx.sourceId ?? undefined,
+    });
+  }
+
   return (
     <Card className={cn(c.underpriced && "border-green-300 dark:border-green-800")}>
       <CardContent className="flex gap-4 p-4">
         {c.imageUrl ? (
           <img
             src={c.imageUrl}
-            alt={c.title}
+            // The title is right beside it; a screen reader should not hear it twice.
+            alt=""
             className="h-24 w-24 flex-shrink-0 rounded-md object-cover"
             loading="lazy"
           />
@@ -75,6 +135,13 @@ function CandidateRow({ c }: { c: ScoutScored }) {
             {c.underpriced && (
               <Badge className="flex-shrink-0 bg-green-600 hover:bg-green-600">
                 <TrendingUp className="mr-1 h-3 w-3" /> Underpriced
+              </Badge>
+            )}
+            {/* SRC-14: the seller described it as worse than the photo reads,
+                so it is priced for a condition it is not in. */}
+            {c.arbitrage && (
+              <Badge variant="outline" className="flex-shrink-0">
+                Better than listed{c.sellerCondition ? ` (seller: ${c.sellerCondition})` : ""}
               </Badge>
             )}
           </div>
@@ -149,16 +216,48 @@ function CandidateRow({ c }: { c: ScoutScored }) {
 
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">{c.reason}</p>
-            {c.itemWebUrl && (
+            {ebayUrl && (
               <a
-                href={c.itemWebUrl}
+                href={ebayUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex flex-shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
               >
-                View on eBay <ExternalLink className="h-3 w-3" />
+                View on eBay <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                <span className="sr-only">{`${c.title} (opens in new tab)`}</span>
               </a>
             )}
+          </div>
+
+          {/* SRC-13: every row leads to an action. Check it in Buy decision
+              with the listing prefilled, or log it as bought with its cost,
+              shadow grade, category and Source attached. */}
+          <div className="flex flex-wrap gap-2">
+            <Button asChild size="sm" variant="outline">
+              <Link
+                to={scoutBuyHref({
+                  q: c.title,
+                  brand: ctx.brand,
+                  cat: ctx.categoryId,
+                  costCents: payCents,
+                  sourceId: ctx.sourceId ?? undefined,
+                })}
+              >
+                Check in Buy decision
+              </Link>
+            </Button>
+            {ctx.canBuy ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={buy.isPending || buy.isSuccess}
+                onClick={boughtIt}
+              >
+                {buy.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {buy.isSuccess ? "Added to inventory" : "Bought it"}
+              </Button>
+            ) : null}
           </div>
         </div>
       </CardContent>
@@ -170,12 +269,37 @@ export function FlipdeskScoutPage() {
   // US-1064: community-insights "Source more <brand>" recommendations deep-link
   // here with ?brand=<brand> so the comps scan is prefilled.
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user } = useAuth();
-  const [keyword, setKeyword] = useState("");
+  // SRC-11: inside the Sourcing host the host owns width and gutter.
+  const { embedded } = usePageHost();
+  // SRC-13: the Source a row's "Bought it" is logged against. Only an id still
+  // in this workspace's list is used; the edge would 404 anything else.
+  const { workspaceOwnerId, can } = useWorkspace();
+  const { data: sources = [] } = useSources();
+  const rememberedSourceId = readLastSourceId(workspaceOwnerId);
+  const rowSourceId = sources.some((s) => s.id === rememberedSourceId) ? rememberedSourceId : null;
+  //
+  // SRC-8: the WHOLE search is seeded from the URL, not just the filter. The
+  // bookmark US-3098 promised reopened with an empty keyword, because submit
+  // wrote the filters and never the words.
+  const [keyword, setKeyword] = useState(() => searchParams.get("q") ?? "");
   const [brand, setBrand] = useState(() => searchParams.get("brand") ?? "");
-  const [categoryId, setCategoryId] = useState("11450"); // Clothing, Shoes & Accessories
-  const [sortKey, setSortKey] = useState<SortKey>("margin");
-  const [actionableOnly, setActionableOnly] = useState(false);
+  const [categoryId, setCategoryId] = useState(
+    () => searchParams.get("cat") ?? DEFAULT_CATEGORY_ID,
+  );
+  const [sortKey, setSortKey] = useState<SortKey>(() =>
+    pick(searchParams.get("order"), SORT_KEYS, "margin"),
+  );
+  const [actionableOnly, setActionableOnly] = useState(
+    () => searchParams.get("actionable") === "1",
+  );
+  // A prefilled link does not spend AI on arrival. It puts the seller one tap
+  // away instead.
+  const findDealsRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (searchParams.get("q")) findDealsRef.current?.focus();
+    // Mount only: a later URL change is the page's own submit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── US-3098: the deal filter ────────────────────────────────────────────
   //
@@ -190,7 +314,7 @@ export function FlipdeskScoutPage() {
     () => searchParams.get("minMargin") ?? "",
   );
   const [browseSort, setBrowseSort] = useState<ScoutSort>(
-    () => (searchParams.get("sort") as ScoutSort | null) ?? "bestMatch",
+    () => pick(searchParams.get("sort"), SCOUT_SORTS, "bestMatch"),
   );
   const [buyItNowOnly, setBuyItNowOnly] = useState(
     () => searchParams.get("bin") === "1",
@@ -198,37 +322,98 @@ export function FlipdeskScoutPage() {
   const [freeShippingOnly, setFreeShippingOnly] = useState(
     () => searchParams.get("freeShip") === "1",
   );
-  const [showFilters, setShowFilters] = useState(
-    () => Boolean(searchParams.get("maxTotal") ?? searchParams.get("minMarginPct")),
+  // SRC-9: open whenever the URL carries ANY filter. It used to open only for
+  // maxTotal or minMarginPct, so a link with freeShip=1 applied a filter the
+  // seller could not see.
+  const [showFilters, setShowFilters] = useState(() =>
+    FILTER_URL_KEYS.some((k) => searchParams.get(k)),
   );
 
   // The seller's standing target, so a number set once in Buy decision is not
   // typed again here. Read-only: the field below overrides it for this scan.
-  const { data: storedTargetPct, isError: targetError, isLoading: targetLoading, refetch: reloadTarget } = useQuery({
-    // Underscore, matching what sourcing-target-setting.tsx reads AND
-    // invalidates. It was a hyphen here, so saving a new target refreshed the
-    // settings card and left this page showing the old number until a reload.
-    queryKey: ["sourcing_target", user?.id],
-    enabled: Boolean(user?.id),
-    queryFn: async () => {
-      const { data, error: dataReadError } = await supabase
-        .from("flipdesk_settings")
-        .select("sourcing_target_roi_pct")
-        .eq("user_id", user?.id ?? "")
-        .maybeSingle();
-      if (dataReadError) throw dataReadError;
-      return (data as { sourcing_target_roi_pct: number | null } | null)
-        ?.sourcing_target_roi_pct ?? null;
-    },
-  });
+  // SRC-2: the same query the settings card reads, narrowed with select, so
+  // the two can never cache different shapes under one key again.
+  const {
+    data: storedTargetPct,
+    isError: targetError,
+    isLoading: targetLoading,
+    refetch: reloadTarget,
+    isOwner: ownsWorkspace,
+  } = useSourcingSettings((s) => s?.sourcing_target_roi_pct ?? null);
   const targetPct = storedTargetPct ?? DEFAULT_SOURCING_TARGET_PCT;
   // The URL wins over the standing target: a link someone bookmarked said what
   // it meant, and silently replacing it with an account setting would make the
   // bookmark mean something different on a different day.
-  const effectiveMinMarginPct = minMarginPctText.trim() || String(targetPct);
+  //
+  // SRC-2: a member cannot read the owner's row (RLS is owner-only), and the
+  // edge falls back to the OWNER's target when none is sent, so a member's
+  // blank field sends nothing rather than a guessed 30%.
+  //
+  // SRC-9: while the target loads the form is still usable; a blank field then
+  // sends nothing rather than a number we do not have yet. On a failed read the
+  // product default is used and the field says so.
+  const targetKnown = ownsWorkspace && !targetLoading;
+  const effectiveMinMarginPct =
+    minMarginPctText.trim() || (targetKnown ? String(targetPct) : "");
+  const targetHint = !ownsWorkspace
+    ? "your workspace target"
+    : targetLoading
+    ? "your target"
+    : targetError
+    ? `the default ${DEFAULT_SOURCING_TARGET_PCT}%`
+    : `your ${targetPct}% target`;
+  // SRC-9: a blank Min return still filters, by the stored target, so the
+  // summary beside a closed panel says so. Not clearable: it is the account
+  // setting, not part of this search.
+  const targetInForce =
+    !minMarginPctText.trim() && targetKnown
+      ? `${targetPct}%+ return (${targetError ? "default" : "your target"})`
+      : null;
 
-  const scan = useScoutScan();
-  const result = scan.data;
+  // SRC-8: the key is read from the URL at the moment the scan succeeds, which
+  // is after submit wrote it.
+  const urlKeyRef = useRef("");
+  const scan = useScoutScan({ urlKey: () => urlKeyRef.current });
+  const lastScan = useScoutLastScan();
+  // A scan parked by an earlier visit shows again only on the URL it answered.
+  // viewKey is the search the fields and results currently describe.
+  const [viewKey, setViewKey] = useState(() => scoutUrlKey(searchParams));
+  const restored =
+    lastScan && lastScan.urlKey === viewKey ? lastScan.result : undefined;
+
+  // SRC-8: submit PUSHES a history entry, so Back and Forward change the URL
+  // while this page stays mounted. The fields used to be seeded on mount only,
+  // so Back moved the address bar and left the newer search on screen. When
+  // the URL moves to a search this page did not write, show that search: its
+  // words and filters, and its parked result if it is the last one run.
+  const currentUrlKey = scoutUrlKey(searchParams);
+  useEffect(() => {
+    if (currentUrlKey === viewKey) return;
+    setKeyword(searchParams.get("q") ?? "");
+    setBrand(searchParams.get("brand") ?? "");
+    setCategoryId(searchParams.get("cat") ?? DEFAULT_CATEGORY_ID);
+    setSortKey(pick(searchParams.get("order"), SORT_KEYS, "margin"));
+    setActionableOnly(searchParams.get("actionable") === "1");
+    setMaxTotal(searchParams.get("maxTotal") ?? "");
+    setMinMarginPctText(searchParams.get("minMarginPct") ?? "");
+    setMinMarginDollars(searchParams.get("minMargin") ?? "");
+    setBrowseSort(pick(searchParams.get("sort"), SCOUT_SORTS, "bestMatch"));
+    setBuyItNowOnly(searchParams.get("bin") === "1");
+    setFreeShippingOnly(searchParams.get("freeShip") === "1");
+    if (FILTER_URL_KEYS.some((k) => searchParams.get(k))) setShowFilters(true);
+    setViewKey(currentUrlKey);
+    scan.reset();
+    // Keyed on the URL only: the fields are what this effect writes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUrlKey]);
+  const result = scan.data ?? restored;
+  // SRC-3: what a scan costs, said before the click rather than after the cap.
+  const { aiActions } = usePlanUsage();
+  const actionsLeft = aiActions.unlimited
+    ? null
+    : aiActions.limit > 0
+    ? Math.max(0, aiActions.limit - aiActions.used)
+    : null;
 
   const canSearch = (keyword.trim() || brand.trim()) && categoryId.trim();
 
@@ -238,6 +423,10 @@ export function FlipdeskScoutPage() {
     const sorted = [...list].sort((a, b) => {
       if (sortKey === "margin") return (b.estMarginCents ?? -Infinity) - (a.estMarginCents ?? -Infinity);
       if (sortKey === "grade") return (b.shadowGrade ?? -Infinity) - (a.shadowGrade ?? -Infinity);
+      if (sortKey === "arbitrage") {
+        if (Boolean(a.arbitrage) !== Boolean(b.arbitrage)) return a.arbitrage ? -1 : 1;
+        return (b.conditionGap ?? 0) - (a.conditionGap ?? 0);
+      }
       return b.gradeConfidence - a.gradeConfidence;
     });
     return sorted;
@@ -260,13 +449,21 @@ export function FlipdeskScoutPage() {
       if (value) next.set(key, value);
       else next.delete(key);
     };
+    setOrDrop("q", keyword.trim());
+    setOrDrop("brand", brand.trim());
+    setOrDrop("cat", categoryId.trim() === DEFAULT_CATEGORY_ID ? "" : categoryId.trim());
+    setOrDrop("actionable", actionableOnly ? "1" : "");
+    setOrDrop("order", sortKey === "margin" ? "" : sortKey);
     setOrDrop("maxTotal", maxTotal.trim());
     setOrDrop("minMarginPct", minMarginPctText.trim());
     setOrDrop("minMargin", minMarginDollars.trim());
     setOrDrop("sort", browseSort === "bestMatch" ? "" : browseSort);
     setOrDrop("bin", buyItNowOnly ? "1" : "");
     setOrDrop("freeShip", freeShippingOnly ? "1" : "");
-    setSearchParams(next, { replace: true });
+    // SRC-8: a pushed entry, so Back returns to the previous search.
+    setSearchParams(next);
+    urlKeyRef.current = scoutUrlKey(next);
+    setViewKey(urlKeyRef.current);
 
     // minMarginPct is a FRACTION on the wire (0.3 = 30%); the field is typed in
     // whole percent because that is how a seller says it.
@@ -277,8 +474,10 @@ export function FlipdeskScoutPage() {
       brand: brand.trim() || undefined,
       maxTotalCents: centsFrom(maxTotal),
       minMarginCents: centsFrom(minMarginDollars),
-      minMarginPct:
-        showFilters && Number.isFinite(pct) && pct > 0 ? pct / 100 : undefined,
+      // SRC-9: sent whether or not the panel is open. It used to be dropped
+      // when the panel was closed while bin, freeShip and sort were not, so
+      // the same URL meant two different scans.
+      minMarginPct: Number.isFinite(pct) && pct > 0 ? pct / 100 : undefined,
       buyingOptions: buyItNowOnly
         ? (["FIXED_PRICE", "BEST_OFFER"] as ScoutBuyingOption[])
         : undefined,
@@ -288,13 +487,33 @@ export function FlipdeskScoutPage() {
     scan.mutate(input);
   }
 
-  if (targetError) {
-    return <div role="alert" className="space-y-2 p-6"><p>Couldn't load your profit target. Retry before comparing deals.</p><Button variant="outline" onClick={() => void reloadTarget()}>Try again</Button></div>;
+  // SRC-9: a summary of the filter that is in force, so a closed panel never
+  // hides one.
+  const filterSummary = [
+    maxTotal.trim() ? `under $${maxTotal.trim()}` : null,
+    freeShippingOnly ? "free ship" : null,
+    buyingOptionsLabel(buyItNowOnly),
+    minMarginPctText.trim() ? `${minMarginPctText.trim()}%+` : null,
+    minMarginDollars.trim() ? `$${minMarginDollars.trim()}+ profit` : null,
+    browseSort !== "bestMatch" ? SORT_LABELS[browseSort] : null,
+  ].filter((part): part is string => Boolean(part));
+
+  function clearFilters() {
+    setMaxTotal("");
+    setMinMarginPctText("");
+    setMinMarginDollars("");
+    setBrowseSort("bestMatch");
+    setBuyItNowOnly(false);
+    setFreeShippingOnly(false);
+    const next = new URLSearchParams(searchParams);
+    for (const key of FILTER_URL_KEYS) next.delete(key);
+    setSearchParams(next, { replace: true });
+    // The page wrote this URL itself; the results on screen stay.
+    setViewKey(scoutUrlKey(next));
   }
-  if (targetLoading) return <p role="status" className="p-6">Loading your profit target...</p>;
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
+    <div className={embedded ? "space-y-6" : "mx-auto w-full max-w-4xl space-y-6 p-6"}>
       <PageHeader
         icon={Sparkles}
         title="ScoutAI"
@@ -343,6 +562,39 @@ export function FlipdeskScoutPage() {
               >
                 {showFilters ? "Hide deal filter" : "Deal filter"}
               </button>
+              {filterSummary.length > 0 || targetInForce ? (
+                <span className="ml-3 inline-flex items-center gap-2 text-xs text-muted-foreground">
+                  <span data-testid="scout-filter-summary">
+                    {[...filterSummary, targetInForce].filter(Boolean).join(", ")}
+                  </span>
+                  {filterSummary.length > 0 ? (
+                    <button
+                      type="button"
+                      className="font-medium text-primary hover:underline"
+                      onClick={clearFilters}
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </span>
+              ) : null}
+              {/* Outside the panel on purpose: a closed panel must not hide
+                  that the scan is using the default rather than the seller's
+                  own target. */}
+              {targetError ? (
+                <div role="alert" className="mt-1 flex items-center gap-2 text-xs text-destructive">
+                  <span>
+                    Couldn't load your target, using {DEFAULT_SOURCING_TARGET_PCT}%.
+                  </span>
+                  <button
+                    type="button"
+                    className="font-medium underline"
+                    onClick={() => void reloadTarget()}
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             {showFilters ? (
@@ -365,12 +617,13 @@ export function FlipdeskScoutPage() {
                   <Input
                     id="scout-min-margin-pct"
                     inputMode="decimal"
-                    placeholder={String(targetPct)}
+                    placeholder={ownsWorkspace ? String(targetPct) : ""}
                     value={minMarginPctText}
                     onChange={(e) => setMinMarginPctText(e.target.value)}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Percent after fees. Blank uses your {targetPct}% target.
+                    Percent after fees.{" "}
+                    {minMarginPctText.trim() ? `Blank uses ${targetHint}.` : `Using ${targetHint}.`}
                   </p>
                 </div>
                 <div className="space-y-1">
@@ -422,7 +675,7 @@ export function FlipdeskScoutPage() {
             ) : null}
 
             <div className="sm:col-span-4">
-              <Button type="submit" disabled={!canSearch || scan.isPending}>
+              <Button ref={findDealsRef} type="submit" disabled={!canSearch || scan.isPending}>
                 {scan.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -433,6 +686,10 @@ export function FlipdeskScoutPage() {
               <span className="ml-3 text-xs text-muted-foreground">
                 Default category 11450 covers all apparel; narrow it for sharper comps.
               </span>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Uses up to {SCOUT_MAX_AI_ACTIONS} AI actions
+                {actionsLeft != null ? `, ${actionsLeft} left this month` : ""}.
+              </p>
             </div>
           </form>
         </CardContent>
@@ -479,61 +736,93 @@ export function FlipdeskScoutPage() {
           </CardContent>
         </Card>
       ) : result ? (
-        result.candidates.length === 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">No candidates found</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              {result.note ?? "No listings matched that search. Try broader terms or a different category."}
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-muted-foreground">
-                {/* US-3098: the denominator. "Graded 8" alone is a number a
-                    seller cannot judge; "looked at 42, graded 8" says the scan
-                    searched wider than the eight rows in front of them. */}
-                {result.considered != null
-                  ? `Looked at ${result.considered} listing${result.considered === 1 ? "" : "s"}, graded ${result.graded ?? result.scanned}`
-                  : `Scanned ${result.scanned} listing${result.scanned === 1 ? "" : "s"}`}
-                {" · "}
-                {candidates.length} shown
-              </p>
-              <div className="flex items-center gap-2 text-xs">
-                <label className="flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    checked={actionableOnly}
-                    onChange={(e) => setActionableOnly(e.target.checked)}
-                  />
-                  Actionable only
-                </label>
-                <select
-                  className="rounded-md border bg-background px-2 py-1"
-                  value={sortKey}
-                  onChange={(e) => setSortKey(e.target.value as SortKey)}
-                  aria-label="Sort candidates"
-                >
-                  <option value="margin">Sort: margin</option>
-                  <option value="grade">Sort: grade</option>
-                  <option value="confidence">Sort: confidence</option>
-                </select>
+        <>
+          {result.capReached ? (
+            /* SRC-3: a scan the cap stopped says so, instead of telling the
+               seller to broaden a search that was fine. */
+            <p
+              role="status"
+              className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+            >
+              {result.note ?? "AI limit reached before every listing was graded."}{" "}
+              <Link to="/dashboard/billing" className="font-medium underline">
+                See plans
+              </Link>
+            </p>
+          ) : null}
+          {result.candidates.length === 0 ? (
+            result.capReached ? null : (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">No candidates found</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm text-muted-foreground">
+                  {result.note ?? "No listings matched that search. Try broader terms or a different category."}
+                </CardContent>
+              </Card>
+            )
+          ) : (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-muted-foreground">
+                  {/* US-3098: the denominator. "Graded 8" alone is a number a
+                      seller cannot judge; "looked at 42, graded 8" says the scan
+                      searched wider than the eight rows in front of them. */}
+                  {result.considered != null
+                    ? `Looked at ${result.considered} listing${result.considered === 1 ? "" : "s"}, graded ${result.graded ?? result.scanned}`
+                    : `Scanned ${result.scanned} listing${result.scanned === 1 ? "" : "s"}`}
+                  {result.cachedGrades
+                    ? ` (${result.cachedGrades} from earlier scans, no AI used)`
+                    : ""}
+                  {" · "}
+                  {candidates.length} shown
+                </p>
+                <div className="flex items-center gap-2 text-xs">
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={actionableOnly}
+                      onChange={(e) => setActionableOnly(e.target.checked)}
+                    />
+                    Actionable only
+                  </label>
+                  <select
+                    className="rounded-md border bg-background px-2 py-1"
+                    value={sortKey}
+                    onChange={(e) => setSortKey(e.target.value as SortKey)}
+                    aria-label="Sort candidates"
+                  >
+                    <option value="margin">Sort: margin</option>
+                    <option value="grade">Sort: grade</option>
+                    <option value="confidence">Sort: confidence</option>
+                  <option value="arbitrage">Sort: better than listed first</option>
+                  </select>
+                </div>
               </div>
+              {candidates.map((c) => (
+                <CandidateRow
+                key={c.itemId}
+                c={c}
+                ctx={{
+                  // The words the scan RAN with, not whatever is in the
+                  // fields now.
+                  brand: scan.variables?.brand ?? searchParams.get("brand") ?? "",
+                  categoryId: scan.variables?.categoryId ?? searchParams.get("cat") ?? DEFAULT_CATEGORY_ID,
+                  sourceId: rowSourceId,
+                  canBuy: can("manage_inventory"),
+                }}
+              />
+              ))}
+              {/* US-3042: the strongest attribution case in the app and the one
+                  that was missing. Every row above is ANOTHER seller's live eBay
+                  listing - their photo, their title, their asking price, deep
+                  linked to their item page. The comps panel carried this notice
+                  and Scout did not, which is the difference between "this surface
+                  needs no notice" and "this surface was forgotten". */}
+              <EbayAttribution what="Listing data" />
             </div>
-            {candidates.map((c) => (
-              <CandidateRow key={c.itemId} c={c} />
-            ))}
-            {/* US-3042: the strongest attribution case in the app and the one
-                that was missing. Every row above is ANOTHER seller's live eBay
-                listing - their photo, their title, their asking price, deep
-                linked to their item page. The comps panel carried this notice
-                and Scout did not, which is the difference between "this surface
-                needs no notice" and "this surface was forgotten". */}
-            <EbayAttribution what="Listing data" />
-          </div>
-        )
+          )}
+        </>
       ) : (
         <Card>
           <CardHeader>

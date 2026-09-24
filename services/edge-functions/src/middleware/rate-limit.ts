@@ -179,6 +179,16 @@ export function clientIp(c: Context): string | null {
 // middleware passes its own context through unchanged.
 export type RateLimitContextResolver<T> = (c: Context) => T;
 
+// SRC-5: POST /api/flipdesk/scout/buy is one INSERT with no AI, but it sits
+// under /api/flipdesk/scout/*, whose 6/min fail-closed limiter exists because a
+// scan fans out to eight grades. An appraise-and-buy loop in a store hit 429 on
+// the third item, and a rate-store outage blocked recording a purchase already
+// made. The AI limiter skips this exact path; main.ts gives it its own bucket.
+export const SCOUT_BUY_PATH = "/api/flipdesk/scout/buy";
+export function scoutBuyBypass(c: Context): boolean {
+  return c.req.path === SCOUT_BUY_PATH;
+}
+
 // US-781: the Cloudflare Pages SSR functions (blog, cert, OG) proxy the public
 // content endpoints server-to-server, so a burst of legitimate blog/cert
 // visitors all arrives at the edge through the one Pages worker and would

@@ -22,6 +22,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
+import { escapeLikePattern } from "@/lib/utils";
+import { ErrorState } from "@/components/ui/error-state";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useAddSourcer, useSourcers } from "@/hooks/use-sourcers";
 
@@ -35,7 +37,14 @@ export function SourcerRosterCard() {
   const { workspaceOwnerId, can } = useWorkspace();
   const canManage = can("manage_inventory");
   const qc = useQueryClient();
-  const { rows, sourcers, isLoading } = useSourcers({ includeArchived: true });
+  const {
+    rows,
+    sourcers,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useSourcers({ includeArchived: true });
   const addSourcer = useAddSourcer();
 
   const [newName, setNewName] = useState("");
@@ -46,7 +55,9 @@ export function SourcerRosterCard() {
 
   // How many items each name is actually on. Answers "is this one safe to
   // archive" without a trip to the inventory table.
-  const { data: usageRows } = useQuery({
+  // SRC-15: a failed or pending count must not read as "0 items", which is
+  // exactly the number that invites archiving a name that is in use.
+  const { data: usageRows, isError: usageError, isLoading: usageLoading } = useQuery({
     queryKey: ["sourced_by_counts", workspaceOwnerId],
     enabled: !!workspaceOwnerId,
     queryFn: async (): Promise<Array<{ sourced_by: string | null }>> => {
@@ -78,8 +89,16 @@ export function SourcerRosterCard() {
   const active = sourcers.filter((s) => !archivedById.get(s.id));
   const archived = sourcers.filter((s) => archivedById.get(s.id));
 
+  const usageKnown = !usageError && !usageLoading;
+
   function countFor(name: string): number {
     return usage.get(name.toLowerCase()) ?? 0;
+  }
+
+  function countLabel(name: string): string {
+    if (!usageKnown) return "-";
+    const n = countFor(name);
+    return `${n} item${n === 1 ? "" : "s"}`;
   }
 
   async function invalidate() {
@@ -124,7 +143,7 @@ export function SourcerRosterCard() {
         .from("inventory_items")
         .update({ sourced_by: name } as never)
         .eq("user_id", workspaceOwnerId)
-        .ilike("sourced_by", oldName);
+        .ilike("sourced_by", escapeLikePattern(oldName));
       if (itemErr) throw itemErr;
 
       await invalidate();
@@ -138,7 +157,7 @@ export function SourcerRosterCard() {
     }
   }
 
-  async function setArchived(id: string, archive: boolean) {
+  async function setArchived(id: string, archive: boolean, name?: string) {
     setBusyId(id);
     try {
       const { error } = await supabase
@@ -149,6 +168,12 @@ export function SourcerRosterCard() {
         .eq("id", id);
       if (error) throw error;
       await invalidate();
+      // SRC-15: one tap to take it back.
+      if (archive) {
+        toast.success(name ? `Archived ${name}.` : "Archived.", {
+          action: { label: "Undo", onClick: () => void setArchived(id, false) },
+        });
+      }
     } catch {
       toast.error(archive ? "Couldn't archive." : "Couldn't restore.");
     } finally {
@@ -202,6 +227,14 @@ export function SourcerRosterCard() {
 
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading...</p>
+        ) : isError ? (
+          /* SRC-15: a failed load used to read "Nobody on the roster yet". */
+          <ErrorState
+            title="Couldn't load the roster"
+            description="Nothing has been removed; this is a loading problem."
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+          />
         ) : active.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Nobody on the roster yet.
@@ -209,7 +242,6 @@ export function SourcerRosterCard() {
         ) : (
           <ul className="divide-y rounded-md border">
             {active.map((s) => {
-              const count = countFor(s.name);
               const busy = busyId === s.id;
               return (
                 <li
@@ -265,7 +297,7 @@ export function SourcerRosterCard() {
                         <Badge variant="outline">Teammate</Badge>
                       )}
                       <span className="ml-auto text-xs text-muted-foreground">
-                        {count} item{count === 1 ? "" : "s"}
+                        {countLabel(s.name)}
                       </span>
                       {canManage && (
                         <>
@@ -286,8 +318,9 @@ export function SourcerRosterCard() {
                             size="icon"
                             variant="ghost"
                             aria-label={`Archive ${s.name}`}
-                            disabled={busy}
-                            onClick={() => void setArchived(s.id, true)}
+                            // Unknown usage is not zero usage.
+                            disabled={busy || !usageKnown}
+                            onClick={() => void setArchived(s.id, true, s.name)}
                           >
                             <Archive className="h-4 w-4" />
                           </Button>
@@ -313,9 +346,7 @@ export function SourcerRosterCard() {
                   className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground"
                 >
                   <span>{s.name}</span>
-                  <span className="ml-auto text-xs">
-                    {countFor(s.name)} item{countFor(s.name) === 1 ? "" : "s"}
-                  </span>
+                  <span className="ml-auto text-xs">{countLabel(s.name)}</span>
                   {canManage && (
                     <Button
                       type="button"

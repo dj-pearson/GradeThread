@@ -301,7 +301,12 @@ import {
   mcpWriteLimit,
 } from "./middleware/mcp-traffic.ts";
 import { apiIdempotencyMiddleware } from "./middleware/api-idempotency.ts";
-import { rateLimiter, pagesOriginBypass } from "./middleware/rate-limit.ts";
+import {
+  pagesOriginBypass,
+  rateLimiter,
+  SCOUT_BUY_PATH,
+  scoutBuyBypass,
+} from "./middleware/rate-limit.ts";
 import { getSetting, getSettingSync } from "./lib/system-settings.ts";
 import { refreshOverrideCache } from "./lib/rate-limit-overrides.ts";
 import {
@@ -1089,8 +1094,16 @@ app.use(
   // 6/min cap exists precisely because one scan fans out. Leaving the cap
   // fail-open meant a store outage removed the bound on the highest-fan-out
   // surface while Anthropic stayed billable.
-  rateLimiter(6, 60_000, "flipdesk-scout", undefined, { failClosed: true }),
+  //
+  // SRC-5: /scout/buy is skipped here and limited on its own below. It is one
+  // INSERT with no AI, and logging a purchase must not share a bucket with
+  // scans or fail closed during a store outage.
+  rateLimiter(6, 60_000, "flipdesk-scout", undefined, {
+    failClosed: true,
+    bypass: scoutBuyBypass,
+  }),
 );
+app.use(SCOUT_BUY_PATH, rateLimiter(30, 60_000, "flipdesk-scout-buy"));
 // US-1572: calibration is CPU-bound image decode + CV (no model call) — cap
 // enough for a capture-review loop without letting one client hog the worker.
 app.use("/api/flipdesk/measure/*", rateLimiter(15, 60_000, "flipdesk-measure"));
