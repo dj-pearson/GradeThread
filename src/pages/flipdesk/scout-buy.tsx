@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { Link } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -33,7 +33,21 @@ import {
   type BuyRecommendation,
 } from "@/hooks/use-scout-appraise";
 import { compressImage } from "@/lib/image-utils";
-import { inventoryItemHref } from "@/lib/scout-links";
+import {
+  costFieldFromCents,
+  inventoryItemHref,
+  readLastSourceId,
+  writeLastSourceId,
+} from "@/lib/scout-links";
+import { useSources } from "@/hooks/use-sources";
+import { useWorkspace } from "@/hooks/use-workspace";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ValueBasisNote } from "@/components/value/value-basis-note";
 import { SourcingCeilingNote } from "@/components/value/sourcing-ceiling-note";
 import { SourcingTargetSetting } from "@/components/flipdesk/sourcing-target-setting";
@@ -99,6 +113,7 @@ function DecisionCard({
   result,
   appraised,
   costCents,
+  sourceId,
   onNextItem,
 }: {
   result: AppraiseResult;
@@ -109,6 +124,8 @@ function DecisionCard({
    */
   appraised: AppraiseInput;
   costCents: number | null;
+  /** SRC-13: the Source picked on the form, if any. */
+  sourceId: string | null;
   onNextItem: () => void;
 }) {
   const qc = useQueryClient();
@@ -212,6 +229,7 @@ function DecisionCard({
                   targetCents: value.sufficient ? (value.medianCents ?? undefined) : undefined,
                   gradeValue: grade.value ?? undefined,
                   gradeLabel: grade.tier ?? undefined,
+                  sourceId: sourceId ?? undefined,
                 },
                 {
                   onSuccess: () => {
@@ -266,12 +284,30 @@ export function FlipdeskScoutBuyPage() {
   // SRC-11: inside the Sourcing host the host owns width and gutter.
   const { embedded } = usePageHost();
   const [photo, setPhoto] = useState<string | null>(null);
+  // SRC-13: a Scout row's "Check in Buy decision" arrives with the listing in
+  // the URL, so nothing is retyped between finding a deal and checking it.
+  const [searchParams] = useSearchParams();
   const [barcode, setBarcode] = useState("");
-  const [keyword, setKeyword] = useState("");
-  const [brand, setBrand] = useState("");
-  const [size, setSize] = useState("");
-  const [categoryId, setCategoryId] = useState("11450"); // Clothing, Shoes & Accessories
-  const [cost, setCost] = useState("");
+  const [keyword, setKeyword] = useState(() => searchParams.get("q") ?? "");
+  const [brand, setBrand] = useState(() => searchParams.get("brand") ?? "");
+  const [size, setSize] = useState(() => searchParams.get("size") ?? "");
+  const [categoryId, setCategoryId] = useState(
+    () => searchParams.get("cat") ?? "11450", // Clothing, Shoes & Accessories
+  );
+  const [cost, setCost] = useState(() => costFieldFromCents(searchParams.get("cost")));
+
+  // SRC-13: which Source this is bought from, so per-source ROI starts here.
+  // Remembered per workspace in this browser; a remembered id that is no
+  // longer in the workspace's list is ignored rather than sent to a 404.
+  const { workspaceOwnerId } = useWorkspace();
+  const { data: sources = [] } = useSources();
+  const [pickedSourceId, setPickedSourceId] = useState<string | null>(
+    () => searchParams.get("sourceId") ?? readLastSourceId(workspaceOwnerId),
+  );
+  const sourceId = sources.some((s) => s.id === pickedSourceId) ? pickedSourceId : null;
+  useEffect(() => {
+    if (sourceId) writeLastSourceId(workspaceOwnerId, sourceId);
+  }, [sourceId, workspaceOwnerId]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const appraise = useScoutAppraise();
@@ -451,6 +487,32 @@ export function FlipdeskScoutBuyPage() {
                   </div>
                 </div>
 
+                {sources.length > 0 ? (
+                  <div className="space-y-1">
+                    <Label htmlFor="scout-source">Bought from (optional)</Label>
+                    <Select
+                      value={sourceId ?? "none"}
+                      onValueChange={(v) => {
+                        const next = v === "none" ? null : v;
+                        setPickedSourceId(next);
+                        if (!next) writeLastSourceId(workspaceOwnerId, null);
+                      }}
+                    >
+                      <SelectTrigger id="scout-source">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No source</SelectItem>
+                        {sources.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+
                 <div className="space-y-1">
                   <Label htmlFor="scout-cost">Your cost (what you'd pay)</Label>
                   <div className="relative">
@@ -501,6 +563,7 @@ export function FlipdeskScoutBuyPage() {
               result={result}
               appraised={appraise.variables ?? {}}
               costCents={submittedCost}
+              sourceId={sourceId}
               onNextItem={nextItem}
             />
           ) : null}

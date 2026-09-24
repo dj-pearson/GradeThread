@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
+import { useScoutBuy } from "@/hooks/use-scout-appraise";
+import { useSources } from "@/hooks/use-sources";
+import { useWorkspace } from "@/hooks/use-workspace";
+import {
+  isEbayListingUrl,
+  readLastSourceId,
+  scoutBuyHref,
+} from "@/lib/scout-links";
 import {
   Search,
   Loader2,
@@ -74,14 +82,44 @@ function pick<T extends string>(value: string | null, allowed: readonly T[], fal
   return value != null && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 }
 
-function CandidateRow({ c }: { c: ScoutScored }) {
+/** SRC-13: what a row needs to hand itself on to Buy decision or inventory. */
+interface RowContext {
+  brand: string;
+  categoryId: string;
+  /** The remembered Source, already checked against this workspace's list. */
+  sourceId: string | null;
+  canBuy: boolean;
+}
+
+function CandidateRow({ c, ctx }: { c: ScoutScored; ctx: RowContext }) {
+  const buy = useScoutBuy();
+  const payCents = c.totalCents ?? c.askingCents;
+  const ebayUrl = isEbayListingUrl(c.itemWebUrl) ? c.itemWebUrl : null;
+
+  function boughtIt() {
+    buy.mutate({
+      title: c.title.slice(0, 200) || "Scout item",
+      brand: ctx.brand.trim() || undefined,
+      costCents: payCents ?? undefined,
+      // The margin exists only when the value range was sufficient, so it is
+      // the row's "sufficient" flag. A thin-comp median is not a target.
+      targetCents:
+        c.estMarginCents != null && c.valueMedianCents != null ? c.valueMedianCents : undefined,
+      gradeValue: c.shadowGrade ?? undefined,
+      categoryId: ctx.categoryId.trim() || undefined,
+      sourceListingUrl: ebayUrl ?? undefined,
+      sourceId: ctx.sourceId ?? undefined,
+    });
+  }
+
   return (
     <Card className={cn(c.underpriced && "border-green-300 dark:border-green-800")}>
       <CardContent className="flex gap-4 p-4">
         {c.imageUrl ? (
           <img
             src={c.imageUrl}
-            alt={c.title}
+            // The title is right beside it; a screen reader should not hear it twice.
+            alt=""
             className="h-24 w-24 flex-shrink-0 rounded-md object-cover"
             loading="lazy"
           />
@@ -171,16 +209,48 @@ function CandidateRow({ c }: { c: ScoutScored }) {
 
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">{c.reason}</p>
-            {c.itemWebUrl && (
+            {ebayUrl && (
               <a
-                href={c.itemWebUrl}
+                href={ebayUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex flex-shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
               >
-                View on eBay <ExternalLink className="h-3 w-3" />
+                View on eBay <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                <span className="sr-only">{`${c.title} (opens in new tab)`}</span>
               </a>
             )}
+          </div>
+
+          {/* SRC-13: every row leads to an action. Check it in Buy decision
+              with the listing prefilled, or log it as bought with its cost,
+              shadow grade, category and Source attached. */}
+          <div className="flex flex-wrap gap-2">
+            <Button asChild size="sm" variant="outline">
+              <Link
+                to={scoutBuyHref({
+                  q: c.title,
+                  brand: ctx.brand,
+                  cat: ctx.categoryId,
+                  costCents: payCents,
+                  sourceId: ctx.sourceId ?? undefined,
+                })}
+              >
+                Check in Buy decision
+              </Link>
+            </Button>
+            {ctx.canBuy ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={buy.isPending || buy.isSuccess}
+                onClick={boughtIt}
+              >
+                {buy.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {buy.isSuccess ? "Added to inventory" : "Bought it"}
+              </Button>
+            ) : null}
           </div>
         </div>
       </CardContent>
@@ -194,6 +264,12 @@ export function FlipdeskScoutPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   // SRC-11: inside the Sourcing host the host owns width and gutter.
   const { embedded } = usePageHost();
+  // SRC-13: the Source a row's "Bought it" is logged against. Only an id still
+  // in this workspace's list is used; the edge would 404 anything else.
+  const { workspaceOwnerId, can } = useWorkspace();
+  const { data: sources = [] } = useSources();
+  const rememberedSourceId = readLastSourceId(workspaceOwnerId);
+  const rowSourceId = sources.some((s) => s.id === rememberedSourceId) ? rememberedSourceId : null;
   //
   // SRC-8: the WHOLE search is seeded from the URL, not just the filter. The
   // bookmark US-3098 promised reopened with an empty keyword, because submit
@@ -666,7 +742,18 @@ export function FlipdeskScoutPage() {
                 </div>
               </div>
               {candidates.map((c) => (
-                <CandidateRow key={c.itemId} c={c} />
+                <CandidateRow
+                key={c.itemId}
+                c={c}
+                ctx={{
+                  // The words the scan RAN with, not whatever is in the
+                  // fields now.
+                  brand: scan.variables?.brand ?? searchParams.get("brand") ?? "",
+                  categoryId: scan.variables?.categoryId ?? searchParams.get("cat") ?? DEFAULT_CATEGORY_ID,
+                  sourceId: rowSourceId,
+                  canBuy: can("manage_inventory"),
+                }}
+              />
               ))}
               {/* US-3042: the strongest attribution case in the app and the one
                   that was missing. Every row above is ANOTHER seller's live eBay

@@ -1,4 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
+import { useNavigate } from "react-router";
+import { inventoryItemHref } from "@/lib/scout-links";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -151,6 +153,7 @@ export interface ScoutBuyResult {
 }
 
 export function useScoutBuy() {
+  const navigate = useNavigate();
   return useMutation<ScoutBuyResult, Error, ScoutBuyInput>({
     mutationFn: async (input) => {
       const res = await edgeFetch("/api/flipdesk/scout/buy", {
@@ -163,8 +166,14 @@ export function useScoutBuy() {
       if (!res.ok) throw new Error(data.error ?? "Could not add to inventory");
       return data as ScoutBuyResult;
     },
-    onSuccess: () =>
-      toast.success("Added to inventory at the “sourced” stage — it's now in your pipeline."),
+    // SRC-13: the toast carries the way to the new item, because a buy logged
+    // from a Scout row has no Open item button of its own.
+    onSuccess: (r) =>
+      toast.success("Added to inventory at the “sourced” stage — it's now in your pipeline.", {
+        action: r.id
+          ? { label: "Open item", onClick: () => navigate(inventoryItemHref(r.id)) }
+          : undefined,
+      }),
     onError: (err) => toastError(err),
   });
 }
