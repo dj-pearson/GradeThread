@@ -2,7 +2,7 @@
 // Vite-config Node context via the public-routes → glossary → constants chain,
 // where the "@/" alias is NOT resolved (and tsc -b compiles it under a project
 // without the alias). Type-only, so it's erased at runtime. (US-1670 build fix.)
-import type { SignupSource } from "../types/database";
+import type { SignupSource, SubmissionStatus } from "../types/database";
 
 // There is no integer-keyed GRADE_LABELS map here any more. US-2436 deleted it,
 // and not for being unused — for being WRONG. It named ten labels including
@@ -1047,9 +1047,14 @@ export const ITEM_STATUS_TONE: Record<
 // Submission/grade-report lifecycle statuses mapped onto the same tone scale,
 // so a submission's status pill matches the rest of the app. One source for
 // the submissions list + dashboard (previously copy-pasted in both).
-export const SUBMISSION_STATUS_TONE: Record<string, StatusTone> = {
+// SUB-13: typed over every SubmissionStatus, so a new status without a tone is
+// a tsc error rather than a plain grey pill. needs_photos is the status that
+// waits on the SELLER and used to have no tone at all, which made it the
+// plainest badge on the list; it takes the amber warning tone.
+export const SUBMISSION_STATUS_TONE: Record<SubmissionStatus, StatusTone> = {
   pending: "pricing",
   processing: "live",
+  needs_photos: "pricing",
   // Mandatory review: preliminary grade awaiting human finalization.
   pending_review: "grading",
   completed: "success",
@@ -1061,7 +1066,7 @@ export const SUBMISSION_STATUS_TONE: Record<string, StatusTone> = {
 // Tailwind classes for a submission-status badge. Returns "" for unknown
 // statuses (caller's <Badge variant="outline"> keeps its default look).
 export function getStatusBadgeClasses(status: string): string {
-  const tone = SUBMISSION_STATUS_TONE[status];
+  const tone = SUBMISSION_STATUS_TONE[status as SubmissionStatus];
   return tone ? STATUS_TONE_CLASSES[tone] : "";
 }
 
@@ -1121,9 +1126,12 @@ export function getRoleBadgeClasses(role: string): string {
 //
 // Used by certificate, submission/inventory detail, dashboard, submissions.
 // Edit these to restyle every score everywhere.
+// SUB-13: -500 text failed AA contrast on white (emerald 2.5:1, amber 2.1:1).
+// -700 in light mode and -400 in dark both clear it. The band edges (>= 7,
+// >= 5) are the same in every helper here and in ScoreBandIcon.
 export function getScoreColor(score: number): string {
-  if (score >= 7) return "text-emerald-500";
-  if (score >= 5) return "text-amber-500";
+  if (score >= 7) return "text-emerald-700 dark:text-emerald-400";
+  if (score >= 5) return "text-amber-700 dark:text-amber-400";
   return "text-brand-red-text";
 }
 

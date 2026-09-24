@@ -26,8 +26,12 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { showExampleAction } from "@/lib/show-example";
 import { PageHeader } from "@/components/ui/page-header";
 import { submissionHref } from "@/lib/dashboard-grading-queue";
+import { formatLabel } from "@/lib/format-label";
+import { SUBMISSION_STAGE_COPY } from "@/lib/grading-journey";
+import { SubmissionStatusBadge } from "@/components/submission/submission-status-badge";
 import {
   clampedPage,
+  LIST_STATUS_FILTERS,
   readListParams,
   writeListParams,
   type SortField,
@@ -73,8 +77,6 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import {
   GARMENT_TYPES,
-  SUBMISSION_STATUSES,
-  getStatusBadgeClasses,
   getScoreColor,
 } from "@/lib/constants";
 import type {
@@ -85,13 +87,6 @@ import type {
 import { DISPUTE_KIND_LABEL, disputeCountLabel } from "@/lib/dispute-kind";
 
 const PAGE_SIZE = 20;
-
-function formatLabel(value: string): string {
-  return value
-    .split(/[-_]/)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
 
 // US-2204: the table renders five submission columns, so the list query fetches
 // exactly those. Typing the rows as the projection (rather than SubmissionRow)
@@ -151,7 +146,6 @@ type DisputeWithSubmission = Pick<
   submission_title?: string;
   submission_id?: string;
 };
-
 
 export function SubmissionsPage() {
   const navigate = useNavigate();
@@ -556,9 +550,11 @@ export function SubmissionsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Statuses</SelectItem>
-                  {SUBMISSION_STATUSES.map((s) => (
+                  {/* SUB-13: every status, expired included, named the way
+                      the badge names it. */}
+                  {LIST_STATUS_FILTERS.map((s) => (
                     <SelectItem key={s} value={s}>
-                      {formatLabel(s)}
+                      {SUBMISSION_STAGE_COPY[s].label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -756,12 +752,7 @@ export function SubmissionsPage() {
                           {new Date(sub.created_at).toLocaleDateString()}
                         </p>
                         <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                          <Badge
-                            variant="outline"
-                            className={cn(getStatusBadgeClasses(sub.status))}
-                          >
-                            {formatLabel(sub.status)}
-                          </Badge>
+                          <SubmissionStatusBadge status={sub.status} />
                           {turnaround.releaseTimes[sub.id] && (
                             <span className="text-xs text-muted-foreground">
                               Ready by {formatReadyBy(turnaround.releaseTimes[sub.id] ?? "")}
@@ -863,12 +854,7 @@ export function SubmissionsPage() {
                           {sub.brand ?? "—"}
                         </TableCell>
                         <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={cn(getStatusBadgeClasses(sub.status))}
-                          >
-                            {formatLabel(sub.status)}
-                          </Badge>
+                          <SubmissionStatusBadge status={sub.status} />
                           {turnaround.releaseTimes[sub.id] && (
                             <p className="mt-1 text-xs text-muted-foreground">
                               Ready by {formatReadyBy(turnaround.releaseTimes[sub.id] ?? "")}

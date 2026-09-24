@@ -1,5 +1,16 @@
-import { GARMENT_TYPES } from "@/lib/constants";
+import { GARMENT_TYPES, SUBMISSION_STATUSES } from "@/lib/constants";
 import { statusFilterFromSearch } from "@/lib/dashboard-grading-queue";
+import type { SubmissionStatus } from "@/types/database";
+
+/**
+ * SUB-13: the list's Status filter. SUBMISSION_STATUSES drives the dashboard
+ * queue, which rightly leaves `expired` out; the list is the ledger, so a
+ * seller can filter to it here.
+ */
+export const LIST_STATUS_FILTERS: readonly SubmissionStatus[] = [
+  ...SUBMISSION_STATUSES,
+  "expired",
+];
 
 // SUB-12: where the seller is on the Submissions list lives in the URL, so
 // Back from a submission, a refresh and open-in-new-tab all land on the same
@@ -43,7 +54,8 @@ export function readListParams(search: URLSearchParams): SubmissionsListParams {
   const dir = search.get("dir");
   const pageRaw = Number(search.get("page"));
   return {
-    status: statusFilterFromSearch(search),
+    status:
+      search.get("status") === "expired" ? "expired" : statusFilterFromSearch(search),
     garmentType: (GARMENT_TYPES as readonly string[]).includes(type) ? type : "all",
     search: (search.get("q") ?? "").slice(0, 200),
     dateFrom: DATE.test(from) ? from : "",

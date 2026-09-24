@@ -16,8 +16,9 @@ import {
 
 describe("score color tokens", () => {
   it("colors high / mid / low score bands distinctly", () => {
-    expect(getScoreColor(8)).toBe("text-emerald-500");
-    expect(getScoreColor(6)).toBe("text-amber-500");
+    // SUB-13: -700 in light and -400 in dark; the -500 text failed AA on white.
+    expect(getScoreColor(8)).toBe("text-emerald-700 dark:text-emerald-400");
+    expect(getScoreColor(6)).toBe("text-amber-700 dark:text-amber-400");
     expect(getScoreColor(3)).toBe("text-brand-red-text");
   });
 
@@ -42,10 +43,10 @@ describe("score color tokens", () => {
     // same as a 5.0 "Fair". Emerald at exactly 7.0 is the point of the change,
     // not a side effect of it - leaving `> 7` would have swapped the old
     // cross-client disagreement for a new one at exactly this value.
-    expect(getScoreColor(7)).toBe("text-emerald-500");
-    expect(getScoreColor(6.9)).toBe("text-amber-500");
-    expect(getScoreColor(7.5)).toBe("text-emerald-500");
-    expect(getScoreColor(5)).toBe("text-amber-500");
+    expect(getScoreColor(7)).toBe("text-emerald-700 dark:text-emerald-400");
+    expect(getScoreColor(6.9)).toBe("text-amber-700 dark:text-amber-400");
+    expect(getScoreColor(7.5)).toBe("text-emerald-700 dark:text-emerald-400");
+    expect(getScoreColor(5)).toBe("text-amber-700 dark:text-amber-400");
     expect(getScoreColor(4.5)).toBe("text-brand-red-text");
 
     expect(getScoreBorderColor(9)).toContain("emerald");

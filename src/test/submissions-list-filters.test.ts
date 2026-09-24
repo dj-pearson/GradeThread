@@ -145,7 +145,7 @@ describe("the table has a phone layout (US-2544 AC5)", () => {
     const cards = src.slice(src.indexOf('className="space-y-2 md:hidden"'));
     const card = cards.slice(0, cards.indexOf('className="hidden overflow-x-auto md:block"'));
     expect(card).toContain("<ScoreBandIcon");
-    expect(card).toContain("getStatusBadgeClasses");
+    expect(card).toContain("<SubmissionStatusBadge status={sub.status} />");
   });
 });
 

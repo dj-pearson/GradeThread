@@ -59,6 +59,7 @@ import {
   DISPUTE_WINDOW_DAYS,
   COUNTERFEIT_RISK_LABELS,
   getScoreColor,
+  getScoreBorderColor,
   getTierBadgeClasses,
   getProgressColor,
   tierBandRange,
@@ -94,6 +95,8 @@ import { ShowcaseConsentPanel } from "@/components/showcase/showcase-consent-pan
 import { RepairTriagePanel } from "@/components/grade/repair-triage-panel";
 import { DetectedIssues } from "@/components/grade/detected-issues";
 import { DISPUTE_KIND_LABEL } from "@/lib/dispute-kind";
+import { formatLabel } from "@/lib/format-label";
+import { SubmissionStatusBadge } from "@/components/submission/submission-status-badge";
 import {
   detailPollDelay,
   isPollableStatus,
@@ -134,18 +137,12 @@ function getConfidenceLabel(score: number): {
   icon: typeof CheckCircle2;
 } {
   if (score > 0.85)
-    return { label: "High", color: "text-emerald-500", icon: CheckCircle2 };
+    return { label: "High", color: "text-emerald-700 dark:text-emerald-400", icon: CheckCircle2 };
   if (score >= 0.75)
-    return { label: "Medium", color: "text-amber-500", icon: Info };
+    return { label: "Medium", color: "text-amber-700 dark:text-amber-400", icon: Info };
   return { label: "Low", color: "text-brand-red-text", icon: AlertTriangle };
 }
 
-function formatLabel(value: string): string {
-  return value
-    .split(/[-_]/)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
 
 // US-1466: minutes past which an in-flight grade is flagged as "taking longer
 // than expected" (with a support link). Normal grades finish well under this.
@@ -1148,27 +1145,7 @@ export function SubmissionDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Badge
-            variant="outline"
-            className={cn(
-              submission.status === "completed" &&
-                "border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300",
-              submission.status === "processing" &&
-                "border-blue-200 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300",
-              submission.status === "pending_review" &&
-                "border-violet-200 bg-violet-100 text-violet-800 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-300",
-              submission.status === "pending" &&
-                "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300",
-              submission.status === "needs_photos" &&
-                "border-amber-200 bg-amber-100 text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300",
-              submission.status === "expired" &&
-                "border-gray-200 bg-gray-100 text-gray-600",
-              submission.status === "failed" &&
-                "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300"
-            )}
-          >
-            {formatLabel(submission.status)}
-          </Badge>
+          <SubmissionStatusBadge status={submission.status} />
           {submission.status === "completed" && gradeReport?.certificate_id && (
             // US: the header "Share Certificate" button used to be a plain Link to
             // /cert/:id — it just navigated to the page instead of offering share
@@ -1415,11 +1392,8 @@ export function SubmissionDetailPage() {
                   <div
                     className={cn(
                       "flex h-24 w-24 flex-shrink-0 items-center justify-center rounded-full border-4",
-                      gradeReport.overall_score > 7
-                        ? "border-emerald-500"
-                        : gradeReport.overall_score >= 5
-                          ? "border-amber-500"
-                          : "border-brand-red"
+                      // SUB-13: the same band edges as the numeral and pill.
+                      getScoreBorderColor(gradeReport.overall_score)
                     )}
                   >
                     <span

@@ -126,7 +126,7 @@ describe("what the submissions list opens on", () => {
       resolve(process.cwd(), "src/lib/submissions-list-params.ts"),
       "utf8",
     );
-    expect(params).toContain("status: statusFilterFromSearch(search),");
+    expect(params).toContain(': statusFilterFromSearch(search),');
     expect(page).not.toMatch(/const \[statusFilter[\s\S]{0,40}useState<string>\("all"\)/);
   });
 });

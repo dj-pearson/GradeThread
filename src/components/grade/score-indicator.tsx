@@ -9,8 +9,10 @@ import { cn } from "@/lib/utils";
 
 type ScoreBand = "high" | "mid" | "low";
 
+// SUB-13: >= 7, matching getScoreColor / getScoreBorderColor / getTierBadgeClasses.
+// It was > 7, so a 7.0 showed a green numeral beside a "Moderate" icon.
 function scoreBand(score: number): ScoreBand {
-  if (score > 7) return "high";
+  if (score >= 7) return "high";
   if (score >= 5) return "mid";
   return "low";
 }
