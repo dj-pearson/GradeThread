@@ -255,7 +255,7 @@ export function isUnranked(card: Scorecard): boolean {
 type RpcClient = {
   rpc: (
     fn: "seller_scorecard",
-    args: { p_period_start: string | null },
+    args: { p_period_start: string | null; p_owner_id: string },
   ) => Promise<{
     data: Scorecard | null;
     error: { message: string } | null;
@@ -264,10 +264,14 @@ type RpcClient = {
 
 export async function fetchSellerScorecard(
   periodStart: string | null,
+  ownerId: string,
 ): Promise<Scorecard> {
   const client = supabase as unknown as RpcClient;
+  // 00836: the own figures are the workspace on screen's, not the caller's.
+  // The cohort does not depend on it; the server checks membership (42501).
   const { data, error } = await client.rpc("seller_scorecard", {
     p_period_start: periodStart,
+    p_owner_id: ownerId,
   });
   if (error) throw new Error(error.message);
   // US-2838: the cast above makes `data: X | null` an assertion, not a check,

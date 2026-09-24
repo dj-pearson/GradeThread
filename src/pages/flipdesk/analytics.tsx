@@ -434,7 +434,7 @@ function SellThroughReport() {
     queryKey: ["items_full", "analytics", "sell-through", tenantKey, groupKey, periodStart],
     enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
-    queryFn: () => fetchSellThrough(groupKey, periodStart),
+    queryFn: () => fetchSellThrough(groupKey, periodStart, tenantKey as string),
   });
 
   // US-2234 (AC1): revenue + net-profit trend over the selected period. Reuses
@@ -705,7 +705,7 @@ export function GradingRoiReport() {
     queryKey: ["items_full", "analytics", "grading-roi", tenantKey, periodStart],
     enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
-    queryFn: () => fetchGradingRoi(periodStart),
+    queryFn: () => fetchGradingRoi(periodStart, tenantKey as string),
   });
   const {
     data: summary = null,
@@ -717,7 +717,7 @@ export function GradingRoiReport() {
     queryKey: ["items_full", "analytics", "grading-roi-summary", tenantKey, periodStart],
     enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
-    queryFn: () => fetchGradingRoiSummary(periodStart),
+    queryFn: () => fetchGradingRoiSummary(periodStart, tenantKey as string),
   });
 
   if (bucketsFailed || summaryFailed) {
@@ -1159,7 +1159,7 @@ function ReturnReductionReport() {
     queryKey: ["items_full", "analytics", "returns", tenantKey, periodStart],
     enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
-    queryFn: () => fetchReturnReduction(periodStart),
+    queryFn: () => fetchReturnReduction(periodStart, tenantKey as string),
   });
 
   if (isError) {
@@ -1433,7 +1433,7 @@ function ConditionGuaranteeCard() {
     queryKey: ["items_full", "analytics", "returns", tenantKey, null],
     enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
-    queryFn: () => fetchReturnReduction(null),
+    queryFn: () => fetchReturnReduction(null, tenantKey as string),
   });
   const highBand = data?.bands.find((b) => b.key === "high");
   const ready =

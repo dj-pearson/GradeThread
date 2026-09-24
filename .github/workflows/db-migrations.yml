@@ -34,6 +34,7 @@ on:
       - "scripts/check-inventory-owner-scope.mjs"
       - "scripts/check-overview-owner-scope.mjs"
       - "scripts/check-search-owner-scope.mjs"
+      - "scripts/check-analytics-owner-scope.mjs"
       - "scripts/check-api-key-self-upgrade.mjs"
       - "scripts/check-service-role-grants.mjs"
       - "services/edge-functions/src/tests/rls-guard_test.ts"
@@ -81,6 +82,7 @@ on:
       - "scripts/check-inventory-owner-scope.mjs"
       - "scripts/check-overview-owner-scope.mjs"
       - "scripts/check-search-owner-scope.mjs"
+      - "scripts/check-analytics-owner-scope.mjs"
       - "scripts/check-api-key-self-upgrade.mjs"
       - "scripts/check-service-role-grants.mjs"
       - "services/edge-functions/src/tests/rls-guard_test.ts"
@@ -234,6 +236,11 @@ jobs:
       # stranger naming another workspace gets 42501; v1 is pinned unchanged.
       - name: Search reads one workspace (00835)
         run: node scripts/check-search-owner-scope.mjs
+      # 00836: the Analytics RPCs read one workspace. A stranger naming another
+      # workspace gets 42501, anon is refused, and seller_scorecard /
+      # community_benchmarks_v2 move only the caller's own slice, never the cohort.
+      - name: Analytics reads one workspace (00836)
+        run: node scripts/check-analytics-owner-scope.mjs
       # 00825: api-key-auth trusts api_keys.rate_tier and monthly_quota, so a
       # client must not be able to write either. The owner can still read and
       # delete, and the service role still mints (POST /api/keys).

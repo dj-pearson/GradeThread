@@ -133,7 +133,9 @@ describe("the rollup is reachable by a second client (US-2533 AC2)", () => {
   });
 
   it("the web calls that RPC rather than assembling its own query", () => {
-    expect(read(LIB)).toContain('client.rpc("flipdesk_return_reduction"');
+    // 00836: the web calls v2, the same rollup for one workspace (p_owner_id).
+    // v1 stays for the iOS app, which is what the next describe pins.
+    expect(read(LIB)).toContain('client.rpc("flipdesk_return_reduction_v2"');
   });
 });
 

@@ -112,7 +112,7 @@ export function PriceCurveReport({
     queryKey: ["items_full", "analytics", "sell-through", tenantKey, "brand", null],
     enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
-    queryFn: () => fetchSellThrough("brand", null),
+    queryFn: () => fetchSellThrough("brand", null, tenantKey as string),
   });
   // US-3303: "Unknown" / blank is a sheet placeholder waiting on an AutoLister
   // merge, so it is never a curve worth filtering to.
@@ -124,7 +124,7 @@ export function PriceCurveReport({
     queryKey: ["items_full", "analytics", "sell-through", tenantKey, "category", null],
     enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
-    queryFn: () => fetchSellThrough("category", null),
+    queryFn: () => fetchSellThrough("category", null, tenantKey as string),
   });
 
   const {

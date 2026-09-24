@@ -654,6 +654,13 @@ if (on("db")) {
       "db: search reads one workspace (00835)",
       "node scripts/check-search-owner-scope.mjs",
     );
+    // 00836: the Analytics RPCs read one workspace. A stranger naming another
+    // workspace gets 42501, anon is refused, and the two cohort RPCs move only
+    // the caller's own slice; the cohort hash must not change with the owner.
+    run(
+      "db: Analytics reads one workspace (00836)",
+      "node scripts/check-analytics-owner-scope.mjs",
+    );
     // 00825: api-key-auth trusts rate_tier and monthly_quota off the row, so
     // no client UPDATE or INSERT policy may exist on api_keys. The owner still
     // reads and deletes; the service role still mints.

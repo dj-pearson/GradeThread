@@ -161,7 +161,7 @@ export function FlipdeskCommunityInsightsPage(
   const activeFilters = useMemo(() => normalizeBenchmarkFilters(filters), [filters]);
   const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
     queryKey: communityBenchmarksKey(tenantKey, periodStart, activeFilters),
-    queryFn: () => fetchCommunityBenchmarks(periodStart, activeFilters),
+    queryFn: () => fetchCommunityBenchmarks(periodStart, tenantKey as string, activeFilters),
     enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
   });

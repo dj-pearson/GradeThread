@@ -71,6 +71,85 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00836_analytics_owner_scope.sql (INV-D1 - Analytics numbers blended every workspace, and a member saw their own figures as the workspace's)
+
+**What it does.** Gives every RPC behind `/dashboard/flipdesk/analytics` a
+`p_owner_id uuid default null` (the workspace on screen), filtered where the rows
+are read, before any count, median or page.
+
+- **Replaced in place** (old signature DROPPED so PostgREST sees one overload;
+  only the web calls these): `flipdesk_sell_through(text, date, uuid)`,
+  `flipdesk_grading_roi(date, uuid)`, `flipdesk_grading_roi_summary(date, uuid)`,
+  `seller_scorecard(date, uuid)`, `flipdesk_listing_performance_summary(uuid)`,
+  `flipdesk_listing_performance_page(text, int, text, bool, int, int, uuid)`.
+- **Added beside v1, v1 untouched**: `flipdesk_return_reduction_v2(date, uuid)`
+  (iOS `ReturnReductionStore.swift` calls v1) and
+  `community_benchmarks_v2(date, text, text, text, numeric, numeric, uuid)` (iOS
+  `CommunityInsightsStore.swift` and Android `CommunityInsightsService.kt` call
+  v1). `pg_get_functiondef` of both v1s has the same md5 before and after.
+
+**The guard.** The same as 00833-00835: a non-NULL `p_owner_id` must be the
+caller, a workspace the caller is a member of (`public.is_workspace_member`),
+or the caller must be the service role, else **42501**. NULL means
+`auth.uid()`, the caller's own rows. Anon is refused with 42501: the invokers
+use 00834's `auth.role()` check, the two definers keep 00640's
+`gt_require_role(..., 'authenticated')` and run it first.
+
+**⚠ TWO ARE SECURITY DEFINER** (`seller_scorecard`, `community_benchmarks_v2`):
+they read every seller to build a k-anonymous cohort and bypass RLS, so the
+membership check is the only thing standing between a stranger and another
+seller's own figures. Sabotage 2 below measured exactly that leak. Their cohort
+is unchanged; only the caller's own slice moved from `auth.uid()` to the owner
+(scorecard: `mine` and `split`; benchmarks: `caller`, `caller_raw`,
+`caller_sold`, and `peers`, which is "every seller but you" and so now leaves
+out the owner). Every k-anonymity floor is byte-for-byte v1's.
+
+**Grants.** Replayed as they were: `authenticated`, `service_role`, PUBLIC from
+CREATE. `proacl` read on the local cluster before and after is
+`{=X/postgres,postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`
+for all eight, **except the two listing-performance functions**, which were
+`{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}` because
+00560 revoked PUBLIC. Recreating them brings the PUBLIC default back, and a new
+revoke is forbidden (US-2403, `us2403-function-revoke-gate.test.ts`). The body
+now refuses anon with a raised 42501 instead, which is the settled remedy
+(00686, 00720, 00726) and removes a denied-call crash entry point. No revokes.
+
+**⚠ THE BROWSER CALLS THE NEW SIGNATURES, in the same commit.** Every web
+caller now sends `p_owner_id`, and the returns and community tabs call the
+`_v2` names. If Pages deploys before this is applied, PostgREST finds no
+matching function and **every Analytics tab, the Overview's community widget
+and the Listing Performance page fail** (PGRST202). The mobile apps are
+unaffected either way. **Apply BEFORE the push to main.**
+
+**Proved on a local Postgres 16** (a `template postgres` clone at 00834, plus
+00835, plus this): applied twice, second run clean (`INSERT 0 0` on the
+footer). `node scripts/check-analytics-owner-scope.mjs --dsn ...` passes 98/98:
+12 callers x 8 RPCs plus two cohort checks. A owns 6 items (3 completed, 1
+refunded, 2 active on eBay), B owns 5 (1 completed, 4 active), M is a member of
+both, S is a stranger, P1-P5 lift the cohort over its floor. Sell-through: A in
+A `listed:6,sold:4`, M in B `listed:5,sold:1`, S naming A 42501, anon 42501,
+A with NULL `listed:6,sold:4`. The same split holds on every RPC.
+`community_benchmarks_v2` minus `you` equals v1 for every caller, and the
+scorecard and benchmarks cohort hashes are identical to a clone WITHOUT 00836
+(`f375fc84caf7` / `8edcca0b11cc` both sides). Sabotage 1 (owner filters
+removed, definers back on `auth.uid()`): 61 of 98 red, A in A read
+`listed:11,sold:5`, the blend. Sabotage 2 (membership guard removed): 8 of 98
+red, and on the two definers S naming A got A's figures
+(`own:0.5000,n:6,...`). Restored: 98/98, and 00833/00834/00835's checks 13/13,
+12/12, 15/15 on the same database.
+
+**Risk: LOW-MEDIUM.** Read-only functions; no table change. Six are replaced,
+so the deploy order above matters.
+
+**Order.** 1) `npm run migrate:prod -- --apply --yes` (applies 00836, then
+`NOTIFY pgrst, 'reload schema';` so PostgREST sees the new signatures). 2)
+Redeploy the edge (boot guard expects 00836; the edge calls none of these). 3)
+THEN push to main so Pages builds the client that sends `p_owner_id`.
+
+**Verify after applying:**
+`select oid::regprocedure from pg_proc where proname in ('flipdesk_sell_through','flipdesk_grading_roi','flipdesk_grading_roi_summary','seller_scorecard','flipdesk_listing_performance_summary','flipdesk_listing_performance_page','flipdesk_return_reduction_v2','community_benchmarks_v2')`
+lists exactly one row per name, each ending in `uuid)`.
+
 ## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00835_flipdesk_search_v2_owner_scope.sql (INV-D1 - Search ranked every workspace before dropping other ones, so a small workspace got crowded out)
 
 **What it does.** Adds a NEW function, `flipdesk_search_v2`, beside

@@ -52,7 +52,11 @@ const DATA: CommunityBenchmarks = {
 vi.mock("@/lib/community-benchmarks", async (orig) => ({
   ...(await orig<typeof import("@/lib/community-benchmarks")>()),
   fetchCommunityBenchmarks: vi.fn(
-    async (periodStart: string | null, filters?: CommunityBenchmarkFilters) => {
+    async (
+      periodStart: string | null,
+      _ownerId: string,
+      filters?: CommunityBenchmarkFilters,
+    ) => {
       calls.push({ periodStart, filters });
       if (failNext) {
         const code = failNext.code;

@@ -100,6 +100,9 @@ describe("US-2233: Listing Performance is server-paged", () => {
     expect(code(PAGE)).not.toContain("truncated");
   });
 
+  // 00836 recreated both with p_owner_id, which brings back the PUBLIC default
+  // 00560 revoked; a new revoke is barred (US-2403), so the body refuses anon
+  // with 42501 instead. This pins what 00560 itself says, which cannot change.
   it("the migration keeps both functions SECURITY INVOKER and closed to anon", () => {
     // These read multi-tenant tables. SECURITY INVOKER is what makes RLS scope
     // them; SECURITY DEFINER would need a tenant filter inside, and the whole

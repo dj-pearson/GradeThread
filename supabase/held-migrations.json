@@ -10,7 +10,15 @@
     "scripts/held-migrations-registry.test.mjs fails when this file and the HELD headings",
     "in PENDING_MIGRATIONS.md disagree, in either direction."
   ],
-  "held": [],
+  "held": [
+    {
+      "version": "00836",
+      "file": "00836_analytics_owner_scope.sql",
+      "story": "INV-D1",
+      "held_since": "2026-09-24",
+      "what": "Analytics numbers blended every workspace, and a member saw their own figures as the workspace's"
+    }
+  ],
   "parked": [
     {
       "version": "00794",

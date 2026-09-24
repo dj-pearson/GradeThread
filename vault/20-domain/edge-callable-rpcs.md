@@ -8,9 +8,10 @@ code_refs:
   - src/test/edge-never-calls-caller-scoped-rpc.test.ts
   - src/test/rpc-identity-semantics.test.ts
   - supabase/migrations/00662_flipdesk_price_gap_for_user.sql
+  - supabase/migrations/00836_analytics_owner_scope.sql
 reviewed: 2026-09-24
 tags: [security, rls, tenant-isolation, postgres, contract]
-summary: The edge calls Postgres as service_role, so auth.uid() is NULL and RLS is off; a function that scopes itself by either one returns nothing or returns every tenant's rows, silently and with a 200. Twenty run as the caller and five more are SECURITY DEFINER but scope their rows by the session; the edge calls none of either, and 00662 shows the p_user_id wrapper that converts one.
+summary: The edge calls Postgres as service_role, so auth.uid() is NULL and RLS is off; a function that scopes itself by either one returns nothing or returns every tenant's rows, silently and with a 200. Twenty-five run as the caller and four more are SECURITY DEFINER but scope their rows by the session; the edge calls none of either, and 00662 shows the p_user_id wrapper that converts one.
 ---
 
 # Which Postgres functions the edge may call
@@ -48,12 +49,15 @@ edge production file `.rpc()`s a function that runs as the caller, reads tenant
 data, and takes no user argument. **There is no allowlist**, because the count is
 zero and the fix is always the wrapper.
 
-## The twenty loaded guns
+## The twenty-five loaded guns
 
-Twenty functions are identity-dependent today — `flipdesk_source_yield`,
-`flipdesk_overview_metrics`, `flipdesk_return_attribution`,
+Twenty-five functions are identity-dependent as of 2026-09-24 (00836), read off
+`identityDependent()` rather than counted by hand — `flipdesk_source_yield`,
+`flipdesk_return_attribution`, `flipdesk_return_reduction`,
 `flipdesk_listing_quality_lift`, `finances_dashboard`, `flipdesk_search` and
-others. **None is a bug.** Each is correct as a browser RPC, where the session
+others. The owner-scoped rewrites (00833-00836) take a `p_owner_id` and so
+leave the set: `flipdesk_overview_metrics`, the Analytics RPCs and the `_v2`
+functions beside the two v1s the mobile apps still call. **None is a bug.** Each is correct as a browser RPC, where the session
 is exactly the right scope. They are hazards only because the trigger is one
 line in a job or an `/api/v1` handler, and both US-2829 (analytics over the API)
 and US-2828 (the weekly digest) have that line as their next step. In the digest
@@ -105,7 +109,7 @@ local stack with two seeded users, not reasoned about:
 **Views hide the tenancy.** The analytics RPCs read `items_full`, not
 `inventory_items`. A view carries no RLS policy of its own, so a rule that knows
 only base tables sees an analytics function touching nothing tenant-shaped and
-calls it safe. Six of the twenty are reachable only through a view. Any check
+calls it safe. Several are reachable only through a view. Any check
 here has to resolve views to their bases.
 
 **`SECURITY DEFINER` was a blind spot, and it was exactly where the problem
@@ -114,9 +118,12 @@ reasonable assumption that a DEFINER function takes its subject as an argument.
 `flipdesk_price_gap` disproved it: DEFINER, no user parameter, scoped by
 `auth.uid()`. So the guard whose failure message names the `p_user_id` wrapper
 as *the* fix could never have fired for the function that needed it.
-`definerRowScoped()` covers that shape now — **five** functions today
-(`community_benchmarks`, `condition_price_curve`, `flipdesk_defect_cost`,
-`measurement_drift`, `seller_scorecard`), **zero** called from the edge.
+`definerRowScoped()` covers that shape now — **four** functions as of
+2026-09-24 (`community_benchmarks`, `condition_price_curve`,
+`flipdesk_defect_cost`, `measurement_drift`), **zero** called from the edge.
+`seller_scorecard` left the set in 00836, which gave it `p_owner_id`;
+`community_benchmarks` stays because v1 is kept for the mobile apps, and the
+web calls `community_benchmarks_v2`.
 
 > [!note] Reading `auth.uid()` is not scoping by it, and a comment is not code
 > The first measurement of that blind spot asked "DEFINER + reads `auth.uid()` +
@@ -125,7 +132,7 @@ as *the* fix could never have fired for the function that needed it.
 > (reading the caller's role), and in three of them the matches were inside
 > COMMENTS about a guard fixed months ago. The honest question is a scoping
 > predicate on an owner column, over the function BODY with comments stripped.
-> That answers five, and none reachable. Anyone re-running this scan should
+> That answered five, and none reachable. Anyone re-running this scan should
 > start from that distinction rather than rediscovering it.
 
 **"Dual-called" is not the same question.** The rule in

@@ -86,6 +86,6 @@ describe("windowed copy (A12)", () => {
     expect(src).not.toMatch(/across every sale|across your history/);
     expect(src).not.toMatch(/sell through \$\{pct\(s\.sellThroughLift\)\} more often/);
     const guarantee = src.slice(src.indexOf("function ConditionGuaranteeCard"));
-    expect(guarantee).toContain("fetchReturnReduction(null)");
+    expect(guarantee).toMatch(/fetchReturnReduction\(null, /);
   });
 });

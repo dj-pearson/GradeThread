@@ -226,6 +226,9 @@ export function FlipdeskListingPerformancePage(
             : sortDir === "desc",
           p_limit: PAGE_SIZE,
           p_offset: page * PAGE_SIZE,
+          // 00836: the workspace on screen. RLS alone admits every workspace
+          // the caller belongs to; the server checks membership (42501).
+          p_owner_id: tenantKey,
         } as never,
       );
       if (error) throw error;
@@ -327,6 +330,7 @@ export function FlipdeskListingPerformancePage(
               p_desc: sortKey === "days_listed" ? sortDir === "asc" : sortDir === "desc",
               p_limit: limit,
               p_offset: offset,
+              p_owner_id: tenantKey,
             } as never,
           );
           if (error) throw error;
@@ -381,6 +385,7 @@ export function FlipdeskListingPerformancePage(
     queryFn: async () => {
       const { data, error } = await supabase.rpc(
         "flipdesk_listing_performance_summary" as never,
+        { p_owner_id: tenantKey } as never,
       );
       if (error) throw error;
       const r = (Array.isArray(data) ? data[0] : data) as

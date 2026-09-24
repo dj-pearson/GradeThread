@@ -141,9 +141,13 @@ export type CommunityBenchmarks = {
 
 // Not in the generated Database types; call through a narrowly-typed view of the
 // client (same pattern as fetchSellThrough / finances_dashboard).
+//
+// 00836: the web calls community_benchmarks_v2, whose `you` block is the
+// workspace on screen (p_owner_id) rather than the signed-in user. The cohort
+// and its k-anonymity floors are v1's; v1 stays for the iOS and Android apps.
 type RpcClient = {
   rpc: (
-    fn: "community_benchmarks",
+    fn: "community_benchmarks_v2",
     // US-2235: the five filter params are REQUIRED here even though the SQL
     // defaults them, so a call site cannot silently omit one and get the
     // unfiltered cohort back while believing it filtered. Pass null to mean
@@ -155,6 +159,7 @@ type RpcClient = {
       p_size: string | null;
       p_price_min: number | null;
       p_price_max: number | null;
+      p_owner_id: string;
     },
   ) => Promise<{
     data: CommunityBenchmarks | null;
@@ -219,17 +224,19 @@ export function hasActiveFilters(f: CommunityBenchmarkFilters | undefined): bool
  */
 export async function fetchCommunityBenchmarks(
   periodStart: string | null,
+  ownerId: string,
   filters?: CommunityBenchmarkFilters,
 ): Promise<CommunityBenchmarks> {
   const client = supabase as unknown as RpcClient;
   const f = normalizeBenchmarkFilters(filters);
-  const { data, error } = await client.rpc("community_benchmarks", {
+  const { data, error } = await client.rpc("community_benchmarks_v2", {
     p_period_start: periodStart,
     p_brand: f.brand,
     p_category: f.category,
     p_size: f.size,
     p_price_min: f.priceMin,
     p_price_max: f.priceMax,
+    p_owner_id: ownerId,
   });
   if (error) {
     // A10: keep the Postgres code so the page can say something useful about
