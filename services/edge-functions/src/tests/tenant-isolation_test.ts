@@ -180,6 +180,12 @@ const KNOWN_UNSEEDED: Record<string, string> = {
   TEST_PRIVATE_REPORT_ID: "needs an uncertified/private report",
   TEST_USER_B_HANDLE: "needs a storefront handle for tenant B",
   TEST_SELLER_NO_STOREFRONT_HANDLE: "needs a seller with storefront opt-in disabled",
+  // SUB-05: the positive member-files-once case. Needs a role=member (not
+  // viewer) of A plus a fresh in-window report of A's, and it FILES a dispute,
+  // so each run consumes the report. The offline half is dispute-alert_test.ts.
+  TEST_MEMBER_JWT: "needs a role=member of A's workspace (seed has only a viewer)",
+  TEST_USER_A_DISPUTABLE_REPORT_ID:
+    "needs an in-window report of A's with no grade dispute; consumed per run",
 };
 
 /**
@@ -4270,6 +4276,75 @@ Deno.test({
     });
     await res.body?.cancel();
     assertDenied(res.status, "POST dispute-filed for a non-owned dispute");
+  },
+});
+
+// SUB-05: /dispute-filed now resolves workspaceOwnerId ?? userId, because a
+// member's dispute is stored under the workspace OWNER. Widening the lookup
+// to the owner must not widen it to anyone who names an owner: a non-member
+// carrying A's X-Workspace-Owner is refused by workspaceMiddleware, and a
+// genuine member naming a dispute A does not own still gets a 404.
+Deno.test({
+  name: "SUB-05: non-member B cannot trigger a dispute alert in A's workspace",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/notifications/dispute-filed`, {
+      method: "POST",
+      headers: foreignWorkspaceHeaders(),
+      body: JSON.stringify({ disputeId: ZERO_UUID }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST dispute-filed in A's workspace as non-member");
+  },
+});
+
+Deno.test({
+  name: "SUB-05: a member of A still gets 404 for a dispute A does not own",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/notifications/dispute-filed`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ disputeId: ZERO_UUID }),
+    });
+    await res.body?.cancel();
+    assertEquals(res.status, 404, "foreign dispute id via a member of A");
+  },
+});
+
+// SUB-05, the positive half: a (non-viewer) member files a grade dispute in
+// owner A's workspace, and the filing route itself sends the alert exactly
+// once. Proved by the claim: a follow-up /dispute-filed for the same id, which
+// resolves to the owner, finds it already alerted (before SUB-05 it 404'd).
+// OPTIONAL: skips until the seed emits a member JWT and a report of A's inside
+// the dispute window with no grade dispute on it. It files a real dispute, so
+// a second run against the same fixture answers 409 and needs a reseed.
+const MEMBER_JWT = Deno.env.get("TEST_MEMBER_JWT");
+const A_DISPUTABLE_REPORT = Deno.env.get("TEST_USER_A_DISPUTABLE_REPORT_ID");
+Deno.test({
+  name: "SUB-05: a member filing in A's workspace produces exactly one alert",
+  ignore: !BASE || !WS_OWNER || !MEMBER_JWT || !A_DISPUTABLE_REPORT,
+  fn: async () => {
+    const headers = {
+      Authorization: `Bearer ${MEMBER_JWT}`,
+      "Content-Type": "application/json",
+      "X-Workspace-Owner": WS_OWNER!,
+    };
+    const filed = await fetch(`${BASE}/api/grade/dispute`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ gradeReportId: A_DISPUTABLE_REPORT, reason: "SUB-05 probe" }),
+    });
+    const filedBody = await filed.json();
+    assertEquals(filed.status, 200, `member filing: ${JSON.stringify(filedBody)}`);
+    const again = await fetch(`${BASE}/api/notifications/dispute-filed`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ disputeId: filedBody.dispute.id }),
+    });
+    const againBody = await again.json();
+    assertEquals(again.status, 200, JSON.stringify(againBody));
+    assertEquals(againBody.skipped, "already alerted");
   },
 });
 

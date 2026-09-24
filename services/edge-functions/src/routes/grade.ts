@@ -1,5 +1,9 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import {
+  notifyAdminsDisputeFiled,
+  removeOrphanedEvidence,
+} from "../lib/dispute-alert.ts";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { clientIp } from "../middleware/rate-limit.ts";
 import { getSetting, getSettingSync } from "../lib/system-settings.ts";
@@ -2133,6 +2137,9 @@ gradeRoutes.post("/dispute", async (c) => {
     .select()
     .single();
   if (dErr || !dispute) {
+    // SUB-05: nothing points at the photos uploaded above any more, so remove
+    // them rather than leave orphans in the owner's folder.
+    await removeOrphanedEvidence(evidencePaths);
     // US-2153: the unique index (00493) catches a duplicate that raced past the
     // SELECT above (two devices, a double-tap). Report it as the same 409 the
     // pre-check returns rather than a 500 the client would surface as a failure.
@@ -2148,11 +2155,22 @@ gradeRoutes.post("/dispute", async (c) => {
     captureException(dErr, { route: "grade.dispute", userId });
     return c.json({ error: "Couldn't file the dispute" }, 500);
   }
-  await supabaseAdmin
+  const { error: statusErr } = await supabaseAdmin
     .from("submissions")
     .update({ status: "disputed" })
     .eq("id", submissionId)
     .eq("user_id", ownerId);
+  if (statusErr) {
+    // The dispute is on record; the status flip is what the list shows.
+    console.error("[grade.dispute] submission status update failed:", statusErr.message);
+    captureException(statusErr, { route: "grade.dispute.status", userId });
+  }
+
+  // SUB-05: alert the admins from here, keyed on the OWNER the dispute was
+  // filed under. Never blocks or fails the filing.
+  await notifyAdminsDisputeFiled((dispute as { id: string }).id, ownerId, "grade").catch(
+    (err) => console.error("[grade.dispute] admin alert failed:", err),
+  );
 
   return c.json({ dispute, evidence_failures: failures });
 });
@@ -2268,6 +2286,14 @@ gradeRoutes.post("/authenticity-appeal", async (c) => {
     captureException(aErr, { route: "grade.authenticity_appeal", userId });
     return c.json({ error: "Couldn't file the appeal" }, 500);
   }
+
+  // SUB-05: every appeal hides a public verdict until an admin acts, and until
+  // now nothing told an admin one existed.
+  await notifyAdminsDisputeFiled(
+    (appeal as { id: string }).id,
+    ownerId,
+    "authenticity",
+  ).catch((err) => console.error("[grade.authenticity_appeal] admin alert failed:", err));
 
   // Hide the verdict, then RESEAL — integrity v4 covers the verdict, so a
   // change without a reseal leaves a hash over something no longer displayed

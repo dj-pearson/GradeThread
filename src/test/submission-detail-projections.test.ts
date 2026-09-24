@@ -45,3 +45,11 @@ describe("submission detail projections (SUB-02)", () => {
     expect(src()).toContain("<DetectedIssues defects={gradeReport.defects_found} />");
   });
 });
+
+describe("the admin alert is sent by the dispute route (SUB-05)", () => {
+  it("the page no longer fires a separate /dispute-filed request", () => {
+    // That request looked the dispute up under the member's own id and 404'd
+    // silently for every member-filed dispute.
+    expect(src()).not.toContain("/api/notifications/dispute-filed");
+  });
+});

@@ -2291,6 +2291,8 @@ interface DisputeFiledData {
   submissionTitle: string;
   reason: string;
   submissionId: string;
+  /** SUB-05: an authenticity appeal gets its own wording. Default: grade. */
+  kind?: "grade" | "authenticity";
 }
 
 /**
@@ -2301,12 +2303,15 @@ export async function sendDisputeFiledAdminEmail(
   to: string,
   data: DisputeFiledData,
 ): Promise<boolean> {
+  const appeal = data.kind === "authenticity";
+  const heading = appeal ? "New authenticity appeal" : "New grade dispute filed";
+  const verb = appeal ? "appealed the authenticity result for" : "disputed the grade for";
   const content = `
     <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
-      New grade dispute filed
+      ${heading}
     </h2>
     <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
-      <strong>${escapeHtml(data.submitterName)}</strong> disputed the grade for
+      <strong>${escapeHtml(data.submitterName)}</strong> ${verb}
       <strong>${escapeHtml(data.submissionTitle)}</strong> and is requesting a review.
     </p>
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 8px;">
@@ -2321,7 +2326,7 @@ export async function sendDisputeFiledAdminEmail(
   `;
   return await sendEmail({
     to,
-    subject: `New grade dispute: ${data.submissionTitle}`,
+    subject: `${appeal ? "New authenticity appeal" : "New grade dispute"}: ${data.submissionTitle}`,
     html: emailLayout(content),
     category: "dispute_filed_admin", // US-801: durable retry on transient failure
   });

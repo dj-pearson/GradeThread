@@ -3,7 +3,6 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { adminAuthMiddleware } from "../middleware/admin-auth.ts";
 import {
-  sendDisputeFiledAdminEmail,
   sendDisputeResolvedEmail,
   sendFeedbackEmail,
   sendWelcomeEmail,
@@ -12,6 +11,7 @@ import { captureServer } from "../lib/posthog.ts";
 import { emitEvent } from "../lib/user-events.ts";
 import { verifyUnsubscribeToken } from "../lib/unsubscribe.ts";
 import { unreadNotificationCount } from "../lib/notification-badge.ts";
+import { notifyAdminsDisputeFiled } from "../lib/dispute-alert.ts";
 import {
   applyCategoryConsent,
   applyUnsubscribeAll,
@@ -35,7 +35,7 @@ async function notifyInApp(
   if (error) console.error("[Notifications] in-app insert failed:", error.message);
 }
 
-type NotifEnv = { Variables: { userId?: string } };
+type NotifEnv = { Variables: { userId?: string; workspaceOwnerId?: string } };
 
 export const notificationRoutes = new Hono<NotifEnv>();
 
@@ -583,15 +583,20 @@ notificationRoutes.delete("/register", async (c) => {
 
 /**
  * POST /dispute-filed
- * Called by the submitter's frontend right after they file a dispute, so the
- * platform admin is alerted (email + in-app) to review it. Authenticated (the
- * route-group authMiddleware sets userId). We only act on a freshly-OPEN
- * dispute, and the response carries no dispute data — so it can't be used to
- * probe other users' disputes.
+ * Kept for older clients. Current clients do not call it: the filing routes
+ * (POST /api/grade/dispute and /api/grade/authenticity-appeal) send the alert
+ * themselves (SUB-05). The body lives in lib/dispute-alert.ts, and its
+ * admin_alerted_at claim means this and the route produce one alert between
+ * them. The response carries no dispute data, so it cannot be used to probe
+ * other users' disputes.
  */
 notificationRoutes.post("/dispute-filed", async (c) => {
   const userId = c.get("userId") as string | undefined;
   if (!userId) return c.json({ error: "Sign-in required" }, 401);
+  // SUB-05: a member files as the workspace OWNER (grade.ts), so the dispute
+  // is stored under the owner. Looking it up by the caller's own id 404'd on
+  // every member-filed dispute.
+  const ownerId = c.get("workspaceOwnerId") ?? userId;
 
   let body: { disputeId?: string };
   try {
@@ -603,85 +608,16 @@ notificationRoutes.post("/dispute-filed", async (c) => {
   if (!disputeId) return c.json({ error: "disputeId is required" }, 400);
 
   try {
-    // US-1638: scope the lookup to the CALLER's own dispute. Without this, any
-    // authenticated user could pass an arbitrary disputeId and learn from the
-    // 404-vs-ok-vs-"not open" responses whether it exists and its status — an
-    // existence/status oracle over other tenants' disputes.
-    const { data: dispute } = await supabaseAdmin
-      .from("disputes")
-      .select("id, status, reason, user_id, grade_report_id")
-      .eq("id", disputeId)
-      .eq("user_id", userId)
-      .single();
-    if (!dispute) return c.json({ error: "Dispute not found" }, 404);
-    // Only alert on a just-filed dispute (idempotent + not abusable on old ones).
-    if (dispute.status !== "open") return c.json({ ok: true, skipped: "not open" });
-
-    // US-1652: dedup the admin alert. Race-safe CLAIM — the conditional
-    // `admin_alerted_at IS NULL` filter means exactly one caller (of concurrent
-    // re-files for the same dispute) flips it and proceeds to send; the rest get
-    // 0 rows and skip. Owner-scoped like the lookup above.
-    const { data: claimed } = await supabaseAdmin
-      .from("disputes")
-      .update({ admin_alerted_at: new Date().toISOString() })
-      .eq("id", disputeId)
-      .eq("user_id", userId)
-      .is("admin_alerted_at", null)
-      .select("id")
-      .maybeSingle();
-    if (!claimed) return c.json({ ok: true, skipped: "already alerted" });
-
-    // Resolve the submission title + submitter name for the alert.
-    const { data: report } = await supabaseAdmin
-      .from("grade_reports")
-      .select("submission_id")
-      .eq("id", dispute.grade_report_id)
-      .single();
-    let submissionTitle = "a graded submission";
-    if (report?.submission_id) {
-      const { data: submission } = await supabaseAdmin
-        .from("submissions")
-        .select("title")
-        .eq("id", report.submission_id)
-        .single();
-      if (submission?.title) submissionTitle = submission.title;
-    }
-    const { data: submitter } = await supabaseAdmin
-      .from("users")
-      .select("full_name, email")
-      .eq("id", dispute.user_id)
-      .single();
-    const submitterName = submitter?.full_name || submitter?.email || "A user";
-
-    // Email the platform admin.
-    const adminEmail =
-      Deno.env.get("DISPUTE_ALERT_EMAIL") || Deno.env.get("SMTP_ADMIN_EMAIL") || "";
-    let emailed = false;
-    if (adminEmail) {
-      emailed = await sendDisputeFiledAdminEmail(adminEmail, {
-        submitterName,
-        submissionTitle,
-        reason: dispute.reason,
-        submissionId: report?.submission_id ?? "",
-      });
-    }
-
-    // In-app notify every admin / super_admin.
-    const { data: admins } = await supabaseAdmin
-      .from("users")
-      .select("id")
-      .in("role", ["admin", "super_admin"]);
-    for (const a of admins ?? []) {
-      await notifyInApp(
-        a.id,
-        "system",
-        "New grade dispute filed",
-        `${submitterName} disputed the grade for "${submissionTitle}".`,
-        "/admin/disputes",
-      );
-    }
-
-    return c.json({ ok: true, emailed, admins_notified: (admins ?? []).length });
+    // US-1638: scoped to the owner's own dispute, so a foreign id is a 404 and
+    // never an existence/status oracle.
+    const result = await notifyAdminsDisputeFiled(disputeId, ownerId);
+    if (result.status === "not_found") return c.json({ error: "Dispute not found" }, 404);
+    if (result.status === "skipped") return c.json({ ok: true, skipped: result.reason });
+    return c.json({
+      ok: true,
+      emailed: result.emailed,
+      admins_notified: result.adminsNotified,
+    });
   } catch (error) {
     console.error("[Notifications] dispute-filed error:", error);
     return c.json({ error: "Failed to send notification" }, 500);

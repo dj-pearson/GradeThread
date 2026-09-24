@@ -836,21 +836,8 @@ export function SubmissionDetailPage() {
         );
       }
 
-      // Alert the platform admin to review (best-effort — never blocks filing).
-      void (async () => {
-        try {
-          await fetch(`${edgeApiUrl()}/api/notifications/dispute-filed`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ disputeId: newDispute.id }),
-          });
-        } catch {
-          /* best-effort */
-        }
-      })();
+      // SUB-05: the dispute route alerts the admins itself, keyed on the
+      // workspace owner the dispute is stored under.
 
       setDispute(newDispute);
       setSubmission((prev) =>
