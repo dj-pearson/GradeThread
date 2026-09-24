@@ -72,6 +72,7 @@ import type { SnapBridgeState } from "@/hooks/use-snap";
 import {
   useSubmissionDraft,
   isMeaningfulDraft,
+  draftAutosaveAction,
   type SubmissionDraft,
 } from "@/hooks/use-submission-draft";
 import { GARMENT_TYPES, GARMENT_CATEGORIES } from "@/lib/constants";
@@ -306,8 +307,12 @@ export function NewSubmissionPage() {
   // submission's garment details, inventory linkage, the grader's flagged photo
   // types, and the passing photos (signed URLs) so the seller only redoes the
   // flagged shots. Read once from navigation state.
-  const retakeState =
-    (location.state as { retake?: RetakeBridgeState } | null)?.retake ?? null;
+  // SNAP-05: bridge state is LATCHED on arrival and then removed from history
+  // (below), so Back or a reload does not re-seed it and a 1-2 MB data URI is
+  // not pinned in the history entry.
+  const [retakeState] = useState(
+    () => (location.state as { retake?: RetakeBridgeState } | null)?.retake ?? null,
+  );
 
   const [linkedItemId, setLinkedItemId] = useState<string>(
     () => searchParams.get("item") ?? retakeState?.linkedItemId ?? "none"
@@ -370,8 +375,18 @@ export function NewSubmissionPage() {
   // US-952: Snap-to-Value → certified-grade bridge. The snap "Upgrade to
   // certified grade" CTA passes the exact photo + any AI-detected garment
   // type/category as navigation state so the seller upgrades with zero rework.
-  const snapState =
-    (location.state as { snap?: SnapBridgeState } | null)?.snap ?? null;
+  const [snapState] = useState(
+    () => (location.state as { snap?: SnapBridgeState } | null)?.snap ?? null,
+  );
+  const bridgeArrival = Boolean(snapState || retakeState);
+  useEffect(() => {
+    if (!bridgeArrival) return;
+    navigate(location.pathname + location.search, { replace: true, state: null });
+    // Mount-once: the latched state above is what the page works from.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Set by the seller's own edits, never by a seed.
+  const userTouchedRef = useRef(false);
 
   // Re-stage the snap photo into the Front slot — converted to a File once, then
   // re-validated/compressed through PhotoUpload's standard path (not a raw
@@ -384,6 +399,10 @@ export function NewSubmissionPage() {
     [snapState?.imageDataUri]
   );
   const [snapSeeded, setSnapSeeded] = useState(false);
+  // SNAP-05: the Front file as it landed from the snap. The "carried over"
+  // banner hides once the seller replaces it.
+  const seededFrontRef = useRef<File | null>(null);
+  const [snapFrontStillSeeded, setSnapFrontStillSeeded] = useState(true);
 
   // Prefill the garment-info form from the snap. Enum fields are only carried
   // when the classifier returned a valid value; brand/title are free text.
@@ -535,6 +554,8 @@ export function NewSubmissionPage() {
     ready: draftReady,
   } = useSubmissionDraft();
   const [pendingDraft, setPendingDraft] = useState<SubmissionDraft | null>(null);
+  // SNAP-05: a saved draft that a bridge arrival set aside (not deleted).
+  const [bridgeSkippedDraft, setBridgeSkippedDraft] = useState<SubmissionDraft | null>(null);
   const [draftResolved, setDraftResolved] = useState(false);
   const draftDetectRef = useRef(false);
 
@@ -545,6 +566,8 @@ export function NewSubmissionPage() {
     // A snap-bridge or retake arrival is an intentional fresh start with its own
     // prefill — don't interrupt it with a resume prompt.
     if (snapState || retakeState) {
+      const existing = readDraft();
+      if (isMeaningfulDraft(existing)) setBridgeSkippedDraft(existing);
       setDraftResolved(true);
       return;
     }
@@ -559,10 +582,17 @@ export function NewSubmissionPage() {
   // Autosave whenever the form changes — but only once the draft is resolved,
   // and never the image binaries (only a metadata manifest of the photos).
   useEffect(() => {
-    if (!draftResolved || !draftReady) return;
     const hasContent =
       garmentInfo !== null || photos.length > 0 || currentStep > 0;
-    if (!hasContent) {
+    const action = draftAutosaveAction({
+      resolved: draftResolved,
+      ready: draftReady,
+      bridgeArrival,
+      userTouched: userTouchedRef.current,
+      hasContent,
+    });
+    if (action === "skip") return;
+    if (action === "clear") {
       clearDraft();
       return;
     }
@@ -578,6 +608,7 @@ export function NewSubmissionPage() {
   }, [
     draftResolved,
     draftReady,
+    bridgeArrival,
     saveDraft,
     clearDraft,
     currentStep,
@@ -701,6 +732,10 @@ export function NewSubmissionPage() {
   }, [currentStep]);
 
   function handleGarmentInfoSubmit(info: GarmentInfo) {
+    userTouchedRef.current = true;
+    // From here the autosave writes this submission, so the set-aside draft is
+    // no longer on offer.
+    setBridgeSkippedDraft(null);
     setGarmentInfo(info);
     setCurrentStep(1);
   }
@@ -709,8 +744,12 @@ export function NewSubmissionPage() {
     setPhotos(items);
     // US-952: once the seeded snap photo has landed in the Front slot, stop
     // re-seeding so navigating back to this step never clobbers user edits.
-    if (!snapSeeded && items.some((p) => p.imageType === "front")) {
+    const front = items.find((p) => p.imageType === "front");
+    if (!snapSeeded && snapFrontFile && front) {
+      seededFrontRef.current = front.file;
       setSnapSeeded(true);
+    } else if (snapSeeded) {
+      setSnapFrontStillSeeded(!!front && front.file === seededFrontRef.current);
     }
   }
 
@@ -1191,6 +1230,21 @@ export function NewSubmissionPage() {
         </Card>
       ) : (
         <>
+      {bridgeSkippedDraft && (
+        <p className="text-xs text-muted-foreground">
+          You also have a saved draft from{" "}
+          {new Date(bridgeSkippedDraft.updatedAt).toLocaleString()}.{" "}
+          <button
+            type="button"
+            className="font-medium text-primary underline underline-offset-2"
+            // History state was already cleared on arrival, so a reload comes
+            // back as a plain visit and offers the draft the usual way.
+            onClick={() => window.location.reload()}
+          >
+            Resume that draft instead
+          </button>
+        </p>
+      )}
       <StepIndicator currentStep={currentStep} />
 
       <Card>
@@ -1303,7 +1357,7 @@ export function NewSubmissionPage() {
                   US-1627: unmounting would throw away staged photos, and photo
                   mode is the fallback a failed clip returns to. */}
               <div className={cn("space-y-6", captureMode === "video" && "hidden")}>
-              {snapFrontFile && (
+              {snapFrontFile && snapFrontStillSeeded && (
                 <p className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
                   <BadgeCheck className="mr-1 inline h-3.5 w-3.5 text-brand-navy dark:text-foreground" />
                   We carried over your Snap-to-Value photo as the Front shot. Just
