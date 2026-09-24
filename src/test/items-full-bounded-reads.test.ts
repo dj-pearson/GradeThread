@@ -84,6 +84,16 @@ const DECLARED: readonly DeclaredRead[] = [
       "the planner reads at most PLAN_ITEM_LIMIT rows and reports a full " +
       "page as truncated instead of treating it as the whole catalog",
   },
+  {
+    // S2 + D2: search enriches its hits and pins exact SKU/bin matches. The
+    // enrichment reads only the item ids the RPC returned (at most 200, the
+    // RPC's own clamp), chunked; the code lookup asks for EXACT_LIMIT rows.
+    file: "src/lib/flipdesk-search-fetch.ts",
+    bounds: ['.in("id", chunk)', ".limit(EXACT_LIMIT)"],
+    why:
+      "the owner filter reads only the RPC's hit ids, and the exact SKU/bin " +
+      "lookup is capped at EXACT_LIMIT",
+  },
 ];
 
 function sourceFiles(): string[] {
