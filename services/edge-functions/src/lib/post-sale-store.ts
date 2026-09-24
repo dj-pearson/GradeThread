@@ -614,3 +614,84 @@ export async function updatePostSaleCaseState(
     console.error("[post-sale-store] updatePostSaleCaseState:", error.message);
   }
 }
+
+// ── PS-04: the order a post-sale action acts on, from our own record ──
+//
+// The outcome routes used to trust `order_id` from the request body. The
+// ownership filter kept that inside the seller's own tenant, but a stale or
+// wrong client could still mark a DIFFERENT one of their sales refunded,
+// restock the wrong garment and reverse the wrong consignor payout. The stored
+// case already knows its order, so that is what the routes use now.
+
+type CaseDb = Pick<typeof supabaseAdmin, "from">;
+
+/** What a stored case says about itself, for an outcome route. Owner-scoped. */
+export interface StoredCaseRef {
+  externalOrderId: string | null;
+  reason: string | null;
+  /** The return or inquiry id this case grew out of (cases only, from raw). */
+  escalatedFrom: string | null;
+}
+
+export async function loadStoredCaseRef(
+  ownerId: string,
+  caseType: PostSaleCaseType,
+  externalId: string,
+  db: CaseDb = supabaseAdmin,
+): Promise<StoredCaseRef | null> {
+  const { data, error } = await db
+    .from("marketplace_post_sale_cases")
+    .select("external_order_id, reason, raw")
+    .eq("user_id", ownerId)
+    .eq("platform", "ebay")
+    .eq("case_type", caseType)
+    .eq("external_id", externalId)
+    .maybeSingle();
+  if (error) {
+    console.error("[post-sale-store] loadStoredCaseRef:", error.message);
+    return null;
+  }
+  if (!data) return null;
+  const row = data as { external_order_id: string | null; reason: string | null; raw: unknown };
+  const raw = (row.raw ?? {}) as { escalatedFrom?: unknown };
+  return {
+    externalOrderId: row.external_order_id ?? null,
+    reason: row.reason ?? null,
+    escalatedFrom: typeof raw.escalatedFrom === "string" ? raw.escalatedFrom : null,
+  };
+}
+
+/** The stored order id for one case, or null when we have no row for it. */
+export async function resolveCaseOrderId(
+  ownerId: string,
+  caseType: PostSaleCaseType,
+  externalId: string,
+  db: CaseDb = supabaseAdmin,
+): Promise<string | null> {
+  return (await loadStoredCaseRef(ownerId, caseType, externalId, db))?.externalOrderId ?? null;
+}
+
+/** Does this owner have an inquiry stored under this id? */
+export async function isStoredInquiry(
+  ownerId: string,
+  externalId: string,
+  db: CaseDb = supabaseAdmin,
+): Promise<boolean> {
+  return (await loadStoredCaseRef(ownerId, "inquiry", externalId, db)) != null;
+}
+
+export interface ChosenOrderId {
+  orderId: string | null;
+  /** stored: our record; client: the body, because we had no record. */
+  source: "stored" | "client" | "none";
+  /** The body named a different order than our record. Logged, then ignored. */
+  mismatch: boolean;
+}
+
+/** Pure: prefer the stored order id; fall back to the body only with none. */
+export function chooseOrderId(stored: string | null, bodyOrderId: unknown): ChosenOrderId {
+  const body = typeof bodyOrderId === "string" && bodyOrderId ? bodyOrderId : null;
+  if (stored) return { orderId: stored, source: "stored", mismatch: body != null && body !== stored };
+  if (body) return { orderId: body, source: "client", mismatch: false };
+  return { orderId: null, source: "none", mismatch: false };
+}

@@ -9118,6 +9118,43 @@ for (
   });
 }
 
+// ── PS-04: an outcome acts on the STORED order, not the body's ──────
+//
+// The refund, decide and approve routes used to pass body.order_id straight to
+// the sale update. user_id scoping kept that inside the seller's own tenant,
+// but a stale client could still refund, restock and reverse the payout on a
+// DIFFERENT one of the seller's sales. This drives the same resolution and
+// write the routes use, against a recording fake, so it runs without a
+// fixture: a refund for return R-1 carrying sale 2's order id must leave sale 2
+// exactly as it was.
+Deno.test("PS-04: a mismatched body order_id does not move another of the seller's sales", async () => {
+  const { fakeOutcomeDb } = await import("./_fake-outcome-db.ts");
+  const { chooseOrderId, resolveCaseOrderId } = await import("../lib/post-sale-store.ts");
+  const { applyOutcomeToSale } = await import("../lib/post-sale-outcome.ts");
+  const owner = "owner-ps04";
+  const sales = [
+    { id: "s1", user_id: owner, platform_order_id: "O-1", inventory_item_id: "i1", listing_id: null, status: "completed" },
+    { id: "s2", user_id: owner, platform_order_id: "O-2", inventory_item_id: "i2", listing_id: null, status: "completed" },
+  ];
+  const w = fakeOutcomeDb({
+    sales,
+    inventory_items: [{ id: "i1", user_id: owner }, { id: "i2", user_id: owner }],
+    marketplace_post_sale_cases: [
+      { user_id: owner, platform: "ebay", case_type: "return", external_id: "R-1", external_order_id: "O-1", reason: null, raw: {} },
+    ],
+  });
+  const stored = await resolveCaseOrderId(owner, "return", "R-1", w.db);
+  const chosen = chooseOrderId(stored, "O-2");
+  assertEquals(chosen.orderId, "O-1");
+  assert(chosen.mismatch, "the disagreement is reported for the audit row");
+  await applyOutcomeToSale(owner, chosen.orderId, "return_refunded", {
+    db: w.db,
+    reversePayouts: () => Promise.resolve(),
+  });
+  assertEquals(sales[1]!.status, "completed", "sale 2 must be untouched");
+  assertEquals(sales[0]!.status, "refunded");
+});
+
 // ── US-2930/US-2931/US-2932: the three new return actions ───────────
 //
 // Each takes an eBay return id straight from the path and acts on it. A missing

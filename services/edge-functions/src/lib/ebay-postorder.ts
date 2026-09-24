@@ -589,11 +589,25 @@ export async function rejectCancellation(
 // Map an eBay return/cancellation OUTCOME to the local sales.status value
 // (00111: completed | cancelled | refunded | pending). A refunded return and an
 // approved cancellation both stop the sale counting toward revenue/profit.
+//
+// PS-03: `inr_refunded` (an item-not-received inquiry or case refunded) and
+// `dispute_accepted` also mark the sale refunded, but they are separate
+// outcomes because the garment did NOT come back. See outcomeWritePlan.
+export type SaleOutcome =
+  | "return_refunded"
+  | "inr_refunded"
+  | "dispute_accepted"
+  | "return_declined"
+  | "cancel_approved"
+  | "cancel_rejected";
+
 export function outcomeToSaleStatus(
-  outcome: "return_refunded" | "return_declined" | "cancel_approved" | "cancel_rejected",
+  outcome: SaleOutcome,
 ): "completed" | "cancelled" | "refunded" | null {
   switch (outcome) {
     case "return_refunded":
+    case "inr_refunded":
+    case "dispute_accepted":
       return "refunded";
     case "cancel_approved":
       return "cancelled";
@@ -602,4 +616,51 @@ export function outcomeToSaleStatus(
     case "cancel_rejected":
       return null;
   }
+}
+
+/** Which local writes an outcome makes. Pure, so the rule is testable. */
+export interface OutcomeWritePlan {
+  saleStatus: "completed" | "cancelled" | "refunded" | null;
+  /** The consignor was paid for a sale that no longer stands. */
+  reversePayout: boolean;
+  /** inventory_items.status = 'returned', the relist-loop entry. */
+  restoreItem: boolean;
+  /** End the listing the sale came from. */
+  endListing: boolean;
+}
+
+/**
+ * PS-03: only an outcome where the garment is back in the seller's hands
+ * restores it. An item-not-received refund used to go through the return
+ * path, which set the item to 'returned' and fed the relist loop a garment
+ * that was lost in the post. There is no 'lost' item_status yet, so those
+ * outcomes leave the item alone rather than state something false about it.
+ */
+export function outcomeWritePlan(outcome: SaleOutcome): OutcomeWritePlan {
+  const saleStatus = outcomeToSaleStatus(outcome);
+  if (!saleStatus) {
+    return { saleStatus, reversePayout: false, restoreItem: false, endListing: false };
+  }
+  const cameBack = outcome === "return_refunded" || outcome === "cancel_approved";
+  return {
+    saleStatus,
+    reversePayout: true,
+    restoreItem: cameBack,
+    endListing: cameBack,
+  };
+}
+
+/**
+ * PS-03: is a stored eBay case about a parcel that never arrived?
+ *
+ * True when eBay's reason says so, or when the case grew out of an
+ * item-not-received inquiry. A case escalated from a RETURN is about an item
+ * the buyer has, and keeps the return path.
+ */
+export function isItemNotReceivedCase(c: {
+  reason: string | null | undefined;
+  escalatedFromInquiry?: boolean;
+}): boolean {
+  if (c.escalatedFromInquiry) return true;
+  return /NOT_RECEIVED|\bINR\b|ITEM_NOT_RECEIVED/i.test(c.reason ?? "");
 }

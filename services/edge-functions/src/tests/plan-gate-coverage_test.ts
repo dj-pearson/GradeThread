@@ -152,21 +152,16 @@ Deno.test("drift: every route that creates a marketplace connection gates the ma
 const ENDS_LISTING = /listing_status: "ended"/;
 const RELEASES_SLOT = /resyncItemListedStatus\(/;
 
-const ENDS_LISTING_ALLOWLIST: Record<string, string> = {
-  // applyOutcomeToSale ends the listing of an item whose sale was refunded or
-  // cancelled, and in the same function writes the item to status 'returned'.
-  // 'returned' is not 'listed', so the item holds no activeListings slot once
-  // that write lands; it held none before either, since it was sold. Calling
-  // resyncItemListedStatus afterwards would be a no-op (it only moves items
-  // that are still 'listed'). The test below keeps the item write in place.
-  "flipdesk-ebay-post-sale.ts":
-    "the refund/cancel path writes the item to 'returned', which holds no " +
-    "slot, in the same function that ends the listing",
-};
+// PS-03 emptied this. The one route that ended a listing without a resync,
+// flipdesk-ebay-post-sale.ts, now does it through lib/post-sale-outcome.ts,
+// and the test below holds that function to the same rule the allow-list
+// entry used to state: the item leaves 'listed' in the same plan that ends
+// the listing.
+const ENDS_LISTING_ALLOWLIST: Record<string, string> = {};
 
 Deno.test("post-sale: the listing end sits beside the item's 'returned' write", async () => {
   const text = await Deno.readTextFile(
-    new URL("../routes/flipdesk-ebay-post-sale.ts", import.meta.url),
+    new URL("../lib/post-sale-outcome.ts", import.meta.url),
   );
   const fn = text.indexOf("async function applyOutcomeToSale(");
   assert(fn !== -1, "applyOutcomeToSale moved; re-check the post-sale exemption");
@@ -181,6 +176,28 @@ Deno.test("post-sale: the listing end sits beside the item's 'returned' write", 
   );
   // No other listing end in the file: the exemption covers this one only.
   assertEquals(text.split('listing_status: "ended"').length - 1, 1);
+  // And the route that calls it no longer ends a listing by itself.
+  const route = await Deno.readTextFile(
+    new URL("../routes/flipdesk-ebay-post-sale.ts", import.meta.url),
+  );
+  assert(!ENDS_LISTING.test(route), "flipdesk-ebay-post-sale.ts ends a listing directly again");
+});
+
+Deno.test("post-sale: no outcome ends a listing without restoring its item", async () => {
+  const { outcomeWritePlan } = await import("../lib/ebay-postorder.ts");
+  for (
+    const o of [
+      "return_refunded",
+      "inr_refunded",
+      "dispute_accepted",
+      "return_declined",
+      "cancel_approved",
+      "cancel_rejected",
+    ] as const
+  ) {
+    const plan = outcomeWritePlan(o);
+    assert(!plan.endListing || plan.restoreItem, `${o} ends a listing but keeps the item 'listed'`);
+  }
 });
 
 Deno.test("drift: every route that ends a listing releases the item's cap slot", async () => {

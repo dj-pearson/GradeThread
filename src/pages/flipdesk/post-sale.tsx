@@ -1385,8 +1385,9 @@ function InquiriesCard() {
     if (action === "refund") {
       const ok = await confirm({
         title: "Refund the buyer?",
+        // PS-03: an item-not-received refund no longer restocks the garment.
         description:
-          "This refunds the order on eBay and settles the inquiry. It can't be undone.",
+          "This refunds the order on eBay and settles the inquiry. The item stays marked sold, since it never came back. It can't be undone.",
         confirmLabel: "Refund",
         destructive: true,
       });
@@ -1574,8 +1575,11 @@ function CasesCard() {
     if (action === "refund") {
       const ok = await confirm({
         title: "Refund the buyer and settle the case?",
-        description:
-          "This refunds the order on eBay and closes the case. It can't be undone.",
+        // PS-03: the edge restocks only when the case is about an item the
+        // buyer sent back, so the copy says which one this is.
+        description: /NOT_RECEIVED/i.test(kase.reason ?? "")
+          ? "This refunds the order on eBay and closes the case. The item stays marked sold, since it never came back. It can't be undone."
+          : "This refunds the order on eBay and closes the case. It can't be undone.",
         confirmLabel: "Refund",
         destructive: true,
       });
