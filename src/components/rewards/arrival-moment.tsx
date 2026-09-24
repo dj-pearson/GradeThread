@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Sparkles } from "lucide-react";
+import { Share2, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { ConfettiBurst } from "@/components/rewards/confetti-burst";
 import { edgeFetch } from "@/lib/edge-fetch";
 import type { RewardArrival, RewardsState } from "@/hooks/use-rewards";
 import { article } from "@/lib/reward-celebrations";
+import { shareRewardCard } from "@/lib/reward-share";
 
 /**
  * US-2973: the one-time "your work counted" moment.
@@ -97,9 +98,26 @@ export function ArrivalMoment({
               </p>
             </div>
           </div>
-          <Button size="sm" onClick={() => void acknowledge()}>
-            Got it
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => void acknowledge()}>
+              Got it
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                void shareRewardCard({
+                  kind: "level",
+                  key: String(arrival.level),
+                  title: `GradeThread level ${arrival.level}`,
+                  text: `Level ${arrival.level}, ${tierName}, grading condition on GradeThread.`,
+                }, "arrival");
+              }}
+            >
+              <Share2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+              Share my level
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </>

@@ -39,14 +39,37 @@ import type { CelebrationShare } from "@/lib/reward-celebrations";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Where the share was initiated from. Required so a surface cannot be unnamed. */
-export type RewardShareSurface = "badge_shelf" | "celebration" | "rewards_page";
+export type RewardShareSurface =
+  | "badge_shelf"
+  | "celebration"
+  | "rewards_page"
+  | "loyalty_card"
+  | "dashboard_widget"
+  | "arrival";
 
 /** The public card URL for a celebration's share, on `origin`. */
 function rewardCardUrl(share: CelebrationShare, origin: string): string {
+  // An anniversary has no card route yet, so it shares the public explainer.
+  // It still goes through here (not a direct shareOrCopy) so it is tracked.
+  if (share.kind === "anniversary") return `${origin}/how-it-works`;
   const path = share.kind === "badge"
     ? `/badge/achievement/${encodeURIComponent(share.key)}`
     : `/badge/level/${encodeURIComponent(share.key)}`;
   return `${origin}${path}`;
+}
+
+/**
+ * The share for a GradeThread anniversary. Describes the anniversary, never the
+ * account: no handle, nothing that identifies who is sharing it.
+ */
+export function anniversaryShare(years: number): CelebrationShare {
+  const span = years === 1 ? "1 year" : `${years} years`;
+  return {
+    kind: "anniversary",
+    key: String(years),
+    title: `${span} on GradeThread`,
+    text: `${span} grading condition on GradeThread.`,
+  };
 }
 
 function currentOrigin(): string {
@@ -112,7 +135,9 @@ export async function shareRewardCard(
     title: share.title,
     text: share.text,
     url: rewardCardUrl(share, currentOrigin()),
-    copiedMessage: "Card link copied — paste it anywhere.",
+    copiedMessage: share.kind === "anniversary"
+      ? "Link copied — paste it anywhere."
+      : "Card link copied — paste it anywhere.",
   });
   for (const a of rewardShareAnalytics(share, result, surface)) {
     track(a.event, a.props);

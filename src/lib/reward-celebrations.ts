@@ -112,8 +112,8 @@ export type CelebrationTier = "celebrate" | "quiet";
 
 /** The share card a moment offers, or null when it has none. */
 export interface CelebrationShare {
-  kind: "badge" | "level";
-  /** Badge catalog key, or the level number as a string. */
+  kind: "badge" | "level" | "anniversary";
+  /** Badge catalog key, the level number, or the anniversary year, as a string. */
   key: string;
   title: string;
   text: string;

@@ -10,7 +10,7 @@ import {
   TENURE_EXPLAINER_COPY,
   tenureLengthLabel,
 } from "@/lib/loyalty-copy";
-import { shareOrCopy } from "@/lib/share";
+import { anniversaryShare, shareRewardCard } from "@/lib/reward-share";
 
 // US-1914 AC1: "member since" flair and the tenure ladder.
 //
@@ -130,16 +130,10 @@ export function LoyaltyStandingCard({ loyalty }: LoyaltyStandingCardProps) {
               variant="outline"
               size="sm"
               onClick={() => {
-                void shareOrCopy({
-                  title: `${loyalty.last_anniversary_year} years on GradeThread`,
-                  text: `${loyalty.last_anniversary_year} ${
-                    loyalty.last_anniversary_year === 1 ? "year" : "years"
-                  } grading condition on GradeThread.`,
-                  url: `${
-                    typeof window !== "undefined" ? window.location.origin : ""
-                  }/how-it-works`,
-                  copiedMessage: "Link copied — paste it anywhere.",
-                });
+                void shareRewardCard(
+                  anniversaryShare(loyalty.last_anniversary_year),
+                  "loyalty_card",
+                );
               }}
             >
               <Share2 className="mr-1.5 h-3.5 w-3.5" />

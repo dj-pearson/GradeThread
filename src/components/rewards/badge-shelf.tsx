@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RewardBadge, RewardBadgeShelf } from "@/hooks/use-rewards";
-import { shareRewardCard } from "@/lib/reward-share";
+import { shareRewardCard, type RewardShareSurface } from "@/lib/reward-share";
 import { cn } from "@/lib/utils";
 
 // US-1857: the badge shelf — earned medals, and the ones still to earn.
@@ -71,7 +71,16 @@ function earnedMonth(iso: string | null): string {
  * one-tap share the celebration offers, available forever afterwards rather than
  * only in the eight seconds the toast is on screen.
  */
-function BadgeMedal({ badge, size = "md" }: { badge: RewardBadge; size?: "sm" | "md" }) {
+function BadgeMedal({
+  badge,
+  size = "md",
+  surface = "badge_shelf",
+}: {
+  badge: RewardBadge;
+  size?: "sm" | "md";
+  /** Where the tap happened, so a widget share is not logged as a shelf share. */
+  surface?: RewardShareSurface;
+}) {
   const Icon = ICONS[badge.icon] ?? Medal;
   const tier = TIER_LABEL[badge.tier] ?? badge.tier;
   const when = earnedMonth(badge.earned_at);
@@ -85,7 +94,7 @@ function BadgeMedal({ badge, size = "md" }: { badge: RewardBadge; size?: "sm" | 
           key: badge.key,
           title: `GradeThread badge: ${badge.name}`,
           text: `Earned the ${badge.name} badge on GradeThread.`,
-        }, "badge_shelf");
+        }, surface);
       }}
       title={`${badge.description}${when ? ` Earned ${when}.` : ""}`}
       aria-label={`Share the ${badge.name} badge — ${tier}. ${badge.description}`}
@@ -117,13 +126,21 @@ function BadgeMedal({ badge, size = "md" }: { badge: RewardBadge; size?: "sm" | 
 }
 
 /** The medals only — used by the dashboard widget, where space is the constraint. */
-export function BadgeMedalStrip({ badges, limit }: { badges: RewardBadge[]; limit: number }) {
+export function BadgeMedalStrip({
+  badges,
+  limit,
+  surface = "badge_shelf",
+}: {
+  badges: RewardBadge[];
+  limit: number;
+  surface?: RewardShareSurface;
+}) {
   if (badges.length === 0) return null;
   const shown = badges.slice(0, limit);
   const rest = badges.length - shown.length;
   return (
     <div className="flex flex-wrap items-start gap-1">
-      {shown.map((b) => <BadgeMedal key={b.key} badge={b} size="sm" />)}
+      {shown.map((b) => <BadgeMedal key={b.key} badge={b} size="sm" surface={surface} />)}
       {rest > 0 && (
         <span className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-xs font-medium tabular-nums text-muted-foreground">
           +{rest}

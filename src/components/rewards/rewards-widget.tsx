@@ -118,7 +118,7 @@ export function RewardsWidget() {
               <p className="text-xs font-medium">
                 Badges · {badges.earned_count} of {badges.total}
               </p>
-              <BadgeMedalStrip badges={badges.earned} limit={6} />
+              <BadgeMedalStrip badges={badges.earned} limit={6} surface="dashboard_widget" />
             </div>
           )}
 
