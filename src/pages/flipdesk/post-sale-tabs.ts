@@ -177,3 +177,17 @@ export const QUEUE_NOUN: Readonly<Record<NeedsYouQueue, string>> = {
   offers: "offers",
   shipments: "the ship queue",
 };
+
+/**
+ * PS-15: the tab to open when the link names none. The page used to open Ship
+ * every time, even with a dispute due tomorrow. `items` is the Needs-You list,
+ * already ranked soonest deadline first, so the first item this page owns is
+ * the most urgent work. With nothing waiting, Ship.
+ */
+export function pickOpeningTab(items: readonly Pick<NeedsYouItem, "kind">[]): PostSaleTabId {
+  for (const item of items) {
+    const tab = tabForKind(item.kind);
+    if (tab) return tab;
+  }
+  return DEFAULT_POST_SALE_TAB;
+}

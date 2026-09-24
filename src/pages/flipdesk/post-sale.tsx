@@ -88,7 +88,7 @@ import {
 import { PageHelp } from "@/components/help/page-help";
 import { ReturnAnalyticsCard } from "@/components/flipdesk/return-analytics-card";
 import { ShipQueueCard } from "@/components/flipdesk/ship-queue-card";
-import { useSearchParams } from "react-router";
+import { useLocation, useSearchParams } from "react-router";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNeedsYou } from "@/hooks/use-needs-you";
 import { useFocusParam } from "@/hooks/use-focus-param";
@@ -96,6 +96,7 @@ import {
   DEFAULT_POST_SALE_TAB,
   POST_SALE_QUEUES,
   POST_SALE_TABS,
+  pickOpeningTab,
   postSaleTabCounts,
   QUEUE_NOUN,
   resolvePostSaleTabId,
@@ -238,8 +239,58 @@ function PostSaleTabs() {
   const focusMissing = !!focusParam && queuesLoaded && !needsYou.isPartial &&
     focusItem == null;
 
+  // PS-15: with no ?tab= in the link, open where the most urgent work is, once
+  // every queue has answered. Once only: after that the seller's own clicks
+  // decide. An old #payment-disputes style anchor still wins, since someone
+  // saved that link on purpose.
+  const location = useLocation();
+  const openedRef = useRef(false);
+  useEffect(() => {
+    if (openedRef.current) return;
+    if (searchParams.get("tab") || focusParam) {
+      openedRef.current = true;
+      return;
+    }
+    const fromHash = resolvePostSaleTabId(location.hash);
+    if (fromHash) {
+      openedRef.current = true;
+      setTab(fromHash);
+      return;
+    }
+    if (!queuesLoaded) return;
+    openedRef.current = true;
+    const opening = pickOpeningTab(needsYou.items);
+    if (opening !== tab) setTab(opening);
+    // setTab is recreated each render; this runs until it has opened once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queuesLoaded, location.hash]);
+
+  // PS-15: say "all clear" out loud, and only when it is true. Not while any
+  // queue is loading or failed, because an unfinished read is not a clear one.
+  const totalWaiting = POST_SALE_TABS.reduce((n, t) => n + counts[t.id], 0);
+  const settled = queuesLoaded && failedQueues.length === 0;
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (settled && !needsYou.isFetching) setCheckedAt(Date.now());
+  }, [settled, needsYou.isFetching]);
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const soonest = needsYou.items.find((i) => i.deadline && tabForKind(i.kind))?.deadline ?? null;
+
   return (
     <>
+      {settled ? (
+        <p className="mb-3 text-sm" role="status">
+          {totalWaiting === 0
+            ? `Nothing is waiting on you. Checked ${minutesAgo(checkedAt, now)}.`
+            : `${totalWaiting.toLocaleString()} ${totalWaiting === 1 ? "thing needs" : "things need"} you${
+                soonest ? `, the soonest due ${fmtDate(soonest)}` : ""
+              }.`}
+        </p>
+      ) : null}
       {focusMissing ? (
         <p className="mb-3 text-sm text-muted-foreground" role="status">
           This case is no longer open. It may have been resolved or closed on
@@ -330,6 +381,13 @@ function TabMarker({
       <span className="sr-only"> waiting on you</span>
     </Badge>
   );
+}
+
+function minutesAgo(at: number | null, now: number): string {
+  if (at == null) return "just now";
+  const mins = Math.floor((now - at) / 60_000);
+  if (mins < 1) return "just now";
+  return `${mins} min ago`;
 }
 
 function joinWords(words: string[]): string {

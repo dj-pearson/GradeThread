@@ -152,3 +152,52 @@ describe("post-sale tab markers (PS-11)", () => {
     expect(tab("Returns").textContent).toBe("Returns");
   });
 });
+
+describe("opening tab and the all-clear line (PS-15)", () => {
+  it("opens the most urgent tab when the link names none", async () => {
+    state.items = [
+      { id: "d1", kind: "dispute", deadline: "2026-09-25T00:00:00.000Z" },
+      { id: "s1", kind: "shipment", deadline: null },
+    ];
+    const router = await render("/dashboard/flipdesk/post-sale");
+    expect(router.state.location.search).toContain("tab=disputes");
+  });
+
+  it("keeps an explicit ?tab=", async () => {
+    state.items = [{ id: "d1", kind: "dispute", deadline: null }];
+    const router = await render("/dashboard/flipdesk/post-sale?tab=returns");
+    expect(router.state.location.search).toContain("tab=returns");
+  });
+
+  it("maps an old #anchor to its tab", async () => {
+    const router = await render("/dashboard/flipdesk/post-sale#payment-disputes");
+    expect(router.state.location.search).toContain("tab=disputes");
+  });
+
+  it("says nothing is waiting only when every queue answered with zero", async () => {
+    await render();
+    const status = [...container.querySelectorAll('[role="status"]')].map((e) => e.textContent);
+    expect(status.some((t) => t?.startsWith("Nothing is waiting on you. Checked"))).toBe(true);
+  });
+
+  it("does not say all clear while a queue is loading", async () => {
+    state.queues.returns = { isLoading: true, isError: false };
+    await render();
+    expect(container.textContent).not.toContain("Nothing is waiting on you");
+  });
+
+  it("does not say all clear while a queue has failed", async () => {
+    state.queues.cases = { isLoading: false, isError: true };
+    await render();
+    expect(container.textContent).not.toContain("Nothing is waiting on you");
+  });
+
+  it("counts what is waiting and names the soonest date", async () => {
+    state.items = [
+      { id: "d1", kind: "dispute", deadline: "2026-09-25T12:00:00.000Z" },
+      { id: "s1", kind: "shipment", deadline: null },
+    ];
+    await render();
+    expect(container.textContent).toContain("2 things need you, the soonest due");
+  });
+});

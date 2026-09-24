@@ -2,7 +2,6 @@ import { useCallback, useMemo } from "react";
 import {
   rankNeedsYou,
   type NeedsYouItem,
-  type NeedsYouKind,
 } from "@/pages/flipdesk/needs-you";
 import { isClosedCase, splitByOpenState } from "@/pages/flipdesk/post-sale-state";
 import { tabForKind } from "@/pages/flipdesk/post-sale-tabs";
@@ -73,24 +72,6 @@ export interface NeedsYouState {
   /** Retry every queue. */
   refetch: () => void;
 }
-
-/**
- * Where each queue lives, as an ABSOLUTE path.
- *
- * Absolute because the widget renders on the Overview (/dashboard), where a
- * bare "#returns" scrolls to nothing. NeedsYouCard keeps its own relative map:
- * it renders ON post-sale, beside the cards these anchors name, and an absolute
- * link there would reload the page the seller is already looking at.
- */
-export const NEEDS_YOU_HREF: Record<NeedsYouKind, string> = {
-  case: "/dashboard/flipdesk/post-sale#ebay-cases",
-  inquiry: "/dashboard/flipdesk/post-sale#item-not-received",
-  dispute: "/dashboard/flipdesk/post-sale#payment-disputes",
-  return: "/dashboard/flipdesk/post-sale#returns",
-  cancellation: "/dashboard/flipdesk/post-sale#cancellations",
-  offer: "/dashboard/flipdesk/offers",
-  shipment: "/dashboard/flipdesk/post-sale#ship-queue",
-};
 
 /**
  * @param enabled  run any of the reads at all.

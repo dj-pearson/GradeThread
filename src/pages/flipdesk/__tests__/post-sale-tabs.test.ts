@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_POST_SALE_TAB,
   POST_SALE_TABS,
+  pickOpeningTab,
   POST_SALE_QUEUES,
   postSaleTabCounts,
   queuesForTab,
@@ -137,5 +138,17 @@ describe("queuesForTab (PS-11)", () => {
     expect(tabLoadState("cases", { cases: q(false, false), inquiries: q(false, false) })).toBe("ready");
     // Another tab's state does not leak in.
     expect(tabLoadState("returns", { returns: q(false, false), shipments: q(true, false) })).toBe("ready");
+  });
+});
+
+describe("pickOpeningTab (PS-15)", () => {
+  it("opens the tab of the first (most urgent) item this page owns", () => {
+    expect(pickOpeningTab([item("dispute", "d1"), item("shipment", "s1")])).toBe("disputes");
+    expect(pickOpeningTab([item("offer", "o1"), item("inquiry", "i1")])).toBe("cases");
+  });
+
+  it("falls back to Ship with nothing waiting", () => {
+    expect(pickOpeningTab([])).toBe("ship");
+    expect(pickOpeningTab([item("offer", "o1")])).toBe("ship");
   });
 });
