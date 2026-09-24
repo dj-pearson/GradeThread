@@ -26,6 +26,12 @@ export interface PersistedSession {
   /** Grid sort mode + "group every N" chunk size. */
   sort?: { ungroupedSort?: string; groupEvery?: number } | null;
   updatedAt: number;
+  /**
+   * AL-03: the workspace owner this session was staged for. A row stamped
+   * with another owner (or none) is not trusted on load; see
+   * scopeSessionToOwner.
+   */
+  ownerId?: string;
 }
 
 interface SessionRow extends PersistedSession {
@@ -302,5 +308,107 @@ export async function putBlob(entry: PersistedBlob): Promise<boolean> {
       if (isQuotaError(retryErr)) return false;
       throw retryErr;
     }
+  }
+}
+
+// ── AL-03: owner scoping and sign-out ────────────────────────────────
+
+/**
+ * The localStorage key holding this user's session id for one workspace.
+ * Keyed on BOTH ids: the old single `autolister:sessionId` survived sign-out
+ * and workspace switches, so the next person rehydrated the last one's grid.
+ */
+export function autolisterSessionKey(userId: string, ownerId: string): string {
+  return `autolister:${userId}:${ownerId}:sessionId`;
+}
+
+/** Every localStorage key AutoLister writes starts with this. */
+export const AUTOLISTER_STORAGE_PREFIX = "autolister:";
+
+interface ScopedPhoto {
+  id?: unknown;
+  storagePath?: unknown;
+}
+interface ScopedGroup {
+  photoIds?: unknown;
+  coverId?: unknown;
+  [key: string]: unknown;
+}
+
+/**
+ * Drop everything in a persisted session that does not belong to `ownerId`.
+ *
+ * A row stamped with a DIFFERENT owner is discarded whole (`foreign: true`).
+ * Otherwise any staged photo whose storagePath is not under
+ * `${ownerId}/_staging/` is removed, and groups lose those members (a group
+ * left empty is dropped, a dropped cover falls back to the first member).
+ * `trusted` is false for a legacy row with no owner stamp: its staged
+ * metadata is filtered and kept, but its resume blobs must not be re-uploaded
+ * because nothing proves whose files they are.
+ */
+export function scopeSessionToOwner(
+  session: PersistedSession,
+  ownerId: string,
+): { session: PersistedSession | null; foreign: boolean; trusted: boolean } {
+  if (session.ownerId && session.ownerId !== ownerId) {
+    return { session: null, foreign: true, trusted: false };
+  }
+  const prefix = `${ownerId}/_staging/`;
+  const staged = (Array.isArray(session.staged) ? session.staged : []).filter((p) => {
+    const path = (p as ScopedPhoto | null)?.storagePath;
+    return typeof path === "string" && path.startsWith(prefix) && !path.includes("..");
+  });
+  const keep = new Set(staged.map((p) => (p as ScopedPhoto).id));
+  const scopeGroups = (groups: unknown[]): unknown[] =>
+    groups.flatMap((raw) => {
+      const g = raw as ScopedGroup | null;
+      if (!g || !Array.isArray(g.photoIds)) return [];
+      const photoIds = g.photoIds.filter((id) => keep.has(id));
+      if (photoIds.length === 0) return [];
+      const coverId = photoIds.includes(g.coverId) ? g.coverId : photoIds[0];
+      return [{ ...g, photoIds, coverId }];
+    });
+  return {
+    session: {
+      ...session,
+      staged,
+      groups: scopeGroups(Array.isArray(session.groups) ? session.groups : []),
+      undo: Array.isArray(session.undo) ? scopeGroups(session.undo) : session.undo ?? null,
+      ownerId,
+    },
+    foreign: false,
+    trusted: session.ownerId === ownerId,
+  };
+}
+
+/** Delete the whole `autolister` IndexedDB database. Best-effort, never throws. */
+export function deleteAutolisterDb(): Promise<void> {
+  if (!idbAvailable()) return Promise.resolve();
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.deleteDatabase(DB_NAME);
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      // Another tab holding a connection blocks the delete until it closes;
+      // the request still completes then, so don't hold sign-out on it.
+      req.onblocked = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+/** Remove every localStorage key AutoLister wrote. Best-effort. */
+export function removeAutolisterLocalStorage(): void {
+  try {
+    const ls = window.localStorage;
+    const keys: string[] = [];
+    for (let i = 0; i < ls.length; i++) {
+      const k = ls.key(i);
+      if (k && k.startsWith(AUTOLISTER_STORAGE_PREFIX)) keys.push(k);
+    }
+    for (const k of keys) ls.removeItem(k);
+  } catch {
+    /* blocked storage: nothing to clear */
   }
 }

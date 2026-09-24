@@ -28,7 +28,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { readStored, writeStored } from "@/lib/safe-storage";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { processStagedImage } from "@/lib/image-worker-pool";
@@ -83,7 +82,13 @@ import {
   loadSession,
   migrateSessionFromLocalStorage,
   saveSession,
+  scopeSessionToOwner,
 } from "@/lib/autolister-session-idb";
+
+import {
+  readLocalWorkbenchSession,
+  readWorkbenchSessionId,
+} from "./autolister/workbench-session";
 import {
   type GroupEditKind,
   groupingCorrectionScore,
@@ -346,6 +351,16 @@ export function FlipdeskAutolisterPage() {
   const user = useAuthStore((s) => s.user);
   const { workspaceOwnerId } = useWorkspace();
   const ownerId = workspaceOwnerId ?? user?.id ?? null;
+  // AL-03: one workbench per (user, workspace). Switching either remounts it,
+  // so the session id, staged grid and undo snapshot are re-read for the new
+  // owner instead of carrying the previous one's over.
+  return <AutolisterWorkbench key={`${user?.id ?? ""}:${ownerId ?? ""}`} />;
+}
+
+function AutolisterWorkbench() {
+  const user = useAuthStore((s) => s.user);
+  const { workspaceOwnerId } = useWorkspace();
+  const ownerId = workspaceOwnerId ?? user?.id ?? null;
   const navigate = useNavigate();
   // US-2520: set when this session was opened from a running batch (the shared
   // batch nav carries it). A fresh Generate session has none.
@@ -372,18 +387,11 @@ export function FlipdeskAutolisterPage() {
   }, [billing, plan]);
 
   // US-317: persist sessionId across reloads so the _staging uploads aren't
-  // orphaned and the staged/groups state can be rehydrated.
-  const sessionId = useRef<string>(
-    (() => {
-      // US-3218: runs during render, so a blocked-storage throw took the whole
-      // page down. It now costs a resumed session at most, never the page.
-      const existing = readStored("autolister:sessionId");
-      if (existing) return existing;
-      const id = crypto.randomUUID();
-      writeStored("autolister:sessionId", id);
-      return id;
-    })(),
+  // orphaned. AL-03: keyed on this user AND workspace owner.
+  const [{ sessionId: initialSessionId, sessionKey }] = useState(() =>
+    readWorkbenchSessionId(user?.id, ownerId),
   );
+  const sessionId = useRef<string>(initialSessionId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -401,28 +409,12 @@ export function FlipdeskAutolisterPage() {
   // fallback); US-1905 then overrides from IndexedDB when it's available.
   // Uploaded photos live in Supabase Storage independently; only the in-memory
   // grouping state is at risk of loss.
-  const [staged, setStaged] = useState<StagedPhoto[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw) as { staged?: StagedPhoto[] };
-      return Array.isArray(parsed.staged) ? parsed.staged : [];
-    } catch {
-      return [];
-    }
-  });
-  const [groups, setGroups] = useState<Group[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw) as { groups?: Group[] };
-      return Array.isArray(parsed.groups) ? parsed.groups : [];
-    } catch {
-      return [];
-    }
-  });
+  // AL-03: whatever is read back is filtered to this owner's staging folder.
+  const [initialLocal] = useState(() =>
+    readLocalWorkbenchSession<StagedPhoto, Group>(storageKey, ownerId),
+  );
+  const [staged, setStaged] = useState<StagedPhoto[]>(initialLocal.staged);
+  const [groups, setGroups] = useState<Group[]>(initialLocal.groups);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   // US-1550: shift-click range selection anchor (id of the last plain click).
@@ -601,6 +593,7 @@ export function FlipdeskAutolisterPage() {
   // state and mark hydrated immediately.
   useEffect(() => {
     let cancelled = false;
+    let resumeAllowed = Boolean(ownerId);
     (async () => {
       if (idbAvailable()) {
         try {
@@ -611,9 +604,18 @@ export function FlipdeskAutolisterPage() {
               return null;
             }
           })();
-          const loaded =
+          const rawLoaded =
             (await migrateSessionFromLocalStorage(sessionId.current, raw)) ??
             (await loadSession(sessionId.current));
+          // AL-03: a row staged for another owner is dropped whole; a legacy
+          // row with no owner stamp keeps only this owner's photos and its
+          // queued files are NOT resumed (nothing proves whose they are).
+          const scoped = rawLoaded && ownerId ? scopeSessionToOwner(rawLoaded, ownerId) : null;
+          if (rawLoaded && (!scoped || !scoped.trusted)) {
+            resumeAllowed = false;
+            await clearSession(sessionId.current);
+          }
+          const loaded = scoped?.session ?? null;
           if (!cancelled && loaded) {
             if (Array.isArray(loaded.staged)) {
               const idbStaged = loaded.staged as StagedPhoto[];
@@ -635,7 +637,9 @@ export function FlipdeskAutolisterPage() {
       // US-1905: resume uploads persisted before a reload (part 2). Runs after
       // the localStorage-derived staged identities are synced, so a photo that
       // finished before the reload isn't re-uploaded.
-      void useAutolisterUploadStore.getState().resumeUploads(sessionId.current);
+      if (!cancelled && resumeAllowed) {
+        void useAutolisterUploadStore.getState().resumeUploads(sessionId.current);
+      }
     })();
     return () => {
       cancelled = true;
@@ -658,6 +662,7 @@ export function FlipdeskAutolisterPage() {
         undo: undoGroupsRef.current,
         sort: { ungroupedSort, groupEvery },
         updatedAt: Date.now(),
+        ownerId: ownerId ?? undefined,
       });
       return;
     }
@@ -689,7 +694,7 @@ export function FlipdeskAutolisterPage() {
         );
       }
     }
-  }, [staged, groups, storageKey, ungroupedSort, groupEvery]);
+  }, [staged, groups, storageKey, ungroupedSort, groupEvery, ownerId]);
 
   const stagedById = useMemo(
     () => new Map(staged.map((p) => [p.id, p])),
@@ -2228,7 +2233,7 @@ export function FlipdeskAutolisterPage() {
     void clearSession(sessionId.current);
     try {
       window.localStorage.removeItem(storageKey);
-      window.localStorage.removeItem("autolister:sessionId");
+      if (sessionKey) window.localStorage.removeItem(sessionKey);
     } catch {
       /* best-effort */
     }
@@ -2320,6 +2325,7 @@ export function FlipdeskAutolisterPage() {
             undo: null,
             sort: { ungroupedSort, groupEvery },
             updatedAt: Date.now(),
+            ownerId: ownerId ?? undefined,
           });
         }
         setSearchParams(

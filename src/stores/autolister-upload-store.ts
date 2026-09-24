@@ -9,10 +9,12 @@ import { MediaIntakeError, normalizeToImageFile } from "@/lib/media-intake";
 import { runWithConcurrency } from "@/lib/concurrency";
 import {
   appendStagedToSession,
+  deleteAutolisterDb,
   deleteBlob,
   idbAvailable,
   listBlobs,
   putBlob,
+  removeAutolisterLocalStorage,
 } from "@/lib/autolister-session-idb";
 import {
   backoffDelayMs,
@@ -174,6 +176,10 @@ interface XhrOutcome {
   retryAfter: string | null;
 }
 
+// AL-03: every in-flight staging XHR, so a sign-out can abort them rather than
+// let the last user's files finish uploading under the next user's session.
+const activeXhrs = new Set<XMLHttpRequest>();
+
 function xhrSend(
   sessionId: string,
   full: Blob,
@@ -183,6 +189,8 @@ function xhrSend(
 ): Promise<XhrOutcome> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    activeXhrs.add(xhr);
+    xhr.addEventListener("loadend", () => activeXhrs.delete(xhr));
     xhr.open("POST", `${edgeApiUrl()}/api/flipdesk/autolister/staging/upload`);
     for (const [key, value] of Object.entries(headers)) {
       xhr.setRequestHeader(key, value);
@@ -204,6 +212,7 @@ function xhrSend(
       reject(new Error("Upload failed — check your connection and retry."));
     xhr.ontimeout = () =>
       reject(new Error("Upload timed out — check your connection and retry."));
+    xhr.onabort = () => reject(new Error("Upload cancelled."));
     const form = new FormData();
     form.append("session_id", sessionId);
     form.append("full", full, `photo.${extForBlobType(full.type)}`);
@@ -357,6 +366,11 @@ interface AutolisterUploadState {
   claimResults: (ids: string[]) => void;
   /** Files lost to the last hard unload (AC3); clears the marker. */
   consumeLostUploadCount: () => number;
+  /**
+   * AL-03: forget everything. Aborts in-flight uploads, drops tasks, results,
+   * the session id and the duplicate-identity sets. Called on sign-out.
+   */
+  reset: () => void;
 }
 
 function activeCount(tasks: UploadTask[]): number {
@@ -393,6 +407,9 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
   // apart from the store plumbing + byte-level progress.
   async function processUploadTask(task: UploadTask, stats: BatchStats): Promise<void> {
     const { id, file } = task;
+    // AL-03: a reset (sign-out) empties `tasks`. A lane that was still queued
+    // behind it must not start the upload for the next user.
+    if (!get().tasks.some((t) => t.id === id)) return;
 
     // Duplicate gate 1: exact file identity. enqueueFiles pre-filters too, but
     // this claim is the authoritative, race-safe one (two lanes can carry the
@@ -532,6 +549,9 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
         }
       });
 
+      // AL-03: reset while this was uploading. Never hand the photo to
+      // whoever is signed in now.
+      if (!get().tasks.some((t) => t.id === id)) return;
       deliverResult({
         id: crypto.randomUUID(),
         url: up.url,
@@ -733,6 +753,22 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
       set((s) => ({ results: s.results.filter((r) => !idSet.has(r.id)) }));
     },
 
+    reset: () => {
+      for (const xhr of [...activeXhrs]) {
+        try {
+          xhr.abort();
+        } catch {
+          /* already settled */
+        }
+      }
+      activeXhrs.clear();
+      stagedSigs.clear();
+      stagedHashes.clear();
+      pipelineSigs.clear();
+      pipelineHashes.clear();
+      set({ sessionId: null, attached: false, tasks: [], results: [] });
+    },
+
     consumeLostUploadCount: () => {
       if (typeof window === "undefined") return 0;
       // Only meaningful when the store itself is fresh (a real reload). On an
@@ -875,4 +911,17 @@ if (typeof window !== "undefined") {
       event.returnValue = "";
     }
   });
+}
+
+/**
+ * AL-03: wipe every trace of AutoLister from this browser. The session id,
+ * the localStorage mirrors, the `autolister` IndexedDB database (staged grid
+ * AND the original files queued for resume) and the upload store. Called
+ * from the SIGNED_OUT branch of useAuth, so a shared computer never hands one
+ * seller's photos to the next.
+ */
+export async function clearAutolisterLocalState(): Promise<void> {
+  useAutolisterUploadStore.getState().reset();
+  if (typeof window !== "undefined") removeAutolisterLocalStorage();
+  await deleteAutolisterDb();
 }
