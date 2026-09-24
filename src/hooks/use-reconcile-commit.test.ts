@@ -287,3 +287,68 @@ describe("M7: partial failures", () => {
     expect(r!.ok).toBe(false);
   });
 });
+
+describe("M8: retrying a partial commit", () => {
+  it("adds the leftovers to the item the first try created", async () => {
+    linkedRow = { id: "item-prev", user_id: OWNER, status: "cataloged", photo_count: 4 };
+    const [r] = await commitClusters(
+      [
+        {
+          clusterId: "c1",
+          label: "Item 3",
+          linkItemId: null,
+          resumeItemId: "item-prev",
+          photos: [photo("p3", "label")],
+        },
+      ],
+      OWNER,
+      null,
+    );
+    expect(r!.ok).toBe(true);
+    expect(r!.itemId).toBe("item-prev");
+    expect(calls.some((c) => c.table === "inventory_items" && c.op === "insert")).toBe(false);
+    // Sort order continues after the four photos already there.
+    const photoRow = calls.find((c) => c.table === "item_photos" && c.op === "insert");
+    expect((photoRow!.payload as { sort_order: number }).sort_order).toBe(4);
+  });
+
+  it("refuses to resume into another workspace's item", async () => {
+    linkedRow = { id: "item-prev", user_id: OTHER, status: "cataloged", photo_count: 4 };
+    const [r] = await commitClusters(
+      [
+        {
+          clusterId: "c1",
+          label: "Item 3",
+          linkItemId: null,
+          resumeItemId: "item-prev",
+          photos: [photo("p3", "label")],
+        },
+      ],
+      OWNER,
+      null,
+    );
+    expect(r!.ok).toBe(false);
+    expect(r!.detail).toContain("different workspace");
+    expect(uploads).toHaveLength(0);
+  });
+
+  it("leaves the session open when unsorted photos stay on the board", async () => {
+    await commitClusters(
+      [{ clusterId: "c1", label: "Item 1", linkItemId: null, photos: [photo("p1", "front")] }],
+      OWNER,
+      "sess-1",
+      { keepSessionOpen: true },
+    );
+    expect(calls.some((c) => c.table === "flipdesk_reconcile_sessions")).toBe(false);
+  });
+
+  it("closes the session when everything went through", async () => {
+    await commitClusters(
+      [{ clusterId: "c1", label: "Item 1", linkItemId: null, photos: [photo("p1", "front")] }],
+      OWNER,
+      "sess-1",
+    );
+    const close = calls.find((c) => c.table === "flipdesk_reconcile_sessions");
+    expect(close?.payload).toEqual({ status: "committed" });
+  });
+});

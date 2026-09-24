@@ -93,6 +93,8 @@ import {
   type BulkExtractResponse,
 } from "@/hooks/use-ai-extract";
 import { rankItemMatches } from "@/lib/reconcile-match";
+import { pruneCommitted } from "@/lib/reconcile-board";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { compressImage } from "@/lib/image-utils";
 import { PhotoTagSelect } from "@/components/flipdesk/photo-tag-select";
 import { usePhotoProfile, type PhotoProfile } from "@/lib/photo-profiles";
@@ -112,6 +114,11 @@ interface DumpPhoto extends ClusterablePhoto {
   // US-289: set when the blob is already in storage (iOS-staged). Commit
   // references it instead of re-uploading a (missing) in-memory File.
   storagePath?: string | null;
+}
+
+/** Revoke a board preview. Restored photos use a storage URL, not a blob. */
+function revokePreview(p: { previewUrl: string }) {
+  if (p.previewUrl.startsWith("blob:")) URL.revokeObjectURL(p.previewUrl);
 }
 
 interface LinkTarget {
@@ -185,7 +192,21 @@ export function FlipdeskReconcilePage() {
   const [committing, setCommitting] = useState(false);
   const [results, setResults] = useState<CommitResult[] | null>(null);
   const [committed, setCommitted] = useState<CommittedItem[]>([]);
+  // Cluster id -> the item a partial commit created, so a retry adds to it.
+  const [resumeTargets, setResumeTargets] = useState<Record<string, string>>({});
+  const [restoreFailed, setRestoreFailed] = useState(false);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const confirm = useConfirm();
+  // The latest photos, for the unmount cleanup: the effect's own closure only
+  // ever saw the first render's empty list, so no preview URL was revoked.
+  const photosRef = useRef<DumpPhoto[]>([]);
+  photosRef.current = photos;
+  // One in-flight session insert shared by concurrent ingests, so two drops
+  // in quick succession cannot create two sessions.
+  const sessionPromiseRef = useRef<Promise<string | null> | null>(null);
+  // The snapshot write waiting on the debounce, flushed on unmount/pagehide.
+  const pendingSnapshotRef = useRef<(() => void) | null>(null);
 
   const bulkExtract = useBulkExtract();
   const embedPhotos = useEmbedPhotos();
@@ -260,10 +281,12 @@ export function FlipdeskReconcilePage() {
       if (cancelled) return;
       if (error) {
         // Don't silently drop an in-progress reconcile board on a transient
-        // failure. Surface it and leave `restored` false so a reload retries.
-        toast.error("Couldn't restore your in-progress reconcile session. Reload to retry.");
+        // failure. Surface it and leave `restored` false; the drop zone stays
+        // off until a retry succeeds, so new photos cannot race the restore.
+        setRestoreFailed(true);
         return;
       }
+      setRestoreFailed(false);
       setRestored(true);
       const row = data as
         | { id: string; gap_seconds: number; assignments: ReconcileAssignmentSnapshot[] }
@@ -273,7 +296,9 @@ export function FlipdeskReconcilePage() {
       setGapSeconds(row.gap_seconds ?? DEFAULT_GAP_SECONDS);
       const restoredPhotos: DumpPhoto[] = [];
       const map: AssignmentMap = {};
+      const resume: Record<string, string> = {};
       for (const a of row.assignments) {
+        if (a.clusterId && a.resumeItemId) resume[a.clusterId] = a.resumeItemId;
         // US-289: iOS-staged photos already live in storage — hydrate a preview
         // from the public URL so the board shows real thumbnails (not blanks)
         // and keep storagePath so commit reuses the object.
@@ -294,18 +319,28 @@ export function FlipdeskReconcilePage() {
       }
       setPhotos(restoredPhotos);
       setAssignments(map);
+      setResumeTargets(resume);
       toast.info("Restored your in-progress reconcile session.");
     })();
     return () => {
       cancelled = true;
     };
-  }, [workspaceOwnerId, restored]);
+  }, [workspaceOwnerId, restored, restoreAttempt]);
 
+  // On unmount: write any snapshot still waiting on its debounce, and revoke
+  // every preview URL the board still holds.
   useEffect(() => {
-    return () => {
-      for (const p of photos) if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+    const flush = () => {
+      const pending = pendingSnapshotRef.current;
+      pendingSnapshotRef.current = null;
+      pending?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+      for (const p of photosRef.current) revokePreview(p);
+    };
   }, []);
 
   const { clusters, needsSorting } = useMemo(
@@ -326,8 +361,9 @@ export function FlipdeskReconcilePage() {
       storagePath: p.storagePath ?? null,
       photoType: p.photoType,
       photoRole: p.photoRole,
+      resumeItemId: resumeTargets[assignments[p.id]?.clusterId ?? ""] ?? null,
     }));
-    const t = setTimeout(() => {
+    const write = () => {
       // US-3376: best-effort, deliberately, and reported. This fires on every
       // debounced change to the grouping, so a toast per failure would nag
       // through a whole sorting session for something the seller cannot fix in
@@ -348,25 +384,39 @@ export function FlipdeskReconcilePage() {
           });
         }
       })();
+    };
+    pendingSnapshotRef.current = write;
+    const t = setTimeout(() => {
+      if (pendingSnapshotRef.current === write) pendingSnapshotRef.current = null;
+      write();
     }, 600);
     return () => clearTimeout(t);
-  }, [sessionId, photos, assignments, gapSeconds]);
+  }, [sessionId, photos, assignments, gapSeconds, resumeTargets]);
 
   const ensureSession = useCallback(
     async (existing: string | null): Promise<string | null> => {
       if (existing) return existing;
       if (!workspaceOwnerId) return null;
-      const { data, error } = await supabase
-        .from("flipdesk_reconcile_sessions")
-        .insert({ user_id: workspaceOwnerId, gap_seconds: gapSeconds } as never)
-        .select("id")
-        .single();
-      if (error) {
-        toast.error("Could not start a reconcile session; grouping still works.");
-        return null;
-      }
-      const id = (data as { id: string }).id;
-      setSessionId(id);
+      if (sessionPromiseRef.current) return sessionPromiseRef.current;
+      const p = (async () => {
+        const { data, error } = await supabase
+          .from("flipdesk_reconcile_sessions")
+          .insert({ user_id: workspaceOwnerId, gap_seconds: gapSeconds } as never)
+          .select("id")
+          .single();
+        if (error) {
+          toast.error("Could not start a reconcile session; grouping still works.");
+          return null;
+        }
+        const id = (data as { id: string }).id;
+        setSessionId(id);
+        return id;
+      })();
+      sessionPromiseRef.current = p;
+      const id = await p;
+      // A failed insert may be retried by the next drop; a good one is kept
+      // until the board is cleared.
+      if (!id) sessionPromiseRef.current = null;
       return id;
     },
     [workspaceOwnerId, gapSeconds],
@@ -376,6 +426,10 @@ export function FlipdeskReconcilePage() {
     async (fileList: FileList | File[]) => {
       if (!can("manage_inventory")) {
         toast.error("You don't have permission to manage inventory in this workspace.");
+        return;
+      }
+      if (!restored) {
+        toast.info("Still loading your saved board. Add photos in a moment.");
         return;
       }
       const files = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
@@ -412,7 +466,7 @@ export function FlipdeskReconcilePage() {
         setIngesting(false);
       }
     },
-    [can, ensureSession, sessionId, gapSeconds],
+    [can, ensureSession, sessionId, gapSeconds, restored],
   );
 
   function onGapChange(next: number) {
@@ -459,24 +513,61 @@ export function FlipdeskReconcilePage() {
     else setAssignments((prev) => moveToCluster(prev, [photoId], String(over)));
   }
 
-  function reset() {
-    for (const p of photos) if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+  async function reset() {
+    if (clusters.length > 0) {
+      const ok = await confirm({
+        title: "Clear the board?",
+        description: `This removes ${photos.length} photo${photos.length === 1 ? "" : "s"} in ${clusters.length} group${clusters.length === 1 ? "" : "s"} from the board. Nothing already committed is touched.`,
+        confirmLabel: "Clear",
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    // The saved session has to close too, or a reload restores what was just
+    // cleared. A failed close leaves the board as it was and says so.
+    if (sessionId) {
+      pendingSnapshotRef.current = null;
+      const { error } = await supabase
+        .from("flipdesk_reconcile_sessions")
+        .update({ status: "abandoned" } as never)
+        .eq("id", sessionId);
+      if (error) {
+        toast.error("Couldn't clear the saved board, so it would come back on reload. Try again.");
+        return;
+      }
+    }
+    for (const p of photos) revokePreview(p);
     setPhotos([]);
     setAssignments({});
     setSelected(new Set());
     setLinkTargets({});
+    setResumeTargets({});
     setCommitted([]);
     setSessionId(null);
+    sessionPromiseRef.current = null;
   }
 
   async function commit() {
     if (!workspaceOwnerId || clusters.length === 0) return;
+    const unsorted = needsSorting.length;
+    if (unsorted > 0) {
+      const ok = await confirm({
+        title: `${unsorted} unsorted photo${unsorted === 1 ? "" : "s"} won't be saved`,
+        description:
+          "Photos under Needs sorting are not in any item. They stay on the board so you can sort them and commit again.",
+        confirmLabel: `Commit ${clusters.length} item${clusters.length === 1 ? "" : "s"}`,
+      });
+      if (!ok) return;
+    }
     setCommitting(true);
     try {
       const payload: CommitCluster[] = clusters.map((c, i) => ({
         clusterId: c.clusterId,
         label: linkTargets[c.clusterId]?.title ?? `Item ${i + 1}`,
-        linkItemId: linkTargets[c.clusterId]?.itemId ?? null,
+        linkItemId: resumeTargets[c.clusterId]
+          ? null
+          : (linkTargets[c.clusterId]?.itemId ?? null),
+        resumeItemId: resumeTargets[c.clusterId] ?? null,
         titleHint: undefined,
         photos: c.photos.map((p) => ({
           id: p.id,
@@ -487,12 +578,45 @@ export function FlipdeskReconcilePage() {
           storagePath: p.storagePath ?? null,
         })),
       }));
-      const res = await commitClusters(payload, workspaceOwnerId, sessionId);
+      const res = await commitClusters(payload, workspaceOwnerId, sessionId, {
+        keepSessionOpen: unsorted > 0,
+      });
       setResults(res);
+      // Everything that reached an item leaves the board; the rest stays
+      // editable and committable, and a partial cluster remembers its item.
+      const pruned = pruneCommitted(photos, assignments, res);
+      for (const p of pruned.dropped) revokePreview(p);
+      setPhotos(pruned.photos);
+      setAssignments(pruned.assignments);
+      if (pruned.photos.length === 0) {
+        // Everything went through and the session is closed; the next drop
+        // starts a new one rather than writing into a committed session.
+        pendingSnapshotRef.current = null;
+        setSessionId(null);
+        sessionPromiseRef.current = null;
+      }
+      setSelected(new Set());
+      setResumeTargets((prev) => {
+        const next: Record<string, string> = {};
+        for (const [k, v] of Object.entries({ ...prev, ...pruned.resume })) {
+          if (pruned.photos.some((p) => pruned.assignments[p.id]?.clusterId === k)) {
+            next[k] = v;
+          }
+        }
+        return next;
+      });
+      setLinkTargets((prev) => {
+        const next = { ...prev };
+        for (const r of res) if (r.ok || r.itemId) delete next[r.clusterId];
+        return next;
+      });
       const okItems = res
-        .filter((r) => r.ok && r.itemId)
+        .filter((r) => r.itemId && (r.saved ?? 0) > 0)
         .map((r) => ({ itemId: r.itemId!, label: r.title }));
-      setCommitted(okItems);
+      setCommitted((prev) => [
+        ...prev,
+        ...okItems.filter((it) => !prev.some((p) => p.itemId === it.itemId)),
+      ]);
       const failed = res.filter((r) => !r.ok).length;
       if (failed === 0) toast.success(`Committed ${res.length} item(s) to your pipeline.`);
       else toast.warning(`${res.length - failed} committed, ${failed} failed — see details.`);
@@ -623,7 +747,9 @@ export function FlipdeskReconcilePage() {
   const timedCount = photos.length - needsSorting.length;
   const clusterLabel = (clusterId: string) =>
     `Item ${clusters.findIndex((c) => c.clusterId === clusterId) + 1}`;
-  const committable = clusters.length > 0 && committed.length === 0;
+  // Committable whenever there is a group on the board: committed groups are
+  // removed from it, so what is left is only work that has not gone through.
+  const committable = clusters.length > 0;
 
   return (
     <div className="space-y-6">
@@ -668,7 +794,7 @@ export function FlipdeskReconcilePage() {
               </p>
             </div>
             {photos.length > 0 && (
-              <Button variant="outline" size="sm" onClick={reset}>
+              <Button variant="outline" size="sm" onClick={() => void reset()}>
                 Clear
               </Button>
             )}
@@ -677,8 +803,27 @@ export function FlipdeskReconcilePage() {
       {/* Drop zone */}
       <Card>
         <CardContent className="pt-6">
+          {restoreFailed && (
+            <div role="alert" className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-muted-foreground">
+                Couldn&apos;t load your saved board. Adding photos is off until it
+                loads, so nothing you drop can be lost under it.
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setRestoreFailed(false);
+                  setRestoreAttempt((n) => n + 1);
+                }}
+              >
+                Try again
+              </Button>
+            </div>
+          )}
           <button
             type="button"
+            disabled={!restored}
             onClick={() => fileInputRef.current?.click()}
             onDragOver={(e) => {
               e.preventDefault();
@@ -688,20 +833,27 @@ export function FlipdeskReconcilePage() {
             onDrop={(e) => {
               e.preventDefault();
               setDragOver(false);
-              if (e.dataTransfer.files?.length) void ingest(e.dataTransfer.files);
+              if (restored && e.dataTransfer.files?.length) void ingest(e.dataTransfer.files);
             }}
             className={cn(
               "flex w-full flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-10 text-center transition-colors",
               dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50",
+              !restored && "cursor-not-allowed opacity-60",
             )}
           >
-            {ingesting ? (
+            {ingesting || (!restored && !restoreFailed) ? (
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             ) : (
               <Upload className="h-8 w-8 text-muted-foreground" />
             )}
             <div className="text-sm font-medium text-foreground">
-              {ingesting ? "Reading capture times…" : "Drop photos here or click to browse"}
+              {ingesting
+                ? "Reading capture times…"
+                : !restored
+                  ? restoreFailed
+                    ? "Adding photos is off until your saved board loads"
+                    : "Loading your saved board…"
+                  : "Drop photos here or click to browse"}
             </div>
             <div className="text-xs text-muted-foreground">
               Drag in your whole haul — JPEG/PNG/HEIC, hundreds at a time.
@@ -712,6 +864,7 @@ export function FlipdeskReconcilePage() {
             type="file"
             accept={ACCEPT}
             multiple
+            disabled={!restored}
             className="hidden"
             onChange={(e) => {
               if (e.target.files?.length) void ingest(e.target.files);
@@ -720,6 +873,49 @@ export function FlipdeskReconcilePage() {
           />
         </CardContent>
       </Card>
+
+      {/* Committed items → generate title/details (US-288) */}
+      {committed.length > 0 && (
+        <Card className="border-green-300/60 dark:border-green-800/60">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                Committed {committed.length} item{committed.length === 1 ? "" : "s"}
+              </CardTitle>
+              <CardDescription>Generate titles &amp; details with AI, or do it later.</CardDescription>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => generate(committed.map((c) => c.itemId))}
+              disabled={bulkExtract.isPending}
+            >
+              {bulkExtract.isPending ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="mr-1 h-3.5 w-3.5" />
+              )}
+              Generate all
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {committed.map((c) => (
+              <div key={c.itemId} className="flex items-center justify-between rounded border px-3 py-1.5 text-sm">
+                <span>{c.label}</span>
+                <Button
+                aria-label={`Generate for ${c.label}`}
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => generate([c.itemId])}
+                  disabled={bulkExtract.isPending}
+                >
+                  <Sparkles className="mr-1 h-3.5 w-3.5" /> Generate
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {photos.length > 0 && (
         <>
@@ -783,51 +979,8 @@ export function FlipdeskReconcilePage() {
             </CardHeader>
           </Card>
 
-          {/* Committed items → generate title/details (US-288) */}
-          {committed.length > 0 && (
-            <Card className="border-green-300/60 dark:border-green-800/60">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
-                    Committed {committed.length} item{committed.length === 1 ? "" : "s"}
-                  </CardTitle>
-                  <CardDescription>Generate titles &amp; details with AI, or do it later.</CardDescription>
-                </div>
-                <Button
-                  size="sm"
-                  onClick={() => generate(committed.map((c) => c.itemId))}
-                  disabled={bulkExtract.isPending}
-                >
-                  {bulkExtract.isPending ? (
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Sparkles className="mr-1 h-3.5 w-3.5" />
-                  )}
-                  Generate all
-                </Button>
-              </CardHeader>
-              <CardContent className="space-y-1">
-                {committed.map((c) => (
-                  <div key={c.itemId} className="flex items-center justify-between rounded border px-3 py-1.5 text-sm">
-                    <span>{c.label}</span>
-                    <Button
-                    aria-label={`Generate for ${c.label}`}
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => generate([c.itemId])}
-                      disabled={bulkExtract.isPending}
-                    >
-                      <Sparkles className="mr-1 h-3.5 w-3.5" /> Generate
-                    </Button>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
           {/* Selection action bar */}
-          {selected.size > 0 && committed.length === 0 && (
+          {selected.size > 0 && (
             <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-background/95 p-3 shadow-sm backdrop-blur">
               <span className="text-sm font-medium">{selected.size} selected</span>
               <Button size="sm" variant="outline" onClick={applyMoveToNew}>
@@ -868,7 +1021,7 @@ export function FlipdeskReconcilePage() {
                   selected={selected}
                   onToggleSelect={toggleSelect}
                   onSetPhotoType={setPhotoType}
-                  locked={committed.length > 0}
+                  locked={committing}
                   otherClusters={clusters
                     .filter((c) => c.clusterId !== cluster.clusterId)
                     .map((c) => ({ id: c.clusterId, label: clusterLabel(c.clusterId) }))}
@@ -889,7 +1042,7 @@ export function FlipdeskReconcilePage() {
                   onSuggest={() => suggestForCluster(cluster.clusterId, cluster.photos)}
                 />
               ))}
-              {committed.length === 0 && <NewClusterDropZone />}
+              {!committing && <NewClusterDropZone />}
             </div>
 
             <NeedsSortingZone

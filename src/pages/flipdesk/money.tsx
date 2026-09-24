@@ -258,7 +258,9 @@ export function FlipdeskMoneyPage() {
           <TabsContent value="reconcile" className="mt-6">
             {activeView === "reconcile" && (
               <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
-                <ReconcilePage />
+                {/* Keyed by workspace: a switch must not carry the old
+                    owner's photo board into the new owner's items. */}
+                <ReconcilePage key={workspaceOwnerId ?? "none"} />
               </Suspense>
             )}
           </TabsContent>

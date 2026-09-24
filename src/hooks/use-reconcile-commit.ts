@@ -30,6 +30,10 @@ export interface CommitCluster {
   photos: CommitPhoto[];
   /** Existing item to attach to; null = create a new draft. */
   linkItemId: string | null;
+  /** The item an EARLIER partial commit of this same cluster created. A retry
+   *  attaches the leftover photos to it rather than making a second draft.
+   *  Unlike linkItemId it may already have photos: they are this cluster's. */
+  resumeItemId?: string | null;
   /** Optional title for a newly-created draft. */
   titleHint?: string;
 }
@@ -187,7 +191,38 @@ async function uploadOnePhoto(
 export async function resolveItemId(
   cluster: CommitCluster,
   workspaceOwnerId: string,
-): Promise<{ itemId: string; currentStatus: ItemStatus; createdNew: boolean }> {
+): Promise<{
+  itemId: string;
+  currentStatus: ItemStatus;
+  createdNew: boolean;
+  sortStart?: number;
+}> {
+  if (cluster.resumeItemId) {
+    // Ownership is re-checked like a link; the photo rules are not, because
+    // the photos it already has came from this cluster a moment ago.
+    const { data, error } = await supabase
+      .from("items_full")
+      .select("id, user_id, status, photo_count")
+      .eq("id", cluster.resumeItemId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("The item from the earlier try no longer exists.");
+    const row = data as {
+      id: string;
+      user_id: string;
+      status: ItemStatus;
+      photo_count: number | null;
+    };
+    if (row.user_id !== workspaceOwnerId) {
+      throw new Error("This item belongs to a different workspace.");
+    }
+    return {
+      itemId: row.id,
+      currentStatus: row.status,
+      createdNew: false,
+      sortStart: row.photo_count ?? 0,
+    };
+  }
   if (cluster.linkItemId) {
     // Re-verify ownership AND the picker's own rules. RLS admits a workspace
     // member to every workspace they belong to, so a row coming back does not
@@ -263,7 +298,7 @@ async function commitCluster(
   const savedPhotoIds: string[] = [];
   const savedTypes = new Set<string>();
   const reasons: string[] = [];
-  let sort = 0;
+  let sort = resolved.sortStart ?? 0;
   for (const photo of cluster.photos) {
     try {
       const out = await uploadOnePhoto(itemId, workspaceOwnerId, sort, photo, sessionId);
@@ -339,7 +374,7 @@ async function commitCluster(
   const detail =
     (failed > 0
       ? `${saved} of ${total} photos saved. ${reasons[0] ?? "Re-add the rest."}`
-      : `${saved} photo${saved === 1 ? "" : "s"} → ${cluster.linkItemId ? "linked item" : "new draft"}`) +
+      : `${saved} photo${saved === 1 ? "" : "s"} → ${cluster.linkItemId || cluster.resumeItemId ? "linked item" : "new draft"}`) +
     statusNote;
   return {
     clusterId: cluster.clusterId,
@@ -363,6 +398,11 @@ export async function commitClusters(
   clusters: CommitCluster[],
   workspaceOwnerId: string,
   sessionId: string | null,
+  opts: {
+    /** Photos are being left on the board (unsorted ones the seller chose not
+     *  to save), so the session must stay open to bring them back. */
+    keepSessionOpen?: boolean;
+  } = {},
 ): Promise<CommitResult[]> {
   const results: CommitResult[] = [];
   for (const cluster of clusters) {
@@ -375,7 +415,7 @@ export async function commitClusters(
   // re-commit the incomplete clusters.
   const fullyCommitted =
     results.length > 0 && results.every((r) => r.ok && (r.skipped ?? 0) === 0);
-  if (sessionId && fullyCommitted) {
+  if (sessionId && fullyCommitted && !opts.keepSessionOpen) {
     // US-3376, same shape as the orphan delete above. A dropped failure here
     // leaves a fully-committed session looking un-committed, so the board offers
     // Commit again and a second press duplicates every item it just created.

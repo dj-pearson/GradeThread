@@ -2057,6 +2057,10 @@ export interface ReconcileAssignmentSnapshot {
   // board. Optional so a session snapshot written before this shipped restores
   // with a null role rather than failing to parse.
   photoRole?: string | null;
+  // Money M8: the item an earlier partial commit of this photo's group
+  // created, so a retry after a reload adds to it instead of making a second
+  // draft. Optional; older snapshots restore without it.
+  resumeItemId?: string | null;
 }
 
 export interface ReconcileSessionRow {
