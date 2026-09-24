@@ -177,6 +177,58 @@ describe("the surfaces the story named all have a button", () => {
   });
 });
 
+// The source-string check above passes while the button is invisible: HelpLink
+// renders null when no article carries the slug, and the rewards page shipped
+// that way (it named "rewards-and-credit"; only the buyer article
+// "rewards-and-credits" existed). So a page's slug must also resolve to a real
+// article in content/help/.
+//
+// The registry deliberately ships ahead of the writing, so the slugs still
+// waiting for an article are listed by name. The list can only SHRINK: a slug
+// that gains an article must come off it, and a slug not on it must resolve.
+const UNWRITTEN_HELP_SLUGS = new Set([
+  "adding-your-first-item",
+  "the-four-inventory-views",
+  "batch-listing-with-autolister",
+  "deciding-what-to-buy",
+  "pricing-your-listings",
+  "reading-your-money",
+  "offers-and-buyer-messages",
+  "returns-and-disputes",
+  "scheduling-a-drop",
+  "becoming-a-verified-seller",
+  "taking-in-consignment",
+  "importing-your-inventory",
+  "snap-to-value",
+  "using-the-measurecard",
+]);
+
+const ARTICLE_SLUGS = new Set(
+  readdirSync(join(root, "content/help"))
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => /^slug:\s*(.+)$/m.exec(read(`content/help/${f}`))?.[1]?.trim() ?? ""),
+);
+
+describe("a page's help slug resolves to a written article", () => {
+  const usedSlugs = [...new Set(USED.map((u) => u.slug))];
+
+  it.each(usedSlugs.filter((s) => !UNWRITTEN_HELP_SLUGS.has(s)))(
+    "%s has an article in content/help",
+    (slug) => {
+      expect(ARTICLE_SLUGS.has(slug), `no content/help/*.md has slug: ${slug}`).toBe(true);
+    },
+  );
+
+  it("the rewards page's article exists", () => {
+    expect(ARTICLE_SLUGS.has("rewards-and-credit")).toBe(true);
+  });
+
+  it("the unwritten list only holds slugs that are still unwritten", () => {
+    const written = [...UNWRITTEN_HELP_SLUGS].filter((s) => ARTICLE_SLUGS.has(s));
+    expect(written, "these have articles now; take them off the list").toEqual([]);
+  });
+});
+
 describe("a missing article degrades to nothing, not to a dead end", () => {
   const src = read("src/components/help/help-link.tsx");
 
