@@ -48,4 +48,17 @@ describe("pruneCommitted", () => {
     expect(out.resume).toEqual({});
     expect(out.assignments.a1).toEqual({ clusterId: "A", manual: false });
   });
+
+  it("keeps a photo that joined a finished group while the commit ran", () => {
+    // a3 was sorted into A after Commit was pressed, so it is in no item.
+    const withLate = [...photos, { id: "a3" }];
+    const lateAssignments: AssignmentMap = {
+      ...assignments,
+      a3: { clusterId: "A", manual: true },
+    };
+    const committedIds = new Set(photos.map((p) => p.id));
+    const out = pruneCommitted(withLate, lateAssignments, results, committedIds);
+    expect(out.photos.map((p) => p.id)).toEqual(["c3", "u1", "a3"]);
+    expect(out.dropped.map((p) => p.id)).not.toContain("a3");
+  });
 });

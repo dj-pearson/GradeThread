@@ -209,4 +209,21 @@ describe("reconcile photo board commit", () => {
     await flush();
     expect(document.body.textContent).not.toContain("Sorting photo types");
   });
+
+  it("turns the drop zone off while a commit is saving", async () => {
+    let release!: () => void;
+    ctl.commitGate = new Promise<void>((r) => (release = r));
+    await render();
+    await addPhotos(2);
+    const input = () => container!.querySelector<HTMLInputElement>('input[type="file"]')!;
+    expect(input().disabled).toBe(false);
+    await act(async () => commitButton()!.click());
+    await flush();
+    // A photo dropped now would land on a board whose session the commit is
+    // about to close, so it is refused until the commit finishes.
+    expect(input().disabled).toBe(true);
+    await act(async () => release());
+    await flush();
+    expect(input().disabled).toBe(false);
+  });
 });

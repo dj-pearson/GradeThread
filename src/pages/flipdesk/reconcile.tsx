@@ -218,6 +218,12 @@ export function FlipdeskReconcilePage() {
   // ever saw the first render's empty list, so no preview URL was revoked.
   const photosRef = useRef<DumpPhoto[]>([]);
   photosRef.current = photos;
+  // The latest grouping, for the post-commit prune. commit() awaits for
+  // minutes on a big haul, and its own closure still holds the board as it
+  // was when Commit was pressed, so pruning from that would wipe out every
+  // photo dropped, retagged or regrouped while the upload ran.
+  const assignmentsRef = useRef<AssignmentMap>({});
+  assignmentsRef.current = assignments;
   // One in-flight session insert shared by concurrent ingests, so two drops
   // in quick succession cannot create two sessions.
   const sessionPromiseRef = useRef<Promise<string | null> | null>(null);
@@ -621,7 +627,12 @@ export function FlipdeskReconcilePage() {
       setResults(res);
       // Everything that reached an item leaves the board; the rest stays
       // editable and committable, and a partial cluster remembers its item.
-      const pruned = pruneCommitted(photos, assignments, res);
+      const pruned = pruneCommitted(
+        photosRef.current,
+        assignmentsRef.current,
+        res,
+        new Set(payload.flatMap((c) => c.photos.map((p) => p.id))),
+      );
       for (const p of pruned.dropped) revokePreview(p);
       setPhotos(pruned.photos);
       setAssignments(pruned.assignments);
@@ -875,7 +886,12 @@ export function FlipdeskReconcilePage() {
               </p>
             </div>
             {photos.length > 0 && (
-              <Button variant="outline" size="sm" onClick={() => void reset()}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void reset()}
+                disabled={committing}
+              >
                 Clear
               </Button>
             )}
@@ -904,7 +920,7 @@ export function FlipdeskReconcilePage() {
           )}
           <button
             type="button"
-            disabled={!restored}
+            disabled={!restored || committing}
             onClick={() => fileInputRef.current?.click()}
             onDragOver={(e) => {
               e.preventDefault();
@@ -914,12 +930,17 @@ export function FlipdeskReconcilePage() {
             onDrop={(e) => {
               e.preventDefault();
               setDragOver(false);
-              if (restored && e.dataTransfer.files?.length) void ingest(e.dataTransfer.files);
+              // Not during a commit: the commit closes the session when every
+              // group it took went through, and a photo dropped meanwhile would
+              // be left on a board whose saved session is already closed.
+              if (restored && !committing && e.dataTransfer.files?.length) {
+                void ingest(e.dataTransfer.files);
+              }
             }}
             className={cn(
               "flex w-full flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-10 text-center transition-colors",
               dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50",
-              !restored && "cursor-not-allowed opacity-60",
+              (!restored || committing) && "cursor-not-allowed opacity-60",
             )}
           >
             {ingesting || (!restored && !restoreFailed) ? (
@@ -945,7 +966,7 @@ export function FlipdeskReconcilePage() {
             type="file"
             accept={ACCEPT}
             multiple
-            disabled={!restored}
+            disabled={!restored || committing}
             className="hidden"
             onChange={(e) => {
               if (e.target.files?.length) void ingest(e.target.files);
@@ -1050,7 +1071,7 @@ export function FlipdeskReconcilePage() {
                         )}
                         Group similar
                       </Button>
-                      <Button size="sm" onClick={commit} disabled={committing}>
+                      <Button size="sm" onClick={commit} disabled={committing || ingesting}>
                         {committing ? (
                           <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                         ) : (

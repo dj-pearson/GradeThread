@@ -35,6 +35,10 @@ export function pruneCommitted<P extends { id: string }>(
   photos: P[],
   assignments: AssignmentMap,
   results: BoardCommitOutcome[],
+  /** Ids of the photos that were IN the commit. When given, a photo added to
+   *  a group while the commit ran stays on the board even if that group went
+   *  through: it was never uploaded, so it is in no item. */
+  committedIds?: ReadonlySet<string>,
 ): PrunedBoard<P> {
   const saved = new Set(results.flatMap((r) => r.savedPhotoIds ?? []));
   const done = new Set(results.filter((r) => r.ok).map((r) => r.clusterId));
@@ -49,7 +53,8 @@ export function pruneCommitted<P extends { id: string }>(
   for (const p of photos) {
     const a = assignments[p.id];
     const clusterId = a?.clusterId ?? null;
-    if (saved.has(p.id) || (clusterId !== null && done.has(clusterId))) {
+    const inCommit = committedIds ? committedIds.has(p.id) : true;
+    if (saved.has(p.id) || (inCommit && clusterId !== null && done.has(clusterId))) {
       dropped.push(p);
       continue;
     }
