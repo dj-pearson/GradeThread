@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
-import { useAuthStore } from "@/stores/auth-store";
+import {
+  SOURCING_SETTINGS_KEY,
+  parseTargetPct,
+  useSourcingSettings,
+} from "@/hooks/use-sourcing-settings";
 import {
   DEFAULT_SOURCING_COST_CENTS,
   SOURCING_COST_FIELDS,
@@ -37,48 +42,27 @@ import {
 // belong in one block and save in one upsert because they are one row and one
 // decision: what you sell for, minus what it costs you to send it.
 //
-// RLS on flipdesk_settings scopes the row to the signed-in user (00134), so
-// this reads and writes with the plain client and no explicit filter.
+// RLS on flipdesk_settings scopes the row to the signed-in user (00134). SRC-2:
+// the read goes through useSourcingSettings, shared with Scout, and only the
+// workspace OWNER can edit; the edge prices a member's scan off the owner's
+// row, so a member's own row would be a setting nothing uses.
 
 /** Mirrors DECISION_MAYBE_ROI in services/edge-functions/src/lib/scout-decision.ts. */
 export const DEFAULT_SOURCING_TARGET_PCT = 30;
 /** Mirrors the CHECK in migration 00666. */
 export const MAX_SOURCING_TARGET_PCT = 1000;
 
-/** The four columns this block owns, as they come back from the row. */
-interface SourcingSettings {
-  sourcing_target_roi_pct: number | null;
-  sourcing_shipping_cost_cents: number | null;
-  sourcing_supplies_cost_cents: number | null;
-  sourcing_grading_cost_cents: number | null;
-}
-
 type CostDrafts = Record<SourcingCostKey, string>;
 
 const EMPTY_COSTS: CostDrafts = { shipping: "", supplies: "", grading: "" };
 
 export function SourcingTargetSetting() {
-  const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
   const [draft, setDraft] = useState("");
   const [costDrafts, setCostDrafts] = useState<CostDrafts>(EMPTY_COSTS);
   const [saving, setSaving] = useState(false);
 
-  const { data: stored } = useQuery({
-    queryKey: ["sourcing_target", user?.id],
-    enabled: Boolean(user?.id),
-    queryFn: async (): Promise<SourcingSettings | null> => {
-      const { data, error } = await supabase
-        .from("flipdesk_settings")
-        .select(
-          "sourcing_target_roi_pct, sourcing_shipping_cost_cents, sourcing_supplies_cost_cents, sourcing_grading_cost_cents",
-        )
-        .eq("user_id", user!.id)
-        .maybeSingle();
-      if (error) throw error;
-      return (data as SourcingSettings | null) ?? null;
-    },
-  });
+  const { data: stored, isOwner, workspaceOwnerId } = useSourcingSettings();
 
   useEffect(() => {
     setDraft(
@@ -94,17 +78,12 @@ export function SourcingTargetSetting() {
   }, [stored]);
 
   async function save() {
-    if (!user) return;
-    const trimmed = draft.trim();
+    if (!isOwner || !workspaceOwnerId) return;
     // Empty is a real choice, not an error: it means "use the default".
-    let value: number | null = null;
-    if (trimmed !== "") {
-      const n = Number.parseInt(trimmed, 10);
-      if (!Number.isFinite(n) || n < 0 || n > MAX_SOURCING_TARGET_PCT) {
-        toast.error(`Enter a whole percent between 0 and ${MAX_SOURCING_TARGET_PCT}, or leave it blank.`);
-        return;
-      }
-      value = n;
+    const value = parseTargetPct(draft);
+    if (value === "invalid") {
+      toast.error(`Enter a whole percent between 0 and ${MAX_SOURCING_TARGET_PCT}, or leave it blank.`);
+      return;
     }
 
     // US-3193: every cost line is validated BEFORE anything is written, so a
@@ -124,11 +103,11 @@ export function SourcingTargetSetting() {
       const { error } = await supabase
         .from("flipdesk_settings")
         .upsert(
-          { user_id: user.id, sourcing_target_roi_pct: value, ...costs } as never,
+          { user_id: workspaceOwnerId, sourcing_target_roi_pct: value, ...costs } as never,
           { onConflict: "user_id" },
         );
       if (error) throw error;
-      await qc.invalidateQueries({ queryKey: ["sourcing_target", user.id] });
+      await qc.invalidateQueries({ queryKey: [SOURCING_SETTINGS_KEY] });
       toast.success(
         value == null
           ? `Using the default ${DEFAULT_SOURCING_TARGET_PCT}% target.`
@@ -139,6 +118,18 @@ export function SourcingTargetSetting() {
     } finally {
       setSaving(false);
     }
+  }
+
+  if (!isOwner) {
+    return (
+      <div className="space-y-0.5 rounded-lg border p-3 text-sm">
+        <p className="font-medium">Your sourcing target</p>
+        <p className="text-xs text-muted-foreground">
+          Your workspace owner sets the profit target and costs used for Pay at
+          most.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -206,6 +197,7 @@ export function SourcingTargetSetting() {
       </div>
 
       <Button size="sm" variant="outline" disabled={saving} onClick={() => void save()}>
+        {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         Save
       </Button>
     </div>

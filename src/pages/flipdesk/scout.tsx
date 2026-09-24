@@ -30,9 +30,7 @@ import {
   DEFAULT_SOURCING_TARGET_PCT,
   SourcingTargetSetting,
 } from "@/components/flipdesk/sourcing-target-setting";
-import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/hooks/use-auth";
-import { useQuery } from "@tanstack/react-query";
+import { useSourcingSettings } from "@/hooks/use-sourcing-settings";
 import { ForecastCard } from "@/components/flipdesk/forecast-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ValueBasisNote } from "@/components/value/value-basis-note";
@@ -170,7 +168,6 @@ export function FlipdeskScoutPage() {
   // US-1064: community-insights "Source more <brand>" recommendations deep-link
   // here with ?brand=<brand> so the comps scan is prefilled.
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user } = useAuth();
   const [keyword, setKeyword] = useState("");
   const [brand, setBrand] = useState(() => searchParams.get("brand") ?? "");
   const [categoryId, setCategoryId] = useState("11450"); // Clothing, Shoes & Accessories
@@ -204,28 +201,26 @@ export function FlipdeskScoutPage() {
 
   // The seller's standing target, so a number set once in Buy decision is not
   // typed again here. Read-only: the field below overrides it for this scan.
-  const { data: storedTargetPct, isError: targetError, isLoading: targetLoading, refetch: reloadTarget } = useQuery({
-    // Underscore, matching what sourcing-target-setting.tsx reads AND
-    // invalidates. It was a hyphen here, so saving a new target refreshed the
-    // settings card and left this page showing the old number until a reload.
-    queryKey: ["sourcing_target", user?.id],
-    enabled: Boolean(user?.id),
-    queryFn: async () => {
-      const { data, error: dataReadError } = await supabase
-        .from("flipdesk_settings")
-        .select("sourcing_target_roi_pct")
-        .eq("user_id", user?.id ?? "")
-        .maybeSingle();
-      if (dataReadError) throw dataReadError;
-      return (data as { sourcing_target_roi_pct: number | null } | null)
-        ?.sourcing_target_roi_pct ?? null;
-    },
-  });
+  // SRC-2: the same query the settings card reads, narrowed with select, so
+  // the two can never cache different shapes under one key again.
+  const {
+    data: storedTargetPct,
+    isError: targetError,
+    isLoading: targetLoading,
+    refetch: reloadTarget,
+    isOwner: ownsWorkspace,
+  } = useSourcingSettings((s) => s?.sourcing_target_roi_pct ?? null);
   const targetPct = storedTargetPct ?? DEFAULT_SOURCING_TARGET_PCT;
   // The URL wins over the standing target: a link someone bookmarked said what
   // it meant, and silently replacing it with an account setting would make the
   // bookmark mean something different on a different day.
-  const effectiveMinMarginPct = minMarginPctText.trim() || String(targetPct);
+  //
+  // SRC-2: a member cannot read the owner's row (RLS is owner-only), and the
+  // edge falls back to the OWNER's target when none is sent, so a member's
+  // blank field sends nothing rather than a guessed 30%.
+  const effectiveMinMarginPct =
+    minMarginPctText.trim() || (ownsWorkspace ? String(targetPct) : "");
+  const targetHint = ownsWorkspace ? `your ${targetPct}% target` : "your workspace target";
 
   const scan = useScoutScan();
   const result = scan.data;
@@ -365,12 +360,12 @@ export function FlipdeskScoutPage() {
                   <Input
                     id="scout-min-margin-pct"
                     inputMode="decimal"
-                    placeholder={String(targetPct)}
+                    placeholder={ownsWorkspace ? String(targetPct) : ""}
                     value={minMarginPctText}
                     onChange={(e) => setMinMarginPctText(e.target.value)}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Percent after fees. Blank uses your {targetPct}% target.
+                    Percent after fees. Blank uses {targetHint}.
                   </p>
                 </div>
                 <div className="space-y-1">
