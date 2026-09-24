@@ -42,7 +42,9 @@ function fakeJwt(): string {
 // and once in the mobile card list, one of which is always display:none. A bare
 // getByText therefore hits strict mode, and .first() picks whichever is hidden
 // at the current viewport. Addressing the row by its accessible name is stable
-// across both.
+// across both. Since US-3467 a row click opens the quick-edit panel, so the
+// row's name is "Quick edit <title>" (it was "Open <title>"; the full editor is
+// now the row's own "Open full editor for <title>" button).
 function row(over: Record<string, unknown>): Record<string, unknown> {
   return {
     id: "r1", user_id: USER_ID, item_title: "Row", item_number: "SKU-1",
@@ -179,8 +181,8 @@ test("the listings table renders a server-selected page", async ({ page }) => {
   await page.goto("/dashboard/flipdesk/listings");
 
   // 1. the RPC's rows are what render
-  await expect(page.getByRole("button", { name: /Open Alpha Jacket/i })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole("button", { name: /Open Charlie Tee/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Quick edit Alpha Jacket/i })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /Quick edit Charlie Tee/i })).toBeVisible();
   expect(calls.length).toBeGreaterThan(0);
 
   // 2. counts come from `total`, not from the three rows on screen
@@ -201,7 +203,7 @@ test("changing the tab re-asks the server instead of filtering in the browser", 
   await mockBackend(page, calls, itemsFullHits);
   await login(page);
   await page.goto("/dashboard/flipdesk/listings");
-  await expect(page.getByRole("button", { name: /Open Alpha Jacket/i })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /Quick edit Alpha Jacket/i })).toBeVisible({ timeout: 20_000 });
 
   const before = calls.length;
   // The table opens on Unlisted (which absorbed the old To List and Drafts
@@ -228,7 +230,7 @@ test("searching re-asks the server with the query", async ({ page }) => {
   await mockBackend(page, calls, itemsFullHits);
   await login(page);
   await page.goto("/dashboard/flipdesk/listings");
-  await expect(page.getByRole("button", { name: /Open Alpha Jacket/i })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /Quick edit Alpha Jacket/i })).toBeVisible({ timeout: 20_000 });
 
   // Same duplicate-viewport problem as the row titles: :visible picks the
   // search box actually on screen rather than the hidden mobile one.
