@@ -1,8 +1,11 @@
 import { useMemo } from "react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, PiggyBank } from "lucide-react";
+import { AlertTriangle, ArrowRight, PiggyBank, Users } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { useMoneyFiscalYear } from "@/hooks/use-money-fiscal-year";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
@@ -19,9 +22,7 @@ import { fetchPayments, fetchTaxRateYear } from "@/lib/estimated-tax";
 import { standingHeadline, taxRunway } from "@/lib/tax-runway";
 import {
   TAX_PROFILE_DEFAULTS,
-  fetchTaxProfile,
   fiscalYearLabel,
-  periodRange,
   ymd,
   type FilingStatus,
 } from "@/lib/tax-profile";
@@ -95,26 +96,88 @@ function Answer({
   );
 }
 
+/**
+ * One card's own loading or failed state. Each card waits on, and fails on,
+ * only the reads it is built from, so a slow review count cannot print
+ * "Nothing" and a failed rates read cannot blank the profit figure.
+ */
+function AnswerStatus({
+  label,
+  failed,
+  what,
+  onRetry,
+  retrying,
+}: {
+  label: string;
+  failed: boolean;
+  what: string;
+  onRetry: () => void;
+  retrying: boolean;
+}) {
+  return (
+    <Card>
+      <CardContent className="pt-5">
+        <p className="text-[13px] font-medium text-muted-foreground">{label}</p>
+        {failed ? (
+          <div role="alert" className="mt-2 space-y-2">
+            <p className="max-w-prose text-[13px] leading-relaxed text-muted-foreground">
+              Couldn&apos;t load {what}, so there is no figure here rather than
+              a wrong one.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onRetry}
+              disabled={retrying}
+            >
+              Try again
+            </Button>
+          </div>
+        ) : (
+          <div aria-busy="true" aria-label={`Loading ${label}`}>
+            <Skeleton className="mt-2 h-8 w-28" />
+            <Skeleton className="mt-2 h-4 w-full max-w-sm" />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+type QueryLike = {
+  isError: boolean;
+  isSuccess: boolean;
+  isFetching: boolean;
+  refetch: () => unknown;
+};
+
+function gate(queries: QueryLike[]) {
+  return {
+    ok: queries.every((q) => q.isSuccess),
+    failed: queries.some((q) => q.isError),
+    retrying: queries.some((q) => q.isFetching),
+    retry: () => {
+      for (const q of queries) if (q.isError) void q.refetch();
+    },
+  };
+}
+
 const viewLink = (view: MoneyView, extra = "") =>
   `/dashboard/flipdesk/money?view=${view}${extra}`;
 
 export function MoneyOverviewPage() {
   const user = useAuthStore((s) => s.user);
-  const profileQuery = useQuery({
-    queryKey: ["tax-profile", user?.id],
-    enabled: !!user,
-    queryFn: fetchTaxProfile,
-    staleTime: 30 * 60 * 1000,
-  });
-  const profile = profileQuery.data;
-  const startMonth =
-    profile?.fiscal_year_start_month ?? TAX_PROFILE_DEFAULTS.fiscal_year_start_month;
+  const { workspaceOwnerId } = useWorkspace();
+  // Every read below is owner-only: the ledger, the tax profile and the review
+  // count all answer for auth.uid(). A member acting in someone else's
+  // workspace would be shown their OWN empty books as "$0 profit", so the
+  // page says whose books these are instead of printing a figure.
+  const actingForOwner =
+    !!user && !!workspaceOwnerId && workspaceOwnerId !== user.id;
+  const enabled = !!user && !actingForOwner;
 
-  const today = useMemo(() => new Date(), []);
-  const fiscal = useMemo(
-    () => periodRange("year", startMonth, today),
-    [startMonth, today],
-  );
+  const { profileQuery, startMonth, today, fiscal } = useMoneyFiscalYear();
+  const profile = profileQuery.data;
   const fiscalLabel = fiscalYearLabel(today, startMonth);
 
   // The ledger, once, for the whole page. Two questions read from it and a
@@ -122,7 +185,7 @@ export function MoneyOverviewPage() {
   // the same answer that can disagree while they load.
   const ledgerQuery = useQuery({
     queryKey: ledgerEntriesKey(user?.id, fiscal.from, fiscal.to),
-    enabled: !!user,
+    enabled,
     queryFn: async () => {
       await ensureLedgerBuilt();
       return fetchLedgerEntries(fiscal.from, fiscal.to);
@@ -147,7 +210,7 @@ export function MoneyOverviewPage() {
   const taxYear = today.getFullYear();
   const ratesQuery = useQuery({
     queryKey: ["tax-rate-year", taxYear],
-    enabled: !!user,
+    enabled,
     queryFn: () => fetchTaxRateYear(taxYear),
     staleTime: 24 * 60 * 60 * 1000,
   });
@@ -158,7 +221,7 @@ export function MoneyOverviewPage() {
   const calTo = `${taxYear + 1}-01-01`;
   const calendarQuery = useQuery({
     queryKey: ledgerEntriesKey(user?.id, calFrom, calTo),
-    enabled: !!user,
+    enabled,
     queryFn: async () => {
       await ensureLedgerBuilt();
       return fetchLedgerEntries(calFrom, calTo);
@@ -167,7 +230,7 @@ export function MoneyOverviewPage() {
   });
   const paymentsQuery = useQuery({
     queryKey: ["estimated-tax-payments", user?.id, taxYear],
-    enabled: !!user,
+    enabled,
     queryFn: () => fetchPayments(taxYear),
     staleTime: 5 * 60 * 1000,
   });
@@ -216,47 +279,55 @@ export function MoneyOverviewPage() {
         profile.fiscal_year_start_month ??
         TAX_PROFILE_DEFAULTS.fiscal_year_start_month,
     });
-    // `today` is a stable render-scoped Date, so it is not a dependency that
-    // can change under the memo without `calendarEntries` changing too.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rates, profile, calendarEntries, payments, taxYear]);
+  }, [rates, profile, calendarEntries, payments, taxYear, today]);
 
+  // The same fiscal range the P&L lists, so "Needs a look: 3" here, the tab
+  // badge and the list under the statement are one count. Waits for the
+  // profile so it is not first asked for the calendar year and then again.
   const reviewCountQuery = useQuery({
-    queryKey: ["books-review-count", user?.id, taxYear],
-    enabled: !!user,
-    queryFn: () => fetchReviewCount(`${taxYear}-01-01`, `${taxYear + 1}-01-01`),
+    queryKey: ["books-review-count", user?.id, fiscal.from, fiscal.to],
+    enabled: enabled && profileQuery.isSuccess,
+    queryFn: () => fetchReviewCount(fiscal.from, fiscal.to),
     staleTime: 5 * 60 * 1000,
   });
 
-  // US-3217. EVERY figure on this page comes from one of the six reads above,
-  // and react-query leaves `data` undefined on a failure exactly as it does
-  // before the first fetch. Without this branch a seller whose ledger read
-  // failed is told "Profit, FY2026: $0.00 -- $0.00 came in", that their books
-  // have "nothing unexplained in them", and, if the tax reads failed, to go
-  // "answer five questions in Tax & filing" they answered months ago. A
-  // wrong accounting figure is worse than no page.
-  const moneyQueries = [
-    profileQuery,
-    ledgerQuery,
-    ratesQuery,
-    calendarQuery,
-    paymentsQuery,
-    reviewCountQuery,
-  ];
-  const readFailed = moneyQueries.some((q) => q.isError);
-  const refetching = moneyQueries.some((q) => q.isFetching);
+  // US-3217, narrowed. react-query leaves `data` undefined on a failure exactly
+  // as it does before the first fetch, so every card is gated on the reads it
+  // is built from: a pending read is a skeleton and a failed one says so. Only
+  // the ledger failing blanks the whole page, because Profit and Spent both
+  // come from it and there is nothing left to show.
+  const taxGate = gate([profileQuery, ratesQuery, calendarQuery, paymentsQuery]);
+  const reviewGate = gate([reviewCountQuery]);
 
   const reviewCount = reviewCountQuery.data ?? 0;
 
-  if (readFailed) {
+  if (actingForOwner) {
+    return (
+      <Card>
+        <CardContent className="flex flex-wrap items-start gap-3 py-5">
+          <Users className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-sm font-medium">
+              Money shows the account owner&apos;s books.
+            </p>
+            <p className="max-w-prose text-[13px] leading-relaxed text-muted-foreground">
+              Profit, tax and the review list are worked out from the owner&apos;s
+              own ledger, which only they can open. Nothing here is shown as
+              $0, because it would be your empty books rather than theirs.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (ledgerQuery.isError) {
     return (
       <ErrorState
         title="Couldn't load your money"
-        description="One of the reads behind these figures failed, so the numbers would be wrong rather than missing. Nothing has changed in your books."
-        onRetry={() => {
-          for (const q of moneyQueries) void q.refetch();
-        }}
-        retrying={refetching}
+        description="The ledger read behind these figures failed, so the numbers would be wrong rather than missing. Nothing has changed in your books."
+        onRetry={() => void ledgerQuery.refetch()}
+        retrying={ledgerQuery.isFetching}
       />
     );
   }
@@ -291,42 +362,76 @@ export function MoneyOverviewPage() {
           number matters equally -- which is exactly what this page must not
           say. Emphasis by weight and size, not by colour or a gradient. */}
       <div className="grid gap-4 sm:grid-cols-2">
-        <Answer
-          tone="act"
-          label={behind ? "Late on estimated tax" : "Set aside for tax"}
-          value={
-            runway
-              ? formatCents(
-                  behind ? runway.behindByCents : runway.holdBackCents,
-                )
-              : "Not set up"
-          }
-          detail={
-            runway
-              ? behind
+        {!taxGate.ok ? (
+          <AnswerStatus
+            label="Set aside for tax"
+            failed={taxGate.failed}
+            what="your tax setup"
+            onRetry={taxGate.retry}
+            retrying={taxGate.retrying}
+          />
+        ) : runway ? (
+          <Answer
+            tone="act"
+            label={behind ? "Late on estimated tax" : "Set aside for tax"}
+            value={formatCents(
+              behind ? runway.behindByCents : runway.holdBackCents,
+            )}
+            detail={
+              behind
                 ? `The installment schedule wanted this by a ${taxYear} date that has already passed. ` +
                   standingHeadline(runway)
                 : `Tax on the profit you have already made in ${taxYear}, less what you have paid. ` +
                   (pct == null
                     ? "It moves every time you sell."
                     : `That is about ${pct.toFixed(0)}% of your profit.`)
-              : "Answer five questions in Tax & filing and this becomes a figure you can move into a second account."
-          }
-          to={viewLink("tax")}
-          cta={runway ? "See where you stand" : "Set it up"}
-        />
-        <Answer
-          tone={reviewCount > 0 ? "act" : "plain"}
-          label="Needs a look"
-          value={reviewCount === 0 ? "Nothing" : String(reviewCount)}
-          detail={
-            reviewCount === 0
-              ? "Your books have nothing unexplained in them for this year."
-              : "Things that would make a number wrong on your return. Each one says what it costs to leave alone."
-          }
-          to={reviewCount > 0 ? viewLink("pnl") : undefined}
-          cta={reviewCount > 0 ? "Go through them" : undefined}
-        />
+            }
+            to={viewLink("tax")}
+            cta="See where you stand"
+          />
+        ) : !profile ? (
+          // Only a profile read that SUCCEEDED and came back empty is "not set
+          // up". A pending or failed one is handled above.
+          <Answer
+            tone="act"
+            label="Set aside for tax"
+            value="Not set up"
+            detail="Answer five questions in Tax & filing and this becomes a figure you can move into a second account."
+            to={viewLink("tax")}
+            cta="Set it up"
+          />
+        ) : (
+          <Answer
+            tone="act"
+            label="Set aside for tax"
+            value="No rates yet"
+            detail={`The ${taxYear} tax rates aren't loaded yet, so there is no figure to set aside. Your setup is saved.`}
+            to={viewLink("tax")}
+            cta="See where you stand"
+          />
+        )}
+        {!reviewGate.ok ? (
+          <AnswerStatus
+            label="Needs a look"
+            failed={reviewGate.failed}
+            what="your review list"
+            onRetry={reviewGate.retry}
+            retrying={reviewGate.retrying}
+          />
+        ) : (
+          <Answer
+            tone={reviewCount > 0 ? "act" : "plain"}
+            label="Needs a look"
+            value={reviewCount === 0 ? "Nothing" : String(reviewCount)}
+            detail={
+              reviewCount === 0
+                ? "Your books have nothing unexplained in them for this year."
+                : "Things that would make a number wrong on your return. Each one says what it costs to leave alone."
+            }
+            to={reviewCount > 0 ? viewLink("pnl") : undefined}
+            cta={reviewCount > 0 ? "Go through them" : undefined}
+          />
+        )}
       </div>
 
       {/* And the two that report rather than ask. */}
@@ -351,7 +456,7 @@ export function MoneyOverviewPage() {
         />
       </div>
 
-      {reviewCount > 0 && (
+      {reviewGate.ok && reviewCount > 0 && (
         <Card>
           <CardContent className="flex flex-wrap items-center gap-3 py-4">
             <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />

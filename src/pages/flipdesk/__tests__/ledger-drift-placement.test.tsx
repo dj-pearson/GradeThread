@@ -18,6 +18,11 @@ vi.mock("@/stores/auth-store", () => ({
   useAuthStore: (select: (s: unknown) => unknown) =>
     select({ user: { id: "seller" }, workspaces: [] }),
 }));
+// The Overview reads the workspace to tell an owner from a member acting in
+// someone else's books (Money M6). This seller is on their own.
+vi.mock("@/hooks/use-workspace", () => ({
+  useWorkspace: () => ({ workspaceOwnerId: "seller" }),
+}));
 vi.mock("@/components/finances/ledger-drift-banner", () => ({
   LedgerDriftBanner: (p: { periodStart: string; periodEnd?: string }) => (
     <p data-drift-banner data-start={p.periodStart} data-end={p.periodEnd ?? ""} />
