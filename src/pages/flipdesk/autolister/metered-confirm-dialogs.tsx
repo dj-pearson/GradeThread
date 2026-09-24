@@ -36,8 +36,12 @@ function overBudget(count: number | undefined, remaining: number | null): boolea
   return remaining != null && count != null && count > remaining;
 }
 
-function remainingClause(remaining: number | null): string {
-  return remaining != null ? ` of your ${remaining} remaining` : "";
+/** AL-08: `credits` of `remaining` are Action Credits; say so. */
+function remainingClause(remaining: number | null, credits = 0): string {
+  if (remaining == null) return "";
+  return credits > 0
+    ? ` of your ${remaining} remaining (${remaining - credits} this month + ${credits} Action Credits)`
+    : ` of your ${remaining} remaining`;
 }
 
 export function GenerateConfirmDialog({
@@ -47,6 +51,7 @@ export function GenerateConfirmDialog({
   stagedCount,
   ungroupedCount,
   aiActionsRemaining,
+  creditsInRemaining = 0,
   groupWarnings,
   onWarningClick,
   ackUngrouped,
@@ -64,6 +69,8 @@ export function GenerateConfirmDialog({
   stagedCount: number;
   ungroupedCount: number;
   aiActionsRemaining: number | null;
+  /** AL-08: how many of `aiActionsRemaining` are Action Credits. */
+  creditsInRemaining?: number;
   groupWarnings: { key: string; groupId: string; label: string }[];
   onWarningClick: (groupId: string) => void;
   ackUngrouped: boolean;
@@ -100,7 +107,7 @@ export function GenerateConfirmDialog({
           <DialogDescription>
             {stagedCount} photo{stagedCount === 1 ? "" : "s"} staged · ~
             {listableCount} AI action{plural}
-            {remainingClause(aiActionsRemaining)}
+            {remainingClause(aiActionsRemaining, creditsInRemaining)}
             {overBudget(listableCount, aiActionsRemaining)
               ? " — this batch won't fit; trim it or upgrade."
               : ""}
@@ -219,11 +226,14 @@ export function VerifyConfirmDialog<W>({
   confirm,
   onCancel,
   aiActionsRemaining,
+  creditsInRemaining = 0,
   onConfirm,
 }: {
   confirm: VerifyConfirmState<W> | null;
   onCancel: () => void;
   aiActionsRemaining: number | null;
+  /** AL-08: how many of `aiActionsRemaining` are Action Credits. */
+  creditsInRemaining?: number;
   onConfirm: (windows: W[]) => void;
 }) {
   return (
@@ -235,7 +245,7 @@ export function VerifyConfirmDialog<W>({
             This session is too large for one AI check, so it runs in{" "}
             {confirm?.windowCount} batches — {confirm?.windowCount} AI action
             {confirm?.windowCount === 1 ? "" : "s"}
-            {remainingClause(aiActionsRemaining)}. You can stop between batches;
+            {remainingClause(aiActionsRemaining, creditsInRemaining)}. You can stop between batches;
             suggestions appear as you go.
           </DialogDescription>
         </DialogHeader>
@@ -262,11 +272,14 @@ export function ProposeConfirmDialog({
   confirm,
   onCancel,
   aiActionsRemaining,
+  creditsInRemaining = 0,
   onConfirm,
 }: {
   confirm: ProposeConfirmState | null;
   onCancel: () => void;
   aiActionsRemaining: number | null;
+  /** AL-08: how many of `aiActionsRemaining` are Action Credits. */
+  creditsInRemaining?: number;
   onConfirm: (windows: string[][]) => void;
 }) {
   return (
@@ -278,7 +291,7 @@ export function ProposeConfirmDialog({
             Too many photos for one AI pass, so it runs in{" "}
             {confirm?.windowCount} batches — {confirm?.windowCount} AI action
             {confirm?.windowCount === 1 ? "" : "s"}
-            {remainingClause(aiActionsRemaining)}. You can stop between batches;
+            {remainingClause(aiActionsRemaining, creditsInRemaining)}. You can stop between batches;
             confident items are created (undoable), unsure ones show up to
             review.
           </DialogDescription>

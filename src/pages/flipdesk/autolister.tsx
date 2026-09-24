@@ -24,6 +24,7 @@ import { itemPhotoThumb } from "@/lib/images";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { useAutolisterPhoneCapture } from "./autolister/use-phone-capture";
 import { useWorkbenchPersistence } from "./autolister/use-workbench-persistence";
+import { aiActionBudget } from "./autolister/ai-budget";
 import { uploadActions } from "./autolister/upload-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -384,13 +385,21 @@ function AutolisterWorkbench() {
   // US-1545: the month's remaining AI actions (plan cap, tightened by the
   // optional self-cap) — feeds the projected-spend line next to Generate. The
   // server enforces the same math at enqueue (count-aware 402) and per item.
-  const aiActionsRemaining = useMemo(() => {
+  // AL-08: Action Credits count too when the plan (not a self-cap) binds.
+  const aiBudget = useMemo(() => {
     if (!billing) return null;
-    const planCap = FLIPDESK_PLANS[plan].aiActionsPerMonth;
-    const selfCap = billing.usage.ai_action_limit;
-    const limit = selfCap != null ? Math.min(planCap, selfCap) : planCap;
-    return Math.max(0, limit - billing.usage.ai_actions_used_this_month);
+    return aiActionBudget({
+      planCap: FLIPDESK_PLANS[plan].aiActionsPerMonth,
+      selfCap: billing.usage.ai_action_limit,
+      used: billing.usage.ai_actions_used_this_month,
+      creditBalance: billing.action_credits?.balance,
+    });
   }, [billing, plan]);
+  const aiActionsRemaining = aiBudget?.remaining ?? null;
+  const creditsInRemaining = aiBudget?.credits ?? 0;
+  // AL-08: every metered pass refreshes the meter, so the next dialog's
+  // "remaining" reflects what the last pass spent.
+  const refreshAiMeter = () => void qc.invalidateQueries({ queryKey: ["billing_summary"] });
 
   // US-317: persist sessionId across reloads so the _staging uploads aren't
   // orphaned. AL-03: keyed on this user AND workspace owner.
@@ -742,6 +751,7 @@ function AutolisterWorkbench() {
       {
         onSettled: () => {
           for (const p of pending) coverInFlight.current.delete(p.id);
+          refreshAiMeter();
         },
       },
     );
@@ -1361,6 +1371,7 @@ function AutolisterWorkbench() {
     } finally {
       setVerifyingGroups(false);
       setVerifyProgress(null);
+      refreshAiMeter();
     }
   }
 
@@ -1511,6 +1522,7 @@ function AutolisterWorkbench() {
     } finally {
       setProposing(false);
       setProposeProgress(null);
+      refreshAiMeter();
     }
   }
 
@@ -1990,6 +2002,7 @@ function AutolisterWorkbench() {
       toastError(err, "Auto-tag failed.");
       return false;
     } finally {
+      refreshAiMeter();
       setTaggingGroups((prev) => {
         const next = new Set(prev);
         next.delete(groupId);
@@ -2182,6 +2195,7 @@ function AutolisterWorkbench() {
         item_ids: itemIds,
         auto_publish_green: autoPublishGreen,
       });
+      refreshAiMeter();
       // AL-07: a group skipped for a protected SKU match stays in the session.
       const sent = targets.filter((g) => created.has(g.id));
       if (partial || sent.length < targets.length) {
@@ -2390,6 +2404,7 @@ function AutolisterWorkbench() {
           listableCount={listableCount}
           ungroupedCount={ungrouped.length}
           aiActionsRemaining={aiActionsRemaining}
+          creditsInRemaining={creditsInRemaining}
           groupWarnings={groupWarnings}
           onWarningClick={scrollToGroup}
         />
@@ -3091,6 +3106,7 @@ function AutolisterWorkbench() {
         // neutral `partial` note below instead of a blocking checkbox.
         ungroupedCount={generateScope.partial ? 0 : ungrouped.length}
         aiActionsRemaining={aiActionsRemaining}
+        creditsInRemaining={creditsInRemaining}
         groupWarnings={generateScope.warnings}
         onWarningClick={scrollToGroup}
         ackUngrouped={ackUngrouped}
@@ -3124,6 +3140,7 @@ function AutolisterWorkbench() {
         confirm={verifyConfirm}
         onCancel={() => setVerifyConfirm(null)}
         aiActionsRemaining={aiActionsRemaining}
+        creditsInRemaining={creditsInRemaining}
         onConfirm={(windows) => {
           setVerifyConfirm(null);
           void runVerifyWindows(windows, false);
@@ -3134,6 +3151,7 @@ function AutolisterWorkbench() {
         confirm={proposeConfirm}
         onCancel={() => setProposeConfirm(null)}
         aiActionsRemaining={aiActionsRemaining}
+        creditsInRemaining={creditsInRemaining}
         onConfirm={(windows) => {
           setProposeConfirm(null);
           void runProposeWindows(windows);

@@ -107,6 +107,7 @@ export function BatchSummaryBar({
   listableCount,
   ungroupedCount,
   aiActionsRemaining,
+  creditsInRemaining = 0,
   groupWarnings,
   onWarningClick,
 }: {
@@ -114,6 +115,8 @@ export function BatchSummaryBar({
   listableCount: number;
   ungroupedCount: number;
   aiActionsRemaining: number | null;
+  /** AL-08: how many of `aiActionsRemaining` are Action Credits. */
+  creditsInRemaining?: number;
   groupWarnings: GroupWarning[];
   onWarningClick: (groupId: string) => void;
 }) {
@@ -137,6 +140,7 @@ export function BatchSummaryBar({
         <span className="text-muted-foreground">
           ~{listableCount} AI action{listableCount === 1 ? "" : "s"}
           {aiActionsRemaining != null ? ` of ${aiActionsRemaining} left` : ""}
+          {creditsInRemaining > 0 ? ` (incl. ${creditsInRemaining} Action Credits)` : ""}
         </span>
       </div>
       {groupWarnings.length > 0 && (
