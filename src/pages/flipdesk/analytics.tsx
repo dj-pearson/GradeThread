@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -74,6 +74,7 @@ import { useTenantKey } from "@/hooks/use-tenant-key";
 import { pointLift, presetStart, RANGE_LABEL, rangePhrase, type Preset } from "@/lib/analytics-range";
 import { ANALYTICS_TABS, RANGE_TABS, tabFromPath, tabHref, type AnalyticsTabId } from "@/lib/analytics-tabs";
 import { usePresetParam } from "@/hooks/use-preset-param";
+import { buildGuaranteeText, fetchGuaranteeCandidates, GUARANTEE_MIN_GRADE, type GuaranteeRecord } from "@/lib/condition-guarantee";
 
 // Lazy-load the Recharts bar chart at the chart boundary so the route-entry
 // chunk stays light and the page shell + table paint before Recharts streams
@@ -1417,12 +1418,16 @@ function ReturnReductionReport() {
 
 // AC #2: an OPTIONAL grade-backed "condition guarantee" surface that targets
 // return reduction. Only meaningful once the seller has a trustworthy
-// high-grade track record; we build the guarantee blurb from their own numbers
-// (no fabricated claims) and let them copy it straight into a listing.
+// high-grade track record.
+//
+// A15: the text is built PER ITEM, for unsold items graded 8.5 or higher that
+// carry a real certificate, and quotes that item's own grade and certificate
+// link. The old single blurb could be pasted onto any listing, and it promised
+// a full refund on behalf of a return policy the app does not know.
 function ConditionGuaranteeCard() {
   // A12: the guarantee quotes the seller's ALL-TIME track record. It used the
-  // tab's range, so the "N graded sales" in a blurb already pasted into
-  // listings changed whenever the seller moved a dropdown they might not see.
+  // tab's range, so the "N graded sales" in text already pasted into listings
+  // changed whenever the seller moved a dropdown they might not see.
   const tenantKey = useTenantKey();
   const { data } = useQuery({
     queryKey: ["items_full", "analytics", "returns", tenantKey, null],
@@ -1435,17 +1440,24 @@ function ConditionGuaranteeCard() {
     !!highBand &&
     highBand.sold >= MIN_RETURN_SAMPLE &&
     highBand.returnRate != null;
+  const record: GuaranteeRecord | null =
+    ready && highBand && highBand.returnRate != null
+      ? { sold: highBand.sold, keptRate: 1 - highBand.returnRate }
+      : null;
 
-  const keptRate =
-    highBand && highBand.returnRate != null ? 1 - highBand.returnRate : null;
+  const candidates = useQuery({
+    queryKey: ["items_full", "analytics", "guarantee-items", tenantKey],
+    enabled: !!tenantKey && ready,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchGuaranteeCandidates(tenantKey as string),
+  });
 
-  const blurb = ready
-    ? `Condition guarantee: this item is independently graded 8.5–10.0. Across ${
-        highBand!.sold
-      } graded sales at this tier (all time), ${pct(
-        keptRate,
-      )} shipped return-free. If it arrives in worse condition than its grade certificate states, return it for a full refund.`
-    : "";
+  function copy(text: string) {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => toast.success("Guarantee text copied"))
+      .catch(() => toast.error("Couldn't copy to clipboard"));
+  }
 
   return (
     <Card>
@@ -1455,37 +1467,83 @@ function ConditionGuaranteeCard() {
           Grade-backed condition guarantee
         </CardTitle>
         <CardDescription>
-          Offering a guarantee on your highest-graded items signals confidence
-          and pulls returns down further. We only generate it from your real
-          track record.
+          For your unsold items graded {GUARANTEE_MIN_GRADE.toFixed(1)} or
+          higher with a certificate. Each one gets its own text, with its grade,
+          its certificate link and your all-time record at that tier.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {ready ? (
-          <>
-            <div className="rounded-md border bg-muted/40 p-3 text-sm">
-              {blurb}
-            </div>
+        {!ready ? (
+          <p className="py-2 text-sm text-muted-foreground">
+            Need {MIN_RETURN_SAMPLE}+ shipped sales graded{" "}
+            {GUARANTEE_MIN_GRADE.toFixed(1)} or higher before we can back a
+            guarantee with your own numbers. Keep grading your best items and
+            check back.
+          </p>
+        ) : candidates.isError ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <p className="text-muted-foreground">
+              Couldn&apos;t load the items that qualify.
+            </p>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                navigator.clipboard
-                  .writeText(blurb)
-                  .then(() => toast.success("Guarantee text copied"))
-                  .catch(() => toast.error("Couldn't copy to clipboard"));
-              }}
+              disabled={candidates.isFetching}
+              onClick={() => void candidates.refetch()}
             >
-              <Copy className="mr-2 h-4 w-4" />
-              Copy guarantee text
+              Retry
             </Button>
-          </>
-        ) : (
+          </div>
+        ) : candidates.isLoading ? (
+          <LoadingRegion label="Loading items that qualify">
+            <ChartSkeleton className="h-24" />
+          </LoadingRegion>
+        ) : (candidates.data?.total ?? 0) === 0 ? (
           <p className="py-2 text-sm text-muted-foreground">
-            Need {MIN_RETURN_SAMPLE}+ shipped sales graded 8.5–10.0 before we
-            can back a guarantee with your own numbers. Keep grading your best
-            items and check back.
+            No unsold item graded {GUARANTEE_MIN_GRADE.toFixed(1)} or higher
+            with a certificate right now.
           </p>
+        ) : (
+          <>
+            <p className="text-sm">
+              {candidates.data!.total}{" "}
+              {candidates.data!.total === 1 ? "item qualifies" : "items qualify"}
+              {candidates.data!.total > candidates.data!.items.length
+                ? `. Your top ${candidates.data!.items.length} by grade:`
+                : ":"}
+            </p>
+            <ul className="divide-y rounded-md border">
+              {candidates.data!.items.map((item) => {
+                const text = buildGuaranteeText(item, record);
+                if (!text) return null;
+                return (
+                  <li
+                    key={item.id}
+                    className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm"
+                  >
+                    <Link
+                      to={`/dashboard/flipdesk/items/${item.id}`}
+                      className="min-w-0 flex-1 truncate font-medium hover:underline"
+                    >
+                      {item.title || "Untitled item"}
+                    </Link>
+                    <span className="tabular-nums text-muted-foreground">
+                      {item.grade_value!.toFixed(1)}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copy(text)}
+                      aria-label={`Copy guarantee for ${item.title || "Untitled item"}`}
+                    >
+                      <Copy className="mr-2 h-4 w-4" />
+                      Copy guarantee
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
         )}
       </CardContent>
     </Card>
