@@ -55,7 +55,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
-import { useSources } from "@/hooks/use-sources";
+import { useSources, NOTHING_CHANGED } from "@/hooks/use-sources";
 import { SourcerRosterCard } from "@/components/flipdesk/sourcer-roster-card";
 import {
   FLIPDESK_SOURCE_TYPES,
@@ -104,7 +104,11 @@ export function FlipdeskSourcesPage() {
   // item just to print a number, and under a row cap the delete dialog would
   // under-report how many items get unlinked. The function is SECURITY
   // INVOKER, so RLS decides what is counted.
-  const { data: countRows } = useQuery({
+  const {
+    data: countRows,
+    isLoading: countsLoading,
+    isError: countsError,
+  } = useQuery({
     queryKey: ["inventory_items_source_counts", workspaceOwnerId],
     enabled: !!user && !!workspaceOwnerId,
     queryFn: async (): Promise<SourceItemCount[]> => {
@@ -127,6 +131,10 @@ export function FlipdeskSourcesPage() {
     }
     return counts;
   }, [countRows]);
+  // SRC-1: while counts are loading or failed, a 0 would be a lie that invites
+  // deleting a source that is in use. Show a dash and warn unconditionally.
+  const countsKnown = !countsLoading && !countsError;
+  const canManage = can("manage_inventory");
 
   async function save() {
     if (!user || !workspaceOwnerId || !editing) return;
@@ -141,23 +149,30 @@ export function FlipdeskSourcesPage() {
     }
     setSaving(true);
     try {
-      const payload = {
-        user_id: workspaceOwnerId,
+      // SRC-1: user_id goes on INSERT only. Sending it on UPDATE could move
+      // a row from another workspace the caller belongs to into this one.
+      const fields = {
         name,
         source_type: editing.source_type,
         location: editing.location.trim() || null,
         notes: editing.notes.trim() || null,
       };
       if (editing.id) {
-        const { error: uErr } = await supabase
+        const { data: updated, error: uErr } = await supabase
           .from("sources")
-          .update(payload as never)
-          .eq("id", editing.id);
+          .update(fields as never)
+          .eq("id", editing.id)
+          .eq("user_id", workspaceOwnerId)
+          .select("id");
         if (uErr) throw uErr;
+        if (!updated || updated.length === 0) {
+          toast.error(NOTHING_CHANGED);
+          return;
+        }
       } else {
         const { error: iErr } = await supabase
           .from("sources")
-          .insert(payload as never);
+          .insert({ ...fields, user_id: workspaceOwnerId } as never);
         if (iErr) throw iErr;
       }
       await qc.invalidateQueries({ queryKey: ["sources"] });
@@ -172,15 +187,25 @@ export function FlipdeskSourcesPage() {
   }
 
   async function performDelete() {
-    if (!confirmDelete) return;
+    if (!confirmDelete || !workspaceOwnerId) return;
     const target = confirmDelete;
     setConfirmDelete(null);
+    if (!can("manage_inventory")) {
+      toast.error("You don't have permission to manage sources in this workspace.");
+      return;
+    }
     try {
-      const { error: dErr } = await supabase
+      const { data: deleted, error: dErr } = await supabase
         .from("sources")
         .delete()
-        .eq("id", target.id);
+        .eq("id", target.id)
+        .eq("user_id", workspaceOwnerId)
+        .select("id");
       if (dErr) throw dErr;
+      if (!deleted || deleted.length === 0) {
+        toast.error(NOTHING_CHANGED);
+        return;
+      }
       await qc.invalidateQueries({ queryKey: ["sources"] });
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       // US-1636: the per-source item-count widget on this page keys off its own
@@ -201,10 +226,12 @@ export function FlipdeskSourcesPage() {
         title="Sources"
         subtitle="Where your inventory comes from. Linked to every item."
         actions={
-          <Button onClick={() => setEditing({ ...EMPTY })}>
-            <Plus className="mr-2 h-4 w-4" />
-            New source
-          </Button>
+          canManage ? (
+            <Button onClick={() => setEditing({ ...EMPTY })}>
+              <Plus className="mr-2 h-4 w-4" />
+              New source
+            </Button>
+          ) : undefined
         }
       />
 
@@ -238,11 +265,15 @@ export function FlipdeskSourcesPage() {
               icon={MapPin}
               title="No sources yet"
               description="Track where your inventory comes from. Add a source manually, or they'll be auto-created when you import items."
-              action={{
-                label: "New source",
-                onClick: () => setEditing({ ...EMPTY }),
-                icon: Plus,
-              }}
+              action={
+                canManage
+                  ? {
+                      label: "New source",
+                      onClick: () => setEditing({ ...EMPTY }),
+                      icon: Plus,
+                    }
+                  : undefined
+              }
             />
           ) : (
             <Table>
@@ -256,66 +287,79 @@ export function FlipdeskSourcesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sources.map((s) => (
-                  <ClickableRow
-                    key={s.id}
-                    className="hover:bg-muted/30"
-                    onActivate={() =>
-                      setEditing({
-                        id: s.id,
-                        name: s.name,
-                        source_type: s.source_type,
-                        location: s.location ?? "",
-                        notes: s.notes ?? "",
-                      })
-                    }
-                    activateLabel={`Edit ${s.name}`}
-                  >
-                    <TableCell className="font-medium">{s.name}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {FLIPDESK_SOURCE_TYPE_LABELS[s.source_type]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {s.location ?? ""}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {itemCountBySource.get(s.id) ?? 0}
-                    </TableCell>
-                    <TableCell
-                      className="text-right"
-                      onClick={(e) => e.stopPropagation()}
+                {sources.map((s) => {
+                  const cells = (
+                    <>
+                      <TableCell className="font-medium">{s.name}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {FLIPDESK_SOURCE_TYPE_LABELS[s.source_type]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {s.location ?? ""}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {countsKnown ? (itemCountBySource.get(s.id) ?? 0) : "-"}
+                      </TableCell>
+                      <TableCell
+                        className="text-right"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {canManage && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() =>
+                                setEditing({
+                                  id: s.id,
+                                  name: s.name,
+                                  source_type: s.source_type,
+                                  location: s.location ?? "",
+                                  notes: s.notes ?? "",
+                                })
+                              }
+                              aria-label={`Edit ${s.name}`}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive"
+                              onClick={() => setConfirmDelete(s)}
+                              aria-label={`Delete ${s.name}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        )}
+                      </TableCell>
+                    </>
+                  );
+                  // SRC-1: a viewer gets a plain row, not a button that does nothing.
+                  if (!canManage) return <TableRow key={s.id}>{cells}</TableRow>;
+                  return (
+                    <ClickableRow
+                      key={s.id}
+                      className="hover:bg-muted/30"
+                      onActivate={() =>
+                        setEditing({
+                          id: s.id,
+                          name: s.name,
+                          source_type: s.source_type,
+                          location: s.location ?? "",
+                          notes: s.notes ?? "",
+                        })
+                      }
+                      activateLabel={`Edit ${s.name}`}
                     >
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() =>
-                          setEditing({
-                            id: s.id,
-                            name: s.name,
-                            source_type: s.source_type,
-                            location: s.location ?? "",
-                            notes: s.notes ?? "",
-                          })
-                        }
-                        aria-label={`Edit ${s.name}`}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-destructive"
-                        onClick={() => setConfirmDelete(s)}
-                        aria-label={`Delete ${s.name}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </TableCell>
-                  </ClickableRow>
-                ))}
+                      {cells}
+                    </ClickableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
@@ -340,7 +384,14 @@ export function FlipdeskSourcesPage() {
             <AlertDialogTitle>Delete source?</AlertDialogTitle>
             <AlertDialogDescription>
               "{confirmDelete?.name}" will be removed.{" "}
+              {confirmDelete && !countsKnown && (
+                <>
+                  <strong>Any items linked to it will be unlinked</strong>{" "}
+                  (the items themselves are kept). This can't be undone.
+                </>
+              )}
               {confirmDelete &&
+                countsKnown &&
                 (itemCountBySource.get(confirmDelete.id) ?? 0) > 0 && (
                   <>
                     <strong>

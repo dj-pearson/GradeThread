@@ -16,6 +16,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   from: vi.fn(),
+  can: vi.fn(() => true),
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError, success: mocks.toastSuccess },
 }));
 
 vi.mock("@/lib/supabase", () => ({
@@ -30,10 +37,12 @@ vi.mock("@/stores/auth-store", () => ({
 // A workspace member looking at the owner's sources: the count must be asked
 // for the OWNER's workspace, not the member's own.
 vi.mock("@/hooks/use-workspace", () => ({
-  useWorkspace: () => ({ workspaceOwnerId: "owner-1", can: () => true }),
+  useWorkspace: () => ({ workspaceOwnerId: "owner-1", can: mocks.can }),
 }));
 
 vi.mock("@/hooks/use-sources", () => ({
+  NOTHING_CHANGED:
+    "Nothing was changed. You may not have access, or it was already removed.",
   useSources: () => ({
     data: [
       { id: "src-goodwill", name: "Goodwill SE 14th", source_type: "thrift", location: null, notes: null },
@@ -105,6 +114,9 @@ beforeEach(() => {
     ],
     error: null,
   });
+  mocks.can.mockReset().mockReturnValue(true);
+  mocks.toastError.mockReset();
+  mocks.toastSuccess.mockReset();
   mocks.from.mockReset().mockImplementation((table: string) => {
     throw new Error(`the page read ${table} directly`);
   });
@@ -151,5 +163,87 @@ describe("Sources page item counts", () => {
     const dialog = document.body.querySelector('[role="alertdialog"]');
     expect(dialog!.textContent).toContain('"Goodwill SE 14th" will be removed.');
     expect(dialog!.textContent).not.toContain("unlinked");
+  });
+});
+
+// SRC-1: writes are scoped to the workspace, gated by permission, and a 0-row
+// result (RLS filtered it) is reported instead of "Deleted".
+describe("Sources page writes", () => {
+  function sourcesChain(result: { data: unknown; error: unknown }) {
+    const calls: { method: string; args: unknown[] }[] = [];
+    const chain: Record<string, (...a: unknown[]) => unknown> = {};
+    for (const m of ["update", "delete", "insert", "eq"]) {
+      chain[m] = (...args: unknown[]) => {
+        calls.push({ method: m, args });
+        return chain;
+      };
+    }
+    chain.select = (...args: unknown[]) => {
+      calls.push({ method: "select", args });
+      return Promise.resolve(result);
+    };
+    mocks.from.mockImplementation((table: string) => {
+      if (table !== "sources") throw new Error(`the page read ${table} directly`);
+      return chain;
+    });
+    return calls;
+  }
+
+  it("a delete that removes 0 rows says nothing changed, not Deleted", async () => {
+    const calls = sourcesChain({ data: [], error: null });
+    await renderPage();
+    await clickDelete("Estate sale");
+    const confirm = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button'),
+    ).find((b) => b.textContent === "Delete source");
+    await act(async () => {
+      confirm!.click();
+    });
+    await flush();
+    expect(calls).toContainEqual({ method: "eq", args: ["user_id", "owner-1"] });
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "Nothing was changed. You may not have access, or it was already removed.",
+    );
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+  });
+
+  it("an edit sends no user_id and is filtered to the workspace", async () => {
+    const calls = sourcesChain({ data: [{ id: "src-estate" }], error: null });
+    await renderPage();
+    const edit = host.querySelector<HTMLButtonElement>('button[aria-label="Edit Estate sale"]');
+    await act(async () => {
+      edit!.click();
+    });
+    await flush();
+    const save = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button")).find(
+      (b) => b.textContent === "Save",
+    );
+    await act(async () => {
+      save!.click();
+    });
+    await flush();
+    const update = calls.find((c) => c.method === "update");
+    expect(update).toBeDefined();
+    expect(update!.args[0]).not.toHaveProperty("user_id");
+    expect(calls).toContainEqual({ method: "eq", args: ["user_id", "owner-1"] });
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Source updated.");
+  });
+
+  it("a viewer sees no New, Edit or Delete controls", async () => {
+    mocks.can.mockReturnValue(false);
+    await renderPage();
+    const labels = Array.from(host.querySelectorAll("button")).map(
+      (b) => b.getAttribute("aria-label") ?? b.textContent,
+    );
+    expect(labels.some((l) => /New source|^Edit |^Delete /.test(l ?? ""))).toBe(false);
+  });
+
+  it("shows a dash, not 0, while counts have failed", async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { message: "boom" } });
+    await renderPage();
+    expect(rowCount("Goodwill SE 14th")).toBe("-");
+    await clickDelete("Goodwill SE 14th");
+    const dialog = document.body.querySelector('[role="alertdialog"]');
+    expect(dialog!.textContent).toContain("Any items linked to it will be unlinked");
   });
 });
