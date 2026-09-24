@@ -33,6 +33,9 @@ import { usePerformanceSuggestions } from "@/hooks/use-repricing";
 import { cn } from "@/lib/utils";
 import { CHART_PALETTE } from "@/lib/constants";
 import { useTenantKey } from "@/hooks/use-tenant-key";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { fetchOffsetPages } from "@/lib/paged-read";
+import { ErrorState } from "@/components/ui/error-state";
 
 // US-2826: photo count / quality score / grade against first-14-day traffic.
 const ListingQualityLiftSection = lazy(() =>
@@ -46,6 +49,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // Rows per page. Sent to the RPC as p_limit, so the server returns exactly
 // what is rendered rather than a set the client then slices.
 const PAGE_SIZE = 50;
+// The RPC's own p_limit ceiling (00560: least(p_limit, 200)).
+const EXPORT_PAGE = 200;
 
 interface PerfRow {
   id: string;
@@ -146,8 +151,23 @@ export function FlipdeskListingPerformancePage(
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   // null = chip off; otherwise the N-day no-views window.
   const [noViewDays, setNoViewDays] = useState<number | null>(null);
-  const [search, setSearch] = useState("");
+  const [search, setSearchRaw] = useState("");
   const [page, setPage] = useState(0);
+  // A11: the query waits for typing to settle. Every keystroke used to be its
+  // own RPC, so "levis 501" was nine reads of which one was wanted.
+  const searchTerm = useDebouncedValue(search.trim(), 300);
+
+  // A11: any change to what is being asked for resets to the first page, in
+  // the setter itself. The effect that used to do it ran AFTER the render, so
+  // a sort click fetched the old page first and then page 0.
+  function setSearch(v: string) {
+    setSearchRaw(v);
+    setPage(0);
+  }
+  function setNoViewFilter(update: (cur: number | null) => number | null) {
+    setNoViewDays(update);
+    setPage(0);
+  }
 
   // US-2233 AC3: ONE page, searched and sorted in the database (migration 00560).
   //
@@ -163,11 +183,23 @@ export function FlipdeskListingPerformancePage(
   // TanStack would serve the first page's cache for the second page — the
   // classic server-paging cache bug, and one that looks like "paging is broken"
   // rather than "the key is wrong".
-  const { data: pageData, isLoading } = useQuery({
+  //
+  // A11: every key on this page sits under ["listing_performance", tenant], so
+  // the sync's one invalidate refreshes the table, the KPI tiles and the
+  // suggestions together. The summary used to live under its own prefix and
+  // kept showing the pre-sync numbers.
+  const {
+    data: pageData,
+    isLoading,
+    isError: pageFailed,
+    isFetching: pageFetching,
+    refetch: refetchPage,
+  } = useQuery({
     queryKey: [
       "listing_performance",
       tenantKey,
-      search.trim(),
+      "page",
+      searchTerm,
       noViewDays,
       sortKey,
       sortDir,
@@ -182,7 +214,7 @@ export function FlipdeskListingPerformancePage(
       const { data, error } = await supabase.rpc(
         "flipdesk_listing_performance_page",
         {
-          p_search: search.trim() || null,
+          p_search: searchTerm || null,
           p_no_view_days: noViewDays ?? 0,
           // `days_listed` is a derived column the database does not have; it is
           // listed_at with the direction INVERTED, because more days listed
@@ -273,53 +305,62 @@ export function FlipdeskListingPerformancePage(
   //
   // The same search, no-view filter and sort are passed, so the file matches
   // what the seller is looking at rather than some canonical ordering they did
-  // not ask for. And when the cap bites, the toast SAYS SO with both numbers —
-  // silence there would reintroduce the exact bug this comment is about.
-  const EXPORT_MAX = 5000;
+  // not ask for.
+  //
+  // A11: it WALKS the pages. It used to ask for 5,000 rows in one call, but the
+  // RPC clamps p_limit to 200 (00560), so every export stopped at 200 and the
+  // warning toast blamed the seller's filter. EXPORT_PAGE matches the clamp and
+  // fetchOffsetPages keeps going until it has total_count rows.
+  const [exporting, setExporting] = useState(false);
 
   async function exportCsv() {
-    const { data, error } = await supabase.rpc(
-      "flipdesk_listing_performance_page",
-      {
-        p_search: search.trim() || null,
-        p_no_view_days: noViewDays ?? 0,
-        p_sort: sortKey === "days_listed" ? "listed_at" : sortKey,
-        p_desc: sortKey === "days_listed" ? sortDir === "asc" : sortDir === "desc",
-        p_limit: EXPORT_MAX,
-        p_offset: 0,
-      } as never,
-    );
-    if (error) {
-      toast.error("Could not build the export.");
-      return;
-    }
-    const rows = (data ?? []) as PerfRow[];
-    downloadCsv(
-      `flipdesk-listing-performance-${new Date().toISOString().slice(0, 10)}.csv`,
-      [
-        "Listing",
-        "Views",
-        "Watchers",
-        "Impr. (7d)",
-        "CTR",
-        "Listed",
-        "7-day trend",
-      ],
-      rows.map((r) => [
-        r.title,
-        r.views_total,
-        r.watchers_count,
-        r.impressions_7d,
-        r.click_through_rate ?? "",
-        daysListed(r.listed_at),
-        (r.view_trend_7d ?? []).map((d) => d.views).join(" "),
-      ]),
-    );
-    if (rows.length < total) {
-      toast.warning(
-        `Exported the first ${rows.length} of ${total} listings.`,
-        { description: "Narrow the search or the filter to export the rest." },
+    setExporting(true);
+    try {
+      const rows = await fetchOffsetPages<PerfRow & { total_count?: number }>(
+        async (offset, limit) => {
+          const { data, error } = await supabase.rpc(
+            "flipdesk_listing_performance_page",
+            {
+              p_search: searchTerm || null,
+              p_no_view_days: noViewDays ?? 0,
+              p_sort: sortKey === "days_listed" ? "listed_at" : sortKey,
+              p_desc: sortKey === "days_listed" ? sortDir === "asc" : sortDir === "desc",
+              p_limit: limit,
+              p_offset: offset,
+            } as never,
+          );
+          if (error) throw error;
+          const batch = (data ?? []) as Array<PerfRow & { total_count?: number }>;
+          const t = batch[0]?.total_count;
+          return { rows: batch, total: t == null ? null : Number(t) };
+        },
+        EXPORT_PAGE,
       );
+      downloadCsv(
+        `flipdesk-listing-performance-${new Date().toISOString().slice(0, 10)}.csv`,
+        [
+          "Listing",
+          "Views",
+          "Watchers",
+          "Impr. (7d)",
+          "CTR",
+          "Listed",
+          "7-day trend",
+        ],
+        rows.map((r) => [
+          r.title,
+          r.views_total,
+          r.watchers_count,
+          r.impressions_7d,
+          r.click_through_rate ?? "",
+          daysListed(r.listed_at),
+          (r.view_trend_7d ?? []).map((d) => d.views).join(" "),
+        ]),
+      );
+    } catch {
+      toast.error("Could not build the export.");
+    } finally {
+      setExporting(false);
     }
   }
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -327,20 +368,14 @@ export function FlipdeskListingPerformancePage(
   // matches three listings must not be left staring at an empty page 9.
   const safePage = Math.min(page, pageCount - 1);
 
-  // Any change to what is being asked for resets to the first page. Without
-  // this, narrowing a search while deep in the pager shows a blank table and
-  // reads as "search found nothing".
-  useEffect(() => {
-    setPage(0);
-  }, [search, noViewDays, sortKey, sortDir]);
 
   // US-2233: the KPI tiles and "last synced" span EVERY active listing, not the
   // page on screen — which is exactly why the page used to have to load them
   // all. One aggregate query replaces that. Its key deliberately excludes
   // search/sort/page: these figures are about the whole catalog and must not
   // change when the seller narrows the table.
-  const { data: summary } = useQuery({
-    queryKey: ["listing_performance_summary", tenantKey],
+  const { data: summary, isError: summaryFailed } = useQuery({
+    queryKey: ["listing_performance", tenantKey, "summary"],
     enabled: !!tenantKey,
     staleTime: 60_000,
     queryFn: async () => {
@@ -376,6 +411,7 @@ export function FlipdeskListingPerformancePage(
 
 
   function toggleSort(key: SortKey) {
+    setPage(0);
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
@@ -451,7 +487,15 @@ export function FlipdeskListingPerformancePage(
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{num(kpis.totalViews)}</div>
+            <div className="text-2xl font-bold">
+              {summaryFailed ? (
+                <span className="text-sm font-normal text-muted-foreground">
+                  Could not load
+                </span>
+              ) : (
+                num(kpis.totalViews)
+              )}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -461,7 +505,15 @@ export function FlipdeskListingPerformancePage(
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{pct(kpis.avgCtr)}</div>
+            <div className="text-2xl font-bold">
+              {summaryFailed ? (
+                <span className="text-sm font-normal text-muted-foreground">
+                  Could not load
+                </span>
+              ) : (
+                pct(kpis.avgCtr)
+              )}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -471,7 +523,15 @@ export function FlipdeskListingPerformancePage(
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{pct(kpis.stalePct)}</div>
+            <div className="text-2xl font-bold">
+              {summaryFailed ? (
+                <span className="text-sm font-normal text-muted-foreground">
+                  Could not load
+                </span>
+              ) : (
+                pct(kpis.stalePct)
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -553,16 +613,14 @@ export function FlipdeskListingPerformancePage(
                 <Badge variant="outline">{total}</Badge>
               </CardTitle>
               <CardDescription>
-                Click a column header to sort.
+                Your current active listings. The date range does not apply
+                here. Click a column header to sort.
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Input
                 value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(0);
-                }}
+                onChange={(e) => setSearch(e.target.value)}
                 aria-label="Search active listings by title"
                 placeholder="Search title…"
                 className="h-8 w-44"
@@ -574,10 +632,7 @@ export function FlipdeskListingPerformancePage(
                 <button
                   key={n}
                   type="button"
-                  onClick={() => {
-                    setNoViewDays((cur) => (cur === n ? null : n));
-                    setPage(0);
-                  }}
+                  onClick={() => setNoViewFilter((cur) => (cur === n ? null : n))}
                   className={cn(
                     "rounded-full border px-3 py-1 text-xs transition-colors",
                     noViewDays === n
@@ -593,25 +648,51 @@ export function FlipdeskListingPerformancePage(
                 size="sm"
                 className="h-8"
                 onClick={() => void exportCsv()}
-                disabled={total === 0}
+                disabled={total === 0 || exporting}
                 aria-label="Export active listing performance as CSV"
               >
-                <Download className="mr-2 h-4 w-4" />
+                {exporting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
                 Export CSV
               </Button>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {pageFailed ? (
+            <ErrorState
+              title="Couldn't load your listings"
+              description="We couldn't reach your listing numbers. Nothing has changed. Try again."
+              onRetry={() => void refetchPage()}
+              retrying={pageFetching}
+              hideSupport
+            />
+          ) : isLoading ? (
             <LoadingRegion label="Loading listing performance">
               <TableLoadingSkeleton rows={6} columns={5} />
             </LoadingRegion>
           ) : pageRows.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
-              {noViewDays
-                ? `No active listings with zero views in ${noViewDays}+ days. Nice.`
-                : "No active eBay listings yet. Publish a listing to start tracking performance."}
+              {searchTerm ? (
+                <>
+                  No listings match &quot;{searchTerm}&quot;.{" "}
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0"
+                    onClick={() => setSearch("")}
+                  >
+                    Clear
+                  </Button>
+                </>
+              ) : noViewDays ? (
+                `No active listings with zero views in ${noViewDays}+ days. Nice.`
+              ) : (
+                "No active eBay listings yet. Publish a listing to start tracking performance."
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
