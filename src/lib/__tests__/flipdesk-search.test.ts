@@ -3,6 +3,7 @@ import {
   buildSearchArgs,
   deepLinkForHit,
   isSearchableQuery,
+  itemTabFromParam,
   mapHits,
   normalizeQuery,
   normalizeScope,
@@ -98,20 +99,20 @@ describe("deepLinkForHit", () => {
     );
   });
 
-  it("links a listing to its parent item when known", () => {
+  it("links a listing to its parent item's Listing tab", () => {
     expect(
       deepLinkForHit(
         hit({ result_type: "listing", result_id: "L1", inventory_item_id: "i9" }),
       ),
-    ).toBe("/dashboard/flipdesk/items/i9");
+    ).toBe("/dashboard/flipdesk/items/i9?tab=listing&listing=L1");
   });
 
-  it("links a sale to its parent item", () => {
+  it("links a sale to its parent item's Money tab", () => {
     expect(
       deepLinkForHit(
         hit({ result_type: "sale", result_id: "S1", inventory_item_id: "i3" }),
       ),
-    ).toBe("/dashboard/flipdesk/items/i3");
+    ).toBe("/dashboard/flipdesk/items/i3?tab=money&sale=S1");
   });
 
   it("never falls back to an index page (both FKs are NOT NULL, 00002)", () => {
@@ -120,6 +121,26 @@ describe("deepLinkForHit", () => {
         deepLinkForHit(hit({ result_type: t, result_id: "x", inventory_item_id: "i1" })),
       ).toMatch(/^\/dashboard\/flipdesk\/items\/i1/);
     }
+  });
+});
+
+describe("itemTabFromParam (F6)", () => {
+  it("accepts every tab a deep link can name", () => {
+    for (const h of [
+      hit({ result_type: "listing", result_id: "L", inventory_item_id: "i" }),
+      hit({ result_type: "sale", result_id: "S", inventory_item_id: "i" }),
+    ]) {
+      const tab = new URL(deepLinkForHit(h), "https://x.test").searchParams.get("tab");
+      expect(itemTabFromParam(tab)).toBe(tab);
+    }
+    expect(itemTabFromParam("details")).toBe("details");
+    expect(itemTabFromParam("grade")).toBe("grade");
+  });
+
+  it("ignores anything else", () => {
+    expect(itemTabFromParam(null)).toBeNull();
+    expect(itemTabFromParam("")).toBeNull();
+    expect(itemTabFromParam("admin")).toBeNull();
   });
 });
 
@@ -172,7 +193,7 @@ describe("mapHits", () => {
     expect(mapped.map((m) => m.key)).toEqual(["item-a", "sale-b"]);
     expect(mapped[0]!.link).toBe("/dashboard/flipdesk/items/a");
     expect(mapped[0]!.typeLabel).toBe("Item");
-    expect(mapped[1]!.link).toBe("/dashboard/flipdesk/items/i7");
+    expect(mapped[1]!.link).toBe("/dashboard/flipdesk/items/i7?tab=money&sale=b");
     expect(mapped[1]!.typeLabel).toBe("Sale");
     expect(mapped[1]!.segments).toEqual([
       { text: "buyer notes", highlight: false },

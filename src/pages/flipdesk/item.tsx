@@ -24,6 +24,7 @@ import { LoadingRegion } from "@/components/ui/skeletons";
 import { sanitizeReturnTo } from "@/lib/return-to";
 import { supabase } from "@/lib/supabase";
 import { useItemFull } from "@/hooks/use-items-full";
+import { itemTabFromParam } from "@/lib/flipdesk-search";
 import {
   useEbayConnection,
   useEbayEndSale,
@@ -109,7 +110,14 @@ export function FlipdeskItemPage() {
 
   // US-2519: which group of panels is showing. The editor is the default, so
   // the page still opens on what it is for.
-  const [tab, setTab] = useState("details");
+  // F6: `?tab=` picks another group, so a search hit on a sale opens Money and
+  // one on a listing opens Listing, and a later link to the same page with a
+  // different tab is followed rather than ignored.
+  const tabParam = itemTabFromParam(new URLSearchParams(location.search).get("tab"));
+  const [tab, setTab] = useState<string>(tabParam ?? "details");
+  useEffect(() => {
+    if (tabParam) setTab(tabParam);
+  }, [tabParam]);
 
   // US-2519: does the data-driven grade hint have something to say? If it does,
   // the value-only nudge stays quiet — two prompts for one action, side by side,

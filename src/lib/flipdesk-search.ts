@@ -86,11 +86,30 @@ export function buildSearchArgs(
 /**
  * Deep link for a result. Listings and sales hang off an inventory item, and
  * `inventory_item_id` is NOT NULL on both (00002), so every hit has a parent
- * item page to open.
+ * item page to open. A listing opens that page's Listing tab and a sale its
+ * Money tab, since a buyer-name search is about the sale, not the garment.
  */
 export function deepLinkForHit(hit: SearchHit): string {
-  const itemId = hit.result_type === "item" ? hit.result_id : hit.inventory_item_id;
-  return `/dashboard/flipdesk/items/${itemId}`;
+  const base = "/dashboard/flipdesk/items";
+  switch (hit.result_type) {
+    case "listing":
+      return `${base}/${hit.inventory_item_id}?tab=listing&listing=${hit.result_id}`;
+    case "sale":
+      return `${base}/${hit.inventory_item_id}?tab=money&sale=${hit.result_id}`;
+    default:
+      return `${base}/${hit.result_id}`;
+  }
+}
+
+/** The item page's tab groups (item.tsx), in the order it shows them. */
+export const ITEM_PAGE_TABS = ["details", "listing", "grade", "money"] as const;
+export type ItemPageTab = (typeof ITEM_PAGE_TABS)[number];
+
+/** A `?tab=` value the item page has, or null for anything else. */
+export function itemTabFromParam(raw: string | null): ItemPageTab | null {
+  return (ITEM_PAGE_TABS as readonly string[]).includes(raw ?? "")
+    ? (raw as ItemPageTab)
+    : null;
 }
 
 export interface SnippetSegment {
