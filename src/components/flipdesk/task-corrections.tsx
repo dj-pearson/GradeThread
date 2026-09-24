@@ -39,6 +39,7 @@ import {
   dollarsToCents as toCents,
   emptyBook,
   minutesOverrideFor,
+  parkingRows,
   suppressionVerdictFor,
   validateOverride,
   valueOverrideFor,
@@ -70,34 +71,6 @@ function Errors({ id, codes }: { id: string; codes: readonly string[] }) {
       ))}
     </ul>
   );
-}
-
-/**
- * The stored set-asides of one kind that are parking this task: item-wide or
- * this step, and for a skip, this session only. Distinct by the two keys the
- * reset route narrows on.
- */
-function parkingRows(
-  book: OverrideBook,
-  args: {
-    itemId: string;
-    actionKey: string;
-    sessionId?: string | null;
-    kind: SuppressionKind;
-  },
-): Array<{ actionKey: string | null; sessionId: string | null }> {
-  const seen = new Set<string>();
-  const out: Array<{ actionKey: string | null; sessionId: string | null }> = [];
-  for (const s of book.suppressions) {
-    if (s.inventoryItemId !== args.itemId || s.kind !== args.kind) continue;
-    if (s.actionKey !== null && s.actionKey !== args.actionKey) continue;
-    if (s.kind === "skip_session" && s.sessionId !== (args.sessionId ?? null)) continue;
-    const key = `${s.actionKey ?? ""}|${s.sessionId ?? ""}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ actionKey: s.actionKey, sessionId: s.sessionId });
-  }
-  return out;
 }
 
 export interface TaskCorrectionsProps {
@@ -310,9 +283,13 @@ function CorrectionsPanel({
   }
 
   return (
-    <details className="text-xs">
-      <summary className="cursor-pointer underline">Change or set aside</summary>
-      <div className="mt-2 w-72 space-y-4 rounded-lg bg-muted/50 p-3 text-left">
+    <details className="text-xs open:basis-full">
+      <summary className="inline-flex min-h-11 cursor-pointer items-center underline">
+        Change or set aside
+      </summary>
+      {/* WMT-12: full width on a phone, capped beside the row on a wider
+          screen, so an open panel never scrolls the page sideways. */}
+      <div className="mt-2 w-full space-y-4 rounded-lg bg-muted/50 p-3 text-left sm:max-w-sm">
         {/* AC3: the one line that has to be right. */}
         {verdict.reason === "urgent_shipping_overrides_suppression" && (
           <p role="status" className="font-medium">

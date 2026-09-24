@@ -70,18 +70,10 @@ import {
   type SessionTaskView,
 } from "@/lib/session-timing";
 import { itemHref } from "@/lib/session-links";
+import { actionLabel } from "@/lib/work-action-labels";
 import type { AdviceResult } from "@/lib/work-advice";
 import type { ItemListRow } from "@/lib/item-list-columns";
 
-const ACTION_LABELS: Record<string, string> = {
-  measure: "Measure",
-  photograph: "Photograph",
-  review_grade: "Review the grade",
-  price_research: "Price it",
-  draft_review: "Check the draft",
-  publish: "Publish",
-  pack_ship: "Pack and ship",
-};
 
 /**
  * Track how long this tab spent in the background.
@@ -331,11 +323,10 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
       {current ? (
         <div className="space-y-3">
           <div className="space-y-1">
-            <p className="font-medium">
-              {ACTION_LABELS[current.action_key] ?? current.action_key}
-              {" — "}
-              {current.item_title ?? "Untitled item"}
-            </p>
+            {/* WMT-12: the job, then the garment, on two lines rather than
+                joined by a dash. */}
+            <p className="font-medium">{actionLabel(current.action_key)}</p>
+            <p className="break-words text-sm">{current.item_title ?? "Untitled item"}</p>
             <p className="flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
               {current.bin && (
                 <span className="inline-flex items-center gap-1">
@@ -460,8 +451,8 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
           <ol className="space-y-1 text-sm text-muted-foreground">
             {progress.upcoming.slice(0, 5).map((t) => (
               <li key={t.id}>
-                {ACTION_LABELS[t.action_key] ?? t.action_key} —{" "}
-                {t.item_title ?? "Untitled item"}
+                <span className="block font-medium">{actionLabel(t.action_key)}</span>
+                <span className="block break-words">{t.item_title ?? "Untitled item"}</span>
               </li>
             ))}
           </ol>

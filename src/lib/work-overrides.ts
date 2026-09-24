@@ -464,3 +464,31 @@ export function suppressionVerdictFor(
     urgentShipping: args.urgentShipping,
   });
 }
+
+/**
+ * The stored set-asides of one kind that are parking this task: item-wide or
+ * this step, and for a skip, this session only. Distinct by the two keys the
+ * reset route narrows on.
+ */
+export function parkingRows(
+  book: OverrideBook,
+  args: {
+    itemId: string;
+    actionKey: string;
+    sessionId?: string | null;
+    kind: SuppressionKind;
+  },
+): Array<{ actionKey: string | null; sessionId: string | null }> {
+  const seen = new Set<string>();
+  const out: Array<{ actionKey: string | null; sessionId: string | null }> = [];
+  for (const s of book.suppressions) {
+    if (s.inventoryItemId !== args.itemId || s.kind !== args.kind) continue;
+    if (s.actionKey !== null && s.actionKey !== args.actionKey) continue;
+    if (s.kind === "skip_session" && s.sessionId !== (args.sessionId ?? null)) continue;
+    const key = `${s.actionKey ?? ""}|${s.sessionId ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ actionKey: s.actionKey, sessionId: s.sessionId });
+  }
+  return out;
+}

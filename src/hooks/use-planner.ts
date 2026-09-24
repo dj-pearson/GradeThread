@@ -493,6 +493,8 @@ export interface BuildPlanArgs {
  */
 export interface PlanSuppressionNote {
   itemId: string;
+  /** So the set-aside list can name the garment (WMT-12). */
+  itemTitle: string | null;
   actionKey: string;
   reason: "skip_session" | "snooze" | "dismiss";
 }
@@ -576,7 +578,12 @@ export async function buildPlan(
       urgentShipping: isUrgentCandidate(c, Number.isFinite(nowMs) ? nowMs : 0),
     });
     if (!verdict.suppressed) return true;
-    suppressed.push({ itemId: c.itemId, actionKey: c.action, reason: verdict.reason });
+    suppressed.push({
+      itemId: c.itemId,
+      itemTitle: c.itemTitle ?? null,
+      actionKey: c.action,
+      reason: verdict.reason,
+    });
     return false;
   });
 

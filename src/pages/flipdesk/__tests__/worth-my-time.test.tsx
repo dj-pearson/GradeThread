@@ -28,6 +28,8 @@ const buildMock = vi.fn();
 const savePrefsMock = vi.fn(() => Promise.resolve({}));
 const startSessionMock = vi.fn(() => Promise.resolve({}));
 const toastError = vi.fn();
+const resetSuppressionMock = vi.fn<(args: unknown) => Promise<unknown>>(() => Promise.resolve({}));
+let sessionOver: Record<string, unknown> | null = null;
 
 vi.mock("sonner", () => ({ toast: { error: toastError, success: vi.fn() } }));
 
@@ -47,7 +49,7 @@ vi.mock("@/hooks/use-planner", async () => {
     // its own behaviour has its own suite (session-runner.test.tsx) rather
     // than being re-asserted through every case here.
     useCurrentSession: () => ({
-      data: { session: null, tasks: [] },
+      data: { session: sessionOver, tasks: [] },
       isLoading: false,
       isError: false,
       refetch: vi.fn(),
@@ -74,7 +76,7 @@ vi.mock("@/hooks/use-planner", async () => {
     useSaveOverride: () => ({ mutateAsync: vi.fn(), isPending: false }),
     useResetOverride: () => ({ mutateAsync: vi.fn(), isPending: false }),
     useSuppress: () => ({ mutateAsync: vi.fn(), isPending: false }),
-    useResetSuppression: () => ({ mutateAsync: vi.fn(), isPending: false }),
+    useResetSuppression: () => ({ mutateAsync: resetSuppressionMock, isPending: false }),
   };
 });
 
@@ -231,8 +233,21 @@ afterEach(() => {
   container = null;
 });
 
+/** Open every disclosure on the page, the way a click on its summary does. */
+function openAll(): void {
+  act(() => {
+    for (const d of Array.from(document.querySelectorAll("details"))) {
+      d.open = true;
+      d.dispatchEvent(new Event("toggle"));
+    }
+  });
+}
+
 beforeEach(() => {
   prefsOver = {};
+  sessionOver = null;
+  resetSuppressionMock.mockReset();
+  resetSuppressionMock.mockResolvedValue({});
   buildMock.mockReset();
   savePrefsMock.mockReset();
   savePrefsMock.mockResolvedValue({});
@@ -309,6 +324,7 @@ describe("why this task (US-3181)", () => {
     buildMock.mockResolvedValue(plan());
     renderPage();
     await click("30 minutes");
+    openAll();
     const t = text();
     expect(t).toContain("Left on this item");
     // The R1 default is a guess and says so, rather than reading as measured.
@@ -319,6 +335,7 @@ describe("why this task (US-3181)", () => {
     buildMock.mockResolvedValue(plan());
     renderPage();
     await click("30 minutes");
+    openAll();
     expect(text()).toContain("Worth: $48.00 to $72.00, if it sells");
     expect(text()).toContain("The value is the price you typed.");
   });
@@ -543,9 +560,11 @@ describe("the states a seller actually hits (AC5)", () => {
     }));
     renderPage();
     await click("15 minutes");
-    const alert = document.querySelector('[role="alert"]')!;
-    expect(alert.textContent).toContain("18 minutes");
-    expect(alert.textContent).toContain("Try 20 minutes instead");
+    // WMT-12: one polite summary for every conflict, not an alert each.
+    const status = container!.querySelector('[data-testid="wmt-conflicts"]')!;
+    expect(status.getAttribute("role")).toBe("status");
+    expect(status.textContent).toContain("18 minutes");
+    expect(status.textContent).toContain("Try 20 minutes instead");
   });
 
   it("A FAILED REQUEST DOES NOT ERASE THE SAVED PLAN", async () => {
@@ -628,7 +647,9 @@ describe("accessibility (AC6)", () => {
     }));
     renderPage();
     await click("15 minutes");
-    expect(document.querySelector('[role="alert"]')).toBeTruthy();
+    const status = container!.querySelector('[data-testid="wmt-conflicts"]');
+    expect(status?.getAttribute("role")).toBe("status");
+    expect(status?.textContent).toContain("Won't fit.");
   });
 });
 
@@ -733,5 +754,128 @@ describe("the plan survives an 'Open item' round trip (WMT-11)", () => {
     await click("30 minutes");
     expect(has(/This plan is from/)).toBe(true);
     expect(buttonNamed("Build it again")).toBeTruthy();
+  });
+});
+
+describe("the page UX pass (WMT-12)", () => {
+  it("Enter in the minutes box builds a plan", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await typeCustom("45");
+    const form = document.getElementById("wmt-custom")!.closest("form")!;
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await settle();
+    expect(buildMock).toHaveBeenCalledTimes(1);
+    expect(buildMock.mock.calls[0]![0]!.budgetMinutes).toBe(45);
+  });
+
+  it("does not re-save the minutes when they already are the default", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    expect(savePrefsMock).not.toHaveBeenCalled();
+  });
+
+  it("a conflict's button builds with the suggested budget", async () => {
+    buildMock.mockResolvedValue(plan({
+      plan: {
+        tasks: [], plannedMinutes: 0, unusedMinutes: 10, omitted: [],
+        conflicts: [{ key: "x", needsMinutes: 18, proposedBudgetMinutes: 20, message: "Won't fit." }],
+        smallestEligibleMinutes: null, consideredCount: 1, version: 1,
+      },
+      pullList: [],
+    }));
+    renderPage();
+    await click("15 minutes");
+    await click("Plan 20 minutes");
+    expect(buildMock.mock.calls[1]![0]!.budgetMinutes).toBe(20);
+  });
+
+  it("the empty state offers the shortest job's minutes", async () => {
+    buildMock.mockResolvedValue(plan({
+      plan: {
+        tasks: [], plannedMinutes: 0, unusedMinutes: 5, omitted: [], conflicts: [],
+        smallestEligibleMinutes: 11, consideredCount: 1, version: 1,
+      },
+      pullList: [],
+    }));
+    renderPage();
+    await click("15 minutes");
+    await click("Plan 11 minutes");
+    expect(buildMock.mock.calls[1]![0]!.budgetMinutes).toBe(11);
+  });
+
+  it("mixed set-asides each show their own reason, and Bring back undoes just that one", async () => {
+    buildMock.mockResolvedValue(plan({
+      suppressed: [
+        { itemId: "a", itemTitle: "Levi 501 jeans", actionKey: "photograph", reason: "snooze" },
+        { itemId: "b", itemTitle: "Pendleton shirt", actionKey: "measure", reason: "dismiss" },
+      ],
+    }));
+    renderPage();
+    await click("30 minutes");
+    expect(has("2 jobs are set aside")).toBe(true);
+    expect(has("Set aside for a week.")).toBe(true);
+    expect(has("You told us to stop suggesting this.")).toBe(true);
+    expect(has("Levi 501 jeans")).toBe(true);
+    expect(has("Pendleton shirt")).toBe(true);
+    const bringBack = Array.from(document.querySelectorAll("button"))
+      .filter((b) => b.textContent?.trim() === "Bring back");
+    expect(bringBack).toHaveLength(2);
+    await act(async () => {
+      bringBack[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+    expect(resetSuppressionMock).toHaveBeenCalledTimes(1);
+    expect(resetSuppressionMock.mock.calls[0]![0]).toEqual({
+      inventoryItemId: "b",
+      kind: "dismiss",
+      actionKey: null,
+      sessionId: null,
+    });
+    expect(has("Back on the list")).toBe(true);
+    expect(has("You changed something since this plan was built")).toBe(true);
+  });
+
+  it("with a session open, says why there is no Start button", async () => {
+    sessionOver = { id: "s1", state: "planned", budget_minutes: 30, revision: 1 };
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    expect(has("Start working through this")).toBe(false);
+    expect(has("You have a session going.")).toBe(true);
+  });
+
+  it("the headline is the big type, and takes focus after a build", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    const h2 = document.getElementById("wmt-plan")!;
+    expect(h2.className).toContain("text-xl");
+    expect(h2.className).toContain("tabular-nums");
+    expect(document.activeElement).toBe(h2);
+  });
+
+  it("says how many more jobs were left out past the first twelve", async () => {
+    const p = plan();
+    (p.plan as { omitted: unknown[] }).omitted = Array.from({ length: 15 }, (_, i) => ({
+      key: `x${i}:measure`, reason: "no_time_left", minutes: 9,
+    }));
+    buildMock.mockResolvedValue(p);
+    renderPage();
+    await click("30 minutes");
+    expect(has("...and 3 more.")).toBe(true);
+  });
+
+  it("no em-dash separators remain in the page or the runner", () => {
+    for (const f of [
+      "src/pages/flipdesk/worth-my-time.tsx",
+      "src/components/flipdesk/session-runner.tsx",
+    ]) {
+      const raw = readFileSync(resolve(process.cwd(), f), "utf8");
+      expect(raw.includes(" \u2014 "), f).toBe(false);
+    }
   });
 });

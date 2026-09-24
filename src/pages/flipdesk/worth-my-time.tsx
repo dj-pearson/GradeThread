@@ -31,8 +31,10 @@ import {
   useBuildPlan,
   useCurrentSession,
   useSaveWorkPreferences,
+  useResetSuppression,
   useStartSession,
   usePlannerPlan,
+  useWorkOverrides,
   useWorkPreferences,
 } from "@/hooks/use-planner";
 import { SessionRunner } from "@/components/flipdesk/session-runner";
@@ -42,6 +44,8 @@ import { WorkSetupEditor } from "@/components/flipdesk/work-setup-editor";
 import { gatedToolLine } from "@/lib/work-setup-copy";
 import type { WorkTool } from "@/lib/work-candidates";
 import { SUPPRESSION_STATE_COPY } from "@/lib/work-overrides-copy";
+import { parkingRows, SUPPRESSION_KINDS, type SuppressionKind } from "@/lib/work-overrides";
+import { actionLabel } from "@/lib/work-action-labels";
 import { isUrgentCandidate } from "@/lib/work-ranker";
 import { itemHref } from "@/lib/session-links";
 import type { RankedTask } from "@/lib/work-ranker";
@@ -54,16 +58,6 @@ import {
   WOULD_CHANGE_COPY,
 } from "@/lib/work-explain-copy";
 
-const ACTION_LABELS: Record<string, string> = {
-  measure: "Measure",
-  photograph: "Photograph",
-  review_grade: "Review the grade",
-  price_research: "Price it",
-  draft_review: "Check the draft",
-  publish: "Publish",
-  pack_ship: "Pack and ship",
-};
-
 /** Plain sentences, never a score. A seller reads why, not a number. */
 const TIER_REASONS: Record<string, string> = {
   urgent_shipping: "Has to go out soon",
@@ -73,7 +67,7 @@ const TIER_REASONS: Record<string, string> = {
 };
 
 /** "6:42pm", the seller's own clock, for "Plan from ..." (WMT-11). */
-export function planTimeLabel(iso: string): string {
+function planTimeLabel(iso: string): string {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return "";
   const h = d.getHours();
@@ -95,6 +89,9 @@ function readVisited(ownerId: string | null, takenAt: string | undefined): Set<s
   }
 }
 
+/** How many left-out jobs are listed by name before "...and N more". */
+const OMITTED_SHOWN = 12;
+
 function money(cents: number | null): string | null {
   if (cents == null) return null;
   return `$${(cents / 100).toFixed(2)}`;
@@ -113,7 +110,29 @@ function money(cents: number | null): string | null {
  * task and the candidate the plan was built from, never the item. Re-reading
  * the item here would explain a plan that was never made.
  */
-function WhyThisTask({
+function WhyThisTask(props: {
+  task: RankedTask;
+  candidate: WorkCandidate | null;
+  takenAt: string;
+  hourlyTargetSet: boolean;
+}) {
+  // WMT-12: the explanation is only worked out once it is opened. A plan of
+  // forty rows used to build forty explanations nobody read.
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="text-xs open:basis-full"
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className="inline-flex min-h-11 cursor-pointer items-center underline">
+        Why this one?
+      </summary>
+      {open && <WhyThisTaskBody {...props} />}
+    </details>
+  );
+}
+
+function WhyThisTaskBody({
   task,
   candidate,
   takenAt,
@@ -143,9 +162,8 @@ function WhyThisTask({
   const change = whatWouldChangeIt(explanation);
 
   return (
-    <details className="text-xs">
-      <summary className="cursor-pointer underline">Why this one?</summary>
-      <div className="mt-2 w-64 space-y-2 rounded-lg bg-muted/50 p-3 text-left">
+    <>
+      <div className="mt-2 w-full space-y-2 rounded-lg bg-muted/50 p-3 text-left sm:max-w-sm">
         <ul className="space-y-1">
           {explanation.facts.map((f) => (
             <li key={f}>{EXPLAIN_FACT_COPY[f]}</li>
@@ -185,14 +203,12 @@ function WhyThisTask({
             </div>
           )}
         </dl>
-        {explanation.conflict && (
-          <p role="alert">{explanation.conflict.message}</p>
-        )}
+        {explanation.conflict && <p>{explanation.conflict.message}</p>}
         {change && WOULD_CHANGE_COPY[change] && (
           <p className="font-medium">{WOULD_CHANGE_COPY[change]}</p>
         )}
       </div>
-    </details>
+    </>
   );
 }
 
@@ -244,6 +260,21 @@ export function WorthMyTimePage() {
   // screen is the one the seller agreed to, so it is never replaced under
   // them -- they are told it is out of date and press the button (AC2).
   const [stalePlan, setStalePlan] = useState(false);
+  // WMT-12: which control asked for the build, so only that one spins.
+  const [pendingFrom, setPendingFrom] = useState<string | null>(null);
+  // WMT-12: after a build, focus moves to the headline so a keyboard or
+  // screen-reader user lands on the answer rather than on the button.
+  const headlineRef = useRef<HTMLHeadingElement>(null);
+  const focusHeadline = useRef(false);
+  useEffect(() => {
+    if (plan && focusHeadline.current) {
+      focusHeadline.current = false;
+      headlineRef.current?.focus();
+    }
+  }, [plan]);
+  const liveOverrides = useWorkOverrides();
+  const unsuppress = useResetSuppression();
+  const [broughtBack, setBroughtBack] = useState<Set<string>>(() => new Set());
 
   const presets = prefs.data?.sessionMinutePresets ?? [15, 30, 60];
   // WMT-07: a plan built before the setup loads would be built on the
@@ -252,7 +283,7 @@ export function WorthMyTimePage() {
   const context = prefs.data?.workContext ?? "home";
   const tools = useMemo(() => prefs.data?.availableTools ?? ["camera"], [prefs.data]);
 
-  async function generate(minutes: number) {
+  async function generate(minutes: number, from = String(minutes)) {
     if (
       !Number.isInteger(minutes) ||
       minutes < (prefs.data?.minSessionMinutes ?? 5) ||
@@ -263,6 +294,7 @@ export function WorthMyTimePage() {
       );
       return;
     }
+    setPendingFrom(from);
     try {
       const built = await build.mutateAsync({
         budgetMinutes: minutes,
@@ -279,15 +311,59 @@ export function WorthMyTimePage() {
       setStalePlan(false);
       // AC5: a failed build leaves the previous plan on screen. setPlan runs
       // only on success, so a dropped connection never blanks the page.
+      focusHeadline.current = true;
       setPlan(built);
       setNowMs(Date.now());
-      void savePrefs.mutateAsync({ default_session_minutes: minutes }).catch(() => {
-        // Remembering the choice is a convenience. Failing to remember it must
-        // not look like failing to plan.
-      });
+      setBroughtBack(new Set());
+      // WMT-12: nothing to remember when it is already the saved default.
+      if (minutes !== prefs.data?.defaultSessionMinutes) {
+        void savePrefs.mutateAsync({ default_session_minutes: minutes }).catch(() => {
+          // Remembering the choice is a convenience. Failing to remember it
+          // must not look like failing to plan.
+        });
+      }
     } catch (err) {
       // US-2869 AC4: the seller gets our sentence, not PostgREST's.
       toastError(err, "Couldn't build a plan just now.");
+    } finally {
+      setPendingFrom(null);
+    }
+  }
+
+  /**
+   * Undo one set-aside from the plan's list (WMT-12), scoped the way the
+   * corrections panel scopes it (WMT-02): the rows parking THIS job under
+   * THIS reason, and no other.
+   */
+  async function bringBack(note: { itemId: string; actionKey: string; reason: SuppressionKind }) {
+    const book = liveOverrides.data;
+    const sessionId = currentSession.data?.session?.id ?? null;
+    const rows = book
+      ? parkingRows(book, {
+        itemId: note.itemId,
+        actionKey: note.actionKey,
+        sessionId,
+        kind: note.reason,
+      })
+      : [];
+    const targets = rows.length > 0 ? rows : [{
+      actionKey: note.reason === "dismiss" ? null : note.actionKey,
+      sessionId: note.reason === "skip_session" ? sessionId : null,
+    }];
+    try {
+      for (const r of targets) {
+        await unsuppress.mutateAsync({
+          inventoryItemId: note.itemId,
+          kind: note.reason,
+          actionKey: r.actionKey,
+          sessionId: r.sessionId,
+        });
+      }
+      setBroughtBack((prev) => new Set(prev).add(`${note.itemId}:${note.actionKey}`));
+      setStalePlan(true);
+      toast.success("Back on the list. Build the plan again to see it.");
+    } catch (err) {
+      toastError(err, "Couldn't bring that back.");
     }
   }
 
@@ -341,6 +417,18 @@ export function WorthMyTimePage() {
     () => new Map((plan?.ranked ?? []).map((r) => [r.key, r])),
     [plan],
   );
+  // WMT-12: one lookup table instead of a candidates.find per row, per render.
+  const candidateByKey = useMemo(
+    () => new Map((plan?.candidates ?? []).map((c) => [c.key, c])),
+    [plan],
+  );
+  const suppressedByReason = useMemo(() => {
+    const groups = new Map<SuppressionKind, NonNullable<typeof plan>["suppressed"]>();
+    for (const n of plan?.suppressed ?? []) {
+      groups.set(n.reason, [...(groups.get(n.reason) ?? []), n]);
+    }
+    return SUPPRESSION_KINDS.filter((k) => groups.has(k)).map((k) => [k, groups.get(k)!] as const);
+  }, [plan]);
 
   return (
     <div className="space-y-6">
@@ -368,6 +456,9 @@ export function WorthMyTimePage() {
               disabled={build.isPending || !prefsSettled}
               onClick={() => void generate(m)}
             >
+              {pendingFrom === String(m)
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                : null}
               {m} minutes
             </Button>
           ))}
@@ -375,25 +466,34 @@ export function WorthMyTimePage() {
             <Label htmlFor="wmt-custom" className="text-xs text-muted-foreground">
               Or type it
             </Label>
-            <div className="flex gap-2">
+            {/* WMT-12: a real form, so Enter in the box builds the plan. */}
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (build.isPending || !prefsSettled || custom.trim() === "") return;
+                void generate(Number(custom), "custom");
+              }}
+            >
               <Input
                 id="wmt-custom"
                 className="w-24"
                 inputMode="numeric"
+                pattern="[0-9]*"
                 placeholder="45"
                 value={custom}
                 onChange={(e) => setCustom(e.target.value)}
               />
               <Button
+                type="submit"
                 disabled={build.isPending || !prefsSettled || custom.trim() === ""}
-                onClick={() => void generate(Number(custom))}
               >
-                {build.isPending
-                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {pendingFrom === "custom"
+                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                   : null}
                 Plan it
               </Button>
-            </div>
+            </form>
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -439,7 +539,12 @@ export function WorthMyTimePage() {
       {plan && (
         <section aria-labelledby="wmt-plan" className="space-y-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 id="wmt-plan" className="text-sm font-medium">
+            <h2
+              id="wmt-plan"
+              ref={headlineRef}
+              tabIndex={-1}
+              className="text-xl font-semibold tabular-nums outline-none"
+            >
               {scheduled.length === 0
                 ? "Nothing fits that window"
                 : `${scheduled.length} ${scheduled.length === 1 ? "job" : "jobs"}, about ${plan.plan.plannedMinutes} minutes`}
@@ -476,11 +581,48 @@ export function WorthMyTimePage() {
               rather than silently missing. A plan that quietly shrinks is a
               plan a seller thinks is broken. */}
           {plan.suppressed.length > 0 && (
-            <p className="text-xs text-muted-foreground">
-              {plan.suppressed.length}{" "}
-              {plan.suppressed.length === 1 ? "job is" : "jobs are"} set aside.{" "}
-              {SUPPRESSION_STATE_COPY[plan.suppressed[0]!.reason]}
-            </p>
+            <details className="rounded-lg border p-3 text-sm">
+              <summary className="inline-flex min-h-11 cursor-pointer items-center font-medium">
+                {plan.suppressed.length}{" "}
+                {plan.suppressed.length === 1 ? "job is" : "jobs are"} set aside
+              </summary>
+              {/* WMT-12: grouped by reason, so each job carries its own
+                  reason rather than the first one's, and each can come back. */}
+              <div className="mt-2 space-y-3">
+                {suppressedByReason.map(([reason, notes]) => (
+                  <div key={reason} className="space-y-1">
+                    <p className="text-xs text-muted-foreground">
+                      {SUPPRESSION_STATE_COPY[reason]}
+                    </p>
+                    <ul className="space-y-1">
+                      {notes.map((n) => {
+                        const k = `${n.itemId}:${n.actionKey}`;
+                        return (
+                          <li key={k} className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="min-w-0 break-words">
+                              <span className="block font-medium">{actionLabel(n.actionKey)}</span>
+                              <span className="block">{n.itemTitle ?? "Untitled item"}</span>
+                            </span>
+                            {broughtBack.has(k)
+                              ? <span className="text-xs text-muted-foreground">Back on the list</span>
+                              : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={unsuppress.isPending}
+                                  onClick={() => void bringBack(n)}
+                                >
+                                  Bring back
+                                </Button>
+                              )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </details>
           )}
 
           {/* WMT-06: work the seller's setup is holding back, counted per
@@ -507,31 +649,61 @@ export function WorthMyTimePage() {
               onClick={() => void beginSession()}
             >
               {startSession.isPending
-                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                 : null}
               Start working through this
             </Button>
           )}
-
-          {plan.plan.conflicts.map((c) => (
-            <p
-              key={c.key}
-              role="alert"
-              className="flex items-start gap-2 rounded-lg bg-muted/50 p-3 text-sm"
-            >
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>
-                {c.message} Try {c.proposedBudgetMinutes} minutes instead.
-              </span>
+          {scheduled.length > 0 && sessionOpen && (
+            <p className="text-sm text-muted-foreground">
+              You have a session going. Finish or end it above to start this plan.
             </p>
-          ))}
+          )}
+
+          {/* WMT-12: ONE announcement for every conflict, not an alert each. */}
+          {plan.plan.conflicts.length > 0 && (
+            <div role="status" data-testid="wmt-conflicts" className="space-y-2">
+              {plan.plan.conflicts.map((c) => (
+                <div
+                  key={c.key}
+                  className="flex flex-wrap items-start gap-2 rounded-lg bg-muted/50 p-3 text-sm"
+                >
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    {c.message} Try {c.proposedBudgetMinutes} minutes instead.
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={build.isPending}
+                    onClick={() => void generate(c.proposedBudgetMinutes, `conflict:${c.key}`)}
+                  >
+                    Plan {c.proposedBudgetMinutes} minutes
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {scheduled.length === 0 && (
-            <p className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-              {plan.plan.smallestEligibleMinutes != null
-                ? `The shortest job waiting needs about ${plan.plan.smallestEligibleMinutes} minutes.`
-                : "There's no unfinished work in your stock right now."}
-            </p>
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+              <span>
+                {plan.plan.smallestEligibleMinutes != null
+                  ? `The shortest job waiting needs about ${plan.plan.smallestEligibleMinutes} minutes.`
+                  : "There's no unfinished work in your stock right now."}
+              </span>
+              {plan.plan.smallestEligibleMinutes != null && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={build.isPending}
+                  onClick={() =>
+                    void generate(plan.plan.smallestEligibleMinutes!, "smallest")}
+                >
+                  Plan {plan.plan.smallestEligibleMinutes} minutes
+                </Button>
+              )}
+            </div>
           )}
 
           {plan.pullList.length > 0 && (
@@ -540,7 +712,7 @@ export function WorthMyTimePage() {
               <ul className="mt-1 space-y-1 text-muted-foreground">
                 {plan.pullList.map((p) => (
                   <li key={p.label} className="flex items-start gap-2">
-                    <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     <span>
                       {p.label}: {p.itemIds.length}{" "}
                       {p.itemIds.length === 1 ? "item" : "items"}
@@ -554,39 +726,40 @@ export function WorthMyTimePage() {
           <ol className="space-y-2">
             {scheduled.map((task, i) => {
               const r = rankedByKey.get(task.key);
+              const candidate = candidateByKey.get(task.key) ?? null;
               // WMT-04: what the plan CHARGED for this row, so the rows plus
               // their setup add up to the headline.
               const minutes = task.activeMinutes;
               const low = money(r?.conservativeCents ?? null);
-              const bin = plan.candidates.find((c) => c.itemId === task.itemId)?.bin;
+              const bin = candidate?.bin;
               return (
-                <li
-                  key={task.key}
-                  className="flex flex-wrap items-start justify-between gap-3 rounded-xl border p-3"
-                >
+                <li key={task.key} className="space-y-2 rounded-xl border p-3">
+                  {/* WMT-12: content first, then a wrapping action bar. An
+                      open panel takes the full width of the row, so two open
+                      panels never push the page sideways on a phone. */}
                   <div className="min-w-0 space-y-1">
                     <p className="font-medium">
                       <span className="text-muted-foreground">{i + 1}. </span>
-                      {ACTION_LABELS[r?.action ?? ""] ?? r?.action}
+                      {actionLabel(r?.action)}
                       {visited.has(task.key) && (
                         <span className="ml-2 text-xs font-normal text-muted-foreground">
                           (opened)
                         </span>
                       )}
-                      {" — "}
-                      {plan.candidates.find((c) => c.itemId === task.itemId)
-                        ?.itemTitle ?? "Untitled item"}
+                    </p>
+                    <p className="break-words text-sm">
+                      {candidate?.itemTitle ?? "Untitled item"}
                     </p>
                     <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
+                        <Clock className="h-3 w-3" aria-hidden="true" />
                         about {minutes} min
                         {task.overheadMinutes > 0
                           ? ` +${task.overheadMinutes} to set up`
                           : ""}
                       </span>
                       <span className="inline-flex items-center gap-1">
-                        <MapPin className="h-3 w-3" />
+                        <MapPin className="h-3 w-3" aria-hidden="true" />
                         {bin?.value ?? UNKNOWN_BIN_LABEL}
                       </span>
                       <span>{TIER_REASONS[r?.tier ?? ""] ?? ""}</span>
@@ -597,16 +770,22 @@ export function WorthMyTimePage() {
                       )}
                     </p>
                     {r?.conflict && (
-                      <p role="alert" className="text-xs text-destructive">
-                        {r.conflict.message}
-                      </p>
+                      <p className="text-xs text-destructive">{r.conflict.message}</p>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="outline" size="sm" asChild>
+                      <Link
+                        to={itemHref(task.itemId)}
+                        onClick={() => markVisited(task.key)}
+                      >
+                        Open item <ArrowRight className="ml-1 h-3 w-3" aria-hidden="true" />
+                      </Link>
+                    </Button>
                     {r && (
                       <WhyThisTask
                         task={r}
-                        candidate={plan.candidates.find((c) => c.key === r.key) ?? null}
+                        candidate={candidate}
                         takenAt={plan.takenAt}
                         hourlyTargetSet={prefs.data?.hourlyTargetSet === true}
                       />
@@ -623,7 +802,7 @@ export function WorthMyTimePage() {
                         )}
                         sessionId={currentSession.data?.session?.id ?? null}
                         urgentShipping={isUrgentCandidate(
-                          plan.candidates.find((c) => c.key === r.key) ?? {
+                          candidate ?? {
                             action: r.action,
                             shipBy: { at: null, confidence: "unknown" },
                           },
@@ -632,14 +811,6 @@ export function WorthMyTimePage() {
                         onChanged={() => setStalePlan(true)}
                       />
                     )}
-                    <Button variant="outline" size="sm" asChild>
-                      <Link
-                        to={itemHref(task.itemId)}
-                        onClick={() => markVisited(task.key)}
-                      >
-                        Open item <ArrowRight className="ml-1 h-3 w-3" />
-                      </Link>
-                    </Button>
                   </div>
                 </li>
               );
@@ -654,26 +825,34 @@ export function WorthMyTimePage() {
 
           {plan.plan.omitted.length > 0 && (
             <details className="rounded-lg border p-3 text-sm">
-              <summary className="cursor-pointer font-medium">
+              <summary className="inline-flex min-h-11 cursor-pointer items-center font-medium">
                 {plan.plan.omitted.length} job
                 {plan.plan.omitted.length === 1 ? "" : "s"} didn't make the list
               </summary>
               <ul className="mt-2 space-y-1 text-muted-foreground">
-                {plan.plan.omitted.slice(0, 12).map((o) => {
+                {plan.plan.omitted.slice(0, OMITTED_SHOWN).map((o) => {
                   const e = explainOmission(o);
-                  const title = plan.candidates.find((c) => c.key === o.key)?.itemTitle;
+                  const title = candidateByKey.get(o.key)?.itemTitle;
                   return (
                     <li key={o.key}>
                       {/* User-supplied text, rendered as TEXT (AC5). React
                           escapes it and this file has no dangerouslySetInnerHTML. */}
-                      <span className="break-words">{title ?? "Untitled item"}</span>
-                      {" — "}
-                      {OMISSION_COPY[e.reason]}
-                      {e.minutes != null ? ` (about ${e.minutes} min)` : ""}
+                      <span className="block break-words text-foreground">
+                        {title ?? "Untitled item"}
+                      </span>
+                      <span className="block">
+                        {OMISSION_COPY[e.reason]}
+                        {e.minutes != null ? ` (about ${e.minutes} min)` : ""}
+                      </span>
                     </li>
                   );
                 })}
               </ul>
+              {plan.plan.omitted.length > OMITTED_SHOWN && (
+                <p className="mt-2 text-muted-foreground">
+                  ...and {plan.plan.omitted.length - OMITTED_SHOWN} more.
+                </p>
+              )}
             </details>
           )}
         </section>

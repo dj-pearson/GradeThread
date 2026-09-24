@@ -235,7 +235,7 @@ describe("the plan read (WMT-07)", () => {
       const built = await buildPlan({ ...BASE }, qc);
       expect(urls.some((u) => u.endsWith("/api/flipdesk/planner/overrides"))).toBe(true);
       expect(built.suppressed).toEqual([
-        { itemId: "item-1", actionKey: "photograph", reason: "dismiss" },
+        { itemId: "item-1", itemTitle: "Carhartt Detroit jacket", actionKey: "photograph", reason: "dismiss" },
       ]);
     } finally {
       vi.unstubAllGlobals();
