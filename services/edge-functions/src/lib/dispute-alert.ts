@@ -110,13 +110,16 @@ export async function notifyAdminsDisputeFiled(
   let emailed = false;
   if (adminEmail) {
     try {
-      emailed = await (deps.sendEmail ?? sendDisputeFiledAdminEmail)(adminEmail, {
+      const payload = {
         submitterName,
         submissionTitle,
         reason: dispute.reason,
         submissionId: report?.submission_id ?? "",
         kind: resolvedKind,
-      });
+      };
+      emailed = deps.sendEmail
+        ? await deps.sendEmail(adminEmail, payload)
+        : await sendDisputeFiledAdminEmail(adminEmail, payload);
     } catch (err) {
       console.error("[dispute-alert] email failed:", err);
     }
