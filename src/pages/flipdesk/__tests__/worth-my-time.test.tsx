@@ -12,6 +12,18 @@ import { resolve } from "node:path";
 // these cases hold is the SCREEN: what it says, what it refuses to say, and
 // what it does when a request fails.
 
+const PREFS = {
+  defaultSessionMinutes: 30,
+  workContext: "home",
+  availableTools: ["camera", "measuring_tape"],
+  hourlyTargetAmount: null,
+  hourlyTargetSet: false,
+  sessionMinutePresets: [15, 30, 60],
+  minSessionMinutes: 5,
+  maxSessionMinutes: 240,
+  workTools: [],
+};
+let prefsOver: Record<string, unknown> = {};
 const buildMock = vi.fn();
 const savePrefsMock = vi.fn(() => Promise.resolve({}));
 const startSessionMock = vi.fn(() => Promise.resolve({}));
@@ -24,18 +36,9 @@ vi.mock("@/hooks/use-planner", async () => {
   return {
     ...actual,
     useWorkPreferences: () => ({
-      data: {
-        defaultSessionMinutes: 30,
-        workContext: "home",
-        availableTools: ["camera", "measuring_tape"],
-        hourlyTargetAmount: null,
-        hourlyTargetSet: false,
-        sessionMinutePresets: [15, 30, 60],
-        minSessionMinutes: 5,
-        maxSessionMinutes: 240,
-        workTools: [],
-      },
+      data: { ...PREFS, ...prefsOver },
       isError: false,
+      isSuccess: true,
     }),
     useSaveWorkPreferences: () => ({ mutateAsync: savePrefsMock }),
     useBuildPlan: () => ({ mutateAsync: buildMock, isPending: false }),
@@ -228,6 +231,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  prefsOver = {};
   buildMock.mockReset();
   savePrefsMock.mockReset();
   savePrefsMock.mockResolvedValue({});
@@ -624,5 +628,50 @@ describe("accessibility (AC6)", () => {
     renderPage();
     await click("15 minutes");
     expect(document.querySelector('[role="alert"]')).toBeTruthy();
+  });
+});
+
+describe("the setup, edited where the plan is (WMT-06)", () => {
+  it("says how many jobs a missing tool holds back, and one tap adds it", async () => {
+    prefsOver = { availableTools: ["camera"] };
+    buildMock.mockResolvedValue(plan({
+      gated: [
+        { itemId: "a", action: "measure", reason: "tools", missing: ["measuring_tape"] },
+        { itemId: "b", action: "measure", reason: "tools", missing: ["measuring_tape"] },
+      ],
+    }));
+    renderPage();
+    await click("30 minutes");
+    savePrefsMock.mockClear();
+    expect(has("2 jobs need a tape measure.")).toBe(true);
+    await click("I have one");
+    // ONE patch, naming only the tools.
+    expect(savePrefsMock).toHaveBeenCalledTimes(1);
+    expect(savePrefsMock.mock.calls[0]).toEqual([
+      { available_tools: ["camera", "measuring_tape"] },
+    ]);
+    expect(has("You changed something since this plan was built")).toBe(true);
+  });
+
+  it("a tool chip sends only available_tools and marks the plan stale", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    savePrefsMock.mockClear();
+    const chip = buttonNamed("Steamer");
+    expect(chip.getAttribute("aria-pressed")).toBe("false");
+    await click("Steamer");
+    expect(savePrefsMock.mock.calls).toEqual([
+      [{ available_tools: ["camera", "measuring_tape", "steamer"] }],
+    ]);
+    expect(has("You changed something since this plan was built")).toBe(true);
+  });
+
+  it("no longer sends the seller to the inventory screen to change it", () => {
+    renderPage();
+    const link = Array.from(document.querySelectorAll("a"))
+      .find((a) => a.textContent?.includes("Change your setup"));
+    expect(link).toBeUndefined();
+    expect(document.getElementById("wmt-setup")).not.toBeNull();
   });
 });

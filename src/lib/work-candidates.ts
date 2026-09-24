@@ -385,16 +385,44 @@ function mechanismFor(
 }
 
 /**
+ * Work the seller COULD do but not with the setup they have (WMT-06).
+ *
+ * Counted rather than dropped in silence. The default setup is camera-only,
+ * so every measure job used to vanish with nothing on screen to say why; a
+ * count per missing tool is what lets the page say "9 jobs need a tape
+ * measure" and offer the one tap that fixes it.
+ */
+export interface GatedWork {
+  itemId: string;
+  action: CandidateAction;
+  reason: "tools" | "context";
+  /** The tools that are missing. Empty for a context gate. */
+  missing: WorkTool[];
+}
+
+export interface CandidateSet {
+  candidates: WorkCandidate[];
+  gated: GatedWork[];
+}
+
+/**
  * Is this item work the seller can actually start?
  *
- * Returns the candidate, or null with nothing said. A planner that explained
- * every exclusion would be a list of things the seller cannot do, which is the
- * opposite of the feature.
+ * Returns the candidate, or null with nothing said. Work that is only held
+ * back by the seller's setup is reported by candidatesWithGates instead.
  */
 export function candidateFor(
   item: ItemListRow,
   ctx: CandidateContext,
 ): WorkCandidate | null {
+  const r = evaluate(item, ctx);
+  return r !== null && "key" in r ? r : null;
+}
+
+function evaluate(
+  item: ItemListRow,
+  ctx: CandidateContext,
+): WorkCandidate | GatedWork | null {
   const status = String(item.status ?? "");
   if (EXCLUDED_STATUSES.has(status)) return null;
 
@@ -415,13 +443,23 @@ export function candidateFor(
 
   const spec = ACTION_SPEC[action];
 
+  // WMT-06: A PAID PARCEL IS NEVER GATED. Somebody has bought it and the
+  // clock is the marketplace's, so it goes through to the ranker even with no
+  // packing supplies or away from home -- where conflictFor flags it as
+  // tools_missing or wrong_context and the seller SEES it. Dropping it here
+  // was how a sold item disappeared from the plan on a camera-only setup.
+  const soldParcel = action === "pack_ship";
+
   // The seller has to be somewhere it can be done (AC4).
-  if (!spec.context.includes(ctx.workContext)) return null;
+  if (!soldParcel && !spec.context.includes(ctx.workContext)) {
+    return { itemId: item.id, action, reason: "context", missing: [] };
+  }
 
   // ...and hold the tools. A missing tape measure does not make measuring
   // partly possible.
-  for (const tool of spec.tools) {
-    if (!ctx.availableTools.includes(tool)) return null;
+  const missing = spec.tools.filter((t) => !ctx.availableTools.includes(t));
+  if (!soldParcel && missing.length > 0) {
+    return { itemId: item.id, action, reason: "tools", missing };
   }
 
   const prerequisites = prerequisitesFor(item, action);
@@ -452,10 +490,25 @@ export function candidatesFor(
   items: readonly ItemListRow[],
   ctx: CandidateContext,
 ): WorkCandidate[] {
-  const out: WorkCandidate[] = [];
+  return candidatesWithGates(items, ctx).candidates;
+}
+
+/**
+ * Every candidate, plus the work held back only by the seller's setup
+ * (WMT-06). The planner uses this so the page can count what a missing tool
+ * is costing rather than showing a short plan with no reason.
+ */
+export function candidatesWithGates(
+  items: readonly ItemListRow[],
+  ctx: CandidateContext,
+): CandidateSet {
+  const candidates: WorkCandidate[] = [];
+  const gated: GatedWork[] = [];
   for (const item of items) {
-    const c = candidateFor(item, ctx);
-    if (c) out.push(c);
+    const r = evaluate(item, ctx);
+    if (r === null) continue;
+    if ("key" in r) candidates.push(r);
+    else gated.push(r);
   }
-  return out;
+  return { candidates, gated };
 }

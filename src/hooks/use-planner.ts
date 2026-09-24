@@ -24,7 +24,12 @@ import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
 import { supabase } from "@/lib/supabase";
 import { ITEM_LIST_SELECT, type ItemListRow } from "@/lib/item-list-columns";
-import { candidatesFor, type WorkCandidate } from "@/lib/work-candidates";
+import {
+  candidatesFor,
+  candidatesWithGates,
+  type GatedWork,
+  type WorkCandidate,
+} from "@/lib/work-candidates";
 import { estimateDuration, isUnestimated } from "@/lib/work-duration";
 import {
   learnDurations,
@@ -441,6 +446,12 @@ export interface PreparedPlan {
   suppressed: PlanSuppressionNote[];
   /** The corrections this plan was built with (US-3182). */
   book: OverrideBook;
+  /**
+   * Work held back only by the seller's setup (WMT-06), so the page can say
+   * "9 jobs need a tape measure" instead of showing a short plan with no
+   * reason.
+   */
+  gated: GatedWork[];
 }
 
 export interface BuildPlanArgs {
@@ -500,7 +511,7 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
   const nowMs = Date.parse(now);
   const book = args.book ?? emptyBook(now);
 
-  const allCandidates = candidatesFor(items, {
+  const { candidates: allCandidates, gated } = candidatesWithGates(items, {
     workContext: args.workContext,
     availableTools: args.availableTools as never,
   });
@@ -604,6 +615,7 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
     truncated: items.length >= PLAN_ITEM_LIMIT,
     suppressed,
     book,
+    gated,
   };
 }
 

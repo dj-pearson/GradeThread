@@ -152,3 +152,20 @@ describe("the value snapshot travels with the task (WMT-05)", () => {
     expect(c.remainingActions).toEqual(["photograph", "draft_review", "publish"]);
   });
 });
+
+describe("tool-gated work is counted, and a paid parcel always shows (WMT-06)", () => {
+  it("camera-only: the measure jobs are counted, and the sold parcel is in the plan, flagged", async () => {
+    tables.items_full = [
+      item({ id: "m1", measurements: null, status: "cataloged" }),
+      item({ id: "m2", measurements: null, status: "cataloged" }),
+      item({ id: "sold", status: "sold", sale_date: "2026-09-20T00:00:00.000Z" }),
+    ];
+    const built = await buildPlan({ ...BASE, availableTools: ["camera"], book: book() });
+    expect(built.gated.map((g) => g.itemId)).toEqual(["m1", "m2"]);
+    expect(built.gated.every((g) => g.missing.includes("measuring_tape"))).toBe(true);
+    const parcel = built.ranked.find((r) => r.key === "sold:pack_ship");
+    expect(parcel).toBeTruthy();
+    expect(parcel!.conflict?.kind).toBe("tools_missing");
+    expect(built.plan.tasks.some((t) => t.key === "sold:pack_ship")).toBe(true);
+  });
+});

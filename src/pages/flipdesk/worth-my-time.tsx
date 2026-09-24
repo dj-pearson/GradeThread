@@ -37,6 +37,9 @@ import {
 import { SessionRunner } from "@/components/flipdesk/session-runner";
 import { TaskCorrections } from "@/components/flipdesk/task-corrections";
 import { ResultsPanel } from "@/components/flipdesk/results-panel";
+import { WorkSetupEditor } from "@/components/flipdesk/work-setup-editor";
+import { gatedToolLine } from "@/lib/work-setup-copy";
+import type { WorkTool } from "@/lib/work-candidates";
 import { SUPPRESSION_STATE_COPY } from "@/lib/work-overrides-copy";
 import { isUrgentCandidate } from "@/lib/work-ranker";
 import { itemHref } from "@/lib/session-links";
@@ -249,6 +252,30 @@ export function WorthMyTimePage() {
   );
 
   const scheduled = plan?.plan.tasks ?? [];
+  // WMT-06: how many jobs each missing tool is holding back. An item held by
+  // two tools counts under both, because either one alone would not free it.
+  const gatedByTool = useMemo(() => {
+    const counts = new Map<WorkTool, number>();
+    for (const g of plan?.gated ?? []) {
+      if (g.reason !== "tools") continue;
+      for (const t of g.missing) {
+        if (tools.includes(t)) continue;
+        counts.set(t, (counts.get(t) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()];
+  }, [plan, tools]);
+
+  async function addTool(tool: WorkTool) {
+    if (tools.includes(tool)) return;
+    try {
+      // One field, the whole new list: the route writes only this column.
+      await savePrefs.mutateAsync({ available_tools: [...tools, tool] });
+      setStalePlan(true);
+    } catch (err) {
+      toastError(err, "Couldn't save your setup.");
+    }
+  }
   const rankedByKey = useMemo(
     () => new Map((plan?.ranked ?? []).map((r) => [r.key, r])),
     [plan],
@@ -312,10 +339,26 @@ export function WorthMyTimePage() {
           Working {context === "phone_only" ? "away from your table" : "at home"}
           {tools.length > 0 ? ` with ${tools.join(", ").replace(/_/g, " ")}` : ""}.
           {" "}
-          <Link className="underline" to="/dashboard/flipdesk/inventory">
+          {/* WMT-06: the setup is edited right here. This used to link to the
+              inventory screen, which has no setup controls. */}
+          <button
+            type="button"
+            className="underline"
+            onClick={() => {
+              const el = document.getElementById("wmt-setup");
+              el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+              el?.querySelector("button")?.focus();
+            }}
+          >
             Change your setup
-          </Link>
+          </button>
         </p>
+        <WorkSetupEditor
+          prefs={prefs.data}
+          onChanged={() => {
+            if (plan) setStalePlan(true);
+          }}
+        />
       </section>
 
       <SessionRunner />
@@ -376,6 +419,24 @@ export function WorthMyTimePage() {
               {SUPPRESSION_STATE_COPY[plan.suppressed[0]!.reason]}
             </p>
           )}
+
+          {/* WMT-06: work the seller's setup is holding back, counted per
+              tool, with the one tap that fixes it. */}
+          {gatedByTool.map(([tool, count]) => (
+            <p
+              key={tool}
+              className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+            >
+              <span>{gatedToolLine(tool, count)}</span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void addTool(tool)}
+              >
+                I have one
+              </Button>
+            </p>
+          ))}
 
           {scheduled.length > 0 && !sessionOpen && (
             <Button
