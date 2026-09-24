@@ -73,6 +73,11 @@ function consentScopes(): string[] {
   return (url.searchParams.get("scope") ?? "").split(/\s+/).filter(Boolean);
 }
 
+// Exact set membership, never a substring test: a scope is a whole token.
+function hasScope(scopes: string[], scope: string): boolean {
+  return new Set(scopes).has(scope);
+}
+
 Deno.test("the base scope constant is the bare api_scope", () => {
   assertEquals(EBAY_BASE_SCOPE, P);
 });
@@ -80,7 +85,7 @@ Deno.test("the base scope constant is the bare api_scope", () => {
 Deno.test("user consent (default list) does not request the bare base scope", () => {
   const scopes = withEnv({ ...CONSENT_ENV, EBAY_SCOPES: null }, consentScopes);
   assert(scopes.length >= 6, `only ${scopes.length} scopes; default not read`);
-  assert(!scopes.includes(P), `consent still asks for ${P}: ${scopes.join(" ")}`);
+  assert(!hasScope(scopes, P), `consent still asks for ${P}: ${scopes.join(" ")}`);
   // Every remaining scope is a sub-scope, never the bare one in another spelling.
   for (const s of scopes) assert(s.startsWith(`${P}/`), `unexpected scope ${s}`);
 });
@@ -103,15 +108,15 @@ Deno.test("an EBAY_SCOPES override that still carries the base scope is stripped
 Deno.test("sell.logistics is requested only when the logistics gate says so (US-2160)", () => {
   withEnv({ ...CONSENT_ENV, EBAY_SCOPES: null }, () => {
     assertEquals(isLogisticsScopeAvailable(), false);
-    assert(!consentScopes().includes(LOGISTICS));
+    assert(!hasScope(consentScopes(), LOGISTICS));
   });
   withEnv(
     { ...CONSENT_ENV, EBAY_SCOPES: `${P} ${P}/sell.inventory ${LOGISTICS}` },
     () => {
       assertEquals(isLogisticsScopeAvailable(), true);
       const scopes = consentScopes();
-      assert(scopes.includes(LOGISTICS));
-      assert(!scopes.includes(P));
+      assert(hasScope(scopes, LOGISTICS));
+      assert(!hasScope(scopes, P));
     },
   );
 });
@@ -124,8 +129,8 @@ async function captureTokenBodies(
   const realFetch = globalThis.fetch;
   const bodies: URLSearchParams[] = [];
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input.toString();
-    if (url.includes("/identity/v1/oauth2/token")) {
+    const url = new URL(typeof input === "string" ? input : input.toString());
+    if (url.pathname === "/identity/v1/oauth2/token") {
       bodies.push(new URLSearchParams(String(init?.body ?? "")));
       return Promise.resolve(respond());
     }
