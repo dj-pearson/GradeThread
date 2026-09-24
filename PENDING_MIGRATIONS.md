@@ -71,6 +71,68 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00835_flipdesk_search_v2_owner_scope.sql (INV-D1 - Search ranked every workspace before dropping other ones, so a small workspace got crowded out)
+
+**What it does.** Adds a NEW function, `flipdesk_search_v2`, beside
+`flipdesk_search`. It takes v1's four arguments plus
+`p_owner_id uuid default null` (the workspace on screen) and returns v1's six
+columns. Every branch (items, listings, sales) is filtered to
+`user_id = p_owner_id` BEFORE the rank order and the limit. The body is 00248's
+apart from the guard, the three owner predicates and `language plpgsql` (a SQL
+function cannot raise). It stays SECURITY INVOKER, so RLS still applies on top.
+**v1 is not touched**: iOS (`InventorySearchService.swift`) and Android
+(`InventorySearchService.kt`) call it by name. `pg_get_functiondef` of v1 has
+the same md5 before and after on the local cluster.
+
+**The guard.** The same as 00833: a non-NULL `p_owner_id` must be the caller,
+a workspace the caller is a member of (`public.is_workspace_member`), or the
+caller must be the service role. Anyone else gets **42501**. **NULL means
+`auth.uid()`**, the caller's own rows. For the service role with no sub, NULL
+matches nothing.
+
+**Grants.** v1's: `authenticated`, with PUBLIC coming from CREATE. `proacl`
+read on the local cluster is identical for both functions:
+`{=X/postgres,postgres=X/postgres,authenticated=X/postgres}`. No revokes
+(US-2403, the same reason 00831 and 00833 add none).
+
+**Why.** v1 relied on RLS, which admits own rows OR any workspace the caller is
+a member of. It ranked across all of them, stopped at 50, and only then did the
+web client (PR 353) drop rows from other workspaces. A member of a big
+workspace searching a small one got a short or empty page, because the big
+one's rows filled it first.
+
+**⚠ THE BROWSER CALLS THE NEW FUNCTION, in the same commit.**
+`src/lib/flipdesk-search-fetch.ts` calls `flipdesk_search_v2` with
+`p_owner_id`. If Pages deploys before this is applied, PostgREST finds no such
+function and **FlipDesk search and the Cmd+K palette's search fail** (PGRST202;
+the page shows its error state, not "no results", per US-2517). The mobile apps
+are unaffected either way. **Apply BEFORE the push to main.**
+
+**Proved on a local Postgres 16** (a `template postgres` clone of the cluster
+at 00834): applied twice, second run clean (`INSERT 0 0` on the footer).
+`node scripts/check-search-owner-scope.mjs --dsn ...` passes 15/15. The fixture
+is the crowd-out: A has 5 rows matching "jacket" (3 items, 1 listing, 1 sale),
+B has 62 that all rank above A's, M is a member of both, S is a stranger, and
+every call asks for 51 rows. v2: A in A `n:5,a:5,b:0`; A with NULL the same; A
+naming B, S naming A and anon naming A all 42501; M in B `n:51,a:0,b:51`; **M
+in A `n:5,a:5,b:0`**; M, S, anon and the service role with NULL get nothing;
+the service role naming A gets A's 5. v1, unchanged: A gets A's 5, S gets
+nothing, and **M gets `n:51,a:0,b:51`**, which is the shipped bug (the client
+then drops all 51 and shows an empty page). Sabotage 1 (all three owner
+predicates replaced with `true`): 4 of 15 red, M in A returned
+`n:51,a:0,b:51`, the crowd-out back. Sabotage 2 (guard removed): 3 of 15 red,
+A naming B, S naming A and anon naming A each got an empty answer instead of
+42501. Restored: 15/15, and `check-inventory-owner-scope.mjs` 13/13 and
+`check-overview-owner-scope.mjs` 12/12 on the same database.
+
+**Risk: LOW.** A new read-only function; no table change, nothing replaced.
+The risk is the deploy order above.
+
+**Order.** 1) `npm run migrate:prod -- --apply --yes` (applies 00835, then
+`NOTIFY pgrst, 'reload schema';` so PostgREST sees the new function). 2)
+Redeploy the edge (boot guard expects 00835; the edge does not call this
+function). 3) THEN push to main so Pages builds the client that calls v2.
+
 ## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00834_overview_metrics_owner_scope.sql (INV-D1 - FlipDesk Overview on /dashboard mixed two workspaces)
 
 **What it does.** Replaces `flipdesk_overview_metrics` (5 args, 00594 body as

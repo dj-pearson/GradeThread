@@ -3,12 +3,14 @@
 //
 // Two reads, in order, inside ONE queryFn so nothing renders between them:
 //
-//   1. flipdesk_search, the SECURITY INVOKER RPC. RLS keeps it to rows the
-//      caller may read, which includes every workspace they belong to.
-//   2. items_full for the hit item ids, filtered to the ACTIVE owner. A hit
-//      whose item is not in that answer is dropped. This is the client-side
-//      stand-in for a server owner predicate (the 00833 pattern Inventory
-//      already uses), and it doubles as the enrichment the rows render from.
+//   1. flipdesk_search_v2 (00835), the SECURITY INVOKER RPC, for the ACTIVE
+//      owner. It filters by that owner before it ranks and limits, so a big
+//      workspace the caller also belongs to cannot fill the page first. The
+//      server checks the owner id: a caller outside that workspace gets 42501.
+//   2. items_full for the hit item ids, filtered to the same owner. A hit whose
+//      item is not in that answer is dropped. The server already did this, so
+//      it is defense in depth, and it doubles as the enrichment the rows render
+//      from.
 
 import { supabase } from "@/lib/supabase";
 import { fetchInChunks } from "@/lib/supabase-batch";
@@ -26,7 +28,7 @@ import {
   type SearchHit,
 } from "@/lib/flipdesk-search";
 
-type SearchReturns = Database["public"]["Functions"]["flipdesk_search"]["Returns"];
+type SearchReturns = Database["public"]["Functions"]["flipdesk_search_v2"]["Returns"];
 
 /**
  * The RPC call, typed. The Database type does not satisfy supabase-js's
@@ -35,9 +37,15 @@ type SearchReturns = Database["public"]["Functions"]["flipdesk_search"]["Returns
  */
 export async function searchFlipdesk(
   args: SearchArgs,
+  ownerId: string,
   signal?: AbortSignal,
 ): Promise<SearchHit[]> {
-  let builder = supabase.rpc("flipdesk_search", args as never);
+  // p_owner_id is the workspace on screen. Without it the server answers for
+  // the caller's own rows, which is wrong for a member acting in a workspace.
+  let builder = supabase.rpc("flipdesk_search_v2", {
+    ...args,
+    p_owner_id: ownerId,
+  } as never);
   if (signal) builder = builder.abortSignal(signal);
   // supabase-js RESOLVES with { data: null, error } on a Postgres error. It
   // does not throw, so the error has to be read or an outage reads as "no
@@ -210,14 +218,15 @@ export async function runFlipdeskSearch(
   const code = opts.withExact && cls.kind === "code" ? cls : null;
   const [raw, exactRows] = await Promise.all([
     // sku:/bin: are for the exact read; the RPC gets the bare code.
-    searchFlipdesk({ ...args, p_query: cls.rpcQuery }, signal),
+    searchFlipdesk({ ...args, p_query: cls.rpcQuery }, ownerId, signal),
     code
       ? fetchExactMatches(code.term, code.fields, ownerId, signal)
       : Promise.resolve([] as ItemListRow[]),
   ]);
-  // The cap is a fact about the RPC's answer, not about how many survive the
-  // owner filter below. At MAX_LIMIT the request could not ask for one extra
-  // row, so a full page is the most it can say.
+  // The cap is a fact about the RPC's answer, which is already this owner's
+  // rows only (00835), so a capped answer means this workspace has more. At
+  // MAX_LIMIT the request could not ask for one extra row, so a full page is
+  // the most it can say.
   const capped =
     raw.length > limit || (args.p_limit <= limit && raw.length >= args.p_limit);
 

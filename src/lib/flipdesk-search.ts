@@ -5,9 +5,10 @@
 // SECURITY INVOKER, so RLS keeps every row to one the caller MAY read. That is
 // not the same as the workspace on screen: the SELECT policies admit the
 // caller's own rows OR any workspace they belong to (00451), so a seller who is
-// also a member of a client's workspace gets both. The hook
-// (src/hooks/use-flipdesk-search.ts) filters to the active owner before
-// anything renders, the same defect 00833 fixed for Inventory.
+// also a member of a client's workspace gets both, ranked together. The web
+// calls `flipdesk_search_v2()` (00835) instead, which takes the active owner
+// and filters before it ranks and limits, the fix 00833 made for Inventory.
+// The mobile apps still call v1.
 //
 // This module owns the query-building and result-mapping logic so it can be
 // unit-tested without a database or React. The IO lives in
@@ -18,11 +19,15 @@ import type { Database } from "@/types/database";
 export type SearchScope = "all" | "items" | "listings" | "sales";
 export type ResultType = "item" | "listing" | "sale";
 
-/** A raw row as returned by the `flipdesk_search` RPC. */
+/** A raw row as returned by the `flipdesk_search_v2` RPC (same shape as v1). */
 export type SearchHit =
-  Database["public"]["Functions"]["flipdesk_search"]["Returns"][number];
+  Database["public"]["Functions"]["flipdesk_search_v2"]["Returns"][number];
 
-/** Named args passed straight to `supabase.rpc("flipdesk_search", ...)`. */
+/**
+ * Named args for `flipdesk_search_v2`. The owner is not here: it travels
+ * beside them (runFlipdeskSearch's ownerId), because it is not part of what
+ * the field and tabs describe and the query key already carries it.
+ */
 export interface SearchArgs {
   p_query: string;
   p_scope: SearchScope;
@@ -268,9 +273,11 @@ export function summarizeHits(
   for (const h of hits) byType[h.result_type] += 1;
   const total = hits.length;
   const plural = `${total} result${total === 1 ? "" : "s"}`;
-  // The cap is counted before the workspace filter and the exact-code de-dup,
-  // so a capped answer can show fewer than `limit`. Only a full page may claim
-  // "the best 50"; a short one says what it shows and that more may exist.
+  // Since 00835 the RPC counts the cap within the active workspace, so a
+  // capped answer normally fills the page. It can still show fewer than
+  // `limit` if the client's defense-in-depth owner check drops a row. Only a
+  // full page may claim "the best 50"; a short capped one says what it shows
+  // and that more may exist. An uncapped answer is everything there is.
   const headline = !capped
     ? plural
     : total >= limit

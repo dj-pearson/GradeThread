@@ -1,15 +1,17 @@
 // S2: search shows the workspace on screen and nothing else.
 //
-// flipdesk_search is SECURITY INVOKER with no owner predicate, and the RLS
-// SELECT policies admit the caller's own rows OR any workspace they belong to
-// (00451). A seller who is also a member of a client's workspace got both
-// tenants' items, listings and buyer names in one list. Until a v2 RPC takes a
-// checked owner id, the queryFn reads items_full for the hit ids filtered to
-// the active owner and drops every hit whose item is not in that answer.
+// flipdesk_search (v1) is SECURITY INVOKER with no owner predicate, and the
+// RLS SELECT policies admit the caller's own rows OR any workspace they belong
+// to (00451). A seller who is also a member of a client's workspace got both
+// tenants ranked together, capped, and then filtered, so a small workspace
+// could be crowded off the page. The web now calls flipdesk_search_v2 (00835)
+// with p_owner_id, which filters before the limit, and the queryFn still reads
+// items_full for the hit ids filtered to the active owner as defense in depth.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type Call = { table: string; ops: [string, unknown[]][] };
 const calls: Call[] = [];
+const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
 let rpcRows: unknown[] = [];
 let itemRows: { id: string; user_id: string }[] = [];
 
@@ -40,7 +42,8 @@ function chain(table: string) {
 vi.mock("@/lib/supabase", () => ({
   supabase: {
     from: (t: string) => chain(t),
-    rpc: () => {
+    rpc: (fn: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ fn, args });
       const p = Promise.resolve({ data: rpcRows, error: null });
       return Object.assign(p, { abortSignal: () => p });
     },
@@ -62,6 +65,7 @@ function hit(type: string, id: string, item: string) {
 
 beforeEach(() => {
   calls.length = 0;
+  rpcCalls.length = 0;
   itemRows = [
     { id: "itemA1", user_id: "A" },
     { id: "itemA2", user_id: "A" },
@@ -76,6 +80,23 @@ beforeEach(() => {
 });
 
 describe("runFlipdeskSearch owner scope", () => {
+  it("calls flipdesk_search_v2 with the active owner as p_owner_id", async () => {
+    await runFlipdeskSearch({
+      args: { p_query: "nike", p_scope: "all", p_limit: 51 },
+      limit: 50,
+      ownerId: "B",
+    });
+    // v2 filters by owner BEFORE its limit. Without p_owner_id the server
+    // answers for the caller's own rows, which is wrong for a member acting
+    // in someone else's workspace.
+    expect(rpcCalls).toEqual([
+      {
+        fn: "flipdesk_search_v2",
+        args: { p_query: "nike", p_scope: "all", p_limit: 51, p_owner_id: "B" },
+      },
+    ]);
+  });
+
   it("keeps only the active owner's hits", async () => {
     const r = await runFlipdeskSearch({
       args: { p_query: "nike", p_scope: "all", p_limit: 51 },
@@ -106,6 +127,9 @@ describe("runFlipdeskSearch owner scope", () => {
     expect(r.hits.map((h) => h.result_id)).toEqual(["itemB1", "saleB"]);
   });
 
+  // The mock returns rows for both owners, which v2 would not. It stands for
+  // the case the client's own check exists for: a row the server let through
+  // that the owner check drops. The cap is still the RPC's fact.
   it("counts the cap from the RPC's rows, not the filtered ones", async () => {
     const r = await runFlipdeskSearch({
       args: { p_query: "nike", p_scope: "all", p_limit: 4 },
