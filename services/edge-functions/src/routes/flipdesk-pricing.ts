@@ -96,6 +96,8 @@ interface ListingJoinRow {
   platform_offer_id: string | null;
   platform_category_id: string | null;
   listing_title: string | null;
+  /** Only "active" listings may be priced; the bulk paths report the rest. */
+  listing_status: string;
   inventory_items: {
     user_id: string;
     ebay_category_id: string | null;
@@ -113,7 +115,7 @@ interface ListingJoinRow {
 // Columns the repricing engine needs off a listing + its item, shared by the
 // scan and the bulk match-to-comp flow (US-962).
 const REPRICE_LISTING_COLUMNS =
-  "id, inventory_item_id, listing_price, listed_at, watchers, views, watchers_count, impressions_7d, click_through_rate, platform_offer_id, platform_category_id, listing_title, " +
+  "id, inventory_item_id, listing_price, listed_at, watchers, views, watchers_count, impressions_7d, click_through_rate, platform_offer_id, platform_category_id, listing_title, listing_status, " +
   "inventory_items!inner(user_id, ebay_category_id, grade_value, brand, size, title, acquired_price, floor_price)";
 
 interface ScanResult {
@@ -222,6 +224,8 @@ async function scanListings(
     return result;
   }
 
+  await clearDeadSuggestions(ownerId);
+
   const listings = (data ?? []) as unknown as ListingJoinRow[];
   for (const listing of listings) {
     result.scanned++;
@@ -274,6 +278,33 @@ async function scanListings(
   }
 
   return result;
+}
+
+/**
+ * Drop pending nudges whose listing sold or ended. The scan only visits active
+ * listings, so without this a dead row sat in the queue forever. Scoped to the
+ * owner when there is one; the cron (ownerId null) sweeps every tenant, and
+ * each delete is keyed on the ids that sweep read.
+ */
+async function clearDeadSuggestions(ownerId: string | null): Promise<void> {
+  let q = supabaseAdmin
+    .from("repricing_suggestions")
+    .select("id, listings!inner(listing_status)")
+    .eq("status", "pending")
+    .neq("listings.listing_status", "active")
+    .limit(500);
+  if (ownerId) q = q.eq("user_id", ownerId);
+  const { data, error } = await q;
+  if (error) {
+    console.error("[repricing] dead-suggestion sweep failed:", error.message);
+    return;
+  }
+  const ids = ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
+  if (ids.length === 0) return;
+  let del = supabaseAdmin.from("repricing_suggestions").delete().in("id", ids);
+  if (ownerId) del = del.eq("user_id", ownerId);
+  const { error: delErr } = await del;
+  if (delErr) console.error("[repricing] dead-suggestion delete failed:", delErr.message);
 }
 
 // ── POST /scan ────────────────────────────────────────────────────
@@ -391,6 +422,8 @@ flipdeskPricingRoutes.get("/suggestions", async (c) => {
     )
     .eq("user_id", ownerId)
     .eq("status", "pending")
+    // A sold or ended listing's price can't change, so its nudge is noise.
+    .eq("listings.listing_status", "active")
     .order("updated_at", { ascending: false })
     .limit(200);
   if (error) return failSafe(c, 500, "Couldn't load repricing suggestions.", error, "repricing.list");
@@ -516,7 +549,7 @@ flipdeskPricingRoutes.post("/suggestions/:id/dismiss", async (c) => {
 // writes the local price, never below the cost-basis margin floor. Every query
 // is tenant-scoped through inventory_items.user_id (US-268).
 
-type BulkSkipReason = "no_comps" | "below_margin_floor";
+type BulkSkipReason = "no_comps" | "below_margin_floor" | "listing_not_active";
 
 interface RepricePreviewRow {
   listing_id: string;
@@ -542,8 +575,10 @@ function parseListingIds(value: unknown): string[] {
   return ids.slice(0, MAX_BULK_REPRICE);
 }
 
-// Tenant-scoped fetch of the caller's active eBay listings by id — the !inner
-// join on inventory_items.user_id is the ownership gate (US-268).
+// Tenant-scoped fetch of the caller's eBay listings by id — the !inner join on
+// inventory_items.user_id is the ownership gate (US-268). Not filtered to
+// active: the callers report a sold or ended row as skipped by name rather than
+// letting it vanish into "not found".
 async function loadOwnedRepriceListings(
   ownerId: string,
   listingIds: string[],
@@ -578,6 +613,19 @@ async function buildPreviewRow(
     current_price_cents: currentCents,
     margin_floor_cents: floorCents,
   };
+
+  // Sold or ended: no comp call, nothing to apply.
+  if (listing.listing_status !== "active") {
+    return {
+      ...base,
+      suggested_price_cents: currentCents,
+      delta_cents: 0,
+      comp_count: 0,
+      comp_median_cents: null,
+      reason_code: "OK",
+      skip: "listing_not_active",
+    };
+  }
 
   let suggestion: EngineSuggestion | null = null;
   try {
@@ -1440,6 +1488,10 @@ async function applyRepriceFor(
     const listing = byId.get(req.listingId);
     if (!listing) {
       skipped.push({ listing_id: req.listingId, reason: "not_found" });
+      continue;
+    }
+    if (listing.listing_status !== "active") {
+      skipped.push({ listing_id: req.listingId, reason: "listing_not_active" });
       continue;
     }
     // US-3192: same composition as the preview above. This is the write, so it

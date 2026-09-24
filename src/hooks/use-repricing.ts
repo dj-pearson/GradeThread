@@ -154,7 +154,7 @@ export function useApplyReprice() {
 // US-962: bulk match-to-comp reprice. Preview computes a per-listing suggested
 // price off the repricing engine; apply pushes it (eBay where present + local),
 // respecting the margin floor server-side.
-export type BulkRepriceSkip = "no_comps" | "below_margin_floor";
+export type BulkRepriceSkip = "no_comps" | "below_margin_floor" | "listing_not_active";
 
 export interface BulkRepricePreviewRow {
   listing_id: string;

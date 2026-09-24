@@ -12,14 +12,55 @@
 import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { installFakePostgrest, type Row } from "./_fake-postgrest.ts";
+import { Hono } from "hono";
 import {
   applyPriceSuggestion,
+  flipdeskPricingRoutes,
   pricingEbay,
 } from "../routes/flipdesk-pricing.ts";
 
 const db = installFakePostgrest();
 
+// The router mounted the way main.ts mounts it, with the caller stamped the way
+// authMiddleware stamps it.
+function app(userId: string) {
+  const a = new Hono<{ Variables: { userId: string; workspaceOwnerId: string } }>();
+  a.use("*", async (c, next) => {
+    c.set("userId", userId);
+    await next();
+  });
+  a.route("/api/flipdesk/pricing", flipdeskPricingRoutes);
+  return a;
+}
+
+async function call(path: string, body?: unknown, userId = OWNER_ID) {
+  const res = await app(userId).request(`/api/flipdesk/pricing${path}`, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return { status: res.status, body: await res.json() as Record<string, unknown> };
+}
+
+// Comps the stand-in Browse search returns. A median of `median` dollars.
+let compMedian = 40;
+pricingEbay.searchBrowseComps = (() =>
+  Promise.resolve({
+    items: [],
+    total: 12,
+    stats: {
+      count: 12,
+      currency: "USD",
+      min: compMedian * 0.7,
+      p25: compMedian * 0.9,
+      median: compMedian,
+      p75: compMedian * 1.1,
+      max: compMedian * 1.3,
+    },
+  })) as unknown as typeof pricingEbay.searchBrowseComps;
+
 const OWNER = "11111111-1111-4111-8111-111111111111";
+const OWNER_ID = OWNER;
 const ITEM = "22222222-2222-4222-8222-222222222222";
 const LISTING = "33333333-3333-4333-8333-333333333333";
 const SUG = "44444444-4444-4444-8444-444444444444";
@@ -148,4 +189,38 @@ Deno.test("P1: another tenant's suggestion is not found and nothing moves", asyn
   assertEquals(offerPushes.length, 0);
   assertEquals(listingRow().listing_price, 50);
   assert(!(db.tables.repricing_actions ?? []).length);
+});
+
+// ── P2 ──────────────────────────────────────────────────────────────
+
+Deno.test("P2: a pending nudge on a sold listing leaves the queue, the bulk apply and the next scan", async () => {
+  seed({ listingStatus: "sold" });
+  // listings!inner(...) in the GET joins through listing_id.
+  const list = await call("/suggestions");
+  assertEquals(list.status, 200);
+  assertEquals((list.body.suggestions as unknown[]).length, 0);
+
+  const bulk = await call("/reprice/apply", { items: [{ listing_id: LISTING, price_cents: 4200 }] });
+  assertEquals(bulk.status, 200);
+  assertEquals(bulk.body.applied, 0);
+  assertEquals(bulk.body.skipped, [{ listing_id: LISTING, reason: "listing_not_active" }]);
+  assertEquals(offerPushes.length, 0);
+  assertEquals(listingRow().listing_price, 50);
+
+  pricingEbay.isEbayConfigured = () => true;
+  const scan = await call("/scan", {});
+  assertEquals(scan.status, 200);
+  assertEquals(db.tables.repricing_suggestions.length, 0, "the scan sweeps the dead nudge");
+});
+
+Deno.test("P2: the sweep never touches another tenant's dead nudge", async () => {
+  seed({ listingStatus: "sold" });
+  await call("/scan", {}, "99999999-9999-4999-8999-999999999999");
+  assertEquals(db.tables.repricing_suggestions.length, 1);
+});
+
+Deno.test("P2: a live listing's nudge is still listed", async () => {
+  seed();
+  const list = await call("/suggestions");
+  assertEquals((list.body.suggestions as unknown[]).length, 1);
 });
