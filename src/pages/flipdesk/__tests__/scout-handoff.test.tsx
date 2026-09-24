@@ -165,3 +165,19 @@ describe("Scout row handoff", () => {
     expect(link.textContent).toContain("Patagonia Synchilla fleece (opens in new tab)");
   });
 });
+
+describe("Scout condition-arbitrage badge (SRC-14)", () => {
+  it("names the seller's condition on a better-than-listed row", async () => {
+    mocks.scanData = {
+      scanned: 2,
+      candidates: [
+        row({ itemId: "a", title: "Plain row" }),
+        row({ itemId: "b", title: "Arb row", sellerCondition: "Good", conditionGap: 1.5, arbitrage: true }),
+      ],
+    };
+    await render("/x?q=fleece&order=arbitrage");
+    expect(host.textContent).toContain("Better than listed (seller: Good)");
+    const titles = Array.from(host.querySelectorAll("p.line-clamp-2")).map((p) => p.textContent);
+    expect(titles[0]).toBe("Arb row");
+  });
+});

@@ -61,7 +61,7 @@ function gradeClasses(grade: number | null): string {
   return "bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-300";
 }
 
-type SortKey = "margin" | "grade" | "confidence";
+type SortKey = "margin" | "grade" | "confidence" | "arbitrage";
 /** SRC-9: the URL keys that make up the deal filter. */
 const FILTER_URL_KEYS = ["maxTotal", "minMarginPct", "minMargin", "sort", "bin", "freeShip"] as const;
 const SORT_LABELS: Record<ScoutSort, string> = {
@@ -70,7 +70,7 @@ const SORT_LABELS: Record<ScoutSort, string> = {
   endingSoonest: "ending soonest",
   priceAsc: "cheapest first",
 };
-const SORT_KEYS: readonly SortKey[] = ["margin", "grade", "confidence"];
+const SORT_KEYS: readonly SortKey[] = ["margin", "grade", "confidence", "arbitrage"];
 const SCOUT_SORTS: readonly ScoutSort[] = ["bestMatch", "newlyListed", "endingSoonest", "priceAsc"];
 const DEFAULT_CATEGORY_ID = "11450"; // Clothing, Shoes & Accessories
 
@@ -135,6 +135,13 @@ function CandidateRow({ c, ctx }: { c: ScoutScored; ctx: RowContext }) {
             {c.underpriced && (
               <Badge className="flex-shrink-0 bg-green-600 hover:bg-green-600">
                 <TrendingUp className="mr-1 h-3 w-3" /> Underpriced
+              </Badge>
+            )}
+            {/* SRC-14: the seller described it as worse than the photo reads,
+                so it is priced for a condition it is not in. */}
+            {c.arbitrage && (
+              <Badge variant="outline" className="flex-shrink-0">
+                Better than listed{c.sellerCondition ? ` (seller: ${c.sellerCondition})` : ""}
               </Badge>
             )}
           </div>
@@ -380,6 +387,10 @@ export function FlipdeskScoutPage() {
     const sorted = [...list].sort((a, b) => {
       if (sortKey === "margin") return (b.estMarginCents ?? -Infinity) - (a.estMarginCents ?? -Infinity);
       if (sortKey === "grade") return (b.shadowGrade ?? -Infinity) - (a.shadowGrade ?? -Infinity);
+      if (sortKey === "arbitrage") {
+        if (Boolean(a.arbitrage) !== Boolean(b.arbitrage)) return a.arbitrage ? -1 : 1;
+        return (b.conditionGap ?? 0) - (a.conditionGap ?? 0);
+      }
       return b.gradeConfidence - a.gradeConfidence;
     });
     return sorted;
@@ -738,6 +749,7 @@ export function FlipdeskScoutPage() {
                     <option value="margin">Sort: margin</option>
                     <option value="grade">Sort: grade</option>
                     <option value="confidence">Sort: confidence</option>
+                  <option value="arbitrage">Sort: better than listed first</option>
                   </select>
                 </div>
               </div>

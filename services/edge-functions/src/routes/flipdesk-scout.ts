@@ -78,6 +78,8 @@ import { ebaySoldSearchUrl } from "../lib/sold-comps.ts";
 import { decideBuy, DECISION_FEE_RATE, sourcingCeiling } from "../lib/scout-decision.ts";
 import { sourcingParams } from "../lib/sourcing-target.ts";
 import {
+  conditionGap,
+  isConditionArbitrage,
   rankCandidates,
   scoreCandidate,
   type ScoutCandidate,
@@ -605,10 +607,16 @@ flipdeskScoutRoutes.post("/", async (c) => {
       // candidate.
       const value = await cachedValueAtGrade({ categoryId, q, brand }, grade.overallScore);
       // US-617: score by condition-adjusted margin.
-      return scoreCandidate(cand, grade.overallScore, grade.confidence, value, {
+      const row = scoreCandidate(cand, grade.overallScore, grade.confidence, value, {
         targetRoi,
         costs: scanCosts,
       });
+      // SRC-14: priced for a worse condition than the photo shows.
+      return {
+        ...row,
+        conditionGap: conditionGap(cand.sellerCondition, grade.overallScore),
+        arbitrage: isConditionArbitrage(cand.sellerCondition, grade.overallScore, grade.confidence),
+      };
     },
     onError: (cand, err) =>
       captureException(err, { level: "warn", route: "scout.grade", extra: { itemId: cand.itemId } }),

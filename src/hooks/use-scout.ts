@@ -19,6 +19,12 @@ export interface ScoutScored {
   valueHighCents: number | null;
   /** US-2850: what the estimated value is. Absent on an older edge response. */
   valueBasis?: ValueBasis;
+  /** SRC-14: the seller's own eBay condition text, e.g. "Pre-owned". */
+  sellerCondition?: string | null;
+  /** SRC-14: shadow grade minus the seller's stated condition, when positive. */
+  conditionGap?: number;
+  /** SRC-14: confidently better than the seller's own condition says. */
+  arbitrage?: boolean;
   estMarginCents: number | null;
   estMarginPct: number | null;
   underpriced: boolean;
