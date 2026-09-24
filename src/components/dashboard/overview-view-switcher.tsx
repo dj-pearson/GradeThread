@@ -1,3 +1,4 @@
+import { useRef, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
 import type { OverviewViewDef, OverviewViewId } from "@/lib/overview-view";
 
@@ -24,36 +25,68 @@ export function OverviewViewSwitcher({
   onChange: (next: OverviewViewId) => void;
   className?: string;
 }) {
+  const refs = useRef<Array<HTMLButtonElement | null>>([]);
+
   // One view is not a choice. A buyer account has only the grading board, and
   // a segmented control with a single permanently-pressed segment is furniture.
   if (views.length < 2) return null;
+
+  // The radio-group keyboard contract: one tab stop (the checked radio), and
+  // the arrow keys move focus AND selection, wrapping; Home and End jump.
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const last = views.length - 1;
+    let next: number | null = null;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      next = index === last ? 0 : index + 1;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      next = index === 0 ? last : index - 1;
+    } else if (event.key === "Home") {
+      next = 0;
+    } else if (event.key === "End") {
+      next = last;
+    }
+    if (next == null) return;
+    event.preventDefault();
+    refs.current[next]?.focus();
+    onChange(views[next]!.id);
+  };
 
   return (
     <div
       role="radiogroup"
       aria-label="Overview view"
       className={cn(
-        "flex w-fit items-center gap-0.5 rounded-xl bg-muted/60 p-1",
+        // Full width with two equal 44px segments on a phone; a compact pill
+        // from sm up.
+        "grid w-full grid-cols-2 items-center gap-0.5 rounded-xl bg-muted/60 p-1 sm:flex sm:w-fit",
         className,
       )}
     >
-      {views.map((view) => (
-        <button
-          key={view.id}
-          type="button"
-          role="radio"
-          aria-checked={value === view.id}
-          onClick={() => onChange(view.id)}
-          className={cn(
-            "rounded-lg px-4 py-1.5 text-sm font-medium transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
-            value === view.id
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {view.label}
-        </button>
-      ))}
+      {views.map((view, index) => {
+        const checked = value === view.id;
+        return (
+          <button
+            key={view.id}
+            ref={(el) => {
+              refs.current[index] = el;
+            }}
+            type="button"
+            role="radio"
+            aria-checked={checked}
+            tabIndex={checked ? 0 : -1}
+            onClick={() => onChange(view.id)}
+            onKeyDown={(event) => onKeyDown(event, index)}
+            className={cn(
+              "min-h-11 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none sm:min-h-0",
+              checked
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {view.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

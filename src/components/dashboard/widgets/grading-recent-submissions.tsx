@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router";
+import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { FileText, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -31,8 +31,6 @@ interface RecentSubmission extends RecentSubmissionRow {
 }
 
 export function GradingRecentSubmissionsWidget() {
-  const navigate = useNavigate();
-
   const { data, isLoading, isError, isFetching, refetch } = useQuery<
     RecentSubmission[]
   >({
@@ -116,7 +114,7 @@ export function GradingRecentSubmissionsWidget() {
         description="Upload photos of a garment to get your first AI-powered condition grade."
         action={{
           label: "Submit your first garment",
-          onClick: () => navigate("/dashboard/submissions/new"),
+          to: "/dashboard/submissions/new",
           icon: Plus,
         }}
         // US-2865: for the seller who is not ready to press the primary button
@@ -129,11 +127,12 @@ export function GradingRecentSubmissionsWidget() {
   return (
     <div className="space-y-2">
       {submissions.map((sub) => (
-        <button
+        // A link, not a button that navigates: it opens in a new tab and shows
+        // its destination before the click.
+        <Link
           key={sub.id}
-          type="button"
-          className="flex w-full cursor-pointer items-center justify-between rounded-lg border p-3 text-left transition-colors hover:bg-muted/50"
-          onClick={() => navigate(`/dashboard/submissions/${sub.id}`)}
+          to={`/dashboard/submissions/${sub.id}`}
+          className="flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
         >
           <span className="min-w-0 flex-1">
             <span className="block truncate font-medium">{sub.title}</span>
@@ -162,15 +161,11 @@ export function GradingRecentSubmissionsWidget() {
               </span>
             )}
           </span>
-        </button>
+        </Link>
       ))}
 
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => navigate("/dashboard/submissions")}
-      >
-        View all
+      <Button variant="outline" size="sm" asChild>
+        <Link to="/dashboard/submissions">View all</Link>
       </Button>
     </div>
   );

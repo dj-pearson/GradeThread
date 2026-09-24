@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 import { Plus, Upload } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useAuthStore } from "@/stores/auth-store";
@@ -16,11 +16,8 @@ import {
 } from "@/components/ui/select";
 import { useUrlParamState } from "@/hooks/use-url-param-state";
 import { personaOf } from "@/lib/dashboard-layout";
-import {
-  DEFAULT_OVERVIEW_RANGE,
-  isOverviewRangeId,
-  OVERVIEW_RANGES,
-} from "@/lib/overview-range";
+import { OVERVIEW_RANGES } from "@/lib/overview-range";
+import { useOverviewRange } from "@/hooks/use-overview-range";
 import {
   availableOverviewViews,
   overviewViewDef,
@@ -60,7 +57,6 @@ import {
 export function DashboardPage() {
   const { profile } = useAuth();
   const userId = useAuthStore((s) => s.user?.id);
-  const navigate = useNavigate();
 
   const persona = personaOf(profile?.use_case);
   const views = useMemo(() => availableOverviewViews(persona), [persona]);
@@ -92,28 +88,22 @@ export function DashboardPage() {
     if (viewParam !== view) setViewParam(view);
   }, [viewParam, view, setViewParam]);
 
-  // US-2547: the reporting window lives in the URL so a seller can bookmark
-  // "last 30 days" and hand the link to a partner. FlipDesk only -- the grading
-  // board has no ranged widget, and a picker over numbers that ignore it is the
-  // defect src/lib/overview-range.ts exists to prevent.
-  const [rangeParam, setRangeParam] = useUrlParamState(
-    "range",
-    DEFAULT_OVERVIEW_RANGE,
-  );
-  const range = isOverviewRangeId(rangeParam)
-    ? rangeParam
-    : DEFAULT_OVERVIEW_RANGE;
+  // US-2547: the reporting window, in the URL and remembered per seller.
+  // FlipDesk only; see src/hooks/use-overview-range.ts.
+  const [range, setRange] = useOverviewRange(view, userId);
 
   const gradingActions = (
-    <Button onClick={() => navigate("/dashboard/submissions/new")}>
-      <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
-      New Submission
+    <Button asChild>
+      <Link to="/dashboard/submissions/new">
+        <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
+        New Submission
+      </Link>
     </Button>
   );
 
   const flipdeskActions = (
     <>
-      <Select value={range} onValueChange={setRangeParam}>
+      <Select value={range} onValueChange={setRange}>
         <SelectTrigger className="w-[150px]" aria-label="Reporting period">
           <SelectValue />
         </SelectTrigger>
@@ -140,7 +130,10 @@ export function DashboardPage() {
     </>
   );
 
-  const greeting = profile?.full_name ? `, ${profile.full_name}` : "";
+  // First name only: "Welcome back, Jordan", not the full legal name the
+  // profile carries for certificates.
+  const firstName = profile?.full_name?.trim().split(/\s+/)[0] ?? "";
+  const greeting = firstName ? `Welcome back, ${firstName}.` : "Welcome back.";
 
   return (
     <div className="space-y-6">
@@ -148,8 +141,9 @@ export function DashboardPage() {
           surface, not only FlipDesk intake / Snap. The Overview is where an
           engaged, returning user lands. The banner self-hides unless the browser
           reports the app is installable and shares one dismiss key across mounts,
-          so it never nags. `general` variant -> grades/certificates copy. */}
-      <PwaInstallBanner variant="general" />
+          so it never nags. `general` variant -> grades/certificates copy, and
+          the FlipDesk view gets the FlipDesk copy. */}
+      <PwaInstallBanner variant={view === "flipdesk" ? "flipdesk" : "general"} />
 
       <CustomizableWidgetBoard
         surface={def.surface}
@@ -161,7 +155,10 @@ export function DashboardPage() {
         range={view === "flipdesk" ? range : undefined}
         title="Overview"
         subtitle={
-          view === "grading" ? `Welcome back${greeting}.` : def.subtitle
+          <>
+            <span className="block font-medium text-foreground">{greeting}</span>
+            <span className="block">{def.subtitle}</span>
+          </>
         }
         lead={
           <OverviewViewSwitcher
