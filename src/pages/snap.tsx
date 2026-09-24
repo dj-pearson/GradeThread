@@ -28,6 +28,13 @@ import {
 } from "@/lib/snap-history";
 import { useAuth } from "@/hooks/use-auth";
 import { PageHelp } from "@/components/help/page-help";
+import {
+  buildSnapBridge,
+  inputsChangedSince,
+  sourceHadCompQuery,
+  type SnapResultSource,
+  type SnapSubmittedInput,
+} from "@/lib/snap-bridge";
 
 function dollars(cents: number | null): string {
   if (cents == null) return "—";
@@ -91,6 +98,16 @@ export function SnapToValuePage() {
     });
   }
   const result = revisited?.result ?? snap.data;
+  // SNAP-04: what was actually submitted for the live result. The bridge and
+  // the value caption read this (or the revisited entry), never the fields as
+  // they are typed now.
+  const [lastSnapInput, setLastSnapInput] = useState<SnapSubmittedInput | null>(null);
+  const source: SnapResultSource | null = revisited
+    ? { kind: "revisit", entry: revisited }
+    : snap.data && lastSnapInput
+      ? { kind: "live", ...lastSnapInput }
+      : null;
+  const inputsChanged = !revisited && !!snap.data && inputsChangedSince(lastSnapInput, brand, keyword);
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -116,6 +133,7 @@ export function SnapToValuePage() {
   function valueIt() {
     if (!dataUri) return;
     setRevisited(null);
+    setLastSnapInput({ dataUri, brand, keyword });
     snap.mutate(
       { imageDataUri: dataUri, brand: brand.trim() || undefined, keyword: keyword.trim() || undefined },
       {
@@ -128,6 +146,7 @@ export function SnapToValuePage() {
   }
 
   const limitReached = snap.error?.code === "SNAP_LIMIT_REACHED";
+  const bridge = result && source ? buildSnapBridge(result, source) : null;
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6 p-6">
@@ -153,7 +172,14 @@ export function SnapToValuePage() {
             onChange={onFile}
           />
 
-          {dataUri ? (
+          {revisited ? (
+            <div className="flex flex-col items-center gap-2 rounded-md border-2 border-dashed py-6 text-center text-sm text-muted-foreground">
+              <span>Showing a past snap. Its photo was not kept.</span>
+              <Button variant="outline" size="sm" onClick={() => setRevisited(null)}>
+                Back to your photo
+              </Button>
+            </div>
+          ) : dataUri ? (
             <img src={dataUri} alt="Your garment" className="mx-auto max-h-72 rounded-md object-contain" />
           ) : (
             <button
@@ -167,7 +193,7 @@ export function SnapToValuePage() {
             </button>
           )}
 
-          {dataUri && (
+          {dataUri && !revisited && (
             <div className="flex justify-center">
               <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
                 Choose a different photo
@@ -206,10 +232,14 @@ export function SnapToValuePage() {
         </Card>
       )}
 
-      {result && (
+      {result && source && bridge && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Your estimate</CardTitle>
+            <CardTitle className="text-base">
+              {source.kind === "revisit"
+                ? `Snapped ${new Date(source.entry.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
+                : "Your estimate"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-around text-center">
@@ -230,12 +260,18 @@ export function SnapToValuePage() {
                 <div className="text-xs text-muted-foreground">
                   {result.value?.sufficient
                     ? "est. resale value at this condition"
-                    : brand || keyword
+                    : sourceHadCompQuery(source)
                       ? "not enough comps to value yet"
                       : "add a brand/item to see value"}
                 </div>
               </div>
             </div>
+
+            {inputsChanged && (
+              <p className="text-xs text-muted-foreground">
+                Brand changed: tap Get my value to re-price.
+              </p>
+            )}
 
             <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
               <Info className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -250,19 +286,10 @@ export function SnapToValuePage() {
               <Button asChild variant="default">
                 <Link
                   to="/dashboard/submissions/new"
-                  state={
-                    {
-                      snap: {
-                        imageDataUri: dataUri,
-                        brand: brand.trim() || undefined,
-                        title: keyword.trim() || undefined,
-                        garmentType: result.garment?.type ?? undefined,
-                        garmentCategory: result.garment?.category ?? undefined,
-                      },
-                    } satisfies { snap: SnapBridgeState }
-                  }
+                  state={{ snap: bridge } satisfies { snap: SnapBridgeState }}
                 >
-                  <BadgeCheck className="mr-2 h-4 w-4" /> Upgrade to certified grade
+                  <BadgeCheck className="mr-2 h-4 w-4" />
+                  {bridge.imageDataUri ? "Upgrade to certified grade" : "Start a certified grade"}
                 </Link>
               </Button>
               <Button asChild variant="outline">
