@@ -23,6 +23,11 @@ export interface AttentionChip {
   /** The chip's own words, without the count. */
   label: string;
   count: number;
+  /**
+   * What to print instead of `count` when the count is a floor rather than
+   * the total, e.g. "500+" for a capped read. Absent when count is exact.
+   */
+  countLabel?: string;
   href: string;
   /**
    * A short qualifier shown after the label, e.g. "due in 3 hours" for the
@@ -43,13 +48,25 @@ export interface FlipdeskAttentionInput {
    */
   needsYouDeadlineLabel: string | null;
   draftsToReview: number;
+  /** True when the drafts read hit its cap, so draftsToReview is a floor. */
+  draftsTruncated?: boolean;
   syncConflicts: number;
   extensionJobsPending: number;
+  /**
+   * Extension jobs that failed or expired (the queue's needsAttention). A
+   * failed delist is a double-sale risk, so this ranks right after needs-you.
+   */
+  extensionJobsFailed?: number;
+  /** Finished extension runs that still want a human (finishedNeedsReview). */
+  extensionJobsToReview?: number;
   agingCount: number;
   staleCount: number;
 }
 
 export interface GradingAttentionInput {
+  /** needs_photos: the quality gate asked the SELLER for new photos. */
+  needsPhotos?: number;
+  /** pending_review: waiting on GradeThread staff, not the seller. */
   inReview: number;
   failed: number;
   disputed: number;
@@ -78,10 +95,11 @@ export const ATTENTION_HREF = {
   needsYou: "/dashboard/flipdesk/post-sale",
   draftsToReview: "/dashboard/flipdesk/autolister?view=drafts",
   syncConflicts: SYNC_CONFLICTS_HREF,
-  extensionJobs: "/dashboard/flipdesk/marketplaces",
+  extensionJobs: "/dashboard/flipdesk/marketplaces#extension-queue",
   aging: "/dashboard/flipdesk/inventory",
   // Same destination as the flipdesk.stale widget's own "see all" link.
   stale: "/dashboard/flipdesk/analytics/performance",
+  needsPhotos: "/dashboard/submissions?status=needs_photos",
   inReview: "/dashboard/submissions?status=pending_review",
   failed: "/dashboard/submissions?status=failed",
   disputed: "/dashboard/submissions?status=disputed",
@@ -113,8 +131,15 @@ export function buildAttentionChips(inputs: AttentionInputs): AttentionChip[] {
     count: number,
     href: string,
     hint: string | null = null,
+    countLabel?: string,
   ) => {
-    if (count > 0) out.push({ id, label, count, href, hint });
+    if (count > 0) {
+      out.push(
+        countLabel
+          ? { id, label, count, countLabel, href, hint }
+          : { id, label, count, href, hint },
+      );
+    }
   };
 
   const f = inputs.flipdesk;
@@ -126,7 +151,26 @@ export function buildAttentionChips(inputs: AttentionInputs): AttentionChip[] {
       ATTENTION_HREF.needsYou,
       f.needsYouDeadlineLabel,
     );
-    push("drafts", "drafts to review", f.draftsToReview, ATTENTION_HREF.draftsToReview);
+    push(
+      "extension-failed",
+      "extension jobs failed",
+      f.extensionJobsFailed ?? 0,
+      ATTENTION_HREF.extensionJobs,
+    );
+    push(
+      "drafts",
+      "drafts to review",
+      f.draftsToReview,
+      ATTENTION_HREF.draftsToReview,
+      null,
+      f.draftsTruncated ? `${f.draftsToReview}+` : undefined,
+    );
+    push(
+      "extension-review",
+      "extension runs to check",
+      f.extensionJobsToReview ?? 0,
+      ATTENTION_HREF.extensionJobs,
+    );
     push("conflicts", "sync conflicts", f.syncConflicts, ATTENTION_HREF.syncConflicts);
     push(
       "extension",
@@ -140,9 +184,13 @@ export function buildAttentionChips(inputs: AttentionInputs): AttentionChip[] {
 
   const g = inputs.grading;
   if (inputs.surface === "grading" && g) {
-    push("in-review", "in review", g.inReview, ATTENTION_HREF.inReview);
+    // needs_photos first: it is the one grading status that waits on the
+    // seller. pending_review waits on GradeThread staff, so it ranks last and
+    // is worded as progress rather than as work.
+    push("needs-photos", "need new photos", g.needsPhotos ?? 0, ATTENTION_HREF.needsPhotos);
     push("failed", "failed", g.failed, ATTENTION_HREF.failed);
     push("disputed", "disputed", g.disputed, ATTENTION_HREF.disputed);
+    push("in-review", "being finalized", g.inReview, ATTENTION_HREF.inReview);
   }
 
   return out;

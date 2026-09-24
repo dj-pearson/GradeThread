@@ -11,8 +11,8 @@ import { SUBMISSION_STATUSES } from "@/lib/constants";
  * The statuses the queue reports on.
  *
  * SUBMISSION_STATUSES, not the database enum: `SubmissionStatus` also carries
- * `needs_photos` and the retired-checkout values, which are pipeline states the
- * submissions list has never offered as a filter. A tile that links to a filter
+ * the retired-checkout values, which are pipeline states the submissions list
+ * has never offered as a filter. A tile that links to a filter
  * the list cannot apply is a dead end.
  */
 export type QueueStatus = (typeof SUBMISSION_STATUSES)[number];
@@ -67,13 +67,15 @@ export function submissionHref(id: string): string {
  * The statuses the attention widget shows, in the order it prefers them.
  *
  * `pending` and `processing` are deliberately absent: they are the pipeline
- * working, and nothing is waiting on the seller. `completed` is done. These
- * three are the only ones where a person has to act.
+ * working, and nothing is waiting on the seller. `completed` is done.
+ * `needs_photos` waits on the seller; `pending_review` waits on GradeThread
+ * staff, so it is shown last and the rail words it as "being finalized".
  */
 export const ATTENTION_STATUSES = [
-  "pending_review",
-  "failed",
   "disputed",
+  "needs_photos",
+  "failed",
+  "pending_review",
 ] as const satisfies readonly QueueStatus[];
 
 /** The quiet state, spelled once so the widget and its test cannot drift. */

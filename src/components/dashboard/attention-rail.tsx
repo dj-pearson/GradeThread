@@ -12,6 +12,10 @@ import { useExtensionQueue } from "@/hooks/use-extension-queue";
 import { useAutolisterDrafts } from "@/hooks/use-autolister";
 import { useFlipdeskOverview } from "@/hooks/use-flipdesk-overview";
 import { deadlineLabel } from "@/pages/flipdesk/post-sale-state";
+import {
+  ATTENTION_STATUSES,
+  tallySubmissionStatuses,
+} from "@/lib/dashboard-grading-queue";
 import { widgetsForSurface, type DashboardSurface } from "@/lib/dashboard-widgets";
 import {
   DEFAULT_OVERVIEW_RANGE,
@@ -39,20 +43,13 @@ import {
 // where they are tested as data. This file is the wiring: which hook feeds which
 // count, and what to show while they are still arriving.
 
-/** Statuses that stall a submission until a person acts. Mirrors ATTENTION_STATUSES. */
-const GRADING_STATUS = {
-  inReview: "pending_review",
-  failed: "failed",
-  disputed: "disputed",
-} as const;
-
 /**
- * Counts, not rows.
+ * Counts, not rows to render.
  *
- * The grading attention WIDGET caps its read at five rows because it renders a
- * list; the rail needs the real total, and "5+" in a rail is a worse answer than
- * a number. `head: true` with an exact count asks Postgres for the number and
- * transfers no rows.
+ * ONE request for every attention status, tallied here: separate head counts
+ * were one round trip per status and could disagree with each other when a
+ * submission moved between two of them. The read selects only `status`, over
+ * rows RLS has already scoped to the account.
  */
 function useGradingAttentionCounts(enabled: boolean) {
   const user = useAuthStore((s) => s.user);
@@ -61,21 +58,21 @@ function useGradingAttentionCounts(enabled: boolean) {
     enabled: enabled && !!user,
     staleTime: 60_000,
     queryFn: async () => {
-      const one = async (status: string) => {
-        const { count, error } = await supabase
-          .from("submissions")
-          .select("id", { count: "exact", head: true })
-          .is("superseded_at", null)
-          .eq("status", status);
-        if (error) throw error;
-        return count ?? 0;
+      const { data, error } = await supabase
+        .from("submissions")
+        .select("status")
+        .is("superseded_at", null)
+        .in("status", ATTENTION_STATUSES as unknown as string[]);
+      if (error) throw error;
+      const counts = tallySubmissionStatuses(
+        (data ?? []) as { status: string | null }[],
+      );
+      return {
+        needsPhotos: counts.needs_photos,
+        inReview: counts.pending_review,
+        failed: counts.failed,
+        disputed: counts.disputed,
       };
-      const [inReview, failed, disputed] = await Promise.all([
-        one(GRADING_STATUS.inReview),
-        one(GRADING_STATUS.failed),
-        one(GRADING_STATUS.disputed),
-      ]);
-      return { inReview, failed, disputed };
     },
   });
 }
@@ -133,18 +130,21 @@ export function AttentionRail(
           needsYouCount: needsYou.items.length,
           needsYouDeadlineLabel: deadlineLabel(soonest),
           // A capped read: `rows` is at most `limit`, so on a very large
-          // backlog this is a FLOOR rather than the total. Shown anyway
-          // because the chip is a prompt to go and look, and the page it
-          // links to has the real number.
+          // backlog this is a FLOOR. `truncated` says so and the chip reads
+          // "500+" rather than presenting the floor as exact.
           draftsToReview: drafts.data?.rows.length ?? 0,
+          draftsTruncated: drafts.data?.truncated ?? false,
           syncConflicts: conflicts.data?.total ?? 0,
           extensionJobsPending: queue.data?.pending.length ?? 0,
+          extensionJobsFailed: queue.data?.needsAttention.length ?? 0,
+          extensionJobsToReview: queue.data?.finishedNeedsReview.length ?? 0,
           agingCount: overview.data?.agingCount ?? 0,
           staleCount: overview.data?.staleCount ?? 0,
         }
         : null,
       grading: !isFlipdesk
         ? {
+          needsPhotos: grading.data?.needsPhotos ?? 0,
           inReview: grading.data?.inReview ?? 0,
           failed: grading.data?.failed ?? 0,
           disputed: grading.data?.disputed ?? 0,
@@ -247,7 +247,7 @@ export function AttentionRail(
                   className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span className="font-semibold tabular-nums">
-                    {chip.count}
+                    {chip.countLabel ?? chip.count}
                   </span>
                   <span>{chip.label}</span>
                   {chip.hint

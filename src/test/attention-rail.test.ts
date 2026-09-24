@@ -70,12 +70,20 @@ describe("buildAttentionChips: order", () => {
     expect(chips.map((c) => c.id)).toEqual(["needs-you", "stale"]);
   });
 
-  it("orders the grading surface in review, failed, disputed", () => {
+  it("orders the grading surface needs photos, failed, disputed, being finalized", () => {
     const chips = buildAttentionChips({
       surface: "grading",
-      grading: { inReview: 2, failed: 1, disputed: 5 },
+      grading: { needsPhotos: 1, inReview: 2, failed: 1, disputed: 5 },
     });
-    expect(chips.map((c) => c.id)).toEqual(["in-review", "failed", "disputed"]);
+    expect(chips.map((c) => c.id)).toEqual([
+      "needs-photos",
+      "failed",
+      "disputed",
+      "in-review",
+    ]);
+    // pending_review waits on staff, so it is worded as progress.
+    expect(chips[chips.length - 1]!.label).toBe("being finalized");
+    expect(chips[0]!.href).toBe("/dashboard/submissions?status=needs_photos");
   });
 });
 
@@ -179,6 +187,7 @@ describe("buildAttentionChips: every chip links somewhere real", () => {
       }),
     ];
     expect(all.length).toBe(9);
+    // (the optional DASH-7 inputs are absent here, so the count is unchanged)
     for (const c of all) {
       expect(known.has(c.href), `${c.id} -> ${c.href}`).toBe(true);
       expect(c.href.startsWith("/dashboard/")).toBe(true);
@@ -249,5 +258,39 @@ describe("railState (DASH-1)", () => {
     expect(isPlanGateError({ status: 500 })).toBe(false);
     expect(isPlanGateError(new Error("x"))).toBe(false);
     expect(isPlanGateError(null)).toBe(false);
+  });
+});
+
+describe("buildAttentionChips: extension and draft states (DASH-7)", () => {
+  it("puts failed extension jobs right after needs-you, ahead of pending jobs", () => {
+    const chips = buildAttentionChips({
+      surface: "flipdesk",
+      flipdesk: {
+        ...FLIPDESK_ALL,
+        extensionJobsFailed: 2,
+        extensionJobsToReview: 3,
+      },
+    });
+    const ids = chips.map((c) => c.id);
+    expect(ids.slice(0, 4)).toEqual([
+      "needs-you",
+      "extension-failed",
+      "drafts",
+      "extension-review",
+    ]);
+    expect(ids.indexOf("extension-failed")).toBeLessThan(ids.indexOf("extension"));
+  });
+
+  it("renders a truncated draft read as a floor, not an exact count", () => {
+    const chips = buildAttentionChips({
+      surface: "flipdesk",
+      flipdesk: { ...FLIPDESK_NONE, draftsToReview: 500, draftsTruncated: true },
+    });
+    expect(chips[0]!.countLabel).toBe("500+");
+    const exact = buildAttentionChips({
+      surface: "flipdesk",
+      flipdesk: { ...FLIPDESK_NONE, draftsToReview: 12 },
+    });
+    expect(exact[0]!.countLabel).toBeUndefined();
   });
 });

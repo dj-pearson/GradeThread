@@ -218,3 +218,27 @@ describe("AttentionRail: FlipDesk reads are gated off the grading view (DASH-6)"
     expect(keys).toContain("attention-rail-grading");
   });
 });
+
+describe("AttentionRail: grading and extension states (DASH-7)", () => {
+  it("renders a truncated draft read as 500+", async () => {
+    state.drafts = q({
+      data: { rows: Array.from({ length: 500 }, (_, i) => ({ id: String(i) })), truncated: true },
+    });
+    await render("flipdesk");
+    expect(container.textContent).toContain("500+");
+  });
+
+  it("tallies needs_photos from one grouped read and ranks it first", async () => {
+    state.gradingRows = [
+      { status: "pending_review" },
+      { status: "needs_photos" },
+      { status: "needs_photos" },
+    ];
+    await render("grading");
+    await vi.waitFor(() => expect(container.textContent).toContain("need new photos"));
+    const links = [...container.querySelectorAll("a")].map((a) => a.textContent);
+    expect(links[0]).toContain("2");
+    expect(links[0]).toContain("need new photos");
+    expect(links[links.length - 1]).toContain("being finalized");
+  });
+});
