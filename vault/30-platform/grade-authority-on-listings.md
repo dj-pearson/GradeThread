@@ -14,10 +14,17 @@ code_refs:
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-09-23
+reviewed: 2026-09-24
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
+
+> [!note] Re-reviewed 2026-09-24, no change. Drift from `85365f28a` and
+> `780458594` in `flipdesk-ebay-listings.ts`: bulk-price-quantity moved into
+> `applyBulkPriceQuantity()` and gained floor, not-live, origin-lock and
+> stale-price refusals, and stamps `price_set_by`. It writes price and
+> quantity only, never title, description, specifics or photos, so how a
+> grade reaches a listing is untouched.
 
 > [!note] Re-reviewed 2026-09-23, no change in behaviour. `flipdesk-ebay.ts`
 > was split into one route file per concern as a pure move (marketplaces
