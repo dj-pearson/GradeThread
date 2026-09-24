@@ -599,14 +599,14 @@ export const router = createBrowserRouter([
               { path: "/dashboard/submissions/:id", element: <SuspenseWrapper><SubmissionDetailPage /></SuspenseWrapper> },
               // US-740: consolidated into the FlipDesk inventory (the canonical
               // multi-view surface). Legacy routes redirect so all inbound links
-              // (sidebar, finances, price-suggestions, dashboard) keep working.
+              // (sidebar, finances, price suggestions, dashboard) keep working.
               { path: "/dashboard/inventory", element: <Navigate to="/dashboard/flipdesk/inventory" replace /> },
               { path: "/dashboard/inventory/new", element: <Navigate to="/dashboard/flipdesk/intake" replace /> },
               { path: "/dashboard/inventory/:id", element: <InventoryItemRedirect /> },
               { path: "/dashboard/finances", element: <ViewRedirect to="/dashboard/flipdesk/money" view="finances" /> },
               // US-1777: buyer body-profile store (measurements for fit checks).
               { path: "/dashboard/measurements", element: <SuspenseWrapper><BodyProfilesPage /></SuspenseWrapper> },
-              { path: "/dashboard/analytics/suggestions", element: <TabRedirect to="/dashboard/flipdesk/pricing" tab="suggestions" /> },
+              { path: "/dashboard/analytics/suggestions", element: <TabRedirect to="/dashboard/flipdesk/pricing" tab="repricing" /> },
               // US-3469: the two overviews are one page. Both old FlipDesk
               // overview URLs are kept alive as redirects rather than deleted —
               // they are in bookmarks, in cross-surface nudge CTAs, in the

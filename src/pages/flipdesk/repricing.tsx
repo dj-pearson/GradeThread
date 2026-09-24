@@ -63,7 +63,7 @@ import { Switch } from "@/components/ui/switch";
 import { Plus, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Term } from "@/components/help/term";
-import { undoPriors } from "./reprice-plan";
+import { changeLabel, queueCounts, undoPriors } from "./reprice-plan";
 import { repriceRuleFormError } from "./rule-form-validation";
 import { ruleRunToast } from "@/lib/rule-run-summary";
 
@@ -109,6 +109,44 @@ const REASON_META: Record<
 
 function money(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+/**
+ * What used to be the Price suggestions tab, folded in: the same feed, counted.
+ * One bordered strip rather than three cards, so it reads as a summary of the
+ * queue under it and not as three more things to click.
+ */
+function QueueSummary({ rows }: { rows: RepriceSuggestion[] }) {
+  const c = queueCounts(rows);
+  return (
+    <dl className="grid grid-cols-1 divide-y rounded-lg border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+      <div className="p-3">
+        <dt className="text-xs text-muted-foreground">Nudges</dt>
+        <dd className="text-2xl font-semibold tabular-nums">{c.total}</dd>
+        <dd className="text-xs text-muted-foreground">
+          Live listings checked against condition-matched comps
+        </dd>
+      </div>
+      <div className="p-3">
+        <dt className="text-xs text-muted-foreground">Room to raise</dt>
+        <dd className="text-2xl font-semibold tabular-nums text-green-700 dark:text-green-400">
+          {c.raise}
+        </dd>
+        <dd className="text-xs text-muted-foreground">
+          Priced below condition-matched active listings
+        </dd>
+      </div>
+      <div className="p-3">
+        <dt className="text-xs text-muted-foreground">Consider lowering</dt>
+        <dd className="text-2xl font-semibold tabular-nums text-amber-700 dark:text-amber-400">
+          {c.lower}
+        </dd>
+        <dd className="text-xs text-muted-foreground">
+          Priced above comps, or listed a while with little interest
+        </dd>
+      </div>
+    </dl>
+  );
 }
 
 function SuggestionRow({
@@ -170,9 +208,13 @@ function SuggestionRow({
             <span className="text-muted-foreground line-through">
               {money(s.current_price_cents)}
             </span>
+            <span aria-hidden="true" className="text-muted-foreground">→</span>
             <span className={cn("font-semibold", up ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400")}>
               {money(s.suggested_price_cents)}
             </span>
+            {changeLabel(s) && (
+              <span className="text-xs tabular-nums text-muted-foreground">({changeLabel(s)})</span>
+            )}
             <span className="text-xs text-muted-foreground">
               · {s.comp_count} comps
               {s.comp_median_cents != null && ` · median ${money(s.comp_median_cents)}`}
@@ -696,12 +738,14 @@ export function FlipdeskRepricingPage() {
           </Button>
         }
       />
-      {/* US-460: comps are active asking prices, not sold prices. Kept out of
-          the header subtitle so it survives when a tab host suppresses it. */}
+      {/* US-460: comps are active asking prices. Kept out of the header
+          subtitle so it survives when a tab host suppresses it. */}
       <p className="text-xs text-muted-foreground">
-        Comps are <strong>active</strong> asking prices, not sold prices — real
-        sale prices are usually lower, so nudges trend toward a ceiling.
+        Comps are <strong>active</strong> asking prices from live listings.
+        Final sale prices usually come in lower, so treat a nudge as a ceiling.
       </p>
+
+      {hasSuggestions && <QueueSummary rows={suggestions} />}
 
       <RepriceRulesCard />
 

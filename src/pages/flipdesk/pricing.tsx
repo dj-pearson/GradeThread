@@ -8,11 +8,12 @@ import { HostViewSkeleton } from "@/components/flipdesk/host-view-skeleton";
 import { resolvePricingTab } from "@/pages/flipdesk/nav-tabs";
 import { PageHelp } from "@/components/help/page-help";
 
-// US-2161: the four pricing surfaces were four sidebar entries — Repricing,
+// US-2161: the pricing surfaces were four sidebar entries — Repricing,
 // Bulk pricing, Price Suggestions and Automations — and Price Suggestions sat
 // in the Grading group while the other three sat under FlipDesk, so "change my
 // prices" was spread across two sections of the nav. They are one destination
-// now, with ?tab= carrying the choice.
+// now, with ?tab= carrying the choice. Price Suggestions later folded into
+// Repricing, which read the same feed with filters, bulk and Undo on top.
 //
 // Follows the pattern US-963 proved on Reconcile: the tab lives in the URL, so a
 // deep link, the command palette and flipdesk-search all keep working, and a
@@ -23,7 +24,7 @@ import { PageHelp } from "@/components/help/page-help";
 // the word "Pricing" only in the sidebar. Each tab keeps every action it owns —
 // PageHeader drops just the duplicate title, via PageHostContext.embedded.
 //
-// Each page is lazy so opening Pricing pulls one tab's bundle, not four.
+// Each page is lazy so opening Pricing pulls one tab's bundle, not three.
 
 const RepricingPage = lazy(() =>
   import("@/pages/flipdesk/repricing").then((m) => ({
@@ -33,11 +34,6 @@ const RepricingPage = lazy(() =>
 const BulkPricingPage = lazy(() =>
   import("@/pages/flipdesk/bulk-pricing").then((m) => ({
     default: m.FlipdeskBulkPricingPage,
-  }))
-);
-const PriceSuggestionsPage = lazy(() =>
-  import("@/pages/price-suggestions").then((m) => ({
-    default: m.PriceSuggestionsPage,
   }))
 );
 const AutomationsPage = lazy(() =>
@@ -78,7 +74,6 @@ export function FlipdeskPricingPage() {
           <TabsList>
             <TabsTrigger value="repricing">Repricing</TabsTrigger>
             <TabsTrigger value="bulk">Bulk pricing</TabsTrigger>
-            <TabsTrigger value="suggestions">Price suggestions</TabsTrigger>
             <TabsTrigger value="automations">Automations</TabsTrigger>
           </TabsList>
 
@@ -95,13 +90,6 @@ export function FlipdeskPricingPage() {
             {activeTab === "bulk" && (
               <Suspense fallback={<HostViewSkeleton label="Loading this tab" />}>
                 <BulkPricingPage />
-              </Suspense>
-            )}
-          </TabsContent>
-          <TabsContent value="suggestions" className="mt-6">
-            {activeTab === "suggestions" && (
-              <Suspense fallback={<HostViewSkeleton label="Loading this tab" />}>
-                <PriceSuggestionsPage />
               </Suspense>
             )}
           </TabsContent>

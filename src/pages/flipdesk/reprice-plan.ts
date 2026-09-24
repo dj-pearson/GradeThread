@@ -115,3 +115,26 @@ export async function runChunkedApply<T extends { listing_id: string }>(
   }
   return merged;
 }
+
+/** "+12%" or "-8%": the change a nudge suggests, signed. Null with no base. */
+export function changeLabel(s: {
+  current_price_cents: number;
+  suggested_price_cents: number;
+}): string | null {
+  if (s.current_price_cents <= 0) return null;
+  const pct = Math.round(
+    ((s.suggested_price_cents - s.current_price_cents) / s.current_price_cents) * 100,
+  );
+  return `${pct > 0 ? "+" : ""}${pct}%`;
+}
+
+/** The three counts at the top of the Repricing queue. */
+export function queueCounts(rows: Array<{ reason_code: string }>) {
+  let raise = 0;
+  let lower = 0;
+  for (const s of rows) {
+    if (s.reason_code === "UNDERPRICED") raise++;
+    else if (s.reason_code === "OVERPRICED" || s.reason_code === "STALE") lower++;
+  }
+  return { total: rows.length, raise, lower };
+}

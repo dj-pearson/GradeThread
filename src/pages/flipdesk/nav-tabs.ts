@@ -8,18 +8,23 @@
 // old bookmark, a truncated share link or a typo should look like the page, not
 // like a bug.
 
+// "suggestions" was a fourth tab that read the same feed as Repricing with no
+// filter, sort, bulk or Undo. It folded into Repricing; the alias below keeps
+// every old ?tab=suggestions link landing there.
 export const PRICING_TABS = [
   "repricing",
   "bulk",
-  "suggestions",
   "automations",
 ] as const;
 export type PricingTab = (typeof PRICING_TABS)[number];
 
+const PRICING_TAB_ALIASES: Readonly<Record<string, PricingTab>> = {
+  suggestions: "repricing",
+};
+
 export function resolvePricingTab(raw: string | null | undefined): PricingTab {
-  return PRICING_TABS.includes(raw as PricingTab)
-    ? (raw as PricingTab)
-    : "repricing";
+  if (PRICING_TABS.includes(raw as PricingTab)) return raw as PricingTab;
+  return (raw != null && PRICING_TAB_ALIASES[raw]) || "repricing";
 }
 
 // US-1864 added "stores" — the free personal Thrift Radar layer. It sits beside
@@ -58,7 +63,7 @@ export const RETIRED_NAV_REDIRECTS: Readonly<Record<string, string>> = {
   "/dashboard/flipdesk/repricing": "/dashboard/flipdesk/pricing?tab=repricing",
   "/dashboard/flipdesk/bulk-pricing": "/dashboard/flipdesk/pricing?tab=bulk",
   "/dashboard/analytics/suggestions":
-    "/dashboard/flipdesk/pricing?tab=suggestions",
+    "/dashboard/flipdesk/pricing?tab=repricing",
   "/dashboard/flipdesk/automations":
     "/dashboard/flipdesk/pricing?tab=automations",
   "/dashboard/flipdesk/scout": "/dashboard/flipdesk/sourcing?tab=scout",
