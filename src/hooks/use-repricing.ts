@@ -2,7 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { applyRefusalMessage, scanSummary } from "@/pages/flipdesk/reprice-plan";
+import {
+  applyRefusalMessage,
+  runChunkedApply,
+  scanSummary,
+  type AppliedRow,
+} from "@/pages/flipdesk/reprice-plan";
 
 // Condition-aware dynamic repricing — nudges feed + scan/apply/dismiss.
 
@@ -181,7 +186,13 @@ export interface BulkRepriceApplyResult {
   ebay_synced: number;
   skipped: Array<{ listing_id: string; reason: BulkRepriceSkip | "not_found" }>;
   errors: Array<{ listing_id: string; message: string }>;
+  /** Each changed row with the price it replaced, for an honest Undo. */
+  applied_rows: AppliedRow[];
+  /** Ids the server did not reach. Empty unless a request went over its cap. */
+  not_processed: string[];
 }
+
+export type BulkRepriceItem = { listing_id: string; price_cents: number };
 
 export function useBulkRepricePreview() {
   return useMutation({
@@ -203,27 +214,42 @@ export function useBulkRepricePreview() {
 export function useBulkRepriceApply() {
   const queryClient = useQueryClient();
   return useMutation({
+    // A bare array applies nudges; `{ items, revert: true }` is an Undo, which
+    // the server logs as such and which does not mark suggestions applied.
     mutationFn: async (
-      items: Array<{ listing_id: string; price_cents: number }>,
+      arg: BulkRepriceItem[] | { items: BulkRepriceItem[]; revert?: boolean },
     ): Promise<BulkRepriceApplyResult> => {
-      const res = await edgeFetch("/api/flipdesk/pricing/reprice/apply", {
-        method: "POST",
-        json: { items },
-      });
-      const data = (await res.json().catch(() => ({}))) as
-        & Partial<BulkRepriceApplyResult>
-        & { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Couldn't apply the new prices.");
-      return {
-        applied: data.applied ?? 0,
-        ebay_synced: data.ebay_synced ?? 0,
-        skipped: data.skipped ?? [],
-        errors: data.errors ?? [],
-      };
+      const items = Array.isArray(arg) ? arg : arg.items;
+      const revert = !Array.isArray(arg) && arg.revert === true;
+      const many = items.length > 50;
+      const toastId = many ? toast.loading(`Applying 0 of ${items.length}`) : undefined;
+      try {
+        const merged = await runChunkedApply(
+          items,
+          async (chunk) => {
+            const res = await edgeFetch("/api/flipdesk/pricing/reprice/apply", {
+              method: "POST",
+              json: revert ? { items: chunk, revert: true } : { items: chunk },
+            });
+            const data = (await res.json().catch(() => ({}))) as
+              & Partial<BulkRepriceApplyResult>
+              & { error?: string };
+            if (!res.ok) throw new Error(data.error ?? "Couldn't apply the new prices.");
+            return data;
+          },
+          (done, total) => {
+            if (toastId !== undefined) toast.loading(`Applying ${done} of ${total}`, { id: toastId });
+          },
+        );
+        return merged as BulkRepriceApplyResult;
+      } finally {
+        if (toastId !== undefined) toast.dismiss(toastId);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["items_full"] });
       queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
+      queryClient.invalidateQueries({ queryKey: ["repricing_actions"] });
     },
     onError: (err: Error) => toastError(err),
   });

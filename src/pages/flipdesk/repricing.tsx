@@ -63,6 +63,7 @@ import { Switch } from "@/components/ui/switch";
 import { Plus, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Term } from "@/components/help/term";
+import { undoPriors } from "./reprice-plan";
 
 // US-2171: the queue can carry dozens of nudges. Paginate the client-side list
 // so the page renders a bounded slice, and let the reseller filter/sort/bulk-act
@@ -605,7 +606,7 @@ export function FlipdeskRepricingPage() {
   // already {listing_id, price_cents} — no unit conversion, no per-row round trip.
   function revertRows(priors: Array<{ listing_id: string; price_cents: number }>) {
     if (priors.length === 0) return;
-    bulkApply.mutate(priors, {
+    bulkApply.mutate({ items: priors, revert: true }, {
       onSuccess: (res) =>
         toast.success(`Reverted ${res.applied} price${res.applied === 1 ? "" : "s"}.`),
     });
@@ -626,25 +627,19 @@ export function FlipdeskRepricingPage() {
       listing_id: s.listing_id,
       price_cents: s.suggested_price_cents,
     }));
-    // US-2171 AC5: capture each row's PRIOR price so the apply is reversible —
-    // re-applying these restores exactly what changed, cents-for-cents.
-    const priorByListing = new Map(
-      rows.map((s) => [s.listing_id, s.current_price_cents]),
-    );
     bulkApply.mutate(items, {
       onSuccess: (res) => {
         setSelected(new Set());
         const parts = [`${res.applied} applied`];
         if (res.skipped.length) parts.push(`${res.skipped.length} skipped`);
         if (res.errors.length) parts.push(`${res.errors.length} failed`);
-        // Undo only the rows that actually changed (skips never moved).
-        const skipped = new Set(res.skipped.map((x) => x.listing_id));
-        const priors = [...priorByListing.entries()]
-          .filter(([id]) => !skipped.has(id))
-          .map(([listing_id, price_cents]) => ({ listing_id, price_cents }));
+        if (res.not_processed.length) parts.push(`${res.not_processed.length} not sent`);
+        // US-2171 AC5: Undo writes back only the rows the server changed, at
+        // the price it says it replaced. Skipped and failed rows never moved.
+        const priors = undoPriors(res.applied_rows);
         toast.success(`Repricing: ${parts.join(" · ")}.`, {
           action:
-            res.applied > 0
+            priors.length > 0
               ? { label: "Undo", onClick: () => revertRows(priors) }
               : undefined,
         });

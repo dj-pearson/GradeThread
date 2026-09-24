@@ -284,3 +284,41 @@ Deno.test("P3: a failed write counts as an error, not as a nudge", async () => {
   assertEquals(scan.body.errors, 1);
   assertEquals(scan.body.actionable, 0);
 });
+
+// ── P4 ──────────────────────────────────────────────────────────────
+
+Deno.test("P4: bulk apply reports the price it replaced and logs a bulk_apply row", async () => {
+  seed({ listingPrice: 55 });
+  const out = await call("/reprice/apply", { items: [{ listing_id: LISTING, price_cents: 4800 }] });
+  assertEquals(out.status, 200);
+  assertEquals(out.body.applied, 1);
+  assertEquals(out.body.applied_rows, [
+    { listing_id: LISTING, old_price_cents: 5500, new_price_cents: 4800 },
+  ]);
+  assertEquals(out.body.not_processed, []);
+  assertEquals(listingRow().price_set_by, "seller");
+  assertEquals(db.tables.repricing_suggestions[0].status, "applied");
+  assertEquals(db.tables.repricing_actions.map((a) => a.reason), ["bulk_apply"]);
+});
+
+Deno.test("P4: an Undo does not mark the nudge applied again and logs 'undo'", async () => {
+  seed();
+  const out = await call("/reprice/apply", {
+    items: [{ listing_id: LISTING, price_cents: 5500 }],
+    revert: true,
+  });
+  assertEquals(out.body.applied, 1);
+  assertEquals(db.tables.repricing_suggestions[0].status, "pending");
+  assertEquals(db.tables.repricing_actions.map((a) => a.reason), ["undo"]);
+});
+
+Deno.test("P4: more than 50 ids come back as not_processed", async () => {
+  seed();
+  const items = Array.from({ length: 53 }, (_, i) => ({
+    listing_id: i === 0 ? LISTING : `extra-${i}`,
+    price_cents: 4800,
+  }));
+  const out = await call("/reprice/apply", { items });
+  assertEquals(out.body.not_processed, ["extra-50", "extra-51", "extra-52"]);
+  assertEquals(out.body.applied, 1);
+});

@@ -68,3 +68,50 @@ export function scanSummary(r: { scanned?: number; actionable?: number; errors?:
   }
   return parts.join(" ");
 }
+
+export interface ChunkApplyResult {
+  applied: number;
+  ebay_synced: number;
+  skipped: Array<{ listing_id: string; reason: string }>;
+  errors: Array<{ listing_id: string; message: string }>;
+  applied_rows: AppliedRow[];
+  not_processed: string[];
+}
+
+/**
+ * Send a selection in server-sized requests, one after another, and merge the
+ * answers. A request that throws marks its own rows failed and the rest still
+ * run, so one bad chunk never hides what the others did.
+ */
+export async function runChunkedApply<T extends { listing_id: string }>(
+  items: T[],
+  send: (chunk: T[]) => Promise<Partial<ChunkApplyResult>>,
+  onProgress?: (done: number, total: number) => void,
+): Promise<ChunkApplyResult> {
+  const merged: ChunkApplyResult = {
+    applied: 0,
+    ebay_synced: 0,
+    skipped: [],
+    errors: [],
+    applied_rows: [],
+    not_processed: [],
+  };
+  let done = 0;
+  for (const chunk of chunkRepriceItems(items)) {
+    onProgress?.(Math.min(done + chunk.length, items.length), items.length);
+    try {
+      const r = await send(chunk);
+      merged.applied += r.applied ?? 0;
+      merged.ebay_synced += r.ebay_synced ?? 0;
+      merged.skipped.push(...(r.skipped ?? []));
+      merged.errors.push(...(r.errors ?? []));
+      merged.applied_rows.push(...(r.applied_rows ?? []));
+      merged.not_processed.push(...(r.not_processed ?? []));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      merged.errors.push(...chunk.map((c) => ({ listing_id: c.listing_id, message })));
+    }
+    done += chunk.length;
+  }
+  return merged;
+}

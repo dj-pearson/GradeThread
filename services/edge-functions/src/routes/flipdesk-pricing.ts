@@ -775,9 +775,9 @@ flipdeskPricingRoutes.post("/reprice/preview", async (c) => {
 // side so a client can never write below the floor.
 flipdeskPricingRoutes.post("/reprice/apply", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  let body: { items?: unknown };
+  let body: { items?: unknown; revert?: unknown };
   try {
-    body = (await c.req.json()) as { items?: unknown };
+    body = (await c.req.json()) as { items?: unknown; revert?: unknown };
   } catch {
     return jsonError(c, 400, "Invalid JSON body");
   }
@@ -804,9 +804,12 @@ flipdeskPricingRoutes.post("/reprice/apply", async (c) => {
   if (capped.length === 0) {
     return jsonError(c, 400, "No valid items to apply.");
   }
+  // Say which rows the cap left out rather than letting "Apply all (120)"
+  // quietly mean 50. The client sends 50 at a time; this is the backstop.
+  const notProcessed = requested.slice(MAX_BULK_REPRICE).map((r) => r.listingId);
 
-  const outcome = await applyRepriceFor(ownerId, capped);
-  return c.json(outcome.body, outcome.status as 200);
+  const outcome = await applyRepriceFor(ownerId, capped, { revert: body.revert === true });
+  return c.json({ ...outcome.body, not_processed: notProcessed }, outcome.status as 200);
 });
 
 // ── Cron: scan every owner's active listings ──────────────────────
@@ -1545,6 +1548,7 @@ async function previewRepriceFor(
 async function applyRepriceFor(
   ownerId: string,
   capped: Array<{ listingId: string; priceCents: number }>,
+  opts: { revert?: boolean } = {},
 ): Promise<PricingOutcome> {
   const listings = await loadOwnedRepriceListings(
     ownerId,
@@ -1557,6 +1561,9 @@ async function applyRepriceFor(
   let ebaySynced = 0;
   const skipped: Array<{ listing_id: string; reason: BulkSkipReason | "not_found" }> = [];
   const errors: Array<{ listing_id: string; message: string }> = [];
+  // Per changed row, the price it REPLACED, read off the listing before the
+  // push. This is what an Undo writes back; the scan-time price is not.
+  const appliedRows: Array<{ listing_id: string; old_price_cents: number; new_price_cents: number }> = [];
   const now = new Date().toISOString();
 
   for (const req of capped) {
@@ -1596,9 +1603,10 @@ async function applyRepriceFor(
       }
     }
 
+    const oldCents = Math.round(listing.listing_price * 100);
     const { error: updErr } = await supabaseAdmin
       .from("listings")
-      .update({ listing_price: dollars, price_is_estimated: false })
+      .update({ listing_price: dollars, price_is_estimated: false, price_set_by: "seller" })
       .eq("id", req.listingId);
     if (updErr) {
       errors.push({ listing_id: req.listingId, message: updErr.message });
@@ -1606,18 +1614,35 @@ async function applyRepriceFor(
     }
 
     // Clear any pending comp suggestion for this listing so the nudges feed
-    // doesn't re-surface a price the user just acted on.
-    await supabaseAdmin
-      .from("repricing_suggestions")
-      .update({ status: "applied", applied_at: now })
-      .eq("listing_id", req.listingId)
-      .eq("user_id", ownerId);
+    // doesn't re-surface a price the user just acted on. An Undo is not acting
+    // on a nudge, so it leaves the suggestion's status alone.
+    if (!opts.revert) {
+      await supabaseAdmin
+        .from("repricing_suggestions")
+        .update({ status: "applied", applied_at: now })
+        .eq("listing_id", req.listingId)
+        .eq("user_id", ownerId);
+    }
+
+    await recordManualPriceChange(ownerId, {
+      listingId: req.listingId,
+      inventoryItemId: listing.inventory_item_id,
+      oldCents,
+      newCents: req.priceCents,
+      reason: opts.revert ? "undo" : "bulk_apply",
+      ebaySynced: hasLiveOffer,
+    });
 
     applied++;
     if (hasLiveOffer) ebaySynced++;
+    appliedRows.push({
+      listing_id: req.listingId,
+      old_price_cents: oldCents,
+      new_price_cents: req.priceCents,
+    });
   }
 
-  return json({ applied, ebay_synced: ebaySynced, skipped, errors });
+  return json({ applied, ebay_synced: ebaySynced, skipped, errors, applied_rows: appliedRows });
 }
 
 // The port adapters. Registered at module load; main.ts imports this module, so
