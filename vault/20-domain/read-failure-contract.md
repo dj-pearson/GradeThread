@@ -15,7 +15,7 @@ code_refs:
   - src/test/submission-detail-linked-item-read.test.tsx
   - src/test/submission-detail-photo-read.test.tsx
   - src/test/blocking-read-density.test.ts
-reviewed: 2026-09-20
+reviewed: 2026-09-24
 tags: [data, reliability, finances]
 summary: Failed database reads must not appear as zero balances, empty inventory, completed filing checks, or defaults that can overwrite saved values.
 ---
@@ -77,6 +77,16 @@ never allowed either way is treating the failure as an answer -- an unresolved
 dispute lookup must not read as "no dispute exists", which is why `canDispute`
 consults the failure flag rather than only a null row.
 
+**The action waits for the read even when nothing failed** (SUB-11,
+2026-09-24). The detail page now renders as soon as the submission and report
+land, before the dispute read answers, so "not failed yet" is a third state.
+`canDispute` also requires `disputesLoaded`; without it the button appeared for
+the length of one round trip against an unknown. The same pass split that read
+by `kind` (SUB-04): grade disputes and authenticity appeals share the table, and
+an unfiltered `maybeSingle` read an appeal as a dispute, or errored forever
+when a report carried both. Each section's retry (photos, linked item) now
+re-runs only its own read rather than the whole page load.
+
 **Count the consumers before you decide it is one flag and done** (US-3428, the
 linked-inventory read in the same effect). That one has three, and they do not
 all want the same treatment:
@@ -113,11 +123,13 @@ failure flag. The command palette's two were fixed by US-3381 and US-2517.
 ## Named optional exceptions
 
 `OPTIONAL_READS` in `src/test/unchecked-read-contract.test.ts` owns the exact
-eight-site exception list and each reason. These are optional passport/share
+exception list and each reason: five sites as of 2026-09-24 (this line said
+eight, which was stale before SUB-14 retired the passport panel's `garments`
+read by giving it an error state and a retry). Count the list, not this line. These are optional passport/share
 links, viewer-limited names and public-embed descriptive metadata. None supplies
 a monetary amount, grading decision or write prerequisite.
 
-The guard compares exact sites, not an interchangeable allowance of eight.
+The guard compares exact sites, not an interchangeable allowance.
 New sites fail. Removed sites also fail until their stale exception is removed,
 so fixing one does not create room for a different unchecked read.
 
