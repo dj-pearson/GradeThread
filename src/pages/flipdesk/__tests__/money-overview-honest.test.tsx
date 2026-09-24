@@ -58,6 +58,10 @@ vi.mock("@/lib/tax-profile", async (orig) => {
   };
 });
 
+// The month-close checklist has its own suite (Money M14).
+vi.mock("@/components/finances/month-close-checklist", () => ({
+  MonthCloseChecklist: () => null,
+}));
 vi.mock("@/components/finances/ledger-drift-banner", () => ({
   LedgerDriftBanner: () => null,
 }));

@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
 import { LedgerDriftBanner } from "@/components/finances/ledger-drift-banner";
+import { MonthCloseChecklist } from "@/components/finances/month-close-checklist";
 import { formatCents } from "@/lib/ledger-math";
 import {
   ensureLedgerBuilt,
@@ -455,6 +456,10 @@ export function MoneyOverviewPage() {
           cta="See where it went"
         />
       </div>
+
+      {/* Money M14. The month's end state: four counts that can reach zero,
+          and "ready to close" only when all four loaded as zero. */}
+      <MonthCloseChecklist today={today} />
 
       {reviewGate.ok && reviewCount > 0 && (
         <Card>

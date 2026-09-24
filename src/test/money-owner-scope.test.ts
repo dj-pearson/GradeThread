@@ -26,6 +26,7 @@ const FILES = [
   "src/hooks/use-reconcile-commit.ts",
   "src/pages/flipdesk/expenses.tsx",
   "src/lib/finances-overhead.ts",
+  "src/components/finances/month-close-checklist.tsx",
 ] as const;
 
 const TABLES = [
