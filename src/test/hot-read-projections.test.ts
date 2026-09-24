@@ -112,10 +112,11 @@ describe("hot reads project explicit columns (US-2204)", () => {
   it("the CSV export selects only the columns it writes", () => {
     // The submissions export is unpaginated by design, so it is the single read
     // whose row width scales with the entire account.
-    const src = source("src/pages/submissions.tsx");
+    // SUB-07: the export moved to its own module.
+    const src = source("src/lib/submissions-export.ts");
     const at = src.indexOf("async function exportSubmissionsCsv");
     expect(at).toBeGreaterThan(-1);
-    const body = src.slice(at, at + 2000);
+    const body = src.slice(at, at + 3000);
     expect(body).not.toContain('.select("*")');
     expect(body).toContain("garment_category");
   });

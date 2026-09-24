@@ -55,13 +55,14 @@ import {
 import { ClickableRow } from "@/components/clickable-row";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { csvBlob, downloadBlob } from "@/lib/download";
-import { escapeCsvCell } from "@/lib/items-csv";
-import { todayLocalDate, toLocalDate } from "@/lib/local-date";
-import { sanitizeSearch, endOfDayIso } from "@/lib/search-filter";
+import { exportSubmissionsCsv } from "@/lib/submissions-export";
+import {
+  applySubmissionFilters,
+  submissionFiltersActive,
+  type SubmissionListFilters,
+} from "@/lib/submission-list-query";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
-import { fetchInChunks } from "@/lib/supabase-batch";
 import {
   GARMENT_TYPES,
   SUBMISSION_STATUSES,
@@ -120,145 +121,6 @@ function LoadingSkeleton() {
         </div>
       ))}
     </div>
-  );
-}
-
-// US-2544 AC4: pass `ids` to export just the checked rows. Omit it for the
-// whole account, which is what the toolbar button has always done.
-async function exportSubmissionsCsv(ownerId: string, ids?: string[]) {
-  // US-2204: the export is unpaginated by design, so it is the one submissions
-  // read whose row width scales with the whole account. It writes seven columns
-  // out of the row, and the grade_reports side is already projected — so project
-  // this side too and type it as the projection, which makes tsc (not a runtime
-  // blank cell) the thing that catches a new CSV column reaching for a field the
-  // query stopped fetching.
-  type ExportSubmission = Pick<
-    SubmissionRow,
-    | "id"
-    | "created_at"
-    | "title"
-    | "brand"
-    | "garment_type"
-    | "garment_category"
-    | "status"
-  >;
-
-  // Fetch ALL submissions (no pagination), or just the selected ids. The id
-  // list is chunked for the same reason the grade-report join below is: a
-  // selection can span hundreds of rows and would overflow the request URL.
-  const EXPORT_COLUMNS =
-    "id, created_at, title, brand, garment_type, garment_category, status";
-  let allSubmissions: ExportSubmission[];
-  if (ids) {
-    allSubmissions = await fetchInChunks<ExportSubmission>(ids, async (chunk) => {
-      const { data, error } = await supabase
-        .from("submissions")
-        .select(EXPORT_COLUMNS)
-        .eq("user_id", ownerId)
-        .in("id", chunk)
-        .order("created_at", { ascending: false });
-      return { data, error };
-    });
-  } else {
-    const { data: submissions, error: subError } = await supabase
-      .from("submissions")
-      .select(EXPORT_COLUMNS)
-      .eq("user_id", ownerId)
-      .order("created_at", { ascending: false });
-    if (subError) throw subError;
-    allSubmissions = (submissions ?? []) as ExportSubmission[];
-  }
-
-  if (allSubmissions.length === 0) {
-    toast.info("No submissions to export.");
-    return;
-  }
-
-  // Fetch all grade reports for these submissions
-  const submissionIds = allSubmissions.map((s) => s.id);
-
-  type ExportGradeReport = Pick<
-    GradeReportRow,
-    | "overall_score"
-    | "grade_tier"
-    | "fabric_condition_score"
-    | "structural_integrity_score"
-    | "cosmetic_appearance_score"
-    | "functional_elements_score"
-    | "odor_cleanliness_score"
-    | "certificate_id"
-  > & { submission_id: string };
-
-  // Batch the id list — a full export can span hundreds of submissions, which
-  // would overflow the request URL as a single .in() call.
-  const reportRows = await fetchInChunks<ExportGradeReport>(
-    submissionIds,
-    async (chunk) => {
-      const { data, error } = await supabase
-        .from("grade_reports")
-        .select(
-          "submission_id, overall_score, grade_tier, fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, certificate_id"
-        )
-        .in("submission_id", chunk)
-        .is("superseded_at", null); // US-479: active report per submission
-      return { data, error };
-    },
-  );
-  const gradeMap = new Map(reportRows.map((r) => [r.submission_id, r]));
-
-  const headers = [
-    "Submission Date",
-    "Title",
-    "Brand",
-    "Garment Type",
-    "Category",
-    "Status",
-    "Overall Grade",
-    "Grade Tier",
-    "Fabric Condition",
-    "Structural Integrity",
-    "Cosmetic Appearance",
-    "Functional Elements",
-    "Cleanliness",
-    "Certificate URL",
-  ];
-
-  const rows = allSubmissions.map((sub) => {
-    const grade = gradeMap.get(sub.id);
-    const certUrl = grade?.certificate_id
-      ? `${window.location.origin}/cert/${grade.certificate_id}`
-      : "";
-
-    const dateStr = toLocalDate(sub.created_at);
-    const fields: string[] = [
-      dateStr,
-      sub.title,
-      sub.brand ?? "",
-      formatLabel(sub.garment_type),
-      formatLabel(sub.garment_category),
-      formatLabel(sub.status),
-      grade ? grade.overall_score.toFixed(1) : "",
-      grade?.grade_tier ?? "",
-      grade ? grade.fabric_condition_score.toFixed(1) : "",
-      grade ? grade.structural_integrity_score.toFixed(1) : "",
-      grade ? grade.cosmetic_appearance_score.toFixed(1) : "",
-      grade ? grade.functional_elements_score.toFixed(1) : "",
-      grade ? grade.odor_cleanliness_score.toFixed(1) : "",
-      certUrl,
-    ];
-    return fields.map(escapeCsvCell);
-  });
-
-  const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join(
-    "\n"
-  );
-
-  const dateStr = todayLocalDate();
-  downloadBlob(
-    csvBlob(csvContent),
-    ids
-      ? `gradethread_export_${allSubmissions.length}_selected_${dateStr}.csv`
-      : `gradethread_export_${dateStr}.csv`,
   );
 }
 
@@ -334,12 +196,15 @@ export function SubmissionsPage() {
     return () => clearTimeout(t);
   }, [searchDraft]);
 
-  const filtersActive =
-    statusFilter !== "all" ||
-    garmentTypeFilter !== "all" ||
-    searchDraft.trim() !== "" ||
-    dateFrom !== "" ||
-    dateTo !== "";
+  // The filters the query runs on, shared with the CSV export (SUB-07).
+  const filters: SubmissionListFilters = {
+    status: statusFilter,
+    garmentType: garmentTypeFilter,
+    search,
+    dateFrom,
+    dateTo,
+  };
+  const filtersActive = submissionFiltersActive({ ...filters, search: searchDraft });
 
   function clearFilters() {
     setStatusFilter("all");
@@ -372,30 +237,10 @@ export function SubmissionsPage() {
       sortDirection,
     ],
     queryFn: async () => {
-      // US-2544 AC2: the search and date filters must reach BOTH sort branches.
-      // Defining them once is the only thing stopping the score branch from
-      // quietly ignoring a filter the date branch honours.
-      //
-      // `.or()` on a SELECT is fine on prod PostgREST — it is only rejected on
-      // UPDATE/DELETE (US-1552). sanitizeSearch strips the characters `.or()`
-      // parses as syntax.
-      const withSearchAndDates = <
-        T extends {
-          or: (filter: string) => T;
-          gte: (column: string, value: string) => T;
-          lte: (column: string, value: string) => T;
-        },
-      >(
-        q: T,
-      ): T => {
-        let next = q;
-        const term = sanitizeSearch(search);
-        if (term) next = next.or(`title.ilike.%${term}%,brand.ilike.%${term}%`);
-        if (dateFrom) next = next.gte("created_at", dateFrom);
-        if (dateTo) next = next.lte("created_at", endOfDayIso(dateTo));
-        return next;
-      };
-
+      // US-2544 AC2: every filter must reach BOTH sort branches. Applying them
+      // through one helper (shared with the CSV export) is the only thing
+      // stopping the score branch from quietly ignoring a filter the date
+      // branch honours.
       // Fetch the active grade report (overall_score + grade_tier) for a set of
       // submission ids, keyed by submission_id. US-479: only the non-superseded
       // report per submission.
@@ -432,11 +277,7 @@ export function SubmissionsPage() {
           .select(SUBMISSION_LIST_COLUMNS, { count: "exact" })
           .eq("user_id", ownerId!)
           .is("superseded_at", null);
-        if (statusFilter !== "all")
-          scoreQuery = scoreQuery.eq("status", statusFilter);
-        if (garmentTypeFilter !== "all")
-          scoreQuery = scoreQuery.eq("garment_type", garmentTypeFilter);
-        scoreQuery = withSearchAndDates(scoreQuery);
+        scoreQuery = applySubmissionFilters(scoreQuery, filters);
         scoreQuery = scoreQuery
           .order("overall_score", {
             ascending: sortDirection === "asc",
@@ -465,13 +306,7 @@ export function SubmissionsPage() {
         // from the active list + count so a retake doesn't leave a dead row.
         .is("superseded_at", null);
 
-      if (statusFilter !== "all") {
-        query = query.eq("status", statusFilter);
-      }
-      if (garmentTypeFilter !== "all") {
-        query = query.eq("garment_type", garmentTypeFilter);
-      }
-      query = withSearchAndDates(query);
+      query = applySubmissionFilters(query, filters);
 
       query = query
         .order("created_at", { ascending: sortDirection === "asc" })
@@ -622,7 +457,11 @@ export function SubmissionsPage() {
               onClick={async () => {
                 setExporting(true);
                 try {
-                  await exportSubmissionsCsv(ownerId!);
+                  // SUB-07: exports what the filters on screen match.
+                  const n = await exportSubmissionsCsv(ownerId!, { filters });
+                  if (n > 0) {
+                    toast.success(`Exported ${n} submission${n !== 1 ? "s" : ""}.`);
+                  }
                 } catch {
                   toast.error("Failed to export submissions.");
                 } finally {
@@ -631,7 +470,11 @@ export function SubmissionsPage() {
               }}
             >
               <Download className="mr-1 h-4 w-4" />
-              {exporting ? "Exporting…" : "Export CSV"}
+              {exporting
+                ? "Exporting…"
+                : filtersActive && totalCount > 0
+                  ? `Export ${totalCount} matching`
+                  : "Export CSV"}
             </Button>
             <Button
               variant="outline"
@@ -830,7 +673,12 @@ export function SubmissionsPage() {
                       onClick={async () => {
                         setExporting(true);
                         try {
-                          await exportSubmissionsCsv(ownerId!, [...selected]);
+                          const n = await exportSubmissionsCsv(ownerId!, {
+                            ids: [...selected],
+                          });
+                          if (n > 0) {
+                            toast.success(`Exported ${n} submission${n !== 1 ? "s" : ""}.`);
+                          }
                         } catch {
                           toast.error("Failed to export the selected submissions.");
                         } finally {

@@ -12,6 +12,13 @@ const PAGE = "src/pages/submissions.tsx";
 function page(): string {
   return readFileSync(resolve(process.cwd(), PAGE), "utf8");
 }
+// SUB-07: the filters and the CSV export moved out of the page so the list's
+// two sort branches and the export share one set of predicates.
+const QUERY = "src/lib/submission-list-query.ts";
+const EXPORT = "src/lib/submissions-export.ts";
+function lib(rel: string): string {
+  return readFileSync(resolve(process.cwd(), rel), "utf8");
+}
 
 describe("search term sanitizing (US-2544)", () => {
   it("strips the characters PostgREST .or() reads as syntax", () => {
@@ -37,7 +44,7 @@ describe("the list can be searched and dated (US-2544 AC2)", () => {
   it("has a real search field over title and brand", () => {
     const src = page();
     expect(src).toContain("<SearchInput");
-    expect(src).toContain("title.ilike.%${term}%,brand.ilike.%${term}%");
+    expect(lib(QUERY)).toContain("title.ilike.%${term}%,brand.ilike.%${term}%");
   });
 
   it("debounces rather than querying every keystroke", () => {
@@ -51,8 +58,10 @@ describe("the list can be searched and dated (US-2544 AC2)", () => {
     // them changes the result set when you click a column header, which is the
     // kind of bug nobody reports because it looks like the data changed.
     const src = page();
-    expect(src, "the helper is gone").toContain("const withSearchAndDates =");
-    const calls = src.match(/= withSearchAndDates\(/g) ?? [];
+    expect(lib(QUERY), "the helper is gone").toContain(
+      "export function applySubmissionFilters",
+    );
+    const calls = src.match(/= applySubmissionFilters\(/g) ?? [];
     expect(calls.length, "expected one call per sort branch").toBe(2);
   });
 
@@ -103,14 +112,14 @@ describe("disputes collapse when there are none (US-2544 AC3)", () => {
 
 describe("rows are selectable and exportable (US-2544 AC4)", () => {
   it("the export takes an optional id list", () => {
-    const src = page();
-    expect(src).toContain("async function exportSubmissionsCsv(ownerId: string, ids?: string[])");
-    expect(src).toContain("exportSubmissionsCsv(ownerId!, [...selected])");
+    expect(lib(EXPORT)).toContain("export async function exportSubmissionsCsv(");
+    expect(lib(EXPORT)).toContain("ids?: string[];");
+    expect(page()).toMatch(/exportSubmissionsCsv\(ownerId!, \{\s*ids: \[\.\.\.selected\],/);
   });
 
   it("the selected ids are chunked like every other id list here", () => {
     // A selection can span hundreds of rows; one .in() would overflow the URL.
-    const src = page();
+    const src = lib(EXPORT);
     const chunked = /if \(ids\) \{[\s\S]{0,200}fetchInChunks/.test(src);
     expect(chunked, "selected-id export is not chunked").toBe(true);
   });
@@ -157,15 +166,19 @@ describe("every read is scoped to the effective owner (SUB-01)", () => {
   // Leaning on it alone showed admins the whole platform in their list, count,
   // CSV and My Disputes. Each from() below must name the owner explicitly.
   it("each submissions/disputes read carries .eq(\"user_id\", ownerId)", () => {
-    const src = page();
-    const reads = [...src.matchAll(/\.from\("(submissions|disputes)"\)/g)];
-    expect(reads.length).toBeGreaterThanOrEqual(5);
-    for (const m of reads) {
-      const window = src.slice(m.index!, m.index! + 260);
-      expect(window, `unscoped ${m[1]} read at offset ${m.index}`).toMatch(
-        /\.eq\("user_id", ownerId!?\)/,
-      );
+    let total = 0;
+    for (const src of [page(), lib(EXPORT)]) {
+      const reads = [...src.matchAll(/\.from\("(submissions|disputes)"\)/g)];
+      total += reads.length;
+      for (const m of reads) {
+        const window = src.slice(m.index!, m.index! + 260);
+        expect(window, `unscoped ${m[1]} read at offset ${m.index}`).toMatch(
+          /\.eq\("user_id", ownerId!?\)/,
+        );
+      }
     }
+    // Two list branches, My Disputes, and the export's two reads.
+    expect(total).toBeGreaterThanOrEqual(5);
   });
 
   it("the owner comes from the active workspace, and keys carry it", () => {
