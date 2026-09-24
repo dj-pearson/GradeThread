@@ -124,12 +124,15 @@ export function FinancesPage() {
   // NOT part of the RPC's per-item net_profit. Fetch the period total so the
   // page can show one reconciled "true net after overhead" figure instead of
   // leaving the Expenses page as a second, disconnected profit number.
-  const { data: overhead = 0 } = useQuery({
+  // A failed or pending overhead read must not print "minus $0": the figure
+  // below is only a net-after-overhead when the overhead was actually read.
+  const overheadQuery = useQuery({
     queryKey: ["finances-overhead", period, fyStart, ownerId],
     enabled: !!ownerId,
     queryFn: () => fetchOperatingExpensesTotal(ownerId ?? "", periodStart),
     staleTime: 5 * 60 * 1000,
   });
+  const overhead = overheadQuery.data ?? 0;
 
   const summary = data?.summary;
   const trueNet = netAfterOverhead(summary?.net_profit ?? 0, overhead);
@@ -280,7 +283,15 @@ export function FinancesPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {overheadQuery.isError ? (
+            <ErrorState
+              title="Couldn't load your expenses"
+              description="Net after overhead needs your logged expenses for this period, so no figure is shown."
+              onRetry={() => void overheadQuery.refetch()}
+              retrying={overheadQuery.isFetching}
+              hideSupport
+            />
+          ) : isLoading || !overheadQuery.isSuccess ? (
             <Skeleton className="h-8 w-32" />
           ) : (
             <>

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 import {
   Select,
   SelectContent,
@@ -48,7 +49,16 @@ export function HomeOfficeCard() {
     staleTime: 60 * 60 * 1000,
   });
 
-  const { data: saved, isLoading } = useQuery({
+  // Mirrors tax-setup.tsx (US-3217): a failed read used to seed blank fields,
+  // and Save or "I do not have one" would write 0 sqft over the real answer.
+  const {
+    data: saved,
+    isLoading,
+    isError,
+    isSuccess,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: ["home-office-year", user?.id, year],
     enabled: !!user,
     queryFn: () => fetchHomeOfficeYear(year),
@@ -82,7 +92,7 @@ export function HomeOfficeCard() {
    * than clearing the field first keeps the seller's typing on screen.
    */
   async function save(forceSqft?: number) {
-    if (!user) return;
+    if (!user || !isSuccess) return;
     const sqftToSave = forceSqft ?? sqftNum;
     setSaving(true);
     try {
@@ -137,7 +147,15 @@ export function HomeOfficeCard() {
       </CardHeader>
 
       <CardContent className="space-y-5">
-        {isLoading ? (
+        {isError ? (
+          <ErrorState
+            title="Couldn't load your home office answers"
+            description={`Saving now could replace your real answers for ${year} with blanks, so the form is hidden until they load.`}
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+            hideSupport
+          />
+        ) : isLoading ? (
           <Skeleton className="h-40 w-full" />
         ) : (
           <>
@@ -230,7 +248,10 @@ export function HomeOfficeCard() {
             <div className="flex flex-wrap items-center gap-3">
               {/* Wrapped, not passed bare: `save` now takes an optional
                   number, and `onClick={save}` hands it the MouseEvent. */}
-              <Button onClick={() => save()} disabled={saving || !user}>
+              <Button
+                onClick={() => save()}
+                disabled={saving || !user || !isSuccess}
+              >
                 <Home className="mr-2 h-4 w-4" />
                 {saving ? "Saving" : "Save"}
               </Button>
@@ -243,7 +264,7 @@ export function HomeOfficeCard() {
               <Button
                 variant="outline"
                 onClick={() => save(0)}
-                disabled={saving || !user}
+                disabled={saving || !user || !isSuccess}
               >
                 I do not have one
               </Button>

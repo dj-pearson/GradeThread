@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
@@ -76,17 +77,22 @@ export function MileageLogCard() {
   const from = `${year}-01-01`;
   const to = `${year + 1}-01-01`;
 
-  const { data: summary, isLoading } = useQuery({
+  const summaryQuery = useQuery({
     queryKey: ["mileage-summary", user?.id, year],
     enabled: !!user,
     queryFn: () => fetchMileageSummary(from, to),
   });
+  const { data: summary, isLoading } = summaryQuery;
 
-  const { data: trips = [] } = useQuery({
+  // A failed read used to leave the trip list empty under a blank figure,
+  // which reads as "you logged nothing" rather than "we couldn't look".
+  const tripsQuery = useQuery({
     queryKey: ["mileage-trips", user?.id, year],
     enabled: !!user,
     queryFn: () => fetchTrips(from, to),
   });
+  const trips = tripsQuery.data ?? [];
+  const readFailed = summaryQuery.isError || tripsQuery.isError;
 
   const { data: vehicleYear } = useQuery({
     queryKey: ["vehicle-year", user?.id, year],
@@ -268,7 +274,18 @@ export function MileageLogCard() {
           <span className="text-[13px] text-muted-foreground">for {year}.</span>
         </div>
 
-        {method === "actual" ? (
+        {readFailed ? (
+          <ErrorState
+            title="Couldn't load your mileage log"
+            description={`The read failed, so this can't show your trips or deduction for ${year}.`}
+            onRetry={() => {
+              if (summaryQuery.isError) void summaryQuery.refetch();
+              if (tripsQuery.isError) void tripsQuery.refetch();
+            }}
+            retrying={summaryQuery.isFetching || tripsQuery.isFetching}
+            hideSupport
+          />
+        ) : method === "actual" ? (
           <p className="max-w-prose text-[13px] leading-relaxed text-muted-foreground">
             On actual expenses you deduct petrol, insurance, repairs and
             depreciation instead of a rate per mile. Log your trips anyway: the
@@ -299,7 +316,9 @@ export function MileageLogCard() {
           </p>
         ))}
 
-        {summary && summary.trip_count === 0 ? (
+        {readFailed ? null : tripsQuery.isLoading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : summary && summary.trip_count === 0 ? (
           <EmptyState
             icon={Car}
             title={`No trips logged for ${year}`}

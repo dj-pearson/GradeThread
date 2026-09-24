@@ -122,21 +122,29 @@ export async function importRows(
   return { inserted, alreadyKnown: rows.length - inserted };
 }
 
-export async function fetchRows(
+/**
+ * One page of a source's rows plus the true total. The review list shows 30,
+ * and it used to pull every row to do it, then give no hint that more existed.
+ */
+export async function fetchRowsPage(
   sourceId: string,
-  status?: StatementRow["status"],
-): Promise<StatementRow[]> {
-  let q = supabase
+  status: StatementRow["status"],
+  limit = 30,
+): Promise<{ rows: StatementRow[]; total: number }> {
+  const { data, error, count } = await supabase
     .from("statement_rows")
     .select(
       "id, source_id, posted_on, amount_cents, description, status, matched_expense_id, ignored_reason",
+      { count: "exact" },
     )
     .eq("source_id", sourceId)
-    .order("posted_on", { ascending: false });
-  if (status) q = q.eq("status", status);
-  const { data, error } = await q;
+    .eq("status", status)
+    .order("posted_on", { ascending: false })
+    .order("id", { ascending: false })
+    .range(0, limit - 1);
   if (error) throw error;
-  return (data ?? []) as StatementRow[];
+  const rows = (data ?? []) as StatementRow[];
+  return { rows, total: count ?? rows.length };
 }
 
 export async function fetchCandidates(rowId: string): Promise<MatchCandidate[]> {

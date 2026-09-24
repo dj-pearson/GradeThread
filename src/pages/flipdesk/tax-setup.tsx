@@ -84,11 +84,14 @@ export function TaxSetupPage() {
     queryFn: fetchTaxProfile,
   });
 
-  const { data: changes = [] } = useQuery({
+  // A failed history read used to make the card vanish, which reads as "you
+  // never changed anything" -- the record this card exists to keep.
+  const changesQuery = useQuery({
     queryKey: ["tax-profile-changes", user?.id],
     enabled: !!user,
     queryFn: fetchTaxProfileChanges,
   });
+  const changes = changesQuery.data ?? [];
 
   // Seed the form once the row (or the defaults standing in for it) arrives.
   useEffect(() => {
@@ -431,6 +434,23 @@ export function TaxSetupPage() {
           GradeThread does the arithmetic. It does not give tax advice.
         </p>
       </div>
+
+      {changesQuery.isError && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">What you changed</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ErrorState
+              title="Couldn't load your change history"
+              description="Your settings above are loaded. Only the dated list of past changes is missing."
+              onRetry={() => void changesQuery.refetch()}
+              retrying={changesQuery.isFetching}
+              hideSupport
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {changes.length > 0 && (
         <Card>
