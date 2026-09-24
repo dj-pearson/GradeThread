@@ -585,3 +585,69 @@ describe("Marketplaces page: extension section errors (MP-08)", () => {
     expect(document.body.textContent).toContain("Couldn't load your listings.");
   });
 });
+
+describe("Marketplaces page: confirm a probable match (MP-09)", () => {
+  const channel = {
+    platform: "poshmark",
+    status: "ok",
+    failure_reason: null,
+    listings_seen: 3,
+    last_ok_at: null,
+    last_read_at: null,
+    open_reviews: 1,
+    live_listings: 3,
+  };
+  const review = (over: Record<string, unknown>) => ({
+    id: "r1",
+    platform: "poshmark",
+    reason: "probable_match",
+    status: "open",
+    listing_id: null,
+    inventory_item_id: null,
+    listing_url: "https://poshmark.com/listing/x",
+    title: "Blue coat",
+    sold_price_cents: 4200,
+    sold_at: "2026-09-01T12:00:00Z",
+    dedupe_key: null,
+    unexplained: null,
+    claimed: null,
+    cap: null,
+    created_at: new Date().toISOString(),
+    ...over,
+  });
+
+  it("a needs-confirming row offers 'Yes, this item' and it claims the matched listing", () => {
+    state.syncChannels = [channel];
+    state.syncReviews = [review({ listing_id: "listing-9" })];
+    render();
+    const yes = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Yes, this item",
+    );
+    expect(yes).toBeTruthy();
+    act(() => yes!.click());
+    expect(state.claim).toHaveBeenCalledWith(
+      { reviewId: "r1", listingId: "listing-9" },
+      expect.anything(),
+    );
+  });
+
+  it("each review row shows the sold price and a link to the channel", () => {
+    state.syncChannels = [channel];
+    state.syncReviews = [review({})];
+    render();
+    expect(document.body.textContent).toContain("sold for $42.00");
+    const open = [...document.querySelectorAll("a")].find((a) =>
+      a.textContent?.includes("Open on Poshmark"),
+    );
+    expect(open?.getAttribute("href")).toBe("https://poshmark.com/listing/x");
+  });
+
+  it("an unmatched row with no address offers no Link to an item", () => {
+    state.syncChannels = [channel];
+    state.syncReviews = [review({ listing_url: null })];
+    render();
+    expect(
+      [...document.querySelectorAll("button")].some((b) => b.textContent?.trim() === "Link to an item"),
+    ).toBe(false);
+  });
+});

@@ -113,7 +113,10 @@ export function useClaimSyncReview() {
         method: "POST",
         body: JSON.stringify({ listing_id: input.listingId }),
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        review_resolved?: boolean;
+      };
       if (!res.ok) throw new Error(json.error || "Could not link that listing.");
       return json;
     },
@@ -410,32 +413,33 @@ export function stoppedChannelCopy(platform: string): { label: string; detail: s
 }
 
 /**
- * Listings on a platform that an unmatched sale could belong to.
+ * Listings an unmatched sale could belong to.
  *
- * Scoped to the platform because a Poshmark sale can only be a Poshmark
- * listing, and offering the seller their whole catalogue turns a one-click job
- * into a search. The server refuses a cross-platform claim anyway (422); this
- * just avoids showing a choice that would be rejected.
+ * MP-09: this called GET /api/flipdesk/listings?platform=..., which has no
+ * handler, so the picker was always empty. The server now answers per review:
+ * same platform, still active, not yet carrying an address, ranked by how much
+ * the title and price look like the sale.
  */
 export interface ClaimCandidate {
   id: string;
-  title: string | null;
-  listing_url: string | null;
+  listing_title: string | null;
+  listing_price: number | null;
+  photo_url: string | null;
 }
 
-export function useClaimCandidates(platform: string | null) {
+export function useClaimCandidates(reviewId: string | null) {
   const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["sold_sync_claim_candidates", tenantKey, platform],
-    enabled: Boolean(platform) && !!tenantKey,
+    queryKey: ["sold_sync_claim_candidates", tenantKey, reviewId],
+    enabled: Boolean(reviewId) && !!tenantKey,
     staleTime: 60 * 1000,
     queryFn: async (): Promise<ClaimCandidate[]> => {
       const res = await edgeFetch(
-        `/api/flipdesk/listings?platform=${encodeURIComponent(platform ?? "")}&status=active`,
+        `/api/flipdesk/sync/reviews/${encodeURIComponent(reviewId ?? "")}/candidates`,
       );
       if (!res.ok) throw new Error("Could not load your listings.");
-      const json = (await res.json()) as { listings?: ClaimCandidate[] };
-      return json.listings ?? [];
+      const json = (await res.json()) as { candidates?: ClaimCandidate[] };
+      return json.candidates ?? [];
     },
   });
 }

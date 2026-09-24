@@ -8407,6 +8407,59 @@ Deno.test({
   },
 });
 
+// MP-09: the claim picker's candidates are read by review id. A foreign review
+// id is a 404, and the owner's own list never carries another tenant's listing.
+Deno.test({
+  name: "MP-09: A cannot read candidates for B's sync review, and B's list holds none of A's listings",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SYNC_LISTING_URL"),
+  fn: async () => {
+    const url = Deno.env.get("TEST_USER_A_SYNC_LISTING_URL")!;
+    const res = await fetch(`${BASE}/api/flipdesk/sync/observations`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        platform: "poshmark",
+        signedIn: true,
+        sold: [{
+          listingUrl: url,
+          title: "Tenant-A-sync-fixture",
+          soldPriceCents: 5500,
+          soldAt: "2026-08-18T12:00:00.000Z",
+          orderRef: "isolation-probe-candidates",
+        }],
+      }),
+    });
+    if (res.status === 402) {
+      await res.body?.cancel();
+      return;
+    }
+    await res.body?.cancel();
+    const mine = await fetch(`${BASE}/api/flipdesk/sync/reviews`, { headers: authHeaders(B_JWT!) });
+    const mineBody = await mine.json();
+    const row = (mineBody.reviews ?? []).find((r: { dedupe_key: string | null }) =>
+      (r.dedupe_key ?? "").includes("isolation-probe-candidates")
+    ) as { id: string } | undefined;
+    assert(row, "B's probe produced no review row to ask about");
+
+    const foreign = await fetch(`${BASE}/api/flipdesk/sync/reviews/${row.id}/candidates`, {
+      headers: authHeaders(A_JWT!),
+    });
+    await foreign.body?.cancel();
+    assertDenied(foreign.status, "A reading candidates for B's review");
+
+    const own = await fetch(`${BASE}/api/flipdesk/sync/reviews/${row.id}/candidates`, {
+      headers: authHeaders(B_JWT!),
+    });
+    assertEquals(own.status, 200);
+    const ownBody = await own.json() as { candidates?: Array<{ id: string }> };
+    const aListing = Deno.env.get("TEST_USER_A_LISTING_ID");
+    assert(
+      !(ownBody.candidates ?? []).some((c) => c.id === aListing),
+      "B's candidate list carries A's listing",
+    );
+  },
+});
+
 // US-9201: the closet import matches rows on (platform, platform_listing_id).
 // That key is chosen by whoever posts the batch, so the match MUST be owner-
 // scoped: B naming A's Poshmark id has to get a fresh row of B's own, never an

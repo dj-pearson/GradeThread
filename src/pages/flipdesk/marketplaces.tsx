@@ -1437,7 +1437,7 @@ function ClaimControl({ review }: { review: SyncReview }) {
     isLoading,
     isError,
     refetch,
-  } = useClaimCandidates(open ? review.platform : null);
+  } = useClaimCandidates(open ? review.id : null);
 
   if (!open) {
     return (
@@ -1461,6 +1461,7 @@ function ClaimControl({ review }: { review: SyncReview }) {
 
   return (
     <select
+      aria-label={`Link ${review.title ?? "this sale"} to one of your listings`}
       className="h-8 max-w-[16rem] rounded-md border bg-background px-2 text-xs"
       defaultValue=""
       disabled={isLoading || claim.isPending}
@@ -1468,20 +1469,57 @@ function ClaimControl({ review }: { review: SyncReview }) {
         if (!e.target.value) return;
         claim.mutate(
           { reviewId: review.id, listingId: e.target.value },
-          {
-            onSuccess: () => toast.success("Linked. The next sale on this listing matches by itself."),
-            onError: (err) => toastError(err),
-          },
+          { onSuccess: claimToast, onError: (err) => toastError(err) },
         );
       }}
     >
       <option value="">{isLoading ? "Loading your listings..." : "Choose an item"}</option>
+      {!isLoading && (candidates ?? []).length === 0 && (
+        <option value="" disabled>
+          No unlinked active listings on this channel
+        </option>
+      )}
       {(candidates ?? []).map((c: ClaimCandidate) => (
         <option key={c.id} value={c.id}>
-          {c.title ?? "Untitled listing"}
+          {c.listing_title ?? "Untitled listing"}
+          {c.listing_price != null ? ` ($${Number(c.listing_price).toFixed(2)})` : ""}
         </option>
       ))}
     </select>
+  );
+}
+
+// MP-09: the claim links the listing even when the review row could not be
+// cleared, and that row sitting open afterwards reads like the link failed.
+function claimToast(res: { review_resolved?: boolean }) {
+  if (res.review_resolved === false) {
+    toast.warning("Linked, but this row could not be cleared. Dismiss it.");
+  } else {
+    toast.success("Linked. The next sale on this listing matches by itself.");
+  }
+}
+
+// MP-09: a sale matched to one of the seller's items, short of the certainty to
+// act alone. The group copy asks them to confirm; this is the button that does.
+function ConfirmMatch({ review }: { review: SyncReview }) {
+  const claim = useClaimSyncReview();
+  if (!review.listing_id) return null;
+  const listingId = review.listing_id;
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      aria-label={`Yes, ${review.title ?? "this sale"} is this item`}
+      disabled={claim.isPending}
+      onClick={() =>
+        claim.mutate(
+          { reviewId: review.id, listingId },
+          { onSuccess: claimToast, onError: (err) => toastError(err) },
+        )
+      }
+    >
+      Yes, this item
+    </Button>
   );
 }
 
@@ -1716,15 +1754,39 @@ function SoldSyncSection() {
                         {MARKETPLACE_LABELS[
                           r.platform as keyof typeof MARKETPLACE_LABELS
                         ] ?? r.platform}
+                        {r.sold_price_cents != null
+                          ? `, sold for $${(r.sold_price_cents / 100).toFixed(2)}`
+                          : ""}
+                        {r.sold_at ? ` on ${new Date(r.sold_at).toLocaleDateString()}` : ""}
                         {r.unexplained != null
-                          ? ` — ${r.unexplained} unaccounted for`
+                          ? `, ${r.unexplained} unaccounted for`
                           : ""}
                         {r.claimed != null && r.cap != null
-                          ? ` — claimed ${r.claimed}, cap ${r.cap}`
+                          ? `, claimed ${r.claimed}, cap ${r.cap}`
                           : ""}
+                        {safeHref(r.listing_url) && (
+                          <>
+                            {" "}
+                            <a
+                              href={safeHref(r.listing_url) ?? undefined}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline underline-offset-2"
+                            >
+                              Open on{" "}
+                              {MARKETPLACE_LABELS[
+                                r.platform as keyof typeof MARKETPLACE_LABELS
+                              ] ?? r.platform}
+                            </a>
+                          </>
+                        )}
                       </span>
                       <span className="flex items-center gap-1">
-                        {reason === "unmatched" && (
+                        {reason === "needs_confirming" && <ConfirmMatch review={r} />}
+                        {/* The claim writes the sale's address onto the
+                            listing; a row with no address has nothing to claim
+                            and the server answers 422. */}
+                        {reason === "unmatched" && r.listing_url && (
                           <ClaimControl review={r} />
                         )}
                         <Button
