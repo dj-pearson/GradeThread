@@ -22,6 +22,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { checkQuota } from "./ai-quota.ts";
+import type { AiSpendAuthority } from "./ai-metering.ts";
 import { featureAllowedForUser } from "./plan-gate.ts";
 import { featureDisabledBody, isFeatureEnabled } from "./feature-flags.ts";
 
@@ -38,7 +39,7 @@ export type BatchRunner = (
   ownerId: string,
   jobs: GenerationJob[],
   useComps: boolean,
-  limit: number,
+  limit: AiSpendAuthority,
 ) => Promise<void>;
 
 let runner: BatchRunner | null = null;
@@ -62,7 +63,7 @@ function startBatch(
   ownerId: string,
   jobs: GenerationJob[],
   useComps: boolean,
-  limit: number,
+  limit: AiSpendAuthority,
 ): void {
   if (!runner) {
     console.error(
@@ -245,6 +246,9 @@ export async function enqueueGenerationBatch(
     return { ok: false, status: 500, body: { error: "Could not enqueue generation jobs." } };
   }
 
-  startBatch(batchId, ownerId, jobRows as GenerationJob[], useComps, limit);
+  startBatch(batchId, ownerId, jobRows as GenerationJob[], useComps, {
+    limit,
+    allowCredits: quota.allowCredits,
+  });
   return { ok: true, batchId, itemCount: itemIds.length };
 }

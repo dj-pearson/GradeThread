@@ -57,14 +57,17 @@ export interface AiSpendAuthority {
 export type AiSpendSource = "allowance" | "credits" | "exhausted";
 
 /**
- * A bare number stays accepted and means "plan cap, credits allowed", which is
- * the correct reading for every caller that predates the self-cap distinction.
+ * A bare number stays accepted but means "this cap, NO credits". A number has
+ * already lost the self-cap decision (see AiSpendAuthority), so the only safe
+ * reading is the one that never spends the seller's wallet. Reading it as
+ * credits-allowed let AutoLister's photo QA and batch retry drain paid Action
+ * Credits past a seller's own cap (AL-01). Pass the whole QuotaResult instead.
  */
 export function toSpendAuthority(
   authority: number | AiSpendAuthority,
 ): AiSpendAuthority {
   return typeof authority === "number"
-    ? { limit: authority, allowCredits: true }
+    ? { limit: authority, allowCredits: false }
     : authority;
 }
 

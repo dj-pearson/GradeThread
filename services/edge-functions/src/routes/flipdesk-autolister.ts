@@ -55,6 +55,7 @@ import {
 } from "../lib/autolister-enqueue.ts";
 import {
   AiQuotaExhaustedError,
+  type AiSpendAuthority,
   QUOTA_EXHAUSTED_MESSAGE,
   refundAiAction,
   reserveAiAction,
@@ -440,7 +441,7 @@ async function processBatch(
     { id: string; inventory_item_id: string; attempts?: number; ai_reserved?: boolean | null }
   >,
   useComps: boolean,
-  limit: number,
+  limit: AiSpendAuthority,
 ): Promise<void> {
   const jobStaleBefore = new Date(Date.now() - JOB_STALE_MS).toISOString();
 
@@ -1837,7 +1838,10 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
     // into a const: TS narrowing doesn't survive into the worker closure.
     const coverQuota = await checkQuota(ownerId);
     if (!coverQuota.ok) return c.json(coverQuota.body, coverQuota.status);
-    const coverLimit = coverQuota.limit;
+    const coverSpend: AiSpendAuthority = {
+      limit: coverQuota.limit,
+      allowCredits: coverQuota.allowCredits,
+    };
 
     type CoverResult = {
       cover_id: string;
@@ -1864,7 +1868,7 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
           // One billed action per cover, reserved atomically before the call
           // and refunded on failure (US-1581). Cap reached mid-batch → stop
           // spending: report this cover as capped and drain the queue.
-          const qa = await withAiAction(ownerId, coverLimit, () =>
+          const qa = await withAiAction(ownerId, coverSpend, () =>
             assessPhotoQuality([{ url, type: "front" }]));
           coverResults.push({
             cover_id: cover.id,
@@ -1923,7 +1927,7 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
   // a const: TS narrowing doesn't survive into the worker closure.
   const quota = await checkQuota(ownerId);
   if (!quota.ok) return c.json(quota.body, quota.status);
-  const qaLimit = quota.limit;
+  const qaSpend: AiSpendAuthority = { limit: quota.limit, allowCredits: quota.allowCredits };
 
   // Tenant scope: only items owned by this workspace are assessed/written.
   const { data: ownedRows, error: ownErr } = await supabaseAdmin
@@ -2004,7 +2008,7 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
         // One billed action per item, reserved atomically before the vision
         // call and refunded on failure (US-1581). Cap reached mid-batch →
         // stop spending: report this item as capped and drain the queue.
-        const qa = await withAiAction(ownerId, qaLimit, () =>
+        const qa = await withAiAction(ownerId, qaSpend, () =>
           assessPhotoQuality(photos));
         const issues: QaPersistIssue[] = qa.issues.map((i) => ({
           type: i.type,
@@ -2062,7 +2066,7 @@ flipdeskAutolisterRoutes.post("/batch/:id/retry-failed", async (c) => {
   if (gated) return gated;
   const quota = await checkQuota(ownerId);
   if (!quota.ok) return c.json(quota.body, quota.status);
-  const limit = quota.limit;
+  const limit: AiSpendAuthority = { limit: quota.limit, allowCredits: quota.allowCredits };
 
   const { data: failedJobs, error: jobsErr } = await supabaseAdmin
     .from("listing_generation_jobs")
@@ -2147,7 +2151,7 @@ flipdeskAutolisterRoutes.post("/batch/:id/resume", async (c) => {
   if (gated) return gated;
   const quota = await checkQuota(ownerId);
   if (!quota.ok) return c.json(quota.body, quota.status);
-  const limit = quota.limit;
+  const limit: AiSpendAuthority = { limit: quota.limit, allowCredits: quota.allowCredits };
 
   // US-1644: reset ONLY the safe jobs — pending jobs, and 'running' jobs whose
   // heartbeat is stale (a dead worker's orphans). A FRESH 'running' job is owned
@@ -2228,7 +2232,9 @@ export async function adminRetryGenerationBatch(
   if (jobs.length === 0) return { ok: false, error: "No incomplete jobs to retry." };
 
   const quota = await checkQuota(b.user_id);
-  const limit = quota.ok ? quota.limit : 0;
+  const limit: AiSpendAuthority = quota.ok
+    ? { limit: quota.limit, allowCredits: quota.allowCredits }
+    : { limit: 0, allowCredits: false };
 
   await supabaseAdmin
     .from("listing_generation_batches")
@@ -2410,7 +2416,9 @@ export async function handleAutolisterReclaimCron(c: Context): Promise<Response>
     const quota = await checkQuota(b.user_id);
     // If AI is now off / over cap, limit 0 makes reserve refuse and the open
     // jobs fail with the quota message, so the batch still terminalizes.
-    const limit = quota.ok ? quota.limit : 0;
+    const limit: AiSpendAuthority = quota.ok
+    ? { limit: quota.limit, allowCredits: quota.allowCredits }
+    : { limit: 0, allowCredits: false };
     void processBatch(b.id, b.user_id, jobs, b.use_comps !== false, limit).catch((err) =>
       console.error("[flipdesk-autolister] reclaim resume crashed:", err)
     );
