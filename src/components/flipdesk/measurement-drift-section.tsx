@@ -19,7 +19,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { downloadCsv } from "@/lib/csv-export";
-import { useAuthStore } from "@/stores/auth-store";
 import {
   driftReturnFinding,
   EMPTY_DRIFT,
@@ -28,6 +27,8 @@ import {
   significantDrift,
   type MeasurementDrift,
 } from "@/lib/measurement-drift";
+import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // US-2827: your medium against everybody else's medium.
 //
@@ -43,10 +44,15 @@ const rate = (n: number | null): string =>
   n == null ? "—" : `${(n * 100).toFixed(1)}%`;
 
 export function MeasurementDriftSection() {
-  const user = useAuthStore((s) => s.user);
-  const { data = EMPTY_DRIFT } = useQuery<MeasurementDrift>({
-    queryKey: ["items_full", "analytics", "measurement-drift", user?.id],
-    enabled: !!user,
+  const tenantKey = useTenantKey();
+  const {
+    data = EMPTY_DRIFT,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery<MeasurementDrift>({
+    queryKey: ["items_full", "analytics", "measurement-drift", tenantKey],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { fetchMeasurementDrift } = await import("@/lib/measurement-drift");
@@ -99,6 +105,15 @@ export function MeasurementDriftSection() {
     );
   }
 
+  if (isError) {
+    return (
+      <AnalyticsCardError
+        title="Measurement drift"
+        onRetry={refetch}
+        retrying={isFetching}
+      />
+    );
+  }
   if (data.rows.length === 0) return null;
 
   return (
@@ -113,7 +128,7 @@ export function MeasurementDriftSection() {
             <CardDescription>
               Your median measurement for each size against what other sellers
               record for the same size and garment. Sizes are a brand's opinion;
-              a tape measure is not.
+              a tape measure is not. All time. Not affected by the date range.
             </CardDescription>
           </div>
           <Button

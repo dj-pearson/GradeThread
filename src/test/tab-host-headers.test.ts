@@ -190,7 +190,9 @@ describe("Analytics has one date range for the page (US-2548 AC4)", () => {
   it("the range survives a tab click", () => {
     // The real defect: the value was already shared through ?preset=, and the
     // tab navigation threw the whole query string away.
-    expect(src).toContain("+ location.search");
+    // A9: the path now comes from lib/analytics-tabs.ts, and the query string
+    // is still handed to it on every navigation.
+    expect(src).toContain("tabHref(v as AnalyticsTabId, location.search)");
   });
 
   it("only RangeSelect can set the preset", () => {

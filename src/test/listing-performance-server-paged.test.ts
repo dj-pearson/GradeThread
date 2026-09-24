@@ -52,10 +52,22 @@ describe("US-2233: Listing Performance is server-paged", () => {
 
   it("changing search, filter or sort resets to page 1", () => {
     // Without this a seller deep in the pager who narrows the search lands on
-    // an empty page and reads it as "no results".
+    // an empty page and reads it as "no results". A11 moved the reset out of a
+    // post-render effect and into the setters, so the first fetch after a
+    // change already asks for page 1.
     const src = code(PAGE);
-    expect(src).toMatch(
-      /useEffect\(\s*\(\)\s*=>\s*\{\s*setPage\(0\);\s*\},\s*\[search, noViewDays, sortKey, sortDir\]\)/,
+    expect(src).toMatch(/function setSearch\(v: string\) \{\s*setSearchRaw\(v\);\s*setPage\(0\);/);
+    expect(src).toMatch(/function setNoViewFilter\([\s\S]*?\) \{\s*setNoViewDays\(update\);\s*setPage\(0\);/);
+    expect(src).toMatch(/function toggleSort\(key: SortKey\) \{\s*setPage\(0\);/);
+    expect(src).not.toMatch(/\}, \[search, noViewDays, sortKey, sortDir\]\)/);
+  });
+
+  it("one invalidate after a sync refreshes the table, the KPIs and the suggestions (A11)", () => {
+    const src = code(PAGE);
+    expect(src).toContain('queryKey: ["listing_performance", tenantKey, "summary"]');
+    expect(src).toContain('invalidateQueries({ queryKey: ["listing_performance"] })');
+    expect(code("src/hooks/use-repricing.ts")).toContain(
+      'queryKey: ["listing_performance", tenantKey, "suggestions"]',
     );
   });
 

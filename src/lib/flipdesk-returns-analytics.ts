@@ -111,3 +111,50 @@ export function lowVsHighBandMultiplier(
   }
   return { multiplier: low.returnRate / high.returnRate, low, high };
 }
+
+/**
+ * A4: what the Return reduction headline may say, as a tagged result.
+ *
+ * The two multiplier helpers above return null for a ZERO return rate, since
+ * no ratio exists, and the page read that null as "not enough sales". So a
+ * seller whose 40 graded sales never came back was told their sample was too
+ * small, which hid the best result the report can show. These keep the same
+ * floor and the same never-spin rule and tell the cases apart:
+ *
+ *   multiplier    both sides have returns and the better side returns less
+ *   zero          the better side has no returns at all and the other does
+ *   insufficient  a side is under MIN_RETURN_SAMPLE
+ *   null          enough data, but nothing favourable to say (tie, or worse)
+ */
+export type ReturnFinding =
+  | { kind: "multiplier"; n: number }
+  | { kind: "zero"; sample: number; otherRate: number }
+  | { kind: "insufficient" }
+  | null;
+
+function compareReturns(better: ReturnStat, worse: ReturnStat): ReturnFinding {
+  if (better.sold < MIN_RETURN_SAMPLE || worse.sold < MIN_RETURN_SAMPLE) {
+    return { kind: "insufficient" };
+  }
+  if (better.returnRate == null || worse.returnRate == null) return null;
+  if (worse.returnRate <= better.returnRate) return null;
+  if (better.returnRate === 0) {
+    return { kind: "zero", sample: better.sold, otherRate: worse.returnRate };
+  }
+  return { kind: "multiplier", n: worse.returnRate / better.returnRate };
+}
+
+/** Graded vs ungraded, the "graded items return less" headline. */
+export function gradedReturnFinding(s: ReturnReductionSummary): ReturnFinding {
+  return compareReturns(s.graded, s.ungraded);
+}
+
+/** The high band vs the low band, with the two rows for the labels. */
+export function bandReturnFinding(
+  s: ReturnReductionSummary,
+): { finding: ReturnFinding; low: ReturnBandRow; high: ReturnBandRow } | null {
+  const low = s.bands.find((b) => b.key === "low");
+  const high = s.bands.find((b) => b.key === "high");
+  if (!low || !high) return null;
+  return { finding: compareReturns(high, low), low, high };
+}

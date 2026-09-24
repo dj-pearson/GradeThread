@@ -1,5 +1,5 @@
-import { lazy, Suspense, useMemo, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -40,9 +40,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAuthStore } from "@/stores/auth-store";
 import {
   MIN_BUCKET_SIZE,
+  sellThroughDatum,
   type GroupKey,
   type GradingRoiSummary,
 } from "@/lib/flipdesk-analytics";
@@ -59,14 +59,22 @@ import { EbayListingHealthCard } from "@/components/flipdesk/ebay-listing-health
 import { InventoryEquityCard } from "@/components/flipdesk/inventory-equity-card";
 import {
   fetchReturnReduction,
-  gradedReturnAdvantage,
-  lowVsHighBandMultiplier,
+  bandReturnFinding,
+  gradedReturnFinding,
   MIN_RETURN_SAMPLE,
   type ReturnStat,
 } from "@/lib/flipdesk-returns-analytics";
 import { ChartSkeleton, LoadingRegion } from "@/components/ui/skeletons";
 import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
+import { ScorecardSkeleton } from "@/components/flipdesk/scorecard-skeleton";
+import { pctTick, SERIES, usdTick } from "@/lib/chart-theme";
+import { useTenantKey } from "@/hooks/use-tenant-key";
+import { pointLift, presetStart, RANGE_LABEL, rangePhrase, type Preset } from "@/lib/analytics-range";
+import { ANALYTICS_TABS, RANGE_TABS, tabFromPath, tabHref, type AnalyticsTabId } from "@/lib/analytics-tabs";
+import { usePresetParam } from "@/hooks/use-preset-param";
+import { buildGuaranteeText, fetchGuaranteeCandidates, GUARANTEE_MIN_GRADE, type GuaranteeRecord } from "@/lib/condition-guarantee";
 
 // Lazy-load the Recharts bar chart at the chart boundary so the route-entry
 // chunk stays light and the page shell + table paint before Recharts streams
@@ -164,38 +172,6 @@ const usd = (n: number | null | undefined): string =>
 const pct = (n: number | null | undefined): string =>
   n == null || !Number.isFinite(n) ? "—" : `${Math.round(n * 100)}%`;
 
-type Preset = "all" | "30d" | "90d" | "12mo";
-
-// Lower bound (yyyy-mm-dd) for a preset, or null for all-time. The DB RPC does
-// the actual date filtering; this just translates the preset into the period
-// start it expects (US-418 — aggregation moved server-side).
-function presetStart(p: Preset): string | null {
-  if (p === "all") return null;
-  const days = p === "30d" ? 30 : p === "90d" ? 90 : 365;
-  const from = new Date();
-  from.setDate(from.getDate() - days);
-  return from.toISOString().slice(0, 10);
-}
-
-// US-2234: persist the period preset in the URL so an analytics view is
-// shareable and survives a refresh, instead of resetting to all-time.
-function usePresetParam(): [Preset, (p: Preset) => void] {
-  const [sp, setSp] = useSearchParams();
-  const raw = sp.get("preset");
-  const preset: Preset =
-    raw === "30d" || raw === "90d" || raw === "12mo" ? raw : "all";
-  const setPreset = (p: Preset) =>
-    setSp(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (p === "all") next.delete("preset");
-        else next.set("preset", p);
-        return next;
-      },
-      { replace: true },
-    );
-  return [preset, setPreset];
-}
 
 // US-2234: the sell-through grouping (category/brand/source) also lives in the
 // URL so the whole view is deep-linkable.
@@ -227,16 +203,8 @@ const csvDate = (): string => new Date().toISOString().slice(0, 10);
 // with a different aria-label (the Grading ROI copy was labelled "Sell-through
 // date range"). What actually broke the carry-across was the tab navigation:
 // it pushed a bare pathname and dropped the whole query string, so the range a
-// seller had just set vanished on the next tab.
-const RANGE_TABS = new Set([
-  "sell-through",
-  "grading-roi",
-  "price-curve",
-  "returns",
-  // US-3019: the Team tab windows on the same preset as everything else, so it
-  // reads the shared control rather than drawing a sixth copy of it.
-  "team",
-]);
+// seller had just set vanished on the next tab. Which tabs show the control is
+// RANGE_TABS, derived from ANALYTICS_TABS in lib/analytics-tabs.ts (A9).
 
 function RangeSelect() {
   const [preset, setPreset] = usePresetParam();
@@ -261,19 +229,15 @@ export function FlipdeskAnalyticsPage() {
   // US-2161: Listing Performance and Community Insights were their own sidebar
   // entries; they are analytics, so they fold into this tab set. Path-based like
   // the existing tabs (not ?tab=) so every deep link stays a real URL.
-  const tab = location.pathname.endsWith("/grading-roi")
-    ? "grading-roi"
-    : location.pathname.endsWith("/price-curve")
-      ? "price-curve"
-      : location.pathname.endsWith("/returns")
-        ? "returns"
-        : location.pathname.endsWith("/performance")
-          ? "performance"
-          : location.pathname.endsWith("/community")
-            ? "community"
-            : location.pathname.endsWith("/team")
-              ? "team"
-              : "sell-through";
+  const tab = tabFromPath(location.pathname);
+  // A9: on a phone the active tab can sit past the right edge of the strip.
+  const tabListRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = tabListRef.current?.querySelector<HTMLElement>(
+      `[data-tab="${tab}"]`,
+    );
+    el?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [tab]);
 
   return (
     <div className="space-y-6">
@@ -285,41 +249,40 @@ export function FlipdeskAnalyticsPage() {
       />
 
       {/* US-2822: one diagnosis above five tabs of numbers. */}
-      <Suspense fallback={null}>
+      <Suspense fallback={<ScorecardSkeleton />}>
         <ScorecardHost />
       </Suspense>
 
       <Tabs
         value={tab}
+        // A9: manual activation. Arrow keys move focus along the strip without
+        // navigating, so passing over Community or Team does not mount them and
+        // fire their cross-seller reads; Enter or Space opens a tab.
+        activationMode="manual"
         onValueChange={(v) =>
           // location.search rides along: the range, the grouping and any other
           // deep-link state live in the query string, and a bare pathname would
           // throw all of it away on every tab click.
-          navigate(
-            (v === "grading-roi"
-              ? "/dashboard/flipdesk/analytics/grading-roi"
-              : v === "price-curve"
-                ? "/dashboard/flipdesk/analytics/price-curve"
-                : v === "returns"
-                  ? "/dashboard/flipdesk/analytics/returns"
-                  : v === "performance"
-                    ? "/dashboard/flipdesk/analytics/performance"
-                    : v === "community"
-                      ? "/dashboard/flipdesk/analytics/community"
-                      : v === "team"
-                        ? "/dashboard/flipdesk/analytics/team"
-                        : "/dashboard/flipdesk/analytics") + location.search,
-          )
+          navigate(tabHref(v as AnalyticsTabId, location.search))
         }
       >
-        <TabsList>
-          <TabsTrigger value="sell-through">Sell-through</TabsTrigger>
-          <TabsTrigger value="grading-roi">Grading ROI</TabsTrigger>
-          <TabsTrigger value="price-curve">Price curve</TabsTrigger>
-          <TabsTrigger value="returns">Return reduction</TabsTrigger>
-          <TabsTrigger value="performance">Listing performance</TabsTrigger>
-          <TabsTrigger value="community">Community</TabsTrigger>
-          <TabsTrigger value="team">Team</TabsTrigger>
+        {/* A9: seven labels do not fit 375px. The strip scrolls sideways
+            instead of widening the page, and phones get the short labels. */}
+        <TabsList
+          ref={tabListRef}
+          className="max-w-full justify-start overflow-x-auto"
+        >
+          {ANALYTICS_TABS.map((t) => (
+            <TabsTrigger
+              key={t.id}
+              value={t.id}
+              data-tab={t.id}
+              className="shrink-0"
+            >
+              <span className="sm:hidden">{t.shortLabel}</span>
+              <span className="hidden sm:inline">{t.label}</span>
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         <TabsContent value="sell-through" className="mt-6">
@@ -384,20 +347,26 @@ export function FlipdeskAnalyticsPage() {
 // here so its own module never has to know what a preset is.
 function TeamReportHost() {
   const [preset] = usePresetParam();
-  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  const periodStart = presetStart(preset);
   return <TeamReportPage periodStart={periodStart} />;
 }
 
 // Reads the shared range preset so the scorecard windows with everything else.
 function ScorecardHost() {
   const [preset] = usePresetParam();
-  const periodStart = useMemo(() => presetStart(preset), [preset]);
-  return <SellerScorecardCard periodStart={periodStart} />;
+  const periodStart = presetStart(preset);
+  return (
+    <SellerScorecardCard
+      periodStart={periodStart}
+      periodLabel={RANGE_LABEL[preset]}
+      periodSlug={preset}
+    />
+  );
 }
 
 function PriceCurveTab() {
   const [preset] = usePresetParam();
-  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  const periodStart = presetStart(preset);
   return <PriceCurveReport periodStart={periodStart} />;
 }
 
@@ -445,14 +414,14 @@ function Loading() {
 }
 
 function SellThroughReport() {
-  const user = useAuthStore((s) => s.user);
+  const tenantKey = useTenantKey();
   const [preset] = usePresetParam();
   const [groupKey, setGroupKey] = useGroupKeyParam();
   // US-3303: unrealized rows are hidden by default and never silently. See the
   // note below the picker for the reasoning.
   const [showUnrealized, setShowUnrealized] = useState(false);
 
-  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  const periodStart = presetStart(preset);
   const {
     data: rows = [],
     isLoading,
@@ -462,8 +431,8 @@ function SellThroughReport() {
   } = useQuery({
     // Kept under the "items_full" prefix so the same mutation invalidations that
     // refresh the pipeline/listings caches also refresh these aggregates.
-    queryKey: ["items_full", "analytics", "sell-through", user?.id, groupKey, preset],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "sell-through", tenantKey, groupKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchSellThrough(groupKey, periodStart),
   });
@@ -471,9 +440,14 @@ function SellThroughReport() {
   // US-2234 (AC1): revenue + net-profit trend over the selected period. Reuses
   // the finances_dashboard RPC's time_series (the only server-side time series we
   // have) rather than adding a second one; shares the same cache key prefix.
-  const { data: trend = [] } = useQuery({
-    queryKey: ["items_full", "analytics", "trend", user?.id, preset],
-    enabled: !!user,
+  const {
+    data: trend = [],
+    isError: trendFailed,
+    isFetching: trendFetching,
+    refetch: refetchTrend,
+  } = useQuery({
+    queryKey: ["items_full", "analytics", "trend", tenantKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const dash = await fetchFinancesDashboard(periodStart);
@@ -508,12 +482,9 @@ function SellThroughReport() {
     0,
   );
 
-  const chartData = visibleRows.slice(0, 12).map((r) => ({
-    name: r.group,
-    rate: r.sellThrough != null ? Math.round(r.sellThrough * 100) : 0,
-    sold: r.sold,
-    listed: r.listed,
-  }));
+  // A7: null stays null. A group that sold 5 with nothing listed in range
+  // has no rate, and drawing it as 0% said it sold nothing.
+  const chartData = visibleRows.slice(0, 12).map(sellThroughDatum);
 
   function exportCsv() {
     downloadCsv(
@@ -584,7 +555,13 @@ function SellThroughReport() {
         <PriceGapCard periodStart={periodStart} />
       </Suspense>
 
-      {trend.length > 1 && (
+      {trendFailed ? (
+        <AnalyticsCardError
+          title="Revenue & net profit over time"
+          onRetry={refetchTrend}
+          retrying={trendFetching}
+        />
+      ) : trend.length > 1 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -630,14 +607,19 @@ function SellThroughReport() {
                 Sell-through rate by {groupKey}
               </CardTitle>
               <CardDescription>
-                Sold ÷ listed, for items with a list date in range. Top 12
-                shown.
+                Sold in range / listed in range. Items listed earlier but sold in
+                range count as sold. Top 12 shown.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Suspense fallback={<ChartSkeleton />}>
                 <SellThroughChart data={chartData} />
               </Suspense>
+              {chartData.some((d) => d.rate != null && d.rate > 100) && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  * Over 100%. Includes items listed before this range.
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -670,7 +652,12 @@ function SellThroughReport() {
                         {r.sold}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {pct(r.sellThrough)}
+                        {r.sellThrough == null && r.sold > 0 ? (
+                          <span title="No listings in range">—</span>
+                        ) : (
+                          pct(r.sellThrough)
+                        )}
+                        {r.sellThrough != null && r.sellThrough > 1 && "*"}
                       </TableCell>
                       <TableCell className="text-right font-mono tabular-nums">
                         {usd(r.avgNetProfit)}
@@ -703,11 +690,11 @@ function SellThroughReport() {
 }
 
 export function GradingRoiReport() {
-  const user = useAuthStore((s) => s.user);
+  const tenantKey = useTenantKey();
   // US-2234 (AC3): honour the same period presets as the sibling tabs. The RPCs
   // now take p_period_start (migration 00505); periodStart flows into both.
   const [preset] = usePresetParam();
-  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  const periodStart = presetStart(preset);
   const {
     data: buckets = [],
     isLoading,
@@ -715,8 +702,8 @@ export function GradingRoiReport() {
     isFetching: bucketsFetching,
     refetch: refetchBuckets,
   } = useQuery({
-    queryKey: ["items_full", "analytics", "grading-roi", user?.id, preset],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "grading-roi", tenantKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchGradingRoi(periodStart),
   });
@@ -727,8 +714,8 @@ export function GradingRoiReport() {
     isFetching: summaryFetching,
     refetch: refetchSummary,
   } = useQuery({
-    queryKey: ["items_full", "analytics", "grading-roi-summary", user?.id, preset],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "grading-roi-summary", tenantKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchGradingRoiSummary(periodStart),
   });
@@ -817,7 +804,7 @@ export function GradingRoiReport() {
           Export CSV
         </Button>
       </div>
-      <RoiHeadline summary={summary} />
+      <RoiHeadline summary={summary} preset={preset} />
 
       {/* US-2821: what each flaw costs, measured within its own grade band. */}
       <Suspense fallback={null}>
@@ -885,7 +872,11 @@ export function GradingRoiReport() {
           </CardHeader>
           <CardContent>
             <Suspense fallback={<ChartSkeleton />}>
-              <AnalyticsBarChart data={liftChart} unit="$" label="Profit lift" />
+              <AnalyticsBarChart
+                data={liftChart}
+                formatter={usdTick}
+                label="Profit lift"
+              />
             </Suspense>
           </CardContent>
         </Card>
@@ -994,7 +985,13 @@ export function GradingRoiReport() {
 // sample is statistically meaningful (>= MIN_BUCKET_SIZE realized sales each
 // side); otherwise the numbers are shown muted with a "too early to call" note
 // so nothing is overstated on thin data.
-function RoiHeadline({ summary }: { summary: GradingRoiSummary | null }) {
+function RoiHeadline({
+  summary,
+  preset,
+}: {
+  summary: GradingRoiSummary | null;
+  preset: Preset;
+}) {
   const s = summary;
   const hasAny =
     !!s && (s.graded.sold > 0 || s.ungraded.sold > 0);
@@ -1010,8 +1007,11 @@ function RoiHeadline({ summary }: { summary: GradingRoiSummary | null }) {
     if (s.netProfitLift != null && s.netProfitLift > 0) {
       parts.push(`net ${usd(s.netProfitLift)} more`);
     }
-    if (s.sellThroughLift != null && s.sellThroughLift > 0) {
-      parts.push(`sell through ${pct(s.sellThroughLift)} more often`);
+    if (s.sellThroughLift != null && Math.round(s.sellThroughLift * 100) >= 1) {
+      // A12: points, not percent. See pointLift.
+      parts.push(
+        `have ${pointLift(s.sellThroughLift, s.graded.sellThrough, s.ungraded.sellThrough)}`,
+      );
     }
   }
   const lead = parts.length > 0 ? parts.join(", ") : null;
@@ -1024,7 +1024,7 @@ function RoiHeadline({ summary }: { summary: GradingRoiSummary | null }) {
           Does grading pay off?
         </CardTitle>
         <CardDescription>
-          Your graded items vs your ungraded items across every sale. We only
+          Your graded items vs your ungraded items {rangePhrase(preset)}. We only
           headline the lift once both sides have at least {MIN_BUCKET_SIZE}{" "}
           sales — too small to trust otherwise.
         </CardDescription>
@@ -1045,7 +1045,7 @@ function RoiHeadline({ summary }: { summary: GradingRoiSummary | null }) {
             ) : (
               <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
                 {s?.meaningful
-                  ? "Across your sales so far, graded items haven't shown a measurable edge yet."
+                  ? `Graded items haven't shown a measurable edge ${rangePhrase(preset)} yet.`
                   : `Too early to call — need ${MIN_BUCKET_SIZE}+ graded and ${MIN_BUCKET_SIZE}+ ungraded sales to compare reliably (${
                       s?.graded.sold ?? 0
                     } graded, ${s?.ungraded.sold ?? 0} ungraded so far).`}
@@ -1062,6 +1062,13 @@ function RoiHeadline({ summary }: { summary: GradingRoiSummary | null }) {
                 label="Sell-through"
                 graded={pct(s?.graded.sellThrough)}
                 ungraded={pct(s?.ungraded.sellThrough)}
+                note={
+                  s?.sellThroughLift != null
+                    ? `${s.sellThroughLift >= 0 ? "+" : ""}${Math.round(
+                        s.sellThroughLift * 100,
+                      )} points graded`
+                    : undefined
+                }
               />
               <RoiStatTile
                 icon={Clock}
@@ -1102,11 +1109,14 @@ function RoiStatTile({
   label,
   graded,
   ungraded,
+  note,
 }: {
   icon: typeof Percent;
   label: string;
   graded: string;
   ungraded: string;
+  /** A12: the gap in its own unit, e.g. "+10 points graded". */
+  note?: string;
 }) {
   return (
     <div className="rounded-lg border p-3">
@@ -1132,6 +1142,7 @@ function RoiStatTile({
           </p>
         </div>
       </div>
+      {note && <p className="mt-1 text-xs text-muted-foreground">{note}</p>}
     </div>
   );
 }
@@ -1140,13 +1151,13 @@ function RoiStatTile({
 // headline + a grade-backed condition-guarantee surface the seller can copy
 // into their listings. Return rate = refunded ÷ fulfilled (shipped) sales.
 function ReturnReductionReport() {
-  const user = useAuthStore((s) => s.user);
+  const tenantKey = useTenantKey();
   const [preset] = usePresetParam();
 
-  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  const periodStart = presetStart(preset);
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["items_full", "analytics", "returns", user?.id, preset],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "returns", tenantKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchReturnReduction(periodStart),
   });
@@ -1168,9 +1179,17 @@ function ReturnReductionReport() {
     bands: [],
   };
 
-  const advantage = gradedReturnAdvantage(summary);
-  const lowVsHigh = lowVsHighBandMultiplier(summary);
-  const highBand = summary.bands.find((b) => b.key === "high");
+  // A4: tagged, so a zero return rate reads as the best case rather than as
+  // "not enough sales", and the sample line shows only when that is true.
+  const graded = gradedReturnFinding(summary);
+  const bands = bandReturnFinding(summary);
+  const bandFinding = bands?.finding ?? null;
+  const headlined = [graded?.kind, bandFinding?.kind].some(
+    (k) => k === "multiplier" || k === "zero",
+  );
+  const insufficient =
+    !headlined &&
+    (graded?.kind === "insufficient" || bandFinding?.kind === "insufficient");
 
   function exportCsv() {
     downloadCsv(
@@ -1227,40 +1246,63 @@ function ReturnReductionReport() {
               </CardTitle>
               <CardDescription>
                 Return rate = refunded ÷ shipped (completed + refunded) sales,
-                across your history. Bands with fewer than {MIN_RETURN_SAMPLE}{" "}
+                {" "}{rangePhrase(preset)}. Bands with fewer than {MIN_RETURN_SAMPLE}{" "}
                 shipped sales are shown but kept out of the headlines — too small
                 to trust.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {lowVsHigh ? (
+              {bands && bandFinding?.kind === "multiplier" ? (
                 <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
                   Items{" "}
-                  <span className="font-medium">{lowVsHigh.low.label}</span>{" "}
+                  <span className="font-medium">{bands.low.label}</span>{" "}
                   come back{" "}
                   <span className="font-bold text-destructive">
-                    {lowVsHigh.multiplier.toFixed(1)}× more often
+                    {bandFinding.n.toFixed(1)}× more often
                   </span>{" "}
                   than your{" "}
-                  <span className="font-medium">{lowVsHigh.high.label}</span>{" "}
-                  items ({pct(lowVsHigh.low.returnRate)} vs{" "}
-                  {pct(lowVsHigh.high.returnRate)}).
+                  <span className="font-medium">{bands.high.label}</span>{" "}
+                  items ({pct(bands.low.returnRate)} vs{" "}
+                  {pct(bands.high.returnRate)}).
                 </p>
               ) : null}
-              {advantage ? (
+              {bands && bandFinding?.kind === "zero" ? (
+                <p className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+                  <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                    None of your {bandFinding.sample} items{" "}
+                    {bands.high.label.toLowerCase()} came back
+                  </span>
+                  , vs {pct(bandFinding.otherRate)} of items{" "}
+                  {bands.low.label.toLowerCase()}.
+                </p>
+              ) : null}
+              {graded?.kind === "multiplier" ? (
                 <p className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
                   Your graded items return{" "}
                   <span className="font-bold text-emerald-700 dark:text-emerald-300">
-                    {advantage.toFixed(1)}× less often
+                    {graded.n.toFixed(1)}× less often
                   </span>{" "}
                   than ungraded ({pct(summary.graded.returnRate)} vs{" "}
                   {pct(summary.ungraded.returnRate)}).
                 </p>
               ) : null}
-              {!lowVsHigh && !advantage ? (
+              {graded?.kind === "zero" ? (
+                <p className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+                  <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                    None of your {graded.sample} graded sales came back
+                  </span>
+                  , vs {pct(graded.otherRate)} of ungraded.
+                </p>
+              ) : null}
+              {insufficient ? (
                 <p className="py-2 text-center text-sm text-muted-foreground">
                   Not enough shipped sales yet to call a reliable difference —
                   need {MIN_RETURN_SAMPLE}+ on each side you&apos;re comparing.
+                </p>
+              ) : !headlined ? (
+                <p className="py-2 text-center text-sm text-muted-foreground">
+                  Your return rates don&apos;t differ by grade in a way we can
+                  call yet.
                 </p>
               ) : null}
             </CardContent>
@@ -1284,10 +1326,9 @@ function ReturnReductionReport() {
                   <Suspense fallback={<ChartSkeleton />}>
                     <AnalyticsBarChart
                       data={bandChart}
-                      unit="%"
-                      color="#E94560"
+                      formatter={pctTick}
+                      color={SERIES.negative}
                       label="Return rate"
-                      domain={[0, "auto"]}
                     />
                   </Suspense>
                 </CardContent>
@@ -1368,7 +1409,7 @@ function ReturnReductionReport() {
             </CardContent>
           </Card>
 
-          <ConditionGuaranteeCard highBand={highBand} />
+          <ConditionGuaranteeCard />
         </>
       )}
     </div>
@@ -1377,30 +1418,46 @@ function ReturnReductionReport() {
 
 // AC #2: an OPTIONAL grade-backed "condition guarantee" surface that targets
 // return reduction. Only meaningful once the seller has a trustworthy
-// high-grade track record; we build the guarantee blurb from their own numbers
-// (no fabricated claims) and let them copy it straight into a listing.
-function ConditionGuaranteeCard({
-  highBand,
-}: {
-  highBand:
-    | { sold: number; returns: number; returnRate: number | null }
-    | undefined;
-}) {
+// high-grade track record.
+//
+// A15: the text is built PER ITEM, for unsold items graded 8.5 or higher that
+// carry a real certificate, and quotes that item's own grade and certificate
+// link. The old single blurb could be pasted onto any listing, and it promised
+// a full refund on behalf of a return policy the app does not know.
+function ConditionGuaranteeCard() {
+  // A12: the guarantee quotes the seller's ALL-TIME track record. It used the
+  // tab's range, so the "N graded sales" in text already pasted into listings
+  // changed whenever the seller moved a dropdown they might not see.
+  const tenantKey = useTenantKey();
+  const { data } = useQuery({
+    queryKey: ["items_full", "analytics", "returns", tenantKey, null],
+    enabled: !!tenantKey,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchReturnReduction(null),
+  });
+  const highBand = data?.bands.find((b) => b.key === "high");
   const ready =
     !!highBand &&
     highBand.sold >= MIN_RETURN_SAMPLE &&
     highBand.returnRate != null;
+  const record: GuaranteeRecord | null =
+    ready && highBand && highBand.returnRate != null
+      ? { sold: highBand.sold, keptRate: 1 - highBand.returnRate }
+      : null;
 
-  const keptRate =
-    highBand && highBand.returnRate != null ? 1 - highBand.returnRate : null;
+  const candidates = useQuery({
+    queryKey: ["items_full", "analytics", "guarantee-items", tenantKey],
+    enabled: !!tenantKey && ready,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchGuaranteeCandidates(tenantKey as string),
+  });
 
-  const blurb = ready
-    ? `Condition guarantee: this item is independently graded 8.5–10.0. Across ${
-        highBand!.sold
-      } graded sales at this tier, ${pct(
-        keptRate,
-      )} shipped return-free. If it arrives in worse condition than its grade certificate states, return it for a full refund.`
-    : "";
+  function copy(text: string) {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => toast.success("Guarantee text copied"))
+      .catch(() => toast.error("Couldn't copy to clipboard"));
+  }
 
   return (
     <Card>
@@ -1410,37 +1467,83 @@ function ConditionGuaranteeCard({
           Grade-backed condition guarantee
         </CardTitle>
         <CardDescription>
-          Offering a guarantee on your highest-graded items signals confidence
-          and pulls returns down further. We only generate it from your real
-          track record.
+          For your unsold items graded {GUARANTEE_MIN_GRADE.toFixed(1)} or
+          higher with a certificate. Each one gets its own text, with its grade,
+          its certificate link and your all-time record at that tier.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {ready ? (
-          <>
-            <div className="rounded-md border bg-muted/40 p-3 text-sm">
-              {blurb}
-            </div>
+        {!ready ? (
+          <p className="py-2 text-sm text-muted-foreground">
+            Need {MIN_RETURN_SAMPLE}+ shipped sales graded{" "}
+            {GUARANTEE_MIN_GRADE.toFixed(1)} or higher before we can back a
+            guarantee with your own numbers. Keep grading your best items and
+            check back.
+          </p>
+        ) : candidates.isError ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <p className="text-muted-foreground">
+              Couldn&apos;t load the items that qualify.
+            </p>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                navigator.clipboard
-                  .writeText(blurb)
-                  .then(() => toast.success("Guarantee text copied"))
-                  .catch(() => toast.error("Couldn't copy to clipboard"));
-              }}
+              disabled={candidates.isFetching}
+              onClick={() => void candidates.refetch()}
             >
-              <Copy className="mr-2 h-4 w-4" />
-              Copy guarantee text
+              Retry
             </Button>
-          </>
-        ) : (
+          </div>
+        ) : candidates.isLoading ? (
+          <LoadingRegion label="Loading items that qualify">
+            <ChartSkeleton className="h-24" />
+          </LoadingRegion>
+        ) : (candidates.data?.total ?? 0) === 0 ? (
           <p className="py-2 text-sm text-muted-foreground">
-            Need {MIN_RETURN_SAMPLE}+ shipped sales graded 8.5–10.0 before we
-            can back a guarantee with your own numbers. Keep grading your best
-            items and check back.
+            No unsold item graded {GUARANTEE_MIN_GRADE.toFixed(1)} or higher
+            with a certificate right now.
           </p>
+        ) : (
+          <>
+            <p className="text-sm">
+              {candidates.data!.total}{" "}
+              {candidates.data!.total === 1 ? "item qualifies" : "items qualify"}
+              {candidates.data!.total > candidates.data!.items.length
+                ? `. Your top ${candidates.data!.items.length} by grade:`
+                : ":"}
+            </p>
+            <ul className="divide-y rounded-md border">
+              {candidates.data!.items.map((item) => {
+                const text = buildGuaranteeText(item, record);
+                if (!text) return null;
+                return (
+                  <li
+                    key={item.id}
+                    className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm"
+                  >
+                    <Link
+                      to={`/dashboard/flipdesk/items/${item.id}`}
+                      className="min-w-0 flex-1 truncate font-medium hover:underline"
+                    >
+                      {item.title || "Untitled item"}
+                    </Link>
+                    <span className="tabular-nums text-muted-foreground">
+                      {item.grade_value!.toFixed(1)}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copy(text)}
+                      aria-label={`Copy guarantee for ${item.title || "Untitled item"}`}
+                    >
+                      <Copy className="mr-2 h-4 w-4" />
+                      Copy guarantee
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
         )}
       </CardContent>
     </Card>

@@ -186,3 +186,201 @@ describe("returnSplitLine", () => {
     expect(EMPTY_SCORECARD.returnSplit.graded).toEqual({ fulfilled: 0, returns: 0 });
   });
 });
+
+// ─── A5: ordinals, own-sample gate, honest unranked copy, range-keeping links ──
+
+import { ordinal } from "@/lib/utils";
+import {
+  rankedPercentile,
+  scorecardTileHref,
+  tileRankText,
+} from "@/lib/seller-scorecard";
+
+describe("ordinal (A5)", () => {
+  it.each([
+    [1, "1st"],
+    [2, "2nd"],
+    [3, "3rd"],
+    [11, "11th"],
+    [12, "12th"],
+    [13, "13th"],
+    [21, "21st"],
+    [22, "22nd"],
+    [101, "101st"],
+  ])("%i -> %s", (n, s) => {
+    expect(ordinal(n)).toBe(s);
+  });
+});
+
+describe("own-sample gate (A5)", () => {
+  it("a seller with 1 sold of 1 listed is not ranked, and is not the weakest", () => {
+    const c = card([
+      row("sell_through", 3, { ownValue: 1, ownSampleSize: 1 }),
+      row("price_realization", 40),
+    ]);
+    expect(rankedPercentile(c, c.metrics[0]!)).toBeNull();
+    expect(pickBiggestGap(c)?.metric).toBe("price_realization");
+    expect(tileRankText(c, c.metrics[0]!)).toBe("1 of 5 items needed");
+  });
+
+  it("a card whose only percentile rests on a tiny own sample is unranked", () => {
+    const c = card([row("sell_through", 3, { ownSampleSize: 2 })]);
+    expect(isUnranked(c)).toBe(true);
+    expect(diagnosisLine(c)).toBeNull();
+  });
+});
+
+describe("tile rank text (A5)", () => {
+  it("never reads '40 of 5 peers'", () => {
+    const c = card([
+      row("sell_through", null, { cohortSellers: 40, ownSampleSize: 2 }),
+    ]);
+    expect(tileRankText(c, c.metrics[0]!)).toBe("2 of 5 items needed");
+  });
+  it("says 'No data yet' with no own value", () => {
+    const c = card([row("sell_through", null, { ownValue: null })]);
+    expect(tileRankText(c, c.metrics[0]!)).toBe("No data yet");
+  });
+  it("names the cohort floor when the cohort is small", () => {
+    const c = card([row("sell_through", null, { cohortSellers: 3 })]);
+    expect(tileRankText(c, c.metrics[0]!)).toBe("Ranks at 5 sellers (3 so far)");
+  });
+  it("uses the right suffix", () => {
+    const c = card([row("sell_through", 22)]);
+    expect(tileRankText(c, c.metrics[0]!)).toBe("22nd percentile");
+  });
+});
+
+describe("tile links keep the range (A5)", () => {
+  it("carries ?preset=30d to the target tab", () => {
+    expect(scorecardTileHref("return_rate", "?preset=30d")).toEqual({
+      pathname: "/dashboard/flipdesk/analytics/returns",
+      search: "?preset=30d",
+    });
+  });
+});
+
+// ─── A14: Fix this, you vs median, graded-return pitch ───────────────────────
+
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { decodeQuery } from "@/lib/item-filter";
+import {
+  FIX_LABEL,
+  fixThisHref,
+  gradedReturnGapPoints,
+  medianCompareText,
+  ungradedStockHref,
+} from "@/lib/seller-scorecard";
+
+const ROUTES = readFileSync(resolve(process.cwd(), "src/routes/index.tsx"), "utf8");
+const registered = (href: string) => {
+  const path = href.split(/[?#]/)[0]!;
+  return ROUTES.includes(`path: "${path}"`);
+};
+const filterOf = (href: string) => {
+  const raw = new URL(href, "https://x.test").searchParams.get("filter");
+  return raw ? decodeQuery(raw) : null;
+};
+
+describe("fixThisHref (A14)", () => {
+  it.each(METRIC_ORDER.map((m) => [m]))("%s goes to a registered route", (metric) => {
+    const href = fixThisHref(metric, "?preset=30d");
+    expect(registered(href)).toBe(true);
+    expect(FIX_LABEL[metric].length).toBeGreaterThan(0);
+  });
+
+  // The server-side filter (flipdesk_filter_matches) has no `days_listed`
+  // field, so a rule on it matched nothing and the queue always opened empty.
+  // The Aged tab is the server's own "live and old" predicate.
+  it.each([["sell_through"], ["days_to_sell"]] as const)(
+    "%s opens the Aged tab with no filter the server cannot evaluate",
+    (metric) => {
+      const href = fixThisHref(metric, "?preset=30d");
+      const url = new URL(href, "https://x.test");
+      expect(url.pathname).toBe("/dashboard/flipdesk/inventory");
+      expect(url.searchParams.get("tab")).toBe("aged");
+      expect(url.searchParams.get("filter")).toBeNull();
+    },
+  );
+
+  it("no inventory queue uses a filter field the server-side matcher ignores", () => {
+    const sql = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/00728_filter_by_sourcer.sql"),
+      "utf8",
+    );
+    const hrefs = [
+      ...METRIC_ORDER.map((m) => fixThisHref(m, "")),
+      ungradedStockHref(),
+    ];
+    for (const href of hrefs) {
+      for (const r of filterOf(href)?.rules ?? []) {
+        expect(sql).toContain(`when '${r.field}' then`);
+      }
+    }
+  });
+
+  it("return rate stays in Analytics, keeps the range and lands on the attribution card", () => {
+    expect(fixThisHref("return_rate", "?preset=30d")).toBe(
+      "/dashboard/flipdesk/analytics/returns?preset=30d#return-attribution",
+    );
+  });
+
+  it("price realization and grade yield go to pricing and sources", () => {
+    expect(fixThisHref("price_realization", "")).toBe("/dashboard/flipdesk/pricing");
+    expect(fixThisHref("grade_yield", "")).toBe("/dashboard/flipdesk/sourcing?tab=sources");
+  });
+
+  it("the grade-ungraded queue is unsold stock with no grade", () => {
+    const href = ungradedStockHref();
+    expect(registered(href)).toBe(true);
+    // Named tab: without it the table opens on the remembered tab, and a
+    // remembered Sold tab would show none of this unsold stock.
+    expect(new URL(href, "https://x.test").searchParams.get("tab")).toBe("all");
+    const q = filterOf(href);
+    expect(q?.rules.map((r) => [r.field, r.op])).toEqual([
+      ["grade", "isnull"],
+      ["status", "nin"],
+    ]);
+  });
+});
+
+describe("medianCompareText (A14)", () => {
+  it("prints you vs the peer median on a ranked tile", () => {
+    const c = card([row("sell_through", 30, { ownValue: 0.38, cohortMedian: 0.45 })]);
+    expect(medianCompareText(c, c.metrics[0]!)).toBe("38% vs 45% peer median");
+  });
+  it("stays silent on an unranked tile or with no median", () => {
+    const c = card([
+      row("sell_through", null, { cohortMedian: 0.45 }),
+      row("return_rate", 40, { cohortMedian: null }),
+    ]);
+    expect(medianCompareText(c, c.metrics[0]!)).toBeNull();
+    expect(medianCompareText(c, c.metrics[1]!)).toBeNull();
+  });
+});
+
+describe("gradedReturnGapPoints (A14)", () => {
+  it("counts points when graded returns less on real samples", () => {
+    expect(
+      gradedReturnGapPoints({
+        graded: { fulfilled: 40, returns: 2 },
+        ungraded: { fulfilled: 50, returns: 6 },
+      }),
+    ).toBe(7);
+  });
+  it("is null when graded is worse or a side is thin", () => {
+    expect(
+      gradedReturnGapPoints({
+        graded: { fulfilled: 40, returns: 8 },
+        ungraded: { fulfilled: 50, returns: 6 },
+      }),
+    ).toBeNull();
+    expect(
+      gradedReturnGapPoints({
+        graded: { fulfilled: 5, returns: 0 },
+        ungraded: { fulfilled: 50, returns: 6 },
+      }),
+    ).toBeNull();
+  });
+});

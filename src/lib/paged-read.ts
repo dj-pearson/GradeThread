@@ -98,3 +98,27 @@ export async function fetchCapped<T>(
   const truncated = rows.length > limit;
   return { rows: truncated ? rows.slice(0, limit) : rows, truncated, limit };
 }
+
+/**
+ * A11: walk an offset/limit RPC that clamps its own page size (for example
+ * flipdesk_listing_performance_page, which returns at most 200 rows however
+ * many are asked for) and reports the full match count on every row.
+ *
+ * Stops when a page comes back empty or the rows collected reach `total`.
+ * Like {@link fetchAllPages} it advances by the rows that ARRIVED, so a clamp
+ * below `pageSize` costs round trips, never rows.
+ */
+export async function fetchOffsetPages<T>(
+  page: (offset: number, limit: number) => Promise<{ rows: T[]; total: number | null }>,
+  pageSize: number,
+): Promise<T[]> {
+  const all: T[] = [];
+  for (let offset = 0; ; ) {
+    const { rows, total } = await page(offset, pageSize);
+    if (rows.length === 0) break;
+    all.push(...rows);
+    offset += rows.length;
+    if (total != null && all.length >= total) break;
+  }
+  return all;
+}

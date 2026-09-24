@@ -23,23 +23,28 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { fetchCommunityBenchmarks } from "@/lib/community-benchmarks";
+import {
+  communityBenchmarksKey,
+  fetchCommunityBenchmarks,
+} from "@/lib/community-benchmarks";
 import {
   deriveRecommendations,
+  loadDismissedRecs,
   type ConfidenceLevel,
   type Recommendation,
 } from "@/lib/community-recommendations";
+import { useTenantKey } from "@/hooks/use-tenant-key";
+import { presetStart } from "@/lib/analytics-range";
 
-// US-2161: Community Insights is an Analytics tab now.
-const COMMUNITY_ROUTE = "/dashboard/flipdesk/analytics/community";
+// US-2161: Community Insights is an Analytics tab now. A10: it reads the
+// page's ?preset=, so the link names the widget's own 12-month window and the
+// tab opens on the same numbers (and the same cached fetch).
+const COMMUNITY_ROUTE = "/dashboard/flipdesk/analytics/community?preset=12mo";
 
 // Widget always uses the trailing-12-months window — the most decision-relevant
-// horizon for "what should I be sourcing now".
-function last12moStart(): string {
-  const from = new Date();
-  from.setDate(from.getDate() - 365);
-  return from.toISOString().slice(0, 10);
-}
+// horizon for "what should I be sourcing now". A8: the same presetStart and key
+// builder as the Community tab, so opening the tab after the Overview reuses
+// this fetch instead of running the cross-seller aggregate a second time.
 
 const CONFIDENCE_BADGE: Record<ConfidenceLevel, string> = {
   high: "bg-emerald-100 text-emerald-700 hover:bg-emerald-100",
@@ -116,16 +121,25 @@ export function RecommendationRow({
  * Community Insights page. Silent (renders nothing) when there is no signal.
  */
 export function CommunityInsightsWidget({ limit = 3 }: { limit?: number }) {
+  const tenantKey = useTenantKey();
+  const periodStart = presetStart("12mo");
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["community-benchmarks", last12moStart()],
-    queryFn: () => fetchCommunityBenchmarks(last12moStart()),
+    queryKey: communityBenchmarksKey(tenantKey, periodStart),
+    queryFn: () => fetchCommunityBenchmarks(periodStart),
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
   });
 
   // Don't take up dashboard space on error — it's a non-critical surface.
   if (isError) return null;
 
-  const recs = data ? deriveRecommendations(data).slice(0, limit) : [];
+  // A10: a recommendation dismissed on the Community tab stays dismissed here.
+  const dismissed = loadDismissedRecs();
+  const recs = data
+    ? deriveRecommendations(data)
+        .filter((r) => !dismissed.has(r.id))
+        .slice(0, limit)
+    : [];
 
   // Once loaded, if there's nothing to recommend, stay out of the way.
   if (!isLoading && recs.length === 0) return null;

@@ -13,6 +13,9 @@
 
 import { supabase } from "@/lib/supabase";
 import { normaliseAgainst } from "@/lib/rpc-shape";
+import { ordinal } from "@/lib/utils";
+import { tabPath } from "@/lib/analytics-tabs";
+import { encodeQuery, type FilterQuery } from "@/lib/item-filter";
 
 export type ScorecardMetric =
   | "sell_through"
@@ -100,6 +103,25 @@ export function returnSplitLine(side: ReturnSplitSide, label: string): ReturnSpl
   };
 }
 
+/**
+ * The Analytics tab that explains each metric. The tile links there, keeping
+ * the query string (A5), so a seller on ?preset=30d lands on the same range.
+ */
+export const SCORECARD_TAB_FOR: Record<ScorecardMetric, string> = {
+  sell_through: tabPath("sell-through"),
+  price_realization: tabPath("price-curve"),
+  days_to_sell: tabPath("sell-through"),
+  return_rate: tabPath("returns"),
+  grade_yield: tabPath("grading-roi"),
+};
+
+export function scorecardTileHref(
+  metric: ScorecardMetric,
+  search: string,
+): { pathname: string; search: string } {
+  return { pathname: SCORECARD_TAB_FOR[metric], search };
+}
+
 /** Display order, and the tie-break order for pickBiggestGap. */
 export const METRIC_ORDER: readonly ScorecardMetric[] = [
   "sell_through",
@@ -160,6 +182,36 @@ export const DIAGNOSIS: Record<ScorecardMetric, string> = {
 };
 
 /**
+ * A5: a metric is ranked only when the cohort gave it a percentile AND the
+ * caller's own sample clears minActivity. The RPC holds OTHER sellers to that
+ * floor but ranked the caller on whatever they had, so one sale of one listing
+ * could read as the weakest sell-through on the platform.
+ */
+export function rankedPercentile(
+  card: Scorecard,
+  m: ScorecardRow,
+): number | null {
+  if (m.ownPercentile == null || !Number.isFinite(m.ownPercentile)) return null;
+  if (m.ownSampleSize < card.minActivity) return null;
+  return m.ownPercentile;
+}
+
+/**
+ * The line under a tile's value. Each unranked case says which floor it is
+ * waiting on, so "40 of 5 peers" (a big cohort, a small own sample) can no
+ * longer be printed.
+ */
+export function tileRankText(card: Scorecard, m: ScorecardRow): string {
+  if (m.ownValue == null || !Number.isFinite(m.ownValue)) return "No data yet";
+  if (m.ownSampleSize < card.minActivity) {
+    return `${m.ownSampleSize} of ${card.minActivity} items needed`;
+  }
+  const p = rankedPercentile(card, m);
+  if (p != null) return `${ordinal(p)} percentile`;
+  return `Ranks at ${card.minSellers} sellers (${m.cohortSellers} so far)`;
+}
+
+/**
  * The single weakest metric.
  *
  * Only metrics with a real percentile can win: a metric whose cohort was too
@@ -168,9 +220,7 @@ export const DIAGNOSIS: Record<ScorecardMetric, string> = {
  * across renders rather than depending on payload order.
  */
 export function pickBiggestGap(card: Scorecard): ScorecardRow | null {
-  const ranked = card.metrics.filter(
-    (m) => m.ownPercentile != null && Number.isFinite(m.ownPercentile),
-  );
+  const ranked = card.metrics.filter((m) => rankedPercentile(card, m) != null);
   if (ranked.length === 0) return null;
   return ranked.reduce((worst, m) => {
     if (m.ownPercentile! < worst.ownPercentile!) return m;
@@ -197,7 +247,7 @@ export function orderedMetrics(card: Scorecard): ScorecardRow[] {
 
 /** True when no metric could be ranked, so the card should say why. */
 export function isUnranked(card: Scorecard): boolean {
-  return card.metrics.every((m) => m.ownPercentile == null);
+  return card.metrics.every((m) => rankedPercentile(card, m) == null);
 }
 
 // ─── Fetch ───────────────────────────────────────────────────────
@@ -225,4 +275,91 @@ export async function fetchSellerScorecard(
   // sends for any unmatched RPC — passed straight through and took a whole
   // route down through the ErrorBoundary. normaliseAgainst forces the shape.
   return normaliseAgainst(EMPTY_SCORECARD, data);
+}
+
+// ─── A14: from diagnosis to a work queue ─────────────────────────────────────
+
+/** Where the inventory page opens for a filtered queue. */
+const INVENTORY = "/dashboard/flipdesk/inventory";
+/** Unsold stock, for the queues below. */
+const UNSOLD = "sold,shipped,completed,archived";
+
+// The inventory table opens on the tab the seller was last on unless `tab=` is
+// given, so every queue names its tab: a filter for live stock landing on a
+// remembered Sold tab would show nothing.
+function inventoryQueue(tab: string, rules?: FilterQuery["rules"]): string {
+  const q = new URLSearchParams({ tab });
+  if (rules && rules.length > 0) {
+    q.set("filter", encodeQuery({ combinator: "and", rules }));
+  }
+  return `${INVENTORY}?${q.toString()}`;
+}
+
+export const FIX_LABEL: Record<ScorecardMetric, string> = {
+  sell_through: "See listings that aren't selling",
+  price_realization: "Review your pricing",
+  days_to_sell: "See your slowest stock",
+  return_rate: "See what predicts your returns",
+  grade_yield: "Compare your sources",
+};
+
+/**
+ * A14: the one place a weak metric can be worked on, as a real route with the
+ * filter already applied. `search` is the Analytics query string; it rides
+ * along only to links that stay inside Analytics, where it carries the range.
+ */
+export function fixThisHref(
+  metric: ScorecardMetric,
+  search: string,
+): string {
+  switch (metric) {
+    case "price_realization":
+      return "/dashboard/flipdesk/pricing";
+    case "sell_through":
+    case "days_to_sell":
+      // The Aged tab: live listings past the seller's own aged threshold,
+      // oldest first. A `days_listed` filter rule would read better, but the
+      // server-side filter (flipdesk_filter_matches) does not know that field
+      // and matches nothing on it, so that queue always opened empty.
+      return inventoryQueue("aged");
+    case "return_rate":
+      return `${tabPath("returns")}${search}#return-attribution`;
+    case "grade_yield":
+      return "/dashboard/flipdesk/sourcing?tab=sources";
+  }
+}
+
+/** A14: unsold, ungraded stock: the queue behind "grade these items". */
+export function ungradedStockHref(): string {
+  return inventoryQueue("all", [
+    { id: "grade-none", field: "grade", op: "isnull", value: "" },
+    { id: "grade-unsold", field: "status", op: "nin", value: UNSOLD },
+  ]);
+}
+
+/**
+ * A14: "38% vs 45% peer median" for a ranked tile, or null. Only where the
+ * RPC returned a cohort median, and only where the tile is ranked: a median
+ * beside an unranked tile would be the comparison the floor withheld.
+ */
+export function medianCompareText(card: Scorecard, m: ScorecardRow): string | null {
+  if (rankedPercentile(card, m) == null) return null;
+  if (m.cohortMedian == null || !Number.isFinite(m.cohortMedian)) return null;
+  return `${formatMetricValue(m.metric, m.ownValue)} vs ${formatMetricValue(
+    m.metric,
+    m.cohortMedian,
+  )} peer median`;
+}
+
+/**
+ * A14: how many points fewer graded sales came back than ungraded ones, when
+ * both sides clear RETURN_SPLIT_MIN_SALES and graded is actually better.
+ * Null otherwise; a worse or thin number is never turned into a pitch.
+ */
+export function gradedReturnGapPoints(split: ReturnSplit): number | null {
+  const g = returnSplitLine(split.graded, "g");
+  const u = returnSplitLine(split.ungraded, "u");
+  if (g.kind !== "rate" || u.kind !== "rate") return null;
+  const pts = Math.round((u.rate - g.rate) * 100);
+  return pts >= 1 ? pts : null;
 }

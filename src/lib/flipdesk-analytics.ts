@@ -457,3 +457,30 @@ export function accountGradingRollup(items: ItemRoiFields[]): GradingRollup {
       graded.count >= MIN_BUCKET_SIZE && ungraded.count >= MIN_BUCKET_SIZE,
   };
 }
+
+// ─── A7: the sell-through chart's honest shape ─────────────────────────────
+
+export interface SellThroughDatum {
+  name: string;
+  /** Percent (0-100+), or null when nothing was listed in range. */
+  rate: number | null;
+  sold: number;
+  listed: number;
+}
+
+/** One chart row. A null rate stays null: "no listings" is not 0%. */
+export function sellThroughDatum(r: SellThroughRow): SellThroughDatum {
+  return {
+    name: r.group,
+    rate: r.sellThrough != null ? Math.round(r.sellThrough * 100) : null,
+    sold: r.sold,
+    listed: r.listed,
+  };
+}
+
+/** Tooltip copy: the counts always, and no percentage where there is none. */
+export function sellThroughTooltip(d: SellThroughDatum): string {
+  const counts = `${d.sold} sold / ${d.listed} listed`;
+  if (d.rate == null) return `no listings in range (${counts})`;
+  return `${d.rate}% (${counts})`;
+}

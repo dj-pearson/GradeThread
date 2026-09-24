@@ -4,17 +4,17 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
+  ReferenceLine,
   Tooltip,
   Legend,
   ResponsiveContainer,
 } from "recharts";
-
-const TOOLTIP_STYLE = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: "var(--radius)",
-  fontSize: 12,
-};
+import {
+  CHART_TOOLTIP_STYLE,
+  SERIES,
+  usdExact,
+  usdTick,
+} from "@/lib/chart-theme";
 
 export interface TrendDatum {
   d: string; // YYYY-MM-DD
@@ -24,6 +24,10 @@ export interface TrendDatum {
 
 // US-2234: revenue + net-profit over time for the Analytics view. Lazy-loaded at
 // the chart boundary so Recharts stays out of the route-entry chunk (US-408).
+//
+// A6: series colours from the shared theme (profit is no longer brand red, which
+// read as a loss), "$25" ticks instead of "25$", and a zero line so a day in
+// the red is visibly below it.
 export function AnalyticsTrendChart({ data }: { data: TrendDatum[] }) {
   return (
     <ResponsiveContainer width="100%" height={260}>
@@ -36,17 +40,24 @@ export function AnalyticsTrendChart({ data }: { data: TrendDatum[] }) {
           axisLine={false}
           tickFormatter={(d: string) => (d ?? "").slice(5)}
         />
-        <YAxis fontSize={11} tickLine={false} axisLine={false} unit="$" width={56} />
+        <YAxis
+          fontSize={11}
+          tickLine={false}
+          axisLine={false}
+          width={56}
+          tickFormatter={usdTick}
+        />
         <Tooltip
-          contentStyle={TOOLTIP_STYLE}
-          formatter={(value, name) => [`$${Number(value ?? 0).toFixed(2)}`, name]}
+          contentStyle={CHART_TOOLTIP_STYLE}
+          formatter={(value, name) => [usdExact(value), name]}
         />
         <Legend wrapperStyle={{ fontSize: 12 }} />
+        <ReferenceLine y={0} className="stroke-border" />
         <Line
           type="monotone"
           dataKey="revenue"
           name="Revenue"
-          stroke="#0F3460"
+          stroke={SERIES.primary}
           strokeWidth={2}
           dot={false}
         />
@@ -54,8 +65,9 @@ export function AnalyticsTrendChart({ data }: { data: TrendDatum[] }) {
           type="monotone"
           dataKey="profit"
           name="Net profit"
-          stroke="#E94560"
+          stroke={SERIES.profit}
           strokeWidth={2}
+          strokeDasharray="5 3"
           dot={false}
         />
       </LineChart>

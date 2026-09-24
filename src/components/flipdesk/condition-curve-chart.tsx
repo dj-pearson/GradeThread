@@ -9,6 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { CHART_TOOLTIP_STYLE, SERIES } from "@/lib/chart-theme";
 
 // US-2819: price against grade, with the cohort's spread drawn as a band.
 //
@@ -23,15 +24,9 @@ import {
 // floor (31.6) and 3:1 contrast against BOTH the light and the dark chart
 // surface, so one pair serves both themes. Navy stays the UI color; this is the
 // data color.
-const COHORT = "#3B72D9";
+const COHORT = SERIES.primary;
 const OWN = "#E94560";
 
-const TOOLTIP_STYLE = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: "var(--radius)",
-  fontSize: 12,
-};
 
 export interface CurveDatum {
   grade: number;
@@ -72,7 +67,7 @@ export function ConditionCurveChart({ data }: { data: CurveDatum[] }) {
           tickFormatter={(v: number) => `$${Math.round(v)}`}
         />
         <Tooltip
-          contentStyle={TOOLTIP_STYLE}
+          contentStyle={CHART_TOOLTIP_STYLE}
           labelFormatter={(g) => `Grade ${Number(g).toFixed(1)}`}
           formatter={(value, name) => {
             if (name === "Cohort spread" && Array.isArray(value)) {
@@ -82,7 +77,10 @@ export function ConditionCurveChart({ data }: { data: CurveDatum[] }) {
           }}
         />
         <Legend wrapperStyle={{ fontSize: 12 }} />
-        {/* The band is drawn first so both lines sit on top of it. */}
+        {/* The band is drawn first so both lines sit on top of it.
+            A6: no connectNulls on the cohort band or median. A null there is a
+            grade the k-anonymity floor suppressed, and bridging it drew a
+            cohort reading where the report had refused to give one. */}
         <Area
           dataKey="band"
           name="Cohort spread"
@@ -90,7 +88,6 @@ export function ConditionCurveChart({ data }: { data: CurveDatum[] }) {
           fill={COHORT}
           fillOpacity={0.14}
           isAnimationActive={false}
-          connectNulls
         />
         <Line
           dataKey="cohort"
@@ -98,10 +95,9 @@ export function ConditionCurveChart({ data }: { data: CurveDatum[] }) {
           type="monotone"
           stroke={COHORT}
           strokeWidth={2}
-          dot={{ r: 4, fill: COHORT, stroke: "hsl(var(--card))", strokeWidth: 2 }}
+          dot={{ r: 4, fill: COHORT, strokeWidth: 2, className: "stroke-card" }}
           activeDot={{ r: 6 }}
           isAnimationActive={false}
-          connectNulls
         />
         <Line
           dataKey="own"
@@ -110,7 +106,7 @@ export function ConditionCurveChart({ data }: { data: CurveDatum[] }) {
           stroke={OWN}
           strokeWidth={2}
           strokeDasharray="5 3"
-          dot={{ r: 4, fill: OWN, stroke: "hsl(var(--card))", strokeWidth: 2 }}
+          dot={{ r: 4, fill: OWN, strokeWidth: 2, className: "stroke-card" }}
           activeDot={{ r: 6 }}
           isAnimationActive={false}
           connectNulls

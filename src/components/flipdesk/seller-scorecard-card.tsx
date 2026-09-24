@@ -1,12 +1,11 @@
 import { useMemo } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Gauge } from "lucide-react";
+import { ArrowRight, Download, Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { downloadCsv } from "@/lib/csv-export";
-import { cn } from "@/lib/utils";
-import { useAuthStore } from "@/stores/auth-store";
+import { cn, ordinal } from "@/lib/utils";
 import {
   diagnosisLine,
   EMPTY_SCORECARD,
@@ -15,33 +14,48 @@ import {
   METRIC_LABEL,
   orderedMetrics,
   pickBiggestGap,
+  rankedPercentile,
+  FIX_LABEL,
+  fixThisHref,
+  gradedReturnGapPoints,
+  medianCompareText,
+  ungradedStockHref,
+  scorecardTileHref,
+  tileRankText,
   type Scorecard,
-  type ScorecardMetric,
   returnSplitLine,
 } from "@/lib/seller-scorecard";
+import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
+import { ScorecardSkeleton } from "@/components/flipdesk/scorecard-skeleton";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // US-2822: five percentiles and one sentence, at the top of Analytics.
 //
 // Each metric links to the tab that explains it, so the card is a diagnosis
 // rather than another place numbers live.
 
-const TAB_FOR: Record<ScorecardMetric, string> = {
-  sell_through: "/dashboard/flipdesk/analytics",
-  price_realization: "/dashboard/flipdesk/analytics/price-curve",
-  days_to_sell: "/dashboard/flipdesk/analytics",
-  return_rate: "/dashboard/flipdesk/analytics/returns",
-  grade_yield: "/dashboard/flipdesk/analytics/grading-roi",
-};
-
 export function SellerScorecardCard({
   periodStart,
+  periodLabel = "all time",
+  periodSlug = "all",
 }: {
   periodStart: string | null;
+  /** "last 30 days", "all time": shown in the title so every figure has a window. */
+  periodLabel?: string;
+  /** "30d", "all": used in the CSV filename. */
+  periodSlug?: string;
 }) {
-  const user = useAuthStore((s) => s.user);
-  const { data = EMPTY_SCORECARD } = useQuery<Scorecard>({
-    queryKey: ["items_full", "analytics", "scorecard", user?.id, periodStart],
-    enabled: !!user,
+  const tenantKey = useTenantKey();
+  const location = useLocation();
+  const {
+    data = EMPTY_SCORECARD,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery<Scorecard>({
+    queryKey: ["items_full", "analytics", "scorecard", tenantKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { fetchSellerScorecard } = await import("@/lib/seller-scorecard");
@@ -52,6 +66,7 @@ export function SellerScorecardCard({
   const metrics = useMemo(() => orderedMetrics(data), [data]);
   const worst = useMemo(() => pickBiggestGap(data), [data]);
   const line = useMemo(() => diagnosisLine(data), [data]);
+  const returnGap = gradedReturnGapPoints(data.returnSplit);
 
   // US-2829: headers match the on-screen labels exactly (AC6), so a seller
   // mapping the file to their own sheet does not need a decoder.
@@ -63,18 +78,28 @@ export function SellerScorecardCard({
   // one. Cohort sellers travels beside it so the reason is visible.
   function exportCsv() {
     downloadCsv(
-      `flipdesk-scorecard-${new Date().toISOString().slice(0, 10)}.csv`,
+      `flipdesk-scorecard-${periodSlug}-${new Date().toISOString().slice(0, 10)}.csv`,
       ["Metric", "Your value", "Percentile", "Cohort sellers", "Biggest gap"],
       metrics.map((m) => [
         METRIC_LABEL[m.metric],
         formatMetricValue(m.metric, m.ownValue),
-        m.ownPercentile ?? "",
+        rankedPercentile(data, m) ?? "",
         m.cohortSellers,
         worst?.metric === m.metric ? "yes" : "",
       ]),
     );
   }
 
+  if (isLoading) return <ScorecardSkeleton />;
+  if (isError) {
+    return (
+      <AnalyticsCardError
+        title="Your scorecard"
+        onRetry={refetch}
+        retrying={isFetching}
+      />
+    );
+  }
   if (metrics.length === 0) return null;
 
   return (
@@ -83,7 +108,7 @@ export function SellerScorecardCard({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <Gauge className="h-4 w-4" />
-            Your scorecard
+            Your scorecard, {periodLabel}
           </CardTitle>
           <Button
             variant="outline"
@@ -103,7 +128,7 @@ export function SellerScorecardCard({
               <span className="font-medium">
                 {worst ? METRIC_LABEL[worst.metric] : ""} is your weakest number
                 {worst?.ownPercentile != null &&
-                  ` (${worst.ownPercentile}th percentile)`}
+                  ` (${ordinal(worst.ownPercentile)} percentile)`}
                 .
               </span>{" "}
               <span className="text-muted-foreground">{line}</span>
@@ -111,11 +136,22 @@ export function SellerScorecardCard({
           ) : (
             <span className="text-muted-foreground">
               {isUnranked(data)
-                ? `No metric has ${data.minSellers} comparable sellers behind it yet, so nothing is ranked. Your own numbers are below.`
+                ? `Nothing is ranked yet. A metric needs ${data.minSellers} comparable sellers and ${data.minActivity} of your own items. Your own numbers are below.`
                 : "Nothing to flag this period."}
             </span>
           )}
         </p>
+
+        {/* A14: the diagnosis opens the queue that fixes it, not only the
+            report that explains it. */}
+        {worst && line && (
+          <Button asChild size="sm" variant="outline">
+            <Link to={fixThisHref(worst.metric, location.search)}>
+              Fix this: {FIX_LABEL[worst.metric]}
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        )}
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {metrics.map((m) => {
@@ -123,9 +159,9 @@ export function SellerScorecardCard({
             return (
               <Link
                 key={m.metric}
-                to={TAB_FOR[m.metric]}
+                to={scorecardTileHref(m.metric, location.search)}
                 className={cn(
-                  "rounded-xl p-3 transition-colors",
+                  "rounded-xl p-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   isWorst
                     ? "bg-destructive/10 hover:bg-destructive/15"
                     : "bg-muted/50 hover:bg-muted",
@@ -138,6 +174,7 @@ export function SellerScorecardCard({
                   )}
                 >
                   {METRIC_LABEL[m.metric]}
+                  {isWorst && <span className="sr-only"> (weakest)</span>}
                 </p>
                 <p className="mt-1 text-xl font-bold">
                   {formatMetricValue(m.metric, m.ownValue)}
@@ -148,10 +185,13 @@ export function SellerScorecardCard({
                     isWorst ? "text-destructive/80" : "text-muted-foreground",
                   )}
                 >
-                  {m.ownPercentile != null
-                    ? `${m.ownPercentile}th percentile`
-                    : `${m.cohortSellers} of ${data.minSellers} peers`}
+                  {tileRankText(data, m)}
                 </p>
+                {medianCompareText(data, m) && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {medianCompareText(data, m)}
+                  </p>
+                )}
               </Link>
             );
           })}
@@ -171,6 +211,20 @@ export function SellerScorecardCard({
               {line.text}
             </p>
           ))}
+          {returnGap != null && (
+            <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>
+                Graded items came back {returnGap}{" "}
+                {returnGap === 1 ? "point" : "points"} less.
+              </span>
+              <Link
+                to={ungradedStockHref()}
+                className="font-medium underline underline-offset-2 hover:text-foreground"
+              >
+                Grade ungraded stock
+              </Link>
+            </p>
+          )}
         </div>
 
         <p className="text-xs text-muted-foreground">

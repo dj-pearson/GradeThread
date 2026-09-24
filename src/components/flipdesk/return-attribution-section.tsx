@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Crosshair, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +20,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { downloadCsv } from "@/lib/csv-export";
-import { useAuthStore } from "@/stores/auth-store";
 import {
   EMPTY_ATTRIBUTION,
   FACTOR_LABEL,
@@ -29,6 +29,8 @@ import {
   type ReturnAttribution,
 } from "@/lib/return-attribution";
 import { defectLabel } from "@/lib/defect-cost";
+import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // US-2823: "What actually predicts your returns", under the grade bands.
 //
@@ -44,16 +46,21 @@ export function ReturnAttributionSection({
 }: {
   periodStart: string | null;
 }) {
-  const user = useAuthStore((s) => s.user);
-  const { data = EMPTY_ATTRIBUTION } = useQuery<ReturnAttribution>({
+  const tenantKey = useTenantKey();
+  const {
+    data = EMPTY_ATTRIBUTION,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery<ReturnAttribution>({
     queryKey: [
       "items_full",
       "analytics",
       "return-attribution",
-      user?.id,
+      tenantKey,
       periodStart,
     ],
-    enabled: !!user,
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { fetchReturnAttribution } = await import("@/lib/return-attribution");
@@ -65,6 +72,28 @@ export function ReturnAttributionSection({
   const defect = useMemo(() => worstUndisclosedDefect(data), [data]);
   const nothing = useMemo(() => hasNoFindings(data), [data]);
 
+  // A14: the scorecard's "Fix this" for return rate lands on this card. The
+  // router does not scroll to a hash, and the card only exists once its data
+  // has arrived, so it scrolls itself into view when it appears.
+  const { hash } = useLocation();
+  const shown = !isError && data.overall.fulfilled > 0;
+  useEffect(() => {
+    if (shown && hash === "#return-attribution") {
+      document
+        .getElementById("return-attribution")
+        ?.scrollIntoView?.({ block: "start" });
+    }
+  }, [shown, hash]);
+
+  if (isError) {
+    return (
+      <AnalyticsCardError
+        title="What actually predicts your returns"
+        onRetry={refetch}
+        retrying={isFetching}
+      />
+    );
+  }
   if (data.overall.fulfilled === 0) return null;
 
   // US-2829 AC6: one export per TABLE, headers matching that table's own
@@ -120,7 +149,7 @@ export function ReturnAttributionSection({
     );
   }
   return (
-    <Card>
+    <Card id="return-attribution" className="scroll-mt-20">
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>

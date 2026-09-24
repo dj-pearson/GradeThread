@@ -15,6 +15,7 @@
 // inheriting authMiddleware + workspaceMiddleware.
 
 import { Hono } from "hono";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { isFeatureEnabled } from "../lib/feature-flags.ts";
@@ -42,6 +43,60 @@ const SALES_CAP = 1000;
 // Unsold inventory = held capital. Sold/shipped/completed/archived are realized,
 // not equity on the racks.
 const REALIZED_STATUSES = "(sold,shipped,completed,archived)";
+// A3: ids per .in() filter. PostgREST puts the list in the query string, and
+// 5,000 uuids is ~185 KB of URL, past what the proxy in front of it accepts.
+// 200 keeps each request near 7.5 KB.
+export const IN_CHUNK = 200;
+
+// Only the query surface this module uses, so a test can hand in a stub.
+type Db = Pick<SupabaseClient, "from">;
+
+/**
+ * A3: every read here used to destructure `data` only. A PostgREST error then
+ * looked exactly like an empty tenant: the route answered 200 with $0 and the
+ * nightly job wrote a $0 point into the seller's history. Throwing turns it
+ * into a 500 for the route and a skipped owner for the job.
+ */
+function orThrow<T>(
+  what: string,
+  res: { data: T | null; error: { message: string } | null },
+): T | null {
+  if (res.error) throw new Error(`${what} read failed: ${res.error.message}`);
+  return res.data;
+}
+
+function chunks<T>(xs: T[], size = IN_CHUNK): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < xs.length; i += size) out.push(xs.slice(i, i + size));
+  return out;
+}
+
+// Earliest listed_at per item, for the given items only, read in chunks and
+// always scoped to the owner as well as to the ids.
+async function earliestListedAt(
+  db: Db,
+  owner: string,
+  itemIds: string[],
+): Promise<Map<string, number>> {
+  const listedByItem = new Map<string, number>();
+  for (const ids of chunks(itemIds)) {
+    const rows = orThrow(
+      "listings",
+      await db
+        .from("listings")
+        .select("inventory_item_id, listed_at")
+        .eq("user_id", owner)
+        .in("inventory_item_id", ids),
+    );
+    for (const l of (rows ?? []) as Array<{ inventory_item_id: string; listed_at: string | null }>) {
+      const t = l.listed_at ? Date.parse(l.listed_at) : NaN;
+      if (!Number.isFinite(t)) continue;
+      const prev = listedByItem.get(l.inventory_item_id);
+      if (prev == null || t < prev) listedByItem.set(l.inventory_item_id, t);
+    }
+  }
+  return listedByItem;
+}
 
 function toNum(v: unknown): number | null {
   const n = typeof v === "string" ? Number.parseFloat(v) : (v as number);
@@ -74,31 +129,23 @@ interface ItemRow {
 
 // The seller's OWN median days-to-sell (listed_at → sold), or null when they
 // have no realized listed→sold history yet. Tenant-scoped.
-async function personalSellThroughDays(owner: string): Promise<number | null> {
-  const { data: salesRaw } = await supabaseAdmin
-    .from("sales")
-    .select("inventory_item_id, sale_date, sold_at")
-    .eq("user_id", owner)
-    .order("sale_date", { ascending: false })
-    .limit(SALES_CAP);
+async function personalSellThroughDays(db: Db, owner: string): Promise<number | null> {
+  const salesRaw = orThrow(
+    "sales",
+    await db
+      .from("sales")
+      .select("inventory_item_id, sale_date, sold_at")
+      .eq("user_id", owner)
+      .order("sale_date", { ascending: false })
+      .limit(SALES_CAP),
+  );
   const sales = (salesRaw ?? []) as Array<
     { inventory_item_id: string; sale_date: string | null; sold_at: string | null }
   >;
   const itemIds = [...new Set(sales.map((s) => s.inventory_item_id).filter(Boolean))];
   if (itemIds.length === 0) return null;
 
-  const { data: listingsRaw } = await supabaseAdmin
-    .from("listings")
-    .select("inventory_item_id, listed_at")
-    .eq("user_id", owner)
-    .in("inventory_item_id", itemIds);
-  const listedByItem = new Map<string, number>();
-  for (const l of (listingsRaw ?? []) as Array<{ inventory_item_id: string; listed_at: string | null }>) {
-    const t = l.listed_at ? Date.parse(l.listed_at) : NaN;
-    if (!Number.isFinite(t)) continue;
-    const prev = listedByItem.get(l.inventory_item_id);
-    if (prev == null || t < prev) listedByItem.set(l.inventory_item_id, t);
-  }
+  const listedByItem = await earliestListedAt(db, owner, itemIds);
 
   const days: number[] = [];
   for (const s of sales) {
@@ -115,38 +162,24 @@ async function personalSellThroughDays(owner: string): Promise<number | null> {
 // Compute the full equity picture for one owner from CACHED comps (zero eBay/AI
 // calls). Tenant-scoped by `owner`. Shared by the GET route and the nightly
 // snapshot job (US-1870) so both agree exactly.
-export async function computeEquityForOwner(owner: string) {
+export async function computeEquityForOwner(owner: string, db: Db = supabaseAdmin) {
   const nowMs = Date.now();
-  const [velocity, { data: itemsRaw }, { data: listingsRaw }] = await Promise.all([
-    personalSellThroughDays(owner),
-    supabaseAdmin
+  const [velocity, itemsRaw] = await Promise.all([
+    personalSellThroughDays(db, owner),
+    db
       .from("inventory_items")
       .select("id, title, brand, item_category, garment_category, grade_value, comp_set, created_at")
       .eq("user_id", owner)
       .not("status", "in", REALIZED_STATUSES)
-      .limit(INVENTORY_CAP),
-    supabaseAdmin
-      .from("listings")
-      .select("inventory_item_id, listed_at")
-      .eq("user_id", owner)
-      // US-2029: bound it. The inventory read beside it has always been capped
-      // at INVENTORY_CAP, but this one pulled the owner's ENTIRE listing
-      // history — including every long-since-sold listing — on a path the
-      // nightly snapshot runs for every seller. It only feeds a
-      // listed_at lookup for CURRENT inventory, so the same cap is the right
-      // bound: a listing with no matching unsold item contributes nothing.
-      .limit(INVENTORY_CAP),
+      .limit(INVENTORY_CAP)
+      .then((res) => orThrow("inventory_items", res)),
   ]);
 
   const items = (itemsRaw ?? []) as ItemRow[];
-  // Earliest listed_at per item → the staleness clock start.
-  const listedByItem = new Map<string, number>();
-  for (const l of (listingsRaw ?? []) as Array<{ inventory_item_id: string; listed_at: string | null }>) {
-    const t = l.listed_at ? Date.parse(l.listed_at) : NaN;
-    if (!Number.isFinite(t)) continue;
-    const prev = listedByItem.get(l.inventory_item_id);
-    if (prev == null || t < prev) listedByItem.set(l.inventory_item_id, t);
-  }
+  // Earliest listed_at per item → the staleness clock start. US-2029 bounded
+  // this read at INVENTORY_CAP rows of the owner's whole listing history; A3
+  // reads only the listings of the CURRENT items, which is all it ever used.
+  const listedByItem = await earliestListedAt(db, owner, items.map((it) => it.id));
 
   const perItem = items.map((it) => {
     const comps = (it.comp_set ?? [])
@@ -201,6 +234,27 @@ export async function computeEquityForOwner(owner: string) {
   return { currency: "USD", personalSellThroughDays: velocity, aggregate, items: perItem };
 }
 
+/**
+ * The GET body. A3: the per-item rows stay inside computeEquityForOwner (the
+ * aggregate needs them) and are not sent: the card never read them, and they
+ * were up to 5,000 rows per view. A failed read is a 500, never a $0 answer.
+ */
+export async function equityResponse(
+  owner: string,
+  db: Db = supabaseAdmin,
+): Promise<{ status: 200 | 500; body: Record<string, unknown> }> {
+  try {
+    const { items: _items, ...rest } = await computeEquityForOwner(owner, db);
+    return { status: 200, body: rest };
+  } catch (err) {
+    console.error(
+      "[equity] compute failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return { status: 500, body: { error: "Couldn't load inventory equity." } };
+  }
+}
+
 flipdeskEquityRoutes.get("/", async (c) => {
   const owner = c.get("workspaceOwnerId") ?? c.get("userId");
 
@@ -210,7 +264,8 @@ flipdeskEquityRoutes.get("/", async (c) => {
     return c.json({ error: "Inventory Equity is not enabled." }, 404);
   }
 
-  return c.json(await computeEquityForOwner(owner));
+  const { status, body } = await equityResponse(owner);
+  return c.json(body, status);
 });
 
 // US-1870: equity-over-time trend — the caller's own daily snapshots (newest
@@ -220,12 +275,16 @@ flipdeskEquityRoutes.get("/trend", async (c) => {
   const gate = await requireFlipdesk(c, { userId: owner });
   if (gate) return gate;
 
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("inventory_equity_snapshots")
     .select("snapshot_date, total_equity_cents, total_low_cents, total_high_cents, valued_count, unvalued_count")
     .eq("user_id", owner)
     .order("snapshot_date", { ascending: false })
     .limit(120);
+  if (error) {
+    console.error("[equity] trend read failed:", error.message);
+    return c.json({ error: "Couldn't load the equity trend." }, 500);
+  }
 
   const points = ((data ?? []) as Array<{
     snapshot_date: string;

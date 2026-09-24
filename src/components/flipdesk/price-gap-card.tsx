@@ -20,7 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { downloadCsv } from "@/lib/csv-export";
-import { useAuthStore } from "@/stores/auth-store";
+import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
 import {
   basisLabel,
   fetchPriceGap,
@@ -30,6 +30,7 @@ import {
   EMPTY_PRICE_GAP,
   type PriceGapReport,
 } from "@/lib/price-gap";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // US-2820: Money Left On The Table.
 //
@@ -47,10 +48,10 @@ const usd = (n: number | null | undefined): string =>
 const CURVE_TAB = "/dashboard/flipdesk/analytics/price-curve";
 
 function usePriceGap(periodStart: string | null) {
-  const user = useAuthStore((s) => s.user);
+  const tenantKey = useTenantKey();
   return useQuery<PriceGapReport>({
-    queryKey: ["items_full", "analytics", "price-gap", user?.id, periodStart],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "price-gap", tenantKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchPriceGap(periodStart),
   });
@@ -60,9 +61,23 @@ function usePriceGap(periodStart: string | null) {
  *  produce a figure — an empty card teaching a seller to ignore the slot is
  *  worse than no slot. */
 export function PriceGapCard({ periodStart }: { periodStart: string | null }) {
-  const { data = EMPTY_PRICE_GAP } = usePriceGap(periodStart);
+  const {
+    data = EMPTY_PRICE_GAP,
+    isError,
+    isFetching,
+    refetch,
+  } = usePriceGap(periodStart);
   const headline = useMemo(() => gapHeadline(data), [data]);
 
+  if (isError) {
+    return (
+      <AnalyticsCardError
+        title="Money left on the table"
+        onRetry={refetch}
+        retrying={isFetching}
+      />
+    );
+  }
   if (!headline) return null;
 
   return (
@@ -110,7 +125,12 @@ export function PriceGapCard({ periodStart }: { periodStart: string | null }) {
 
 /** The traceable half: which items, by how much, and on what evidence. */
 export function PriceGapDetail({ periodStart }: { periodStart: string | null }) {
-  const { data = EMPTY_PRICE_GAP } = usePriceGap(periodStart);
+  const {
+    data = EMPTY_PRICE_GAP,
+    isError,
+    isFetching,
+    refetch,
+  } = usePriceGap(periodStart);
   const worst = useMemo(() => worstFirst(data.worst), [data.worst]);
 
   // US-2829: TWO exports, not one, and that is AC6 rather than laziness.
@@ -158,6 +178,15 @@ export function PriceGapDetail({ periodStart }: { periodStart: string | null }) 
     );
   }
 
+  if (isError) {
+    return (
+      <AnalyticsCardError
+        title="Priced under the curve"
+        onRetry={refetch}
+        retrying={isFetching}
+      />
+    );
+  }
   if (worst.length === 0 && data.live.length === 0) return null;
 
   return (

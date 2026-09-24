@@ -36,8 +36,8 @@ const COLORS = {
 };
 
 const TOOLTIP_STYLE = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
+  backgroundColor: "var(--card)",
+  border: "1px solid var(--border)",
   borderRadius: "var(--radius)",
   fontSize: 12,
 };
@@ -196,7 +196,7 @@ function ChartView({ data }: { data: ChartDataPoint[] }) {
               ]}
               labelFormatter={(label) => `Date: ${label}`}
             />
-            <ReferenceLine y={0} stroke="hsl(var(--border))" />
+            <ReferenceLine y={0} stroke="var(--border)" />
             <Bar dataKey="inflow" fill={COLORS.inflow} name="inflow" radius={[4, 4, 0, 0]} />
             <Bar dataKey="outflow" fill={COLORS.outflow} name="outflow" radius={[4, 4, 0, 0]} />
           </BarChart>
@@ -228,7 +228,7 @@ function ChartView({ data }: { data: ChartDataPoint[] }) {
               formatter={(value) => [formatCurrency(Number(value)), "Balance"]}
               labelFormatter={(label) => `Date: ${label}`}
             />
-            <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+            <ReferenceLine y={0} stroke="var(--border)" strokeDasharray="3 3" />
             <Line
               type="monotone"
               dataKey="balance"

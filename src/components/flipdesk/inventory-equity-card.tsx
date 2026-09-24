@@ -21,6 +21,8 @@ import {
 import { edgeFetch } from "@/lib/edge-fetch";
 import { EQUITY_ESTIMATE_DISCLOSURE } from "@/lib/inventory-equity-disclosure";
 import { cn } from "@/lib/utils";
+import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 interface EquityBucket {
   cents: number;
@@ -140,8 +142,13 @@ function Breakdown({
 }
 
 export function InventoryEquityCard() {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["flipdesk-equity"],
+  // A3: partitioned per tenant, so a workspace switch can never show the last
+  // workspace's figure from cache. The "flipdesk-equity" prefix stays first so
+  // the dashboard widget's prefix invalidation still reaches it.
+  const tenantKey = useTenantKey();
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: ["flipdesk-equity", tenantKey],
+    enabled: !!tenantKey,
     queryFn: async (): Promise<EquityResponse | null> => {
       const res = await edgeFetch("/api/flipdesk/equity");
       // 404 = feature disabled (kill-switch) → render nothing, not an error.
@@ -154,7 +161,7 @@ export function InventoryEquityCard() {
   });
 
   const { data: trend } = useQuery({
-    queryKey: ["flipdesk-equity-trend"],
+    queryKey: ["flipdesk-equity-trend", tenantKey],
     queryFn: async (): Promise<TrendResponse | null> => {
       const res = await edgeFetch("/api/flipdesk/equity/trend");
       if (!res.ok) return null;
@@ -163,11 +170,22 @@ export function InventoryEquityCard() {
     staleTime: 5 * 60 * 1000,
     retry: 1,
     // Only worth fetching once the summary loaded and the feature is on.
-    enabled: !!data,
+    enabled: !!data && !!tenantKey,
   });
 
-  // Feature off, or a transient error — stay quiet rather than shout.
-  if (data === null || isError) return null;
+  // A2: a failed read says so. Only the kill-switch 404 (data === null) is
+  // allowed to render nothing; hiding an error made an outage look like a
+  // seller with no graded stock.
+  if (isError) {
+    return (
+      <AnalyticsCardError
+        title="Inventory Equity"
+        onRetry={refetch}
+        retrying={isFetching}
+      />
+    );
+  }
+  if (data === null) return null;
 
   return (
     <Card>

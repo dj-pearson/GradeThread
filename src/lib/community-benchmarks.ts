@@ -158,7 +158,7 @@ type RpcClient = {
     },
   ) => Promise<{
     data: CommunityBenchmarks | null;
-    error: { message: string } | null;
+    error: { message: string; code?: string } | null;
   }>;
 };
 
@@ -231,7 +231,104 @@ export async function fetchCommunityBenchmarks(
     p_price_min: f.priceMin,
     p_price_max: f.priceMax,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    // A10: keep the Postgres code so the page can say something useful about
+    // a timeout (57014) or an expired session (42501) instead of printing the
+    // raw message.
+    throw Object.assign(new Error(error.message), { code: error.code });
+  }
   if (!data) throw new Error("No benchmark data returned");
   return data;
+}
+
+/**
+ * A8: the one query key for community_benchmarks. The Overview widget and the
+ * Community tab both build it here, so the same window and filters are one
+ * cache entry and one RPC rather than two. The tenant is in the key because
+ * the payload carries the caller's own "You" figures. Filters are normalised
+ * so "Nike" and " Nike " (whitespace only; case is kept) do not split the cache.
+ */
+export function communityBenchmarksKey(
+  tenant: string | undefined,
+  periodStart: string | null,
+  filters?: CommunityBenchmarkFilters,
+): readonly unknown[] {
+  return [
+    "community-benchmarks",
+    tenant,
+    periodStart,
+    normalizeBenchmarkFilters(filters),
+  ] as const;
+}
+
+/**
+ * A10: what the Community tab says when the read fails. Plain copy keyed on
+ * the Postgres code; the raw message goes to Sentry, not to the screen.
+ */
+export function communityErrorMessage(err: unknown): string {
+  const code =
+    err && typeof err === "object" && "code" in err
+      ? String((err as { code?: unknown }).code ?? "")
+      : "";
+  if (code === "57014") {
+    return "Community numbers are taking too long. Try again or narrow the filters.";
+  }
+  if (code === "42501") return "Sign in again.";
+  return "We couldn't load community numbers. Nothing has changed. Try again.";
+}
+
+/** A10: true when both prices are set and the minimum is above the maximum. */
+export function priceRangeInvalid(f: CommunityBenchmarkFilters): boolean {
+  const n = normalizeBenchmarkFilters(f);
+  return n.priceMin != null && n.priceMax != null && n.priceMin > n.priceMax;
+}
+
+/** A10: two filter sets that would ask the RPC the same question. */
+export function sameBenchmarkFilters(
+  a: CommunityBenchmarkFilters,
+  b: CommunityBenchmarkFilters,
+): boolean {
+  const x = normalizeBenchmarkFilters(a);
+  const y = normalizeBenchmarkFilters(b);
+  return (Object.keys(x) as (keyof typeof x)[]).every((k) => x[k] === y[k]);
+}
+
+/** URL param names for the applied filters (A10). */
+export const FILTER_PARAMS = {
+  brand: "brand",
+  category: "category",
+  size: "size",
+  priceMin: "pmin",
+  priceMax: "pmax",
+} as const;
+
+/** Applied filters read back from the query string. */
+export function filtersFromParams(sp: URLSearchParams): CommunityBenchmarkFilters {
+  const num = (v: string | null) => {
+    if (v == null || v.trim() === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  return normalizeBenchmarkFilters({
+    brand: sp.get(FILTER_PARAMS.brand),
+    category: sp.get(FILTER_PARAMS.category),
+    size: sp.get(FILTER_PARAMS.size),
+    priceMin: num(sp.get(FILTER_PARAMS.priceMin)),
+    priceMax: num(sp.get(FILTER_PARAMS.priceMax)),
+  });
+}
+
+/** Writes applied filters into a copy of the query string, dropping blanks. */
+export function filtersToParams(
+  prev: URLSearchParams,
+  f: CommunityBenchmarkFilters,
+): URLSearchParams {
+  const next = new URLSearchParams(prev);
+  const n = normalizeBenchmarkFilters(f);
+  for (const key of Object.keys(FILTER_PARAMS) as (keyof typeof FILTER_PARAMS)[]) {
+    const v = n[key];
+    if (v == null) next.delete(FILTER_PARAMS[key]);
+    else next.set(FILTER_PARAMS[key], String(v));
+  }
+  return next;
 }

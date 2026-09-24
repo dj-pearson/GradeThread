@@ -993,10 +993,10 @@ Deno.test({
       "neither equity response contained a recognisable total — the payload " +
         "shape changed and this probe is no longer reading anything",
     );
-    // DIRECT CONTAINMENT, stronger than the inequality below and available for
-    // free: the payload carries `items` with per-item ids, so if A's item id
-    // appears in B's aggregate the scope is gone and there is nothing to infer.
-    // Checked first because it names the leak instead of describing its shape.
+    // DIRECT CONTAINMENT. The payload used to carry `items` with per-item ids;
+    // A3 stopped sending them (the card never read them), so an id can only
+    // appear here now if a later change puts per-item rows back. The check is
+    // kept for exactly that case. The inequality below is the live probe.
     const aItem = Deno.env.get("TEST_USER_A_ITEM_ID");
     if (aItem) {
       assert(
