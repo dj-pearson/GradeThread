@@ -130,10 +130,16 @@ export async function inChunks<T>(
   return out;
 }
 
+/**
+ * The ship queue's cache key. Exported so a post-sale action that cancels or
+ * refunds a sale can drop it from the queue (PS-07).
+ */
+export const SHIP_QUEUE_KEY = ["ship_queue"] as const;
+
 /** Orders sold and not yet shipped, ranked by deadline. */
 export function useShipQueue(enabled = true) {
   const query = useQuery({
-    queryKey: ["ship_queue"],
+    queryKey: SHIP_QUEUE_KEY,
     enabled,
     staleTime: 60_000,
     queryFn: async (): Promise<ShipQueueRow[]> => {

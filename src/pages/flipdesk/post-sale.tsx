@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   byDeadline,
   canMarkReceived,
@@ -280,7 +279,6 @@ function fmtDate(iso: string | null): string {
 // ── Payment disputes (most urgent — deadline-driven) ────────────────
 
 function DisputesCard() {
-  const qc = useQueryClient();
   const confirm = useConfirm();
   const disputesQuery = useEbayPaymentDisputes();
   const { data: disputes = [] } = disputesQuery;
@@ -322,7 +320,6 @@ function DisputesCard() {
       toast.success(
         action === "accept" ? "Dispute accepted (buyer refunded)." : "Dispute contested.",
       );
-      await qc.invalidateQueries({ queryKey: ["ebay_payment_disputes"] });
     } catch (err) {
       toastError(err, "Action failed.");
     } finally {
@@ -572,7 +569,6 @@ function EvidenceUploader({
 // ── Returns ─────────────────────────────────────────────────────────
 
 function ReturnsCard() {
-  const qc = useQueryClient();
   const confirm = useConfirm();
   const returnsQuery = useEbayReturns();
   const { data: returns = [] } = returnsQuery;
@@ -635,7 +631,6 @@ function ReturnsCard() {
     try {
       await markReceived.mutateAsync({ returnId: r.returnId });
       toast.success("eBay has been told the item arrived.");
-      await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
     } catch (err) {
       toastError(err, "Marking the return received failed.");
     } finally {
@@ -653,7 +648,6 @@ function ReturnsCard() {
           ? `Tracking ${label.trackingNumber} on ${label.carrier ?? "the carrier"}.`
           : "eBay has no shipment for this return yet.",
       );
-      await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
     } catch (err) {
       toastError(err, "Couldn't read the return shipment.");
     } finally {
@@ -711,7 +705,6 @@ function ReturnsCard() {
         orderId: r.orderId ?? undefined,
       });
       toast.success(decision === "approve" ? "Return approved." : "Return declined.");
-      await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
     } catch (err) {
       toastError(err, "Action failed.");
     } finally {
@@ -772,7 +765,6 @@ function ReturnsCard() {
       toast.success(`Refunded ${centsToEbayValue(v.cents)}.`);
       setPartialFor(null);
       setPartialAmount("");
-      await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
     } catch (err) {
       toastError(err, "Refund failed.");
     } finally {
@@ -793,7 +785,6 @@ function ReturnsCard() {
     try {
       await refund.mutateAsync({ returnId: r.returnId, orderId: r.orderId ?? undefined });
       toast.success("Refund issued.");
-      await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
     } catch (err) {
       toastError(err, "Refund failed.");
     } finally {
@@ -1136,7 +1127,6 @@ function ReturnsCard() {
 // ── Cancellations ───────────────────────────────────────────────────
 
 function CancellationsCard() {
-  const qc = useQueryClient();
   const confirm = useConfirm();
   const cancellationsQuery = useEbayCancellations();
   const { data: cancellations = [] } = cancellationsQuery;
@@ -1177,7 +1167,6 @@ function CancellationsCard() {
         orderId: ca.orderId ?? undefined,
       });
       toast.success(action === "approve" ? "Cancellation approved." : "Cancellation rejected.");
-      await qc.invalidateQueries({ queryKey: ["ebay_cancellations"] });
     } catch (err) {
       toastError(err, "Action failed.");
     } finally {

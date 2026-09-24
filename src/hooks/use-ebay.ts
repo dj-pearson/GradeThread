@@ -1,4 +1,5 @@
 import {
+  type QueryClient,
   keepPreviousData,
   useMutation,
   useQuery,
@@ -12,6 +13,7 @@ import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
 import { useTenantKey } from "@/hooks/use-tenant-key";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { SHIP_QUEUE_KEY } from "@/hooks/use-ship-queue";
 import {
   orderTotalFromRows,
   type OrderLineRow,
@@ -2344,7 +2346,37 @@ export function useEbaySendReturnEvidence() {
   });
 }
 
+/**
+ * PS-07: everything a post-sale money or stock action can change.
+ *
+ * The edge sets the sale cancelled or refunded on these actions, so a cancelled
+ * order also has to leave the Ship tab and its badge, the order total has to
+ * re-read, and the sale and item screens have to stop showing it as sold. Each
+ * card used to invalidate only its own list, which left a cancelled order in
+ * the ship queue inviting the seller to post it. Keys match by prefix, so the
+ * tenant segment on the list keys does not need spelling out here.
+ */
+export function invalidatePostSaleMoney(qc: QueryClient): Promise<unknown> {
+  const keys: ReadonlyArray<readonly unknown[]> = [
+    ["ebay_returns"],
+    ["ebay_cancellations"],
+    ["ebay_inquiries"],
+    ["ebay_cases"],
+    ["ebay_payment_disputes"],
+    ["ebay_return_analytics"],
+    SHIP_QUEUE_KEY,
+    ["ebay_order_total"],
+    ["case_items"],
+    ["sales_all"],
+    ["sale_for_item"],
+    ["inventory"],
+    ["inventory_item"],
+  ];
+  return Promise.all(keys.map((queryKey) => qc.invalidateQueries({ queryKey })));
+}
+
 export function useEbayDecideReturn() {
+  const qc = useQueryClient();
   return useMutation<
     { ok: true },
     Error,
@@ -2363,6 +2395,7 @@ export function useEbayDecideReturn() {
       if (!res.ok) throw new Error(json.error || "Return decision failed.");
       return json;
     },
+    onSuccess: () => invalidatePostSaleMoney(qc),
   });
 }
 
@@ -2438,6 +2471,7 @@ export function useEbaySendReturnMessage() {
 }
 
 export function useEbayRefundReturn() {
+  const qc = useQueryClient();
   return useMutation<
     { ok: true },
     Error,
@@ -2456,6 +2490,7 @@ export function useEbayRefundReturn() {
       if (!res.ok) throw new Error(json.error || "Refund failed.");
       return json;
     },
+    onSuccess: () => invalidatePostSaleMoney(qc),
   });
 }
 
@@ -2539,9 +2574,7 @@ export function useEbayInquiryAction() {
       if (!res.ok) throw new Error(json.error || "The inquiry action failed.");
       return json;
     },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["ebay_inquiries"] });
-    },
+    onSuccess: () => invalidatePostSaleMoney(qc),
   });
 }
 
@@ -2613,9 +2646,7 @@ export function useEbayCaseAction() {
       if (!res.ok) throw new Error(json.error || "The case action failed.");
       return json;
     },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["ebay_cases"] });
-    },
+    onSuccess: () => invalidatePostSaleMoney(qc),
   });
 }
 
@@ -2635,6 +2666,7 @@ export function useEbayCancellations(enabled = true) {
 }
 
 export function useEbayDecideCancellation() {
+  const qc = useQueryClient();
   return useMutation<
     { ok: true },
     Error,
@@ -2653,6 +2685,7 @@ export function useEbayDecideCancellation() {
       if (!res.ok) throw new Error(json.error || "Cancellation action failed.");
       return json;
     },
+    onSuccess: () => invalidatePostSaleMoney(qc),
   });
 }
 
@@ -2686,6 +2719,7 @@ export function useEbayPaymentDisputes(enabled = true) {
 }
 
 export function useEbayResolveDispute() {
+  const qc = useQueryClient();
   return useMutation<
     { ok: true },
     Error,
@@ -2704,6 +2738,7 @@ export function useEbayResolveDispute() {
       if (!res.ok) throw new Error(json.error || "Dispute action failed.");
       return json;
     },
+    onSuccess: () => invalidatePostSaleMoney(qc),
   });
 }
 
@@ -3798,6 +3833,7 @@ export function useEbayOrderTotal(orderId: string | null) {
 }
 
 export function useEbayIssueOrderRefund() {
+  const qc = useQueryClient();
   return useMutation<
     { ok: true; refund_id?: string },
     Error,
@@ -3830,6 +3866,7 @@ export function useEbayIssueOrderRefund() {
       if (!res.ok) throw new Error(json.error || "Refund failed.");
       return json;
     },
+    onSuccess: () => invalidatePostSaleMoney(qc),
   });
 }
 
