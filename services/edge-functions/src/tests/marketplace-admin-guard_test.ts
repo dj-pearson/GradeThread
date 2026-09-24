@@ -34,6 +34,12 @@ const realFetch = globalThis.fetch;
 globalThis.fetch = ((input: Request | URL | string, _init?: RequestInit) => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   if (url.includes("/rest/v1/")) return Promise.resolve(json([]));
+  // imagescript (loaded through the route imports) fetches its own zlib.wasm
+  // from deno.land at load time. A stubbed JSON body there fails the whole
+  // file with "expected magic word", so module assets go to the real fetch.
+  if (url.startsWith("https://deno.land/") || url.startsWith("file:")) {
+    return realFetch(input, _init);
+  }
   // Anything reaching eBay or Shopify fails; the admin cases only need to get
   // past the guard, not to succeed.
   return Promise.resolve(json({ errors: [{ message: "stubbed" }] }, 500));
