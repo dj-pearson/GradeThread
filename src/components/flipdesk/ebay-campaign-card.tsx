@@ -16,7 +16,7 @@ import { edgeFetch } from "@/lib/edge-fetch";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useEbayMarketingSuggestions } from "@/hooks/use-ebay";
 import { InlineRetry } from "@/components/flipdesk/inline-retry";
-import { roleNeededTitle } from "@/lib/workspace-permissions";
+import { roleNeededNote, roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2946 + US-2947: eBay's own promotion suggestions, and the campaign
 // controls a seller had to go to Seller Hub for.
@@ -163,6 +163,11 @@ export function EbayCampaignCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {!canCampaign && !!data?.supported && (
+            <p className="text-xs text-muted-foreground">
+              {roleNeededNote("manage_campaign", "start, pause or end the campaign")}
+            </p>
+          )}
         {isLoading ? (
           <Skeleton className="h-32 w-full" />
         ) : isError ? (

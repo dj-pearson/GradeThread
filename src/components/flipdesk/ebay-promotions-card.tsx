@@ -27,7 +27,7 @@ import {
 import { EbayPromotionDialog } from "@/components/flipdesk/ebay-promotion-dialog";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { InlineRetry } from "@/components/flipdesk/inline-retry";
-import { roleNeededTitle } from "@/lib/workspace-permissions";
+import { roleNeededNote, roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-1448 (chunk 1): surface the seller's eBay Promotions Manager item promotions
 // (order/volume discounts, coupons, sale events). Self-gates on connection.
@@ -133,7 +133,12 @@ export function EbayPromotionsCard() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          {!canAds && (
+            <p className="text-xs text-muted-foreground">
+              {roleNeededNote("manage_ads", "create, edit or end promotions")}
+            </p>
+          )}
           {promotions.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No promotions yet. Create an order discount, volume pricing or a coupon

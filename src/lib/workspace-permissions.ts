@@ -62,6 +62,15 @@ export function roleNeededTitle(cap: WorkspaceCapability): string {
   return `Needs ${WORKSPACE_ROLE_LABEL[CAPABILITY_MIN_ROLE[cap]]} access or higher.`;
 }
 
+/**
+ * The visible line beside a withheld control. A disabled shadcn Button has
+ * pointer-events-none, so its `title` never shows; this is what the seller
+ * actually reads.
+ */
+export function roleNeededNote(cap: WorkspaceCapability, action: string): string {
+  return `Only ${WORKSPACE_ROLE_LABEL[CAPABILITY_MIN_ROLE[cap]]} access or higher can ${action}.`;
+}
+
 export const WORKSPACE_ROLE_LABEL: Record<WorkspaceRole, string> = {
   owner: "Owner",
   admin: "Admin",

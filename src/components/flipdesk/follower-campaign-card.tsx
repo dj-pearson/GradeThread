@@ -18,7 +18,7 @@ import { edgeFetch } from "@/lib/edge-fetch";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useEbayEmailCampaigns } from "@/hooks/use-ebay";
 import { InlineRetry } from "@/components/flipdesk/inline-retry";
-import { roleNeededTitle } from "@/lib/workspace-permissions";
+import { roleNeededNote, roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2953: the audience the seller already owns.
 //
@@ -133,6 +133,11 @@ export function FollowerCampaignCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {!canSend && (
+            <p className="text-xs text-muted-foreground">
+              {roleNeededNote("manage_campaign", "send to your followers")}
+            </p>
+          )}
         {!data.available ? (
           // Read off eBay's answer, not guessed from the account — so a seller
           // who subscribes tomorrow sees this disappear on its own.

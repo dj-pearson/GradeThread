@@ -19,7 +19,7 @@ import { edgeFetch } from "@/lib/edge-fetch";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useEbayKeywords, useEbayKeywordSuggestions } from "@/hooks/use-ebay";
 import { InlineRetry } from "@/components/flipdesk/inline-retry";
-import { roleNeededTitle } from "@/lib/workspace-permissions";
+import { roleNeededNote, roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2945: keywords for Promoted Listings Advanced.
 //
@@ -187,6 +187,11 @@ export function EbayKeywordsCard() {
           >
             Start one
           </Button>
+          {!canStart && (
+            <p className="text-xs text-muted-foreground">
+              {roleNeededNote("manage_campaign", "start a campaign")}
+            </p>
+          )}
         </CardContent>
       </Card>
     );
@@ -204,6 +209,11 @@ export function EbayKeywordsCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
+        {!canAds && (
+            <p className="text-xs text-muted-foreground">
+              {roleNeededNote("manage_ads", "add or block keywords")}
+            </p>
+          )}
         {/* Money saved before money spent. */}
         {data.negativeCandidates.length > 0 && (
           <div className="space-y-2">

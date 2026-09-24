@@ -170,6 +170,34 @@ describe("MP-02: role floors on the Ads cards", () => {
     expect(button("Send")?.disabled).toBe(true);
   });
 
+  it("a withheld control says why in visible text, not only a title", async () => {
+    // A disabled shadcn Button has pointer-events-none, so its title never
+    // shows on hover.
+    state.role = "member";
+    await render(
+      <>
+        <EbayCampaignCard />
+        <EbayKeywordsCard />
+        <FollowerCampaignCard />
+      </>,
+    );
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Only Admin access or higher can start, pause or end the campaign.");
+    expect(text).toContain("Only Manager access or higher can add or block keywords.");
+    expect(text).toContain("Only Admin access or higher can send to your followers.");
+  });
+
+  it("an owner sees no role note", async () => {
+    await render(
+      <>
+        <EbayCampaignCard />
+        <EbayKeywordsCard />
+        <FollowerCampaignCard />
+      </>,
+    );
+    expect(document.body.textContent ?? "").not.toContain("access or higher can");
+  });
+
   it("an admin can end the campaign and send", async () => {
     state.role = "admin";
     await render(
