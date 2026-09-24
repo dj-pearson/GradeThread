@@ -430,11 +430,23 @@ describe("a price dialog is the price, not a fallback (US-2741)", () => {
     // hazard ran the other way -- Poshmark opens its own confirmation modal
     // once photos attach, and that backdrop swallows the click that opens the
     // price dialog. Reported live: photos confirmed, price blank, no flash.
+    //
+    // 2026-09-22 (edb65942e): a flow with a `photoApply` step (Poshmark's
+    // "Select a Covershot" window) now attaches photos FIRST and waits for the
+    // seller's Apply, which closes that window before anything else runs. The
+    // rule is unchanged: the price dialog never opens behind a photo modal.
+    // So a photoApply flow must finish awaitPhotoApply before the dialog, and
+    // every other flow must reach the dialog before its photos attach.
     const src = read(COMMON);
     const body = src.slice(src.indexOf("GT.runFlow"), src.indexOf("GT.runDelistFlow"));
-    expect(body.indexOf("GT.fillPriceDialog")).toBeLessThan(
-      body.indexOf("GT.attachPhotos"),
-    );
+    const dialog = body.indexOf("GT.fillPriceDialog(");
+    const apply = body.indexOf("GT.awaitPhotoApply(");
+    const latePhotos = body.indexOf("if (!photos) photos = await attachPhotosNow()");
+    expect(dialog, "fillPriceDialog call not found").toBeGreaterThan(-1);
+    expect(apply, "awaitPhotoApply call not found").toBeGreaterThan(-1);
+    expect(latePhotos, "the non-photoApply photo attach not found").toBeGreaterThan(-1);
+    expect(apply).toBeLessThan(dialog);
+    expect(dialog).toBeLessThan(latePhotos);
   });
 
   it("attachPhotos still never clicks, which is what makes that order safe", () => {
