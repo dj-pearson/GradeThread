@@ -18,6 +18,8 @@ import {
   leaderboardPath,
   metricByKey,
   normalizeAlias,
+  RESERVED_ALIAS_WORDS,
+  validateAlias,
   parseLeaderboardQuery,
   periodLabel,
   rankLeaderboard,
@@ -328,4 +330,61 @@ Deno.test("leaderboardPath builds the paths the SSR function matches", () => {
     leaderboardPath("grades", { brandSlug: "carhartt", category: "outerwear" }),
     "/leaderboards/grades/b/carhartt",
   );
+});
+
+// ─── R4: the typed alias is validated before it is published ────────────────
+
+function refused(raw: unknown): boolean {
+  return validateAlias(raw).ok === false;
+}
+
+Deno.test("R4: invisible, bidi and tag characters are refused, not published", () => {
+  assert(refused("Ali\u200Bce"), "zero-width space");
+  assert(refused("Alice\u202Eecila"), "right-to-left override");
+  assert(refused("Alice\u{E0041}"), "tag-block A");
+  assert(refused("\uFEFFAlice"), "byte-order mark");
+  assert(refused("Al\u00ADice"), "soft hyphen");
+  assert(refused("Al\u2066ice"), "isolate");
+});
+
+Deno.test("R4: names that pass as the platform are refused as whole words", () => {
+  assert(refused("GradeThread Support"));
+  assert(refused("gradethread"));
+  assert(refused("Grade-Thread Team"), "punctuation does not split the brand");
+  assert(refused("Official Seller"));
+  assert(refused("STAFF pick"));
+  assert(refused("admin"));
+  assert(RESERVED_ALIAS_WORDS.has("support"));
+  // Whole words only: a name merely containing the letters is fine.
+  assertEquals(validateAlias("Staffordshire Finds"), { ok: true, alias: "Staffordshire Finds" });
+});
+
+Deno.test("R4: NFKC folds lookalike letters before the reserve check", () => {
+  // Fullwidth "ＧｒａｄｅＴｈｒｅａｄ" is the same word once folded.
+  assert(refused("\uFF27\uFF52\uFF41\uFF44\uFF45\uFF34\uFF48\uFF52\uFF45\uFF41\uFF44"));
+});
+
+Deno.test("R4: the length bound never splits an emoji at position 40", () => {
+  const raw = "x".repeat(LEADERBOARD_ALIAS_MAX - 1) + "\u{1F455}" + "tail";
+  const r = validateAlias(raw);
+  assert(r.ok && r.alias !== null);
+  const points = Array.from(r.alias!);
+  assertEquals(points.length, LEADERBOARD_ALIAS_MAX);
+  assertEquals(points[points.length - 1], "\u{1F455}", "the shirt survives whole");
+  assert(!/[\uD800-\uDFFF]/.test(r.alias!.replace(/\u{1F455}/u, "")), "no lone surrogate");
+  // The display path bounds the same way.
+  assertEquals(Array.from(normalizeAlias(raw)!).length, LEADERBOARD_ALIAS_MAX);
+});
+
+Deno.test("R4: a normal alias still saves, and empty means clear", () => {
+  assertEquals(validateAlias("  Thrift   Goblin "), { ok: true, alias: "Thrift Goblin" });
+  assertEquals(validateAlias("Jos\u00E9's Closet"), { ok: true, alias: "Jos\u00E9's Closet" });
+  assertEquals(validateAlias(""), { ok: true, alias: null });
+  assertEquals(validateAlias(null), { ok: true, alias: null });
+  assert(refused(42), "a number is not a name");
+});
+
+Deno.test("R4: the display path strips invisible characters from other surfaces' names", () => {
+  assertEquals(normalizeAlias("Ali\u200Bce"), "Alice");
+  assertEquals(normalizeAlias("\u202E"), null);
 });

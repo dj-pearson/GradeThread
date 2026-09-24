@@ -176,7 +176,12 @@ export function useSetLeaderboardOptIn() {
         opt_in?: boolean;
         error?: string;
       };
-      if (!res.ok) throw new Error(data.error ?? "Couldn't update your leaderboard settings");
+      if (!res.ok) {
+        throw new LeaderboardSaveError(
+          data.error ?? "Couldn't update your leaderboard settings",
+          res.status,
+        );
+      }
       return { optIn: data.opt_in === true };
     },
     onSuccess: ({ optIn }) => {
@@ -184,6 +189,22 @@ export function useSetLeaderboardOptIn() {
       queryClient.invalidateQueries({ queryKey: ["leaderboards"] });
       toast.success(optIn ? "You're on the leaderboards." : "Removed from the leaderboards.");
     },
-    onError: (err: Error) => toastError(err),
+    // A 400 is a sentence about what the seller typed (a hidden character, a
+    // reserved name). The panel shows it under the field it is about, so a toast
+    // would only say it twice.
+    onError: (err: Error) => {
+      if (err instanceof LeaderboardSaveError && err.status === 400) return;
+      toastError(err);
+    },
   });
+}
+
+/** A failed leaderboard save, carrying the HTTP status so a 400 can be shown inline. */
+export class LeaderboardSaveError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "LeaderboardSaveError";
+    this.status = status;
+  }
 }

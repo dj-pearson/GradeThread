@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  LeaderboardSaveError,
   type LeaderboardPeriod,
   useMyLeaderboard,
   useSetLeaderboardOptIn,
@@ -51,6 +52,10 @@ export function LeaderboardPanel() {
 
   const optIn = data?.opt_in === true;
   const trimmed = alias.trim();
+  // R4: the server's own sentence for a refused name, under the field.
+  const aliasError = save.error instanceof LeaderboardSaveError && save.error.status === 400
+    ? save.error.message
+    : null;
 
   return (
     <Card>
@@ -77,10 +82,20 @@ export function LeaderboardPanel() {
           <Input
             id="leaderboard-alias"
             value={alias}
-            onChange={(e) => setAlias(e.target.value.slice(0, 40))}
+            onChange={(e) => {
+              setAlias(e.target.value.slice(0, 40));
+              if (save.isError) save.reset();
+            }}
             placeholder="e.g. ThriftKing"
             maxLength={40}
+            aria-invalid={aliasError ? true : undefined}
+            aria-describedby={aliasError ? "leaderboard-alias-error" : undefined}
           />
+          {aliasError ? (
+            <p id="leaderboard-alias-error" role="alert" className="text-xs text-destructive">
+              {aliasError}
+            </p>
+          ) : null}
           {!data?.alias && data?.resolved_alias ? (
             <p className="text-xs text-muted-foreground">
               Leave this as-is to reuse the name you already use publicly.

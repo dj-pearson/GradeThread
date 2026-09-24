@@ -184,11 +184,79 @@ export function chunk<T>(arr: readonly T[], size: number): T[][] {
 
 export const LEADERBOARD_ALIAS_MAX = 40;
 
-/** Trim + bound an untrusted alias. Returns null for anything empty. */
+// Characters that render as nothing, reorder the text around them, or smuggle
+// ASCII invisibly: every control (Cc) and format (Cf) character, which covers
+// zero-width spaces and joiners, the bidi controls U+202A-E / U+2066-9, U+FEFF,
+// the soft hyphen and the whole U+E0000-E007F tag block, plus lone surrogates
+// (Cs). The alias is published on a public, crawlable page, so a name that looks
+// like "Alice" but compares unequal to it is exactly what must not get through.
+const INVISIBLE_RE = /[\p{Cc}\p{Cf}\p{Cs}]/u;
+const INVISIBLE_RE_G = /[\p{Cc}\p{Cf}\p{Cs}]/gu;
+
+/** Bound to LEADERBOARD_ALIAS_MAX by CODE POINT, so an emoji is never halved. */
+function boundAlias(s: string): string {
+  const points = Array.from(s);
+  return points.length > LEADERBOARD_ALIAS_MAX
+    ? points.slice(0, LEADERBOARD_ALIAS_MAX).join("").trim()
+    : s;
+}
+
+/**
+ * Trim + bound an alias for DISPLAY. Returns null for anything empty.
+ *
+ * Lenient on purpose: it also runs over names chosen on other surfaces (the
+ * Verified display name, the referral name), so it strips what must never be
+ * shown rather than refusing. What a seller TYPES into the boards goes through
+ * validateAlias first, which refuses instead.
+ */
 export function normalizeAlias(raw: unknown): string | null {
-  const s = typeof raw === "string" ? raw.trim().replace(/\s+/g, " ") : "";
+  const s = typeof raw === "string"
+    ? raw.normalize("NFKC").replace(INVISIBLE_RE_G, "").trim().replace(/\s+/g, " ")
+    : "";
   if (!s) return null;
-  return s.slice(0, LEADERBOARD_ALIAS_MAX);
+  return boundAlias(s) || null;
+}
+
+/**
+ * Words a board alias may not contain, matched case-insensitively as whole
+ * words. The Verified handle reserve list (routes/verified.ts) plus the words
+ * that would let a seller pass as the platform.
+ */
+export const RESERVED_ALIAS_WORDS: ReadonlySet<string> = new Set([
+  "admin", "api", "app", "auth", "billing", "blog", "cert", "dashboard",
+  "gradethread", "flipdesk", "help", "login", "logout", "og", "pricing",
+  "settings", "signup", "support", "verified", "www",
+  "official", "staff", "moderator",
+]);
+
+export type AliasValidation = { ok: true; alias: string | null } | { ok: false; error: string };
+
+/**
+ * Validate an alias a seller typed for the public boards.
+ *
+ * `null`, `undefined` and an all-space string mean "clear it". Anything else is
+ * NFKC-normalized (so fullwidth and styled letters fold to plain ones), refused
+ * if it carries an invisible or bidi character, bounded by code point, and
+ * refused if it names the platform.
+ */
+export function validateAlias(raw: unknown): AliasValidation {
+  if (raw === null || raw === undefined) return { ok: true, alias: null };
+  if (typeof raw !== "string") return { ok: false, error: "Display name must be text." };
+  const folded = raw.normalize("NFKC").replace(/[\t\n\r]+/g, " ");
+  if (INVISIBLE_RE.test(folded)) {
+    return { ok: false, error: "Display name has a hidden character in it. Retype it." };
+  }
+  const collapsed = folded.trim().replace(/\s+/g, " ");
+  if (!collapsed) return { ok: true, alias: null };
+  const alias = boundAlias(collapsed);
+
+  const lower = alias.toLowerCase();
+  const words = lower.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const squashed = words.join("");
+  if (words.some((w) => RESERVED_ALIAS_WORDS.has(w)) || squashed.includes("gradethread")) {
+    return { ok: false, error: "That display name is reserved. Pick another one." };
+  }
+  return { ok: true, alias };
 }
 
 /** The `users` columns the identity resolver reads. All optional/nullable. */

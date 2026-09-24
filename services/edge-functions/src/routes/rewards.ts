@@ -47,7 +47,7 @@ import {
   leaderboardIdentity,
   type LeaderboardPeriod,
   leaderboardPath,
-  normalizeAlias,
+  validateAlias,
   viewerRank,
 } from "../lib/leaderboards.ts";
 import { boardWindow, loadBoard, loadCohort } from "../lib/leaderboards-data.ts";
@@ -450,34 +450,54 @@ rewardsRoutes.put("/leaderboard", async (c) => {
     | null;
   if (!body) return c.json({ error: "Invalid JSON body." }, 400);
 
+  // Types first. A loose read here used to treat enabled:"true" as LEAVE and a
+  // numeric alias as CLEAR, so a client bug silently pulled a seller off the
+  // boards or wiped their name.
+  if (body.enabled !== undefined && typeof body.enabled !== "boolean") {
+    return c.json({ error: "enabled must be true or false." }, 400);
+  }
+  if (body.alias !== undefined && body.alias !== null && typeof body.alias !== "string") {
+    return c.json({ error: "Display name must be text." }, 400);
+  }
+
   const update: Record<string, unknown> = {};
   let nextAlias: string | null | undefined;
   if (body.alias !== undefined) {
-    nextAlias = normalizeAlias(body.alias);
+    const checked = validateAlias(body.alias);
+    if (!checked.ok) return c.json({ error: checked.error }, 400);
+    nextAlias = checked.alias;
     update.leaderboard_alias = nextAlias;
   }
 
-  if (body.enabled !== undefined) {
-    const enabled = body.enabled === true;
-    if (enabled) {
-      // Joining with no resolvable alias would publish a row with nothing to
-      // call it, so refuse rather than fall back to anything identifying.
-      const { data } = await supabaseAdmin
-        .from("users")
-        .select(LEADERBOARD_USER_COLUMNS)
-        .eq("id", userId)
-        .maybeSingle();
-      const merged: LeaderboardPrefsRow = { ...((data as LeaderboardPrefsRow | null) ?? {}) };
-      if (nextAlias !== undefined) merged.leaderboard_alias = nextAlias;
-      if (!previewIdentity(merged)) {
-        return c.json(
-          { error: "Add a display name before joining the leaderboards." },
-          400,
-        );
-      }
+  // Joining, or clearing the alias, can leave a row with nothing to call it on a
+  // public board. Both are refused rather than falling back to anything
+  // identifying, so both need the current row.
+  const joining = body.enabled === true;
+  const clearing = nextAlias === null;
+  if (joining || clearing) {
+    const { data } = await supabaseAdmin
+      .from("users")
+      .select(LEADERBOARD_USER_COLUMNS)
+      .eq("id", userId)
+      .maybeSingle();
+    const current = (data as LeaderboardPrefsRow | null) ?? {};
+    const merged: LeaderboardPrefsRow = { ...current };
+    if (nextAlias !== undefined) merged.leaderboard_alias = nextAlias;
+    const willBeListed = body.enabled === undefined
+      ? current.leaderboard_opt_in === true
+      : body.enabled === true;
+    if (willBeListed && !previewIdentity(merged)) {
+      return c.json(
+        {
+          error: joining
+            ? "Add a display name before joining the leaderboards."
+            : "You need a display name while you're on the boards. Leave the boards first.",
+        },
+        400,
+      );
     }
-    update.leaderboard_opt_in = enabled;
   }
+  if (body.enabled !== undefined) update.leaderboard_opt_in = body.enabled;
 
   if (Object.keys(update).length === 0) {
     return c.json({ error: "Nothing to update." }, 400);
