@@ -51,6 +51,17 @@ import {
   ruleMayReprice,
 } from "../lib/repricing-rules.ts";
 
+/**
+ * The eBay calls this module makes, gathered so a test can stand in for eBay
+ * without a connection row or a token. Production never reassigns them.
+ */
+export const pricingEbay = {
+  isEbayConfigured,
+  searchBrowseComps,
+  updateOfferPrice,
+  createMarkdownSale,
+};
+
 // Condition-aware dynamic repricing. The scan pulls condition-matched comps per
 // active eBay listing and writes one actionable suggestion per listing. Every
 // query is tenant-scoped: listings/items carry no user_id, so we join through
@@ -130,6 +141,21 @@ function itemFloorCents(floorPriceDollars: number | null): number | null {
 }
 
 /**
+ * The one floor every manual price change answers to: the higher of the
+ * cost-plus-margin floor and the seller's hard floor on the garment (US-3192).
+ * The preview, the bulk apply and the single-row apply all read it from here so
+ * the three cannot drift apart.
+ */
+export function floorForListing(listing: {
+  inventory_items: { acquired_price: number | null; floor_price: number | null };
+}): number | null {
+  return effectiveFloorCents(
+    computeFloorCents(listing.inventory_items.acquired_price, DEFAULT_MARGIN_FLOOR_PCT),
+    itemFloorCents(listing.inventory_items.floor_price),
+  );
+}
+
+/**
  * Run the condition-aware repricing engine for one listing: pull
  * condition-matched comps and position a suggested price by grade. Returns null
  * when the listing has no category to comp against. Shared by the scan and the
@@ -142,7 +168,7 @@ async function computeListingSuggestion(
   const categoryId = listing.platform_category_id ?? item.ebay_category_id;
   if (!categoryId) return null;
 
-  const comps = await searchBrowseComps({
+  const comps = await pricingEbay.searchBrowseComps({
     categoryId,
     q: item.brand ?? item.title ?? undefined,
     brand: item.brand ?? undefined,
@@ -253,7 +279,7 @@ async function scanListings(
 // ── POST /scan ────────────────────────────────────────────────────
 flipdeskPricingRoutes.post("/scan", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  if (!isEbayConfigured()) {
+  if (!pricingEbay.isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
   let body: { limit?: number } = {};
@@ -544,10 +570,7 @@ async function buildPreviewRow(
   // US-3192: the margin floor is a percentage of cost and disappears entirely
   // when the cost basis is unknown. The seller's hard floor on the garment
   // covers exactly that case, so the binding floor is the higher of the two.
-  const floorCents = effectiveFloorCents(
-    computeFloorCents(item.acquired_price, DEFAULT_MARGIN_FLOOR_PCT),
-    itemFloorCents(item.floor_price),
-  );
+  const floorCents = floorForListing(listing);
   const base = {
     listing_id: listing.id,
     inventory_item_id: listing.inventory_item_id,
@@ -598,7 +621,7 @@ async function buildPreviewRow(
 // skipped (no comps / below the margin floor). No writes.
 flipdeskPricingRoutes.post("/reprice/preview", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  if (!isEbayConfigured()) {
+  if (!pricingEbay.isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
   let body: { listingIds?: unknown };
@@ -671,7 +694,7 @@ export async function handleRepriceScanCron(c: Context): Promise<Response> {
   if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
-  if (!isEbayConfigured()) {
+  if (!pricingEbay.isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
   // US-507: repricing kill-switch — skip the scan (no-op) when disabled.
@@ -900,7 +923,7 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
 
     const newDollars = decision.newCents / 100;
     const offerId = listing.platform_offer_id;
-    const hasLiveOffer = Boolean(offerId) && isEbayConfigured();
+    const hasLiveOffer = Boolean(offerId) && pricingEbay.isEbayConfigured();
 
     // Sale-event mode: push a markdown promotion at the rule's drop % and leave
     // the base price untouched (markdown is an overlay). Only when the toggle is
@@ -908,13 +931,13 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
     const alreadyOnSale = typeof listing.platform_fields?.markdown_promotion_id ===
       "string";
     const saleMode = useSaleEvents &&
-      isEbayConfigured() &&
+      pricingEbay.isEbayConfigured() &&
       Boolean(listing.platform_listing_id) &&
       !alreadyOnSale;
 
     if (saleMode) {
       try {
-        const promotionId = await createMarkdownSale(ownerId, {
+        const promotionId = await pricingEbay.createMarkdownSale(ownerId, {
           ebayListingId: listing.platform_listing_id!,
           percentOff: rule.drop_pct,
         });
@@ -939,7 +962,7 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
     } else {
       if (hasLiveOffer) {
         try {
-          await updateOfferPrice(ownerId, offerId!, newDollars);
+          await pricingEbay.updateOfferPrice(ownerId, offerId!, newDollars);
         } catch (err) {
           result.errors++;
           console.error(
@@ -1165,21 +1188,40 @@ const json = (
 const jsonErrorOutcome = (status: number, message: string): PricingOutcome =>
   json({ error: message }, status);
 
+/** Why a single-row apply was refused before anything reached eBay. */
+export type SuggestionRefusal =
+  | "not_pending"
+  | "listing_not_active"
+  | "price_changed"
+  | "below_margin_floor";
+
 export async function applyPriceSuggestion(
   ownerId: string,
   id: string,
 ): Promise<PricingOutcome> {
-    
   const { data: suggestion } = await supabaseAdmin
     .from("repricing_suggestions")
-    .select("id, user_id, listing_id, suggested_price_cents, current_price_cents")
+    .select("id, user_id, listing_id, status, suggested_price_cents, current_price_cents")
     .eq("id", id)
     .eq("user_id", ownerId)
     .maybeSingle();
   if (!suggestion) return json({ error: "Suggestion not found" }, 404);
+  const sug = suggestion as {
+    listing_id: string;
+    status: string;
+    suggested_price_cents: number;
+    current_price_cents: number | null;
+  };
 
-  const dollars = (suggestion as { suggested_price_cents: number }).suggested_price_cents / 100;
-  const listingId = (suggestion as { listing_id: string }).listing_id;
+  // A dismissed or already-applied nudge is not an instruction any more. The
+  // row stays readable so the refusal can say why rather than "not found".
+  if (sug.status !== "pending") {
+    return refuse("not_pending", "This suggestion was already applied or dismissed.");
+  }
+
+  const suggestedCents = sug.suggested_price_cents;
+  const dollars = suggestedCents / 100;
+  const listingId = sug.listing_id;
 
   // Tenant isolation (US-268): don't trust listing_id from the request —
   // re-verify ownership through the parent inventory_item (inner join + user_id
@@ -1190,25 +1232,59 @@ export async function applyPriceSuggestion(
   // join is kept here since it also holds for any row predating the backfill.)
   const { data: listing } = await supabaseAdmin
     .from("listings")
-    .select("id, listing_price, platform_offer_id, inventory_items!inner(user_id)")
+    .select(
+      "id, inventory_item_id, listing_price, listing_status, platform_offer_id, " +
+        "inventory_items!inner(user_id, acquired_price, floor_price)",
+    )
     .eq("id", listingId)
     .eq("inventory_items.user_id", ownerId)
     .maybeSingle();
   if (!listing) return json({ error: "Listing not found" }, 404);
+  const row = listing as unknown as {
+    inventory_item_id: string;
+    listing_price: number | null;
+    listing_status: string | null;
+    platform_offer_id: string | null;
+    inventory_items: { acquired_price: number | null; floor_price: number | null };
+  };
 
-  const offerId = (listing as { platform_offer_id: string | null }).platform_offer_id;
-  const hasLiveOffer = Boolean(offerId) && isEbayConfigured();
+  // Every refusal below happens BEFORE any eBay call.
+  if (row.listing_status !== "active") {
+    return refuse("listing_not_active", "This listing is no longer live, so its price can't change.");
+  }
+
+  // The nudge was computed against a price. If the seller has since typed a
+  // different one, cutting "from $X" would cut from a number they replaced.
+  const liveCents = typeof row.listing_price === "number"
+    ? Math.round(row.listing_price * 100)
+    : null;
+  if (
+    liveCents != null &&
+    typeof sug.current_price_cents === "number" &&
+    liveCents !== sug.current_price_cents
+  ) {
+    return refuse("price_changed", "The price changed since the scan. Scan this item again.", {
+      live_price_cents: liveCents,
+    });
+  }
+
+  const floorCents = floorForListing(row);
+  if (floorCents != null && suggestedCents < floorCents) {
+    return refuse("below_margin_floor", "That price is under this item's floor.", {
+      floor_cents: floorCents,
+    });
+  }
+
+  const offerId = row.platform_offer_id;
+  const hasLiveOffer = Boolean(offerId) && pricingEbay.isEbayConfigured();
 
   // US-9117: read the old price BEFORE the update overwrites it. Prefer the
   // listing's live price; fall back to the price the suggestion was computed
   // against, which is the number the seller was actually shown.
-  const listingPrice = (listing as { listing_price: number | null }).listing_price;
-  const suggestedFrom = (suggestion as { current_price_cents: number | null })
-    .current_price_cents;
-  const oldDollars = typeof listingPrice === "number"
-    ? listingPrice
-    : typeof suggestedFrom === "number"
-    ? suggestedFrom / 100
+  const oldDollars = typeof row.listing_price === "number"
+    ? row.listing_price
+    : typeof sug.current_price_cents === "number"
+    ? sug.current_price_cents / 100
     : null;
 
   // US-467: push to eBay FIRST. If the remote update fails we must NOT update
@@ -1218,7 +1294,7 @@ export async function applyPriceSuggestion(
   // failed apply (local still equals eBay's current price).
   if (hasLiveOffer) {
     try {
-      await updateOfferPrice(ownerId, offerId!, dollars);
+      await pricingEbay.updateOfferPrice(ownerId, offerId!, dollars);
     } catch (err) {
       const ebayError = err instanceof Error ? err.message : String(err);
       console.error(
@@ -1238,10 +1314,11 @@ export async function applyPriceSuggestion(
   }
 
   // Remote update succeeded (or there is no live offer to push) — persist the
-  // new price locally and mark the suggestion applied.
+  // new price locally and mark the suggestion applied. The seller pressed the
+  // button, so the price is theirs: a rule that skips hand-set prices skips it.
   const { error: updErr } = await supabaseAdmin
     .from("listings")
-    .update({ listing_price: dollars, price_is_estimated: false })
+    .update({ listing_price: dollars, price_is_estimated: false, price_set_by: "seller" })
     .eq("id", listingId);
   if (updErr) {
     console.error(`[${"repricing.apply"}] `, updErr);
@@ -1251,7 +1328,17 @@ export async function applyPriceSuggestion(
   await supabaseAdmin
     .from("repricing_suggestions")
     .update({ status: "applied", applied_at: new Date().toISOString() })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("user_id", ownerId);
+
+  await recordManualPriceChange(ownerId, {
+    listingId,
+    inventoryItemId: row.inventory_item_id,
+    oldCents: oldDollars != null ? Math.round(oldDollars * 100) : suggestedCents,
+    newCents: suggestedCents,
+    reason: "nudge_apply",
+    ebaySynced: hasLiveOffer,
+  });
 
   // The old price travels with the answer. Every caller that has to say "was X,
   // now Y" -- the dashboard row, the connector's audit trail -- otherwise has to
@@ -1262,6 +1349,43 @@ export async function applyPriceSuggestion(
     new_price: dollars,
     ebay_synced: hasLiveOffer,
   });
+}
+
+function refuse(
+  reason: SuggestionRefusal,
+  message: string,
+  extra: Record<string, unknown> = {},
+): PricingOutcome {
+  return json({ applied: false, error: message, reason, ...extra }, 409);
+}
+
+/**
+ * Log a price change a person made (not a rule) to repricing_actions, the same
+ * audit table the rules write, with rule_id null. Best effort: the price has
+ * already moved, and a lost audit row must not turn a good apply into an error.
+ */
+async function recordManualPriceChange(
+  ownerId: string,
+  a: {
+    listingId: string;
+    inventoryItemId: string;
+    oldCents: number;
+    newCents: number;
+    reason: "nudge_apply" | "bulk_apply" | "undo";
+    ebaySynced: boolean;
+  },
+): Promise<void> {
+  const { error } = await supabaseAdmin.from("repricing_actions").insert({
+    user_id: ownerId,
+    rule_id: null,
+    listing_id: a.listingId,
+    inventory_item_id: a.inventoryItemId,
+    old_price_cents: a.oldCents,
+    new_price_cents: a.newCents,
+    reason: a.reason,
+    ebay_synced: a.ebaySynced,
+  });
+  if (error) console.error("[repricing] audit row not written:", error.message);
 }
 
 export async function dismissPriceSuggestion(
@@ -1321,13 +1445,7 @@ async function applyRepriceFor(
     // US-3192: same composition as the preview above. This is the write, so it
     // is the one that has to hold: the client sends a price and the server
     // re-derives the floor rather than trusting what the preview showed.
-    const floor = effectiveFloorCents(
-      computeFloorCents(
-        listing.inventory_items.acquired_price,
-        DEFAULT_MARGIN_FLOOR_PCT,
-      ),
-      itemFloorCents(listing.inventory_items.floor_price),
-    );
+    const floor = floorForListing(listing);
     if (floor != null && req.priceCents < floor) {
       skipped.push({ listing_id: req.listingId, reason: "below_margin_floor" });
       continue;
@@ -1335,13 +1453,13 @@ async function applyRepriceFor(
 
     const dollars = req.priceCents / 100;
     const offerId = listing.platform_offer_id;
-    const hasLiveOffer = Boolean(offerId) && isEbayConfigured();
+    const hasLiveOffer = Boolean(offerId) && pricingEbay.isEbayConfigured();
 
     // Push to eBay FIRST (US-467): a failed remote update must not desync the
     // local price, so skip the local write and surface it as a retryable error.
     if (hasLiveOffer) {
       try {
-        await updateOfferPrice(ownerId, offerId!, dollars);
+        await pricingEbay.updateOfferPrice(ownerId, offerId!, dollars);
       } catch (err) {
         errors.push({
           listing_id: req.listingId,

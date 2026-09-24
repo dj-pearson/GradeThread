@@ -1229,6 +1229,26 @@ Deno.test({
 });
 
 Deno.test({
+  // Pricing plan P1: single-row Apply now refuses dismissed nudges, dead
+  // listings and stale prices with a 409 that NAMES the reason. That refusal
+  // must never become a way for B to learn about A's suggestion: the lookup is
+  // owner-scoped first, so B gets a plain 404 before any of those checks run.
+  name: "B cannot apply or dismiss A's repricing suggestion",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SUGGESTION_ID"),
+  fn: async () => {
+    const aId = Deno.env.get("TEST_USER_A_SUGGESTION_ID")!;
+    for (const verb of ["apply", "dismiss"]) {
+      const res = await fetch(
+        `${BASE}/api/flipdesk/pricing/suggestions/${aId}/${verb}`,
+        { method: "POST", headers: authHeaders(B_JWT!) },
+      );
+      await res.body?.cancel();
+      assertEquals(res.status, 404, `B ${verb} on A's suggestion: expected 404`);
+    }
+  },
+});
+
+Deno.test({
   // US-1899: the listing-performance feed (which drives the stale surface +
   // Sell-Similar hint) is scoped to the caller's workspace owner via
   // inventory_items.user_id, so B's performance rows must never include one of

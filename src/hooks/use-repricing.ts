@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { applyRefusalMessage } from "@/pages/flipdesk/reprice-plan";
 
 // Condition-aware dynamic repricing — nudges feed + scan/apply/dismiss.
 
@@ -122,8 +123,11 @@ export function useApplyReprice() {
         new_price?: number;
         ebay_synced?: boolean;
         error?: string;
+        reason?: string;
       };
-      if (!res.ok) throw new Error(data.error ?? "Failed to apply");
+      if (!res.ok) {
+        throw new Error(applyRefusalMessage(data.reason) ?? data.error ?? "Failed to apply");
+      }
       return data;
     },
     onSuccess: (r) => {
@@ -135,9 +139,15 @@ export function useApplyReprice() {
       toast.success(
         `Price changed ${move}${r.ebay_synced ? " and pushed to eBay" : ""}.`,
       );
-      queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
     },
     onError: (err: Error) => toastError(err),
+    // A refusal is news too: the row it came from is dead or stale, so the
+    // queue, the inventory prices and the audit feed all refresh either way.
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
+      queryClient.invalidateQueries({ queryKey: ["items_full"] });
+      queryClient.invalidateQueries({ queryKey: ["repricing_actions"] });
+    },
   });
 }
 
