@@ -594,6 +594,19 @@ describe("Marketplaces page: extension queue", () => {
     expect(buttons).toContain("Dismiss");
   });
 
+  it("a dead relist offers Dismiss only, since queueing it again mints a second draft", () => {
+    state.queue = {
+      pending: [],
+      needsAttention: [{ ...job("8", "relist", "poshmark"), status: "expired" }],
+      finishedNeedsReview: [],
+      lastDrainedAt: null,
+    };
+    render();
+    const buttons = [...document.querySelectorAll("button")].map((b) => b.textContent?.trim());
+    expect(buttons).not.toContain("Queue again");
+    expect(buttons).toContain("Dismiss");
+  });
+
   it("Cancel names the item it cancels (MP-10)", () => {
     state.queue = {
       pending: [job("1", "list", "poshmark")],

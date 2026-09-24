@@ -117,6 +117,7 @@ import {
   useCancelExtensionWork,
   useExtensionQueue,
   useRequeueExtensionWork,
+  canRequeue,
   type ExtensionQueueItem,
 } from "@/hooks/use-extension-queue";
 import { CrossPostSetup } from "@/components/flipdesk/cross-post-setup";
@@ -2261,6 +2262,7 @@ function ExtensionQueueSection() {
                   {/* MP-10: these rows used to stay forever with no way to act
                       on them from here. */}
                   <span className="flex shrink-0 items-center gap-1">
+                    {canRequeue(job) && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -2275,6 +2277,7 @@ function ExtensionQueueSection() {
                     >
                       Queue again
                     </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"

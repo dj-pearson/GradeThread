@@ -243,6 +243,15 @@ export function useCancelExtensionWork() {
  * row, so the "Didn't run" list does not keep showing work that is queued
  * again. The clear is best-effort: the new row is what matters.
  */
+/**
+ * Whether "Queue again" is safe for this row. A relist is not: enqueueing one
+ * creates a new draft copy of the listing every time, so re-running a dead
+ * relist would leave a second draft behind the first.
+ */
+export function canRequeue(job: Pick<ExtensionQueueItem, "kind">): boolean {
+  return job.kind !== "relist";
+}
+
 export function useRequeueExtensionWork() {
   const qc = useQueryClient();
   return useMutation<void, Error, ExtensionQueueItem>({
@@ -255,6 +264,11 @@ export function useRequeueExtensionWork() {
           inventory_item_id: job.inventory_item_id ?? null,
           listing_id: job.listing_id ?? null,
           payload: job.payload ?? {},
+          // A revise is refused (400) without the field list, which the
+          // original enqueue stamped onto the payload.
+          ...(job.kind === "revise" && Array.isArray(job.payload?.fields)
+            ? { fields: job.payload.fields }
+            : {}),
           source: "web",
         },
       });
