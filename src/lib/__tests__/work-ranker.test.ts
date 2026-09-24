@@ -105,11 +105,11 @@ describe("urgent shipping goes first, even when it earns least (AC2, AC5)", () =
     expect(order).toEqual(["parcel:pack_ship", "rich:photograph"]);
   });
 
-  it("only a CONFIRMED deadline is urgent", () => {
-    // An estimated deadline counts calendar days rather than business days and
-    // can be a day early. Promoting on it would push real work aside for a
-    // date nobody promised.
-    const ranked = plan([
+  it("an estimated deadline does not jump a CONFIRMED one inside the window", () => {
+    // WMT-13: every unshipped sale is in the urgent tier now. What an
+    // estimated date still may not do is outrank a date eBay named: it counts
+    // calendar days rather than business days and can be a day early.
+    const order = plan([
       {
         candidate: candidate({
           itemId: "guess",
@@ -119,12 +119,27 @@ describe("urgent shipping goes first, even when it earns least (AC2, AC5)", () =
         value: valueOf(1200),
         remainingActions: ["pack_ship"],
       },
+      {
+        candidate: candidate({
+          itemId: "named",
+          action: "pack_ship",
+          shipBy: { at: hoursFromNow(6), confidence: "confirmed" },
+        }),
+        value: valueOf(1200),
+        remainingActions: ["pack_ship"],
+      },
     ]);
-    expect(ranked[0]!.tier).toBe("valued_work");
+    expect(order.map((t) => t.tier)).toEqual(["urgent_shipping", "urgent_shipping"]);
+    expect(order.map((t) => t.key)).toEqual(["named:pack_ship", "guess:pack_ship"]);
   });
 
-  it("a deadline beyond the window is not urgent", () => {
-    const ranked = plan([
+  it("a sale due beyond the window still goes above valued prep work (WMT-13)", () => {
+    const order = plan([
+      {
+        candidate: candidate({ itemId: "rich", action: "photograph" }),
+        value: valueOf(20000),
+        remainingActions: ["photograph"],
+      },
       {
         candidate: candidate({
           itemId: "later",
@@ -135,7 +150,44 @@ describe("urgent shipping goes first, even when it earns least (AC2, AC5)", () =
         remainingActions: ["pack_ship"],
       },
     ]);
-    expect(ranked[0]!.tier).toBe("valued_work");
+    expect(order.map((t) => t.key)).toEqual(["later:pack_ship", "rich:photograph"]);
+    expect(order[0]!.tier).toBe("urgent_shipping");
+  });
+
+  it("an unshipped sale with NO deadline at all is still first (WMT-13)", () => {
+    const order = plan([
+      {
+        candidate: candidate({ itemId: "rich", action: "photograph" }),
+        value: valueOf(20000),
+        remainingActions: ["photograph"],
+      },
+      {
+        candidate: candidate({ itemId: "sold", action: "pack_ship" }),
+        value: valueOf(1200),
+        remainingActions: ["pack_ship"],
+      },
+    ]);
+    expect(order[0]!.key).toBe("sold:pack_ship");
+  });
+
+  it("a confirmed ship-by tomorrow sorts ahead of an undated parcel (WMT-13)", () => {
+    const order = plan([
+      {
+        candidate: candidate({ itemId: "undated", action: "pack_ship" }),
+        value: valueOf(1200),
+        remainingActions: ["pack_ship"],
+      },
+      {
+        candidate: candidate({
+          itemId: "tomorrow",
+          action: "pack_ship",
+          shipBy: { at: hoursFromNow(20), confidence: "confirmed" },
+        }),
+        value: valueOf(1200),
+        remainingActions: ["pack_ship"],
+      },
+    ]).map((t) => t.key);
+    expect(order).toEqual(["tomorrow:pack_ship", "undated:pack_ship"]);
   });
 
   it("an OVERDUE parcel is urgent and sorts before a merely soon one", () => {

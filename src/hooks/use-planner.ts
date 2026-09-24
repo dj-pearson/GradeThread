@@ -35,6 +35,7 @@ import {
   candidatesWithGates,
   EXCLUDED_STATUSES,
   type GatedWork,
+  type SaleFacts,
   type WorkCandidate,
 } from "@/lib/work-candidates";
 import { estimateDuration, isUnestimated } from "@/lib/work-duration";
@@ -48,8 +49,9 @@ import {
 import { estimateWorkValue, type ValueResult } from "@/lib/work-value";
 import { adviseOnItem, type AdviceResult } from "@/lib/work-advice";
 import {
-  isUrgentCandidate,
+  isOwedParcel,
   rankWork,
+  URGENT_WINDOW_HOURS,
   type RankedTask,
 } from "@/lib/work-ranker";
 import {
@@ -462,6 +464,19 @@ export interface PreparedPlan {
    * reason.
    */
   gated: GatedWork[];
+  /** Sold parcels due within a day, soonest first (WMT-13). */
+  shipToday: ShipTodayEntry[];
+}
+
+/** One parcel for the "Ship today" strip (WMT-13). */
+export interface ShipTodayEntry {
+  key: string;
+  itemId: string;
+  itemTitle: string | null;
+  /** The deadline, ISO. */
+  at: string;
+  /** Whether the marketplace named it or it was worked out from handling days. */
+  confidence: WorkCandidate["shipBy"]["confidence"];
 }
 
 export interface BuildPlanArgs {
@@ -519,7 +534,7 @@ export async function buildPlan(
 
   // WMT-07: every input read at once. The page used to wait for the
   // overrides refetch before the item read even started.
-  const [itemsRead, freshBook, freshLearned] = await Promise.all([
+  const [itemsRead, freshBook, freshLearned, salesRead] = await Promise.all([
     supabase
       .from("items_full")
       .select(ITEM_LIST_SELECT)
@@ -550,6 +565,14 @@ export async function buildPlan(
         queryFn: fetchLearned,
         staleTime: LEARNED_STALE_MS,
       }).catch(() => null),
+    // WMT-13: the ship-by facts live on the SALE row (00768), not the item,
+    // so without this every parcel's deadline read as unknown. RLS-scoped
+    // with the anon client, and owner-filtered as well.
+    supabase
+      .from("sales")
+      .select("inventory_item_id,ship_by,handling_days,sold_at")
+      .eq("user_id", ownerId)
+      .is("shipped_at", null),
   ]);
   const { data, error } = itemsRead;
   if (error) throw new Error(error.message);
@@ -560,13 +583,32 @@ export async function buildPlan(
   const book = freshBook ?? emptyBook(now);
   const learnedResult = freshLearned ?? null;
 
+  // A failed sales read degrades to unknown deadlines rather than refusing
+  // the plan: every unshipped sale still goes first (isOwedParcel), it just
+  // cannot say by when.
+  const saleFacts: SaleFacts = {};
+  for (const row of (salesRead.error ? [] : salesRead.data ?? []) as {
+    inventory_item_id: string | null;
+    ship_by: string | null;
+    handling_days: number | null;
+    sold_at: string | null;
+  }[]) {
+    if (!row.inventory_item_id) continue;
+    saleFacts[row.inventory_item_id] = {
+      shipByDate: row.ship_by,
+      handlingDays: row.handling_days,
+      soldAt: row.sold_at,
+    };
+  }
+
   const { candidates: allCandidates, gated } = candidatesWithGates(items, {
     workContext: args.workContext,
     availableTools: args.availableTools as never,
+    saleFacts,
   });
 
   // ── what the seller set aside (AC3) ───────────────────────────────
-  // ⚠ isUrgentCandidate is the RANKER'S own test, imported rather than
+  // ⚠ isOwedParcel is the RANKER'S own test, imported rather than
   // rewritten. Two implementations of "urgent" would eventually disagree
   // about one parcel on one evening, and that is the evening it matters.
   const suppressed: PlanSuppressionNote[] = [];
@@ -575,7 +617,9 @@ export async function buildPlan(
       itemId: c.itemId,
       actionKey: c.action,
       sessionId: args.sessionId ?? null,
-      urgentShipping: isUrgentCandidate(c, Number.isFinite(nowMs) ? nowMs : 0),
+      // WMT-13: a set-aside never hides a parcel somebody paid for, however
+      // far off (or unknown) its deadline.
+      urgentShipping: isOwedParcel(c),
     });
     if (!verdict.suppressed) return true;
     suppressed.push({
@@ -657,10 +701,29 @@ export async function buildPlan(
     ranked: batched.ordered,
   });
 
+  // WMT-13: parcels due within a day (or already late), soonest first, for
+  // the "Ship today" strip above the plan.
+  const shipToday: ShipTodayEntry[] = candidates
+    .filter((c) => {
+      if (!isOwedParcel(c) || !c.shipBy.at) return false;
+      const due = Date.parse(c.shipBy.at);
+      return Number.isFinite(due) && Number.isFinite(nowMs) &&
+        due - nowMs <= URGENT_WINDOW_HOURS * 3_600_000;
+    })
+    .map((c) => ({
+      key: c.key,
+      itemId: c.itemId,
+      itemTitle: c.itemTitle ?? null,
+      at: c.shipBy.at!,
+      confidence: c.shipBy.confidence,
+    }))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+
   return {
     plan,
     ranked: batched.ordered,
     candidates,
+    shipToday,
     groups: batched.groups,
     pullList: batched.pullList,
     budgetMinutes: args.budgetMinutes,

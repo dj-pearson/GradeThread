@@ -272,3 +272,60 @@ describe("the stored plan (WMT-11)", () => {
     expect(readStoredPlan("owner-a")).toBeNull();
   });
 });
+
+describe("sold orders come first, with real ship-by dates (WMT-13)", () => {
+  const TOMORROW = new Date(Date.parse(NOW) + 20 * 3_600_000).toISOString();
+
+  function stock() {
+    return [
+      ...Array.from({ length: 10 }, (_, i) =>
+        item({ id: `prep-${i}`, target_price: 200 })),
+      item({ id: "sold", status: "sold", sale_date: "2026-09-20T00:00:00.000Z" }),
+    ];
+  }
+
+  it("reads the owner's unshipped sales for their deadlines", async () => {
+    await buildPlan({ ...BASE, book: book() });
+    const read = reads.find((r) => r.table === "sales")!;
+    expect(read).toBeTruthy();
+    expect(read.calls).toContainEqual(["eq", ["user_id", "owner-1"]]);
+    expect(read.calls).toContainEqual(["is", ["shipped_at", null]]);
+  });
+
+  it("a sale due tomorrow ranks first over ten valued prep jobs, and is in the strip", async () => {
+    tables.items_full = stock();
+    tables.sales = [{
+      inventory_item_id: "sold", ship_by: TOMORROW, handling_days: 1, sold_at: "2026-09-20T00:00:00.000Z",
+    }];
+    const built = await buildPlan({ ...BASE, book: book() });
+    expect(built.ranked[0]!.key).toBe("sold:pack_ship");
+    expect(built.plan.tasks[0]!.key).toBe("sold:pack_ship");
+    expect(built.candidates.find((c) => c.key === "sold:pack_ship")!.shipBy)
+      .toEqual({ at: TOMORROW, confidence: "confirmed" });
+    expect(built.shipToday.map((p) => p.key)).toEqual(["sold:pack_ship"]);
+  });
+
+  it("a snooze on that parcel is overruled", async () => {
+    tables.items_full = stock();
+    tables.sales = [{
+      inventory_item_id: "sold", ship_by: TOMORROW, handling_days: 1, sold_at: "2026-09-20T00:00:00.000Z",
+    }];
+    const built = await buildPlan({
+      ...BASE,
+      book: book([], [{
+        inventoryItemId: "sold", actionKey: "pack_ship", kind: "snooze",
+        sessionId: null, until: "2026-09-28T00:00:00.000Z", createdAt: NOW,
+      }]),
+    });
+    expect(built.suppressed).toEqual([]);
+    expect(built.ranked[0]!.key).toBe("sold:pack_ship");
+  });
+
+  it("a failed sales read still plans, and the parcel still goes first", async () => {
+    tables.items_full = stock();
+    failTable = "sales";
+    const built = await buildPlan({ ...BASE, book: book() });
+    expect(built.ranked[0]!.key).toBe("sold:pack_ship");
+    expect(built.shipToday).toEqual([]);
+  });
+});

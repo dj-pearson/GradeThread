@@ -879,3 +879,31 @@ describe("the page UX pass (WMT-12)", () => {
     }
   });
 });
+
+describe("the Ship today strip (WMT-13)", () => {
+  it("lists parcels due within a day and plans just them in one tap", async () => {
+    const due = new Date(Date.now() + 3 * 3_600_000).toISOString();
+    const p = plan({
+      shipToday: [{
+        key: "item-1:measure", itemId: "item-1", itemTitle: "Levi 501 jeans",
+        at: due, confidence: "confirmed",
+      }],
+    });
+    buildMock.mockResolvedValue(p);
+    renderPage();
+    await click("30 minutes");
+    expect(has("Ship today")).toBe(true);
+    expect(has("Levi 501 jeans")).toBe(true);
+    expect(has(/due by/)).toBe(true);
+    await click("Plan the parcels first");
+    // high 9 + setup 2 = 11, rounded up to 15.
+    expect(buildMock.mock.calls[1]![0]!.budgetMinutes).toBe(15);
+  });
+
+  it("shows no strip when nothing is due", async () => {
+    buildMock.mockResolvedValue(plan({ shipToday: [] }));
+    renderPage();
+    await click("30 minutes");
+    expect(has("Ship today")).toBe(false);
+  });
+});

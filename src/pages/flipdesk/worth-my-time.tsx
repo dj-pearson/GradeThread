@@ -46,7 +46,7 @@ import type { WorkTool } from "@/lib/work-candidates";
 import { SUPPRESSION_STATE_COPY } from "@/lib/work-overrides-copy";
 import { parkingRows, SUPPRESSION_KINDS, type SuppressionKind } from "@/lib/work-overrides";
 import { actionLabel } from "@/lib/work-action-labels";
-import { isUrgentCandidate } from "@/lib/work-ranker";
+import { isOwedParcel } from "@/lib/work-ranker";
 import { itemHref } from "@/lib/session-links";
 import type { RankedTask } from "@/lib/work-ranker";
 import type { WorkCandidate } from "@/lib/work-candidates";
@@ -87,6 +87,16 @@ function readVisited(ownerId: string | null, takenAt: string | undefined): Set<s
   } catch {
     return new Set();
   }
+}
+
+/** "due by 6:42pm", "due tomorrow 9:00am" or "late", for the strip (WMT-13). */
+function shipByLabel(at: string, nowMs: number, confidence: string): string {
+  const due = Date.parse(at);
+  if (!Number.isFinite(due)) return "";
+  if (due < nowMs) return "late";
+  const sameDay = new Date(due).toDateString() === new Date(nowMs).toDateString();
+  const when = `${sameDay ? "" : "tomorrow "}${planTimeLabel(at)}`;
+  return confidence === "confirmed" ? `due by ${when}` : `due about ${when}, our estimate`;
 }
 
 /** How many left-out jobs are listed by name before "...and N more". */
@@ -418,6 +428,22 @@ export function WorthMyTimePage() {
     [plan],
   );
   // WMT-12: one lookup table instead of a candidates.find per row, per render.
+  // Plans saved before WMT-13 have no strip; treat that as none.
+  const shipToday = useMemo(() => plan?.shipToday ?? [], [plan]);
+  /** Minutes for just the parcels due today: their high estimates plus one setup. */
+  const parcelMinutes = useMemo(() => {
+    let total = 0;
+    let setup = 0;
+    for (const p of shipToday) {
+      const d = rankedByKey.get(p.key)?.duration;
+      total += d?.high ?? 0;
+      setup = Math.max(setup, d?.setupMinutes ?? 0);
+    }
+    const min = prefs.data?.minSessionMinutes ?? 5;
+    const max = prefs.data?.maxSessionMinutes ?? 240;
+    const rounded = Math.ceil((total + setup) / 5) * 5;
+    return Math.min(max, Math.max(min, rounded));
+  }, [shipToday, rankedByKey, prefs.data]);
   const candidateByKey = useMemo(
     () => new Map((plan?.candidates ?? []).map((c) => [c.key, c])),
     [plan],
@@ -556,6 +582,37 @@ export function WorthMyTimePage() {
               estimates, not earnings.
             </p>
           </div>
+
+          {/* WMT-13: what has to go out within a day, above everything
+              else. The ranker already puts these first; the strip says by
+              when, and sizes a plan to just them in one tap. */}
+          {shipToday.length > 0 && (
+            <div
+              aria-labelledby="wmt-ship-today"
+              className="space-y-2 rounded-lg border p-3 text-sm"
+              role="group"
+            >
+              <h3 id="wmt-ship-today" className="font-medium">Ship today</h3>
+              <ul className="space-y-1">
+                {shipToday.map((p) => (
+                  <li key={p.key} className="flex flex-wrap justify-between gap-x-3">
+                    <span className="min-w-0 break-words">{p.itemTitle ?? "Untitled item"}</span>
+                    <span className="text-muted-foreground tabular-nums">
+                      {shipByLabel(p.at, nowMs, p.confidence)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={build.isPending}
+                onClick={() => void generate(parcelMinutes, "parcels")}
+              >
+                Plan the parcels first
+              </Button>
+            </div>
+          )}
 
           {(stalePlan || planIsOld) && (
             <p
@@ -801,13 +858,9 @@ export function WorthMyTimePage() {
                           plan.budgetMinutes - plan.plan.plannedMinutes,
                         )}
                         sessionId={currentSession.data?.session?.id ?? null}
-                        urgentShipping={isUrgentCandidate(
-                          candidate ?? {
-                            action: r.action,
-                            shipBy: { at: null, confidence: "unknown" },
-                          },
-                          Date.parse(plan.takenAt),
-                        )}
+                        // WMT-13: the same rule buildPlan uses, so the panel
+                        // never offers to hide a parcel the plan would not.
+                        urgentShipping={isOwedParcel({ action: r.action })}
                         onChanged={() => setStalePlan(true)}
                       />
                     )}

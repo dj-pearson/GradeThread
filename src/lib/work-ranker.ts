@@ -243,6 +243,24 @@ function isUrgentShipping(task: RankTaskInput, nowMs: number): boolean {
 }
 
 /**
+ * Is this a parcel the seller already owes a buyer? (WMT-13)
+ *
+ * Every pack_ship candidate is a sale that has not shipped, and a sale that
+ * has not shipped goes first whatever its deadline says: a missed ship-by
+ * costs a defect on the seller's account, not a margin. An unknown or
+ * estimated date is still a date somebody is waiting on, so this does not
+ * ask for one. isUrgentCandidate above is the stricter question -- a
+ * confirmed deadline inside the window -- and decides the order WITHIN the
+ * tier, so a date nobody promised never jumps a date somebody did.
+ *
+ * EXPORTED so a set-aside can never hide one either (US-3182 made the same
+ * rule for urgent parcels). One answer, read in both places.
+ */
+export function isOwedParcel(candidate: Pick<WorkCandidate, "action">): boolean {
+  return candidate.action === "pack_ship";
+}
+
+/**
  * Why this task cannot be done as planned, or null.
  *
  * The candidate builder already drops work the seller cannot do, so these fire
@@ -320,7 +338,9 @@ export function rankWork(input: RankInput): RankedTask[] {
       ? null
       : conflictFor(task, input, ownMinutes);
 
-    const urgent = isUrgentShipping(task, nowMs);
+    // WMT-13: every unshipped sale, not only a confirmed deadline inside the
+    // window. The window still orders them (compareRanked).
+    const urgent = isOwedParcel(task.candidate);
     const estimate = isComplete(task.value) ? task.value : null;
 
     let tier: RankTier;
@@ -366,7 +386,7 @@ export function rankWork(input: RankInput): RankedTask[] {
     });
   }
 
-  return ranked.sort((a, b) => compareRanked(a, b, input.tasks));
+  return ranked.sort((a, b) => compareRanked(a, b, input.tasks, nowMs));
 }
 
 /**
@@ -409,13 +429,20 @@ function compareRanked(
   a: RankedTask,
   b: RankedTask,
   tasks: readonly RankTaskInput[],
+  nowMs: number,
 ): number {
   if (TIER_ORDER[a.tier] !== TIER_ORDER[b.tier]) {
     return TIER_ORDER[a.tier] - TIER_ORDER[b.tier];
   }
   if (a.tier === "urgent_shipping") {
-    // Soonest deadline first. A conflict does not demote it: the seller most
-    // needs to see the parcel they cannot ship.
+    // A CONFIRMED deadline inside the window first (WMT-13): an estimated
+    // date can be a day early and an unknown one is not a date at all, so
+    // neither jumps a parcel eBay actually named a day for.
+    const ua = dueSoon(a.key, tasks, nowMs);
+    const ub = dueSoon(b.key, tasks, nowMs);
+    if (ua !== ub) return ua ? -1 : 1;
+    // Then soonest deadline first. A conflict does not demote it: the seller
+    // most needs to see the parcel they cannot ship.
     const da = parseInstant(a.dueAt);
     const db = parseInstant(b.dueAt);
     if (da !== db) return (da ?? Number.MAX_SAFE_INTEGER) - (db ?? Number.MAX_SAFE_INTEGER);
@@ -431,6 +458,11 @@ function compareRanked(
   const sb = sinceOf(b.key, tasks);
   if (sa !== sb) return sa < sb ? -1 : 1;
   return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+}
+
+function dueSoon(key: string, tasks: readonly RankTaskInput[], nowMs: number): boolean {
+  const t = tasks.find((x) => x.candidate.key === key);
+  return t ? isUrgentCandidate(t.candidate, nowMs) : false;
 }
 
 function sinceOf(key: string, tasks: readonly RankTaskInput[]): string {
