@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -83,6 +83,7 @@ import {
   commitClusters,
   LINKABLE_STATUSES,
   type CommitCluster,
+  type CommitProgress,
   type CommitResult,
 } from "@/hooks/use-reconcile-commit";
 import {
@@ -94,6 +95,7 @@ import {
 } from "@/hooks/use-ai-extract";
 import { rankItemMatches } from "@/lib/reconcile-match";
 import { pruneCommitted } from "@/lib/reconcile-board";
+import { runPool } from "@/lib/async-pool";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { compressImage } from "@/lib/image-utils";
 import { PhotoTagSelect } from "@/components/flipdesk/photo-tag-select";
@@ -190,6 +192,11 @@ export function FlipdeskReconcilePage() {
   const [restored, setRestored] = useState(false);
   const [linkTargets, setLinkTargets] = useState<Record<string, LinkTarget>>({});
   const [committing, setCommitting] = useState(false);
+  const [progress, setProgress] = useState<CommitProgress | null>(null);
+  // Photo-type classification after a commit. It used to run behind the
+  // commit spinner, one item at a time, so the button stayed busy long after
+  // everything was saved.
+  const [classifying, setClassifying] = useState<number | null>(null);
   const [results, setResults] = useState<CommitResult[] | null>(null);
   const [committed, setCommitted] = useState<CommittedItem[]>([]);
   // Cluster id -> the item a partial commit created, so a retry adds to it.
@@ -448,20 +455,25 @@ export function FlipdeskReconcilePage() {
             return next;
           });
         };
-        for (const file of files) {
-          const capturedAt = await readCaptureTime(file);
-          batch.push({
-            id: crypto.randomUUID(),
-            name: file.name,
-            capturedAt,
-            previewUrl: URL.createObjectURL(file),
-            file,
-            photoType: "detail",
-            photoRole: null,
+        // Capture times are read four at a time, a chunk at a time, so the
+        // board fills in as it goes rather than after the whole haul.
+        const CHUNK = 24;
+        for (let at = 0; at < files.length; at += CHUNK) {
+          const chunk = files.slice(at, at + CHUNK);
+          const times = await runPool(chunk, 4, (f) => readCaptureTime(f));
+          chunk.forEach((file, i) => {
+            batch.push({
+              id: crypto.randomUUID(),
+              name: file.name,
+              capturedAt: times[i] ?? null,
+              previewUrl: URL.createObjectURL(file),
+              file,
+              photoType: "detail",
+              photoRole: null,
+            });
           });
-          if (batch.length >= 12) flush();
+          flush();
         }
-        flush();
       } finally {
         setIngesting(false);
       }
@@ -474,21 +486,25 @@ export function FlipdeskReconcilePage() {
     setAssignments((prev) => reapplyThreshold(prev, photos, next));
   }
 
-  function toggleSelect(id: string) {
+  // Stable, so a memoised Thumb re-renders only when its own photo changes.
+  const toggleSelect = useCallback((id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  }
+  }, []);
 
   // US-2461: a tag is a (type, role) pair, so both move together or neither does.
-  function setPhotoType(id: string, type: FlipdeskPhotoType, role: string | null) {
-    setPhotos((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, photoType: type, photoRole: role } : p)),
-    );
-  }
+  const setPhotoType = useCallback(
+    (id: string, type: FlipdeskPhotoType, role: string | null) => {
+      setPhotos((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, photoType: type, photoRole: role } : p)),
+      );
+    },
+    [],
+  );
 
   const selectedIds = useMemo(() => [...selected], [selected]);
 
@@ -500,9 +516,18 @@ export function FlipdeskReconcilePage() {
     setAssignments((prev) => moveToCluster(prev, selectedIds, clusterId));
     setSelected(new Set());
   }
-  function applyMerge(into: string, from: string) {
+  const applyMerge = useCallback((into: string, from: string) => {
     setAssignments((prev) => mergeClusters(prev, into, from));
-  }
+  }, []);
+
+  const setLinkTarget = useCallback((clusterId: string, t: LinkTarget | null) => {
+    setLinkTargets((prev) => {
+      const next = { ...prev };
+      if (t) next[clusterId] = t;
+      else delete next[clusterId];
+      return next;
+    });
+  }, []);
 
   function onDragEnd(e: DragEndEvent) {
     const photoId = String(e.active.id);
@@ -560,6 +585,8 @@ export function FlipdeskReconcilePage() {
       if (!ok) return;
     }
     setCommitting(true);
+    setProgress(null);
+    let classifyIds: string[] = [];
     try {
       const payload: CommitCluster[] = clusters.map((c, i) => ({
         clusterId: c.clusterId,
@@ -580,6 +607,7 @@ export function FlipdeskReconcilePage() {
       }));
       const res = await commitClusters(payload, workspaceOwnerId, sessionId, {
         keepSessionOpen: unsorted > 0,
+        onProgress: setProgress,
       });
       setResults(res);
       // Everything that reached an item leaves the board; the rest stays
@@ -621,18 +649,25 @@ export function FlipdeskReconcilePage() {
       if (failed === 0) toast.success(`Committed ${res.length} item(s) to your pipeline.`);
       else toast.warning(`${res.length - failed} committed, ${failed} failed — see details.`);
 
-      // US-286: classify each committed item's photos (best-effort; failures
-      // leave photos as 'detail' and never block). User corrections made before
-      // commit are respected — the server only overwrites the generic default.
-      for (const it of okItems) {
-        try {
-          await classifyPhotos.mutateAsync({ item_id: it.itemId });
-        } catch {
-          /* fall back to existing photo types */
-        }
-      }
+      classifyIds = okItems.map((it) => it.itemId);
     } finally {
       setCommitting(false);
+      setProgress(null);
+    }
+
+    // US-286: classify each committed item's photos (best-effort; failures
+    // leave photos as 'detail' and never block). User corrections made before
+    // commit are respected — the server only overwrites the generic default.
+    // After the commit button is free again, all at once, with its own line.
+    if (classifyIds.length > 0) {
+      setClassifying(classifyIds.length);
+      try {
+        await Promise.allSettled(
+          classifyIds.map((id) => classifyPhotos.mutateAsync({ item_id: id })),
+        );
+      } finally {
+        setClassifying(null);
+      }
     }
   }
 
@@ -745,8 +780,22 @@ export function FlipdeskReconcilePage() {
   }
 
   const timedCount = photos.length - needsSorting.length;
-  const clusterLabel = (clusterId: string) =>
-    `Item ${clusters.findIndex((c) => c.clusterId === clusterId) + 1}`;
+  // A stable handle on the latest suggestForCluster, so the memoised cards
+  // are not re-rendered by a new function every render.
+  const suggestRef = useRef(suggestForCluster);
+  suggestRef.current = suggestForCluster;
+  const onSuggest = useCallback(
+    (clusterId: string, clusterPhotos: DumpPhoto[]) =>
+      void suggestRef.current(clusterId, clusterPhotos),
+    [],
+  );
+
+  // One label list for every card. Each card used to rebuild it with a
+  // findIndex per other cluster, which made rendering the board cubic.
+  const clusterLabels = useMemo(
+    () => clusters.map((c, i) => ({ id: c.clusterId, label: `Item ${i + 1}` })),
+    [clusters],
+  );
   // Committable whenever there is a group on the board: committed groups are
   // removed from it, so what is left is only work that has not gone through.
   const committable = clusters.length > 0;
@@ -883,7 +932,16 @@ export function FlipdeskReconcilePage() {
                 <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
                 Committed {committed.length} item{committed.length === 1 ? "" : "s"}
               </CardTitle>
-              <CardDescription>Generate titles &amp; details with AI, or do it later.</CardDescription>
+              <CardDescription>
+                Generate titles &amp; details with AI, or do it later.
+                {classifying !== null && (
+                  <span role="status" className="mt-1 flex items-center gap-1.5">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Sorting photo types for {classifying} item
+                    {classifying === 1 ? "" : "s"}…
+                  </span>
+                )}
+              </CardDescription>
             </div>
             <Button
               size="sm"
@@ -966,7 +1024,9 @@ export function FlipdeskReconcilePage() {
                         ) : (
                           <PackageCheck className="mr-1 h-3.5 w-3.5" />
                         )}
-                        Commit {clusters.length} item{clusters.length === 1 ? "" : "s"}
+                        {committing && progress
+                          ? `Saving ${progress.photosDone} of ${progress.photosTotal} photos (item ${progress.item} of ${progress.items})`
+                          : `Commit ${clusters.length} item${clusters.length === 1 ? "" : "s"}`}
                       </Button>
                     </>
                   )}
@@ -1022,24 +1082,15 @@ export function FlipdeskReconcilePage() {
                   onToggleSelect={toggleSelect}
                   onSetPhotoType={setPhotoType}
                   locked={committing}
-                  otherClusters={clusters
-                    .filter((c) => c.clusterId !== cluster.clusterId)
-                    .map((c) => ({ id: c.clusterId, label: clusterLabel(c.clusterId) }))}
-                  onMerge={(from) => applyMerge(cluster.clusterId, from)}
+                  clusterLabels={clusterLabels}
+                  onMerge={applyMerge}
                   linkTarget={linkTargets[cluster.clusterId] ?? null}
                   linkableItems={linkableItems}
                   linkableTruncated={linkableRead?.truncated ?? false}
-                  onLink={(t) =>
-                    setLinkTargets((prev) => {
-                      const next = { ...prev };
-                      if (t) next[cluster.clusterId] = t;
-                      else delete next[cluster.clusterId];
-                      return next;
-                    })
-                  }
+                  onLink={setLinkTarget}
                   suggestion={suggestions[cluster.clusterId] ?? null}
                   suggesting={suggestingId === cluster.clusterId}
-                  onSuggest={() => suggestForCluster(cluster.clusterId, cluster.photos)}
+                  onSuggest={onSuggest}
                 />
               ))}
               {!committing && <NewClusterDropZone />}
@@ -1074,7 +1125,7 @@ export function FlipdeskReconcilePage() {
   );
 }
 
-function ClusterCard({
+const ClusterCard = memo(function ClusterCard({
   clusterId,
   index,
   photos,
@@ -1082,7 +1133,7 @@ function ClusterCard({
   onToggleSelect,
   onSetPhotoType,
   locked,
-  otherClusters,
+  clusterLabels,
   onMerge,
   linkTarget,
   linkableItems,
@@ -1099,17 +1150,18 @@ function ClusterCard({
   onToggleSelect: (id: string) => void;
   onSetPhotoType: (id: string, t: FlipdeskPhotoType, role: string | null) => void;
   locked: boolean;
-  otherClusters: Array<{ id: string; label: string }>;
-  onMerge: (fromClusterId: string) => void;
+  clusterLabels: Array<{ id: string; label: string }>;
+  onMerge: (intoClusterId: string, fromClusterId: string) => void;
   linkTarget: LinkTarget | null;
   linkableItems: PhotolessItem[];
   linkableTruncated: boolean;
-  onLink: (t: LinkTarget | null) => void;
+  onLink: (clusterId: string, t: LinkTarget | null) => void;
   suggestion: ItemSuggestion | null;
   suggesting: boolean;
-  onSuggest: () => void;
+  onSuggest: (clusterId: string, photos: DumpPhoto[]) => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: clusterId, disabled: locked });
+  const otherClusters = clusterLabels.filter((c) => c.id !== clusterId);
   return (
     <Card
       ref={setNodeRef}
@@ -1137,10 +1189,10 @@ function ClusterCard({
               items={linkableItems}
               truncated={linkableTruncated}
               current={linkTarget}
-              onLink={onLink}
+              onLink={(t) => onLink(clusterId, t)}
               suggestion={suggestion}
               suggesting={suggesting}
-              onSuggest={onSuggest}
+              onSuggest={() => onSuggest(clusterId, photos)}
             />
             {otherClusters.length > 0 && (
               <DropdownMenu>
@@ -1153,7 +1205,7 @@ function ClusterCard({
                   <DropdownMenuLabel>Merge another item into this one</DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   {otherClusters.map((c) => (
-                    <DropdownMenuItem key={c.id} onClick={() => onMerge(c.id)}>
+                    <DropdownMenuItem key={c.id} onClick={() => onMerge(clusterId, c.id)}>
                       {c.label}
                     </DropdownMenuItem>
                   ))}
@@ -1174,7 +1226,7 @@ function ClusterCard({
       </CardContent>
     </Card>
   );
-}
+});
 
 function LinkPicker({
   items,
@@ -1386,8 +1438,8 @@ function ThumbGrid({
           key={p.id}
           photo={p}
           selected={selected.has(p.id)}
-          onToggleSelect={() => onToggleSelect(p.id)}
-          onSetPhotoType={(t, role) => onSetPhotoType(p.id, t, role)}
+          onToggleSelect={onToggleSelect}
+          onSetPhotoType={onSetPhotoType}
           editable={editable}
         />
       ))}
@@ -1395,7 +1447,9 @@ function ThumbGrid({
   );
 }
 
-function Thumb({
+// Memoised with id-taking handlers, so selecting one photo or retyping one
+// re-renders that thumb rather than every thumb on the board.
+const Thumb = memo(function Thumb({
   photo,
   selected,
   onToggleSelect,
@@ -1404,8 +1458,8 @@ function Thumb({
 }: {
   photo: DumpPhoto;
   selected: boolean;
-  onToggleSelect: () => void;
-  onSetPhotoType: (t: FlipdeskPhotoType, role: string | null) => void;
+  onToggleSelect: (id: string) => void;
+  onSetPhotoType: (id: string, t: FlipdeskPhotoType, role: string | null) => void;
   editable: boolean;
 }) {
   // US-2461: the reconcile board holds loose photos that have no item yet, so
@@ -1440,7 +1494,7 @@ function Thumb({
             <input
               type="checkbox"
               checked={selected}
-              onChange={onToggleSelect}
+              onChange={() => onToggleSelect(photo.id)}
               aria-label="Select photo"
               className="h-4 w-4 cursor-pointer accent-primary"
             />
@@ -1463,7 +1517,7 @@ function Thumb({
           photoType={photo.photoType}
           photoRole={photo.photoRole}
           profile={profile}
-          onChange={onSetPhotoType}
+          onChange={(t, role) => onSetPhotoType(photo.id, t, role)}
           disabled={!editable}
           ariaLabel="Photo type"
           className="h-auto w-full px-1 py-0.5 text-[10px]"
@@ -1471,7 +1525,7 @@ function Thumb({
       </div>
     </div>
   );
-}
+});
 
 function CommitResultsDialog({
   results,

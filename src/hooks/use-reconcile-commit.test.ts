@@ -18,7 +18,7 @@ const uploads: { path: string; body: unknown }[] = [];
 const removed: string[][] = [];
 let linkedRow: Record<string, unknown> | null = null;
 let existingPhotoTypes: string[] = [];
-let uploadFailsOn: (n: number) => boolean = () => false;
+let uploadFailsOn: (n: number, path: string) => boolean = () => false;
 let photoInsertError: unknown = null;
 let uploadCount = 0;
 
@@ -64,7 +64,7 @@ vi.mock("@/lib/supabase", () => ({
         upload: (path: string, body: unknown) => {
           uploadCount += 1;
           uploads.push({ path, body });
-          if (uploadFailsOn(uploadCount)) {
+          if (uploadFailsOn(uploadCount, path)) {
             return Promise.reject(new Error("network dropped"));
           }
           return Promise.resolve({ data: { path }, error: null });
@@ -215,13 +215,13 @@ describe("M3: the original file never reaches the public bucket", () => {
 });
 
 describe("M7: partial failures", () => {
-  // compressImage produces a main and a thumbnail upload per photo, so the
-  // Nth photo's main upload is upload number 2N-1.
+  // Uploads run four at a time, so a failure is keyed on the photo (the only
+  // "label" photo here) rather than on the order uploads happen in.
   const fivePhotos = () =>
     ["front", "back", "label", "detail", "detail"].map((t, i) => photo(`p${i + 1}`, t));
 
   it("counts a throwing photo against the cluster and keeps the item id", async () => {
-    uploadFailsOn = (n) => n === 5; // the 3rd photo's main upload
+    uploadFailsOn = (_n, path) => path.includes("/label_") && !path.includes("/thumbs/");
     const [r] = await commitClusters(
       [{ clusterId: "c1", label: "Item 3", linkItemId: null, photos: fivePhotos() }],
       OWNER,
@@ -350,5 +350,45 @@ describe("M8: retrying a partial commit", () => {
     );
     const close = calls.find((c) => c.table === "flipdesk_reconcile_sessions");
     expect(close?.payload).toEqual({ status: "committed" });
+  });
+});
+
+describe("M12: progress", () => {
+  it("reports every photo and item as it goes", async () => {
+    const seen: Array<{ photosDone: number; item: number }> = [];
+    await commitClusters(
+      [
+        { clusterId: "c1", label: "Item 1", linkItemId: null, photos: [photo("p1", "front"), photo("p2", "back")] },
+        { clusterId: "c2", label: "Item 2", linkItemId: null, photos: [photo("p3", "front")] },
+      ],
+      OWNER,
+      null,
+      { onProgress: (p) => seen.push({ photosDone: p.photosDone, item: p.item }) },
+    );
+    const last = seen[seen.length - 1]!;
+    expect(last).toEqual({ photosDone: 3, item: 2 });
+    expect(seen.some((p) => p.item === 1 && p.photosDone === 0)).toBe(true);
+  });
+
+  it("keeps sort_order from each photo's place in the group", async () => {
+    await commitClusters(
+      [
+        {
+          clusterId: "c1",
+          label: "Item 1",
+          linkItemId: null,
+          photos: ["front", "back", "label", "detail", "detail", "detail"].map((t, i) =>
+            photo(`p${i + 1}`, t),
+          ),
+        },
+      ],
+      OWNER,
+      null,
+    );
+    const orders = calls
+      .filter((c) => c.table === "item_photos" && c.op === "insert")
+      .map((c) => (c.payload as { sort_order: number }).sort_order)
+      .sort((a, b) => a - b);
+    expect(orders).toEqual([0, 1, 2, 3, 4, 5]);
   });
 });

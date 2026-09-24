@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import { toastWarning } from "@/lib/toast-error";
 import { compressImage } from "@/lib/image-utils";
 import { advanceItemStatus } from "@/lib/status-writer";
+import { runPool } from "@/lib/async-pool";
 import { REQUIRED_PHOTO_TYPES } from "@/lib/constants";
 import type { FlipdeskPhotoType, ItemStatus } from "@/types/database";
 
@@ -272,10 +273,23 @@ export async function resolveItemId(
  * item_photos (with photo_type, captured_at, reconcile_session_id), and advance
  * the item to `photographed` once the required photo set is present.
  */
+/** Photos uploaded at once within one item. */
+export const UPLOAD_CONCURRENCY = 4;
+
+/** Where a commit has got to, for "Saving 37 of 200 photos (item 6 of 24)". */
+export interface CommitProgress {
+  photosDone: number;
+  photosTotal: number;
+  /** 1-based index of the item being saved. */
+  item: number;
+  items: number;
+}
+
 async function commitCluster(
   cluster: CommitCluster,
   workspaceOwnerId: string,
   sessionId: string | null,
+  onPhotoDone: () => void = () => {},
 ): Promise<CommitResult> {
   let resolved: Awaited<ReturnType<typeof resolveItemId>>;
   try {
@@ -298,21 +312,37 @@ async function commitCluster(
   const savedPhotoIds: string[] = [];
   const savedTypes = new Set<string>();
   const reasons: string[] = [];
-  let sort = resolved.sortStart ?? 0;
-  for (const photo of cluster.photos) {
-    try {
-      const out = await uploadOnePhoto(itemId, workspaceOwnerId, sort, photo, sessionId);
-      if (out.saved) {
-        savedPhotoIds.push(photo.id);
-        savedTypes.add(photo.photoType);
-      } else {
-        reasons.push(out.detail);
+  const sortStart = resolved.sortStart ?? 0;
+  // Uploaded a few at a time; sort_order comes from the photo's place in the
+  // group, not from the order the uploads happen to finish.
+  const outcomes = await runPool(
+    cluster.photos,
+    UPLOAD_CONCURRENCY,
+    async (photo, idx): Promise<PhotoOutcome> => {
+      try {
+        return await uploadOnePhoto(
+          itemId,
+          workspaceOwnerId,
+          sortStart + idx,
+          photo,
+          sessionId,
+        );
+      } catch (err) {
+        return { saved: false, detail: err instanceof Error ? err.message : String(err) };
+      } finally {
+        onPhotoDone();
       }
-    } catch (err) {
-      reasons.push(err instanceof Error ? err.message : String(err));
+    },
+  );
+  outcomes.forEach((out, idx) => {
+    const photo = cluster.photos[idx]!;
+    if (out.saved) {
+      savedPhotoIds.push(photo.id);
+      savedTypes.add(photo.photoType);
+    } else {
+      reasons.push(out.detail);
     }
-    sort += 1;
-  }
+  });
   const saved = savedPhotoIds.length;
   const failed = total - saved;
 
@@ -402,11 +432,24 @@ export async function commitClusters(
     /** Photos are being left on the board (unsorted ones the seller chose not
      *  to save), so the session must stay open to bring them back. */
     keepSessionOpen?: boolean;
+    onProgress?: (p: CommitProgress) => void;
   } = {},
 ): Promise<CommitResult[]> {
   const results: CommitResult[] = [];
+  const photosTotal = clusters.reduce((n, c) => n + c.photos.length, 0);
+  let photosDone = 0;
+  let item = 0;
+  const report = () =>
+    opts.onProgress?.({ photosDone, photosTotal, item, items: clusters.length });
   for (const cluster of clusters) {
-    results.push(await commitCluster(cluster, workspaceOwnerId, sessionId));
+    item += 1;
+    report();
+    results.push(
+      await commitCluster(cluster, workspaceOwnerId, sessionId, () => {
+        photosDone += 1;
+        report();
+      }),
+    );
   }
   // US-1633: only mark the session committed when EVERY cluster fully succeeded
   // with no skipped photos. Previously any single ok cluster committed the whole
