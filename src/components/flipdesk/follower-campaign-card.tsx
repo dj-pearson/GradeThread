@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2953: the audience the seller already owns.
 //
@@ -50,6 +52,9 @@ export function FollowerCampaignCard() {
   const qc = useQueryClient();
   const confirm = useConfirm();
   const [sending, setSending] = useState<string | null>(null);
+  // MP-02: sending emails every follower and cannot be recalled; admin only.
+  const { can } = useWorkspace();
+  const canSend = can("manage_campaign");
 
   const { data, isLoading } = useQuery({
     queryKey: ["ebay_email_campaigns"],
@@ -155,7 +160,8 @@ export function FollowerCampaignCard() {
                   <Button
                     aria-label={`Send the campaign ${c.name || c.campaignId} to your followers`}
                     size="sm"
-                    disabled={send.isPending}
+                    disabled={send.isPending || !canSend}
+                    title={canSend ? undefined : roleNeededTitle("manage_campaign")}
                     onClick={() => confirmSend(c)}
                   >
                     {sending === c.campaignId ? (

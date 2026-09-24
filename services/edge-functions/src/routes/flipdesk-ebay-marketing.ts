@@ -53,6 +53,7 @@ import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
+import { refuseBelowRole } from "../lib/marketplace-admin-guard.ts";
 import {
   createAdForListing,
   ensureAdCampaign,
@@ -155,6 +156,9 @@ function parseItemPromotionInput(raw: unknown): ItemPromotionInput | { error: st
 }
 
 flipdeskEbayRoutes.post("/promotions", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "listing_manager");
+  if (roleRefused) return roleRefused;
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -183,6 +187,9 @@ flipdeskEbayRoutes.post("/promotions", async (c) => {
 });
 
 flipdeskEbayRoutes.put("/promotions/:promotionId", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "listing_manager");
+  if (roleRefused) return roleRefused;
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -213,6 +220,9 @@ flipdeskEbayRoutes.put("/promotions/:promotionId", async (c) => {
 });
 
 flipdeskEbayRoutes.delete("/promotions/:promotionId", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "listing_manager");
+  if (roleRefused) return roleRefused;
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -354,6 +364,9 @@ flipdeskEbayRoutes.post("/marketing/email-campaigns", async (c) => {
 
 // POST /marketing/email-campaigns/:id/send — the explicit human action.
 flipdeskEbayRoutes.post("/marketing/email-campaigns/:id/send", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "admin");
+  if (roleRefused) return roleRefused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
@@ -819,6 +832,9 @@ flipdeskEbayRoutes.get("/marketing/suggestions", async (c) => {
 // An already-in-that-state answer is success: a seller pressing Pause on a
 // paused campaign should see it paused, not a 502.
 flipdeskEbayRoutes.post("/marketing/campaign/:action", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "admin");
+  if (roleRefused) return roleRefused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
@@ -889,6 +905,9 @@ flipdeskEbayRoutes.post("/marketing/campaign/:action", async (c) => {
 // while rejecting half the batch, and reporting that as success is how a seller
 // comes to believe a hundred items are promoted when forty are not.
 flipdeskEbayRoutes.post("/marketing/ads/bulk", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "listing_manager");
+  if (roleRefused) return roleRefused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
@@ -1036,6 +1055,9 @@ flipdeskEbayRoutes.get("/marketing/keywords/suggestions", async (c) => {
 
 // POST /marketing/keywords — body { text, match_type?, bid_cents? }
 flipdeskEbayRoutes.post("/marketing/keywords", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "listing_manager");
+  if (roleRefused) return roleRefused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
@@ -1073,6 +1095,9 @@ flipdeskEbayRoutes.post("/marketing/keywords", async (c) => {
 
 // PATCH /marketing/keywords/:keywordId — body { bid_cents?, status? }
 flipdeskEbayRoutes.patch("/marketing/keywords/:keywordId", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "listing_manager");
+  if (roleRefused) return roleRefused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
@@ -1108,6 +1133,9 @@ flipdeskEbayRoutes.patch("/marketing/keywords/:keywordId", async (c) => {
 
 // POST /marketing/negative-keywords — body { text, match_type? }
 flipdeskEbayRoutes.post("/marketing/negative-keywords", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "listing_manager");
+  if (roleRefused) return roleRefused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }

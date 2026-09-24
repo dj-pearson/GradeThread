@@ -46,6 +46,7 @@ const { Hono } = await import("hono");
 const { flipdeskEbayRoutes: oauthRoutes } = await import("../routes/flipdesk-ebay-oauth.ts");
 const { flipdeskEbayRoutes: policyRoutes } = await import("../routes/flipdesk-ebay-policies.ts");
 const { flipdeskShopifyRoutes } = await import("../routes/flipdesk-shopify.ts");
+const { flipdeskEbayRoutes: marketingRoutes } = await import("../routes/flipdesk-ebay-marketing.ts");
 const { MARKETPLACE_ADMIN_ONLY } = await import("../lib/marketplace-admin-guard.ts");
 
 type Role = "viewer" | "member" | "listing_manager" | "admin" | "owner";
@@ -62,6 +63,7 @@ function appAs(role: Role) {
   app.route("/ebay", oauthRoutes);
   app.route("/ebay", policyRoutes);
   app.route("/shopify", flipdeskShopifyRoutes);
+  app.route("/ebay", marketingRoutes);
   return app;
 }
 
@@ -112,3 +114,43 @@ for (const role of ["admin", "owner"] as const) {
     }
   });
 }
+
+// ── MP-02: role floors on the money-moving marketing routes ──────────────
+const ADMIN_ONLY: Array<[string, string]> = [
+  ["POST", "/ebay/marketing/campaign/end"],
+  ["POST", "/ebay/marketing/email-campaigns/c1/send"],
+];
+const MANAGER_UP: Array<[string, string]> = [
+  ["POST", "/ebay/marketing/ads/bulk"],
+  ["POST", "/ebay/marketing/keywords"],
+  ["PATCH", "/ebay/marketing/keywords/k1"],
+  ["POST", "/ebay/marketing/negative-keywords"],
+  ["POST", "/ebay/promotions"],
+  ["PUT", "/ebay/promotions/p1"],
+  ["DELETE", "/ebay/promotions/p1"],
+];
+
+Deno.test("MP-02: a member gets 403 on campaign end, bulk ads and email send", async () => {
+  for (const [method, path] of [...ADMIN_ONLY, ...MANAGER_UP]) {
+    const r = await call("member", method, path);
+    assertEquals(r.status, 403, `member ${method} ${path}`);
+  }
+});
+
+Deno.test("MP-02: a listing_manager may run ads but not end the campaign or email followers", async () => {
+  for (const [method, path] of ADMIN_ONLY) {
+    const r = await call("listing_manager", method, path);
+    assertEquals(r.status, 403, `listing_manager ${method} ${path}`);
+  }
+  for (const [method, path] of MANAGER_UP) {
+    const r = await call("listing_manager", method, path);
+    assert(r.status !== 403, `listing_manager ${method} ${path} got 403`);
+  }
+});
+
+Deno.test("MP-02: an admin passes every marketing role floor", async () => {
+  for (const [method, path] of [...ADMIN_ONLY, ...MANAGER_UP]) {
+    const r = await call("admin", method, path);
+    assert(r.status !== 403, `admin ${method} ${path} got 403`);
+  }
+});

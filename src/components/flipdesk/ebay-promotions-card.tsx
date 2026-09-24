@@ -25,6 +25,8 @@ import {
   useEbayPromotions,
 } from "@/hooks/use-ebay";
 import { EbayPromotionDialog } from "@/components/flipdesk/ebay-promotion-dialog";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-1448 (chunk 1): surface the seller's eBay Promotions Manager item promotions
 // (order/volume discounts, coupons, sale events). Self-gates on connection.
@@ -61,6 +63,10 @@ export function EbayPromotionsCard() {
   const connected = !!connection;
   const { data, isLoading } = useEbayPromotions(connected);
   const del = useDeleteItemPromotion();
+  // MP-02: create, edit and end need listing_manager on the edge.
+  const { can } = useWorkspace();
+  const canAds = can("manage_ads");
+  const adsTitle = canAds ? undefined : roleNeededTitle("manage_ads");
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -96,7 +102,7 @@ export function EbayPromotionsCard() {
                 eBay Promotions Manager.
               </CardDescription>
             </div>
-            <Button size="sm" onClick={openCreate}>
+            <Button size="sm" onClick={openCreate} disabled={!canAds} title={adsTitle}>
               <Plus className="mr-1 h-4 w-4" />
               New
             </Button>
@@ -136,6 +142,8 @@ export function EbayPromotionsCard() {
                           <Button
                             size="sm"
                             variant="ghost"
+                            disabled={!canAds}
+                            title={adsTitle}
                             onClick={() => openEdit(p.promotionId)}
                             aria-label={`Edit ${p.name ?? typeLabel(p.promotionType)}`}
                           >
@@ -146,6 +154,8 @@ export function EbayPromotionsCard() {
                             variant="ghost"
                             className="text-destructive hover:text-destructive"
                             aria-label={`End ${p.name ?? typeLabel(p.promotionType)}`}
+                            disabled={!canAds}
+                            title={adsTitle}
                             onClick={() =>
                               setConfirmEnd({
                                 id: p.promotionId,

@@ -8,6 +8,8 @@ export type WorkspaceCapability =
   | "manage_inventory"
   | "delete_inventory"
   | "manage_marketplaces"
+  | "manage_ads"
+  | "manage_campaign"
   | "manage_api_keys"
   | "manage_members"
   | "manage_billing"
@@ -28,6 +30,9 @@ const CAPABILITY_MIN_ROLE: Record<WorkspaceCapability, WorkspaceRole> = {
   manage_inventory: "listing_manager",
   delete_inventory: "admin",
   manage_marketplaces: "admin",
+  // MP-02: mirror the edge floors on the eBay marketing routes.
+  manage_ads: "listing_manager",
+  manage_campaign: "admin",
   manage_api_keys: "admin",
   manage_members: "admin",
   manage_billing: "owner",
@@ -46,6 +51,11 @@ export function roleAtLeast(role: WorkspaceRole, min: WorkspaceRole): boolean {
 export function canDo(role: WorkspaceRole | null | undefined, cap: WorkspaceCapability): boolean {
   if (!role) return false;
   return roleAtLeast(role, CAPABILITY_MIN_ROLE[cap]);
+}
+
+/** MP-02: the tooltip on a control withheld from the current role. */
+export function roleNeededTitle(cap: WorkspaceCapability): string {
+  return `Needs ${WORKSPACE_ROLE_LABEL[CAPABILITY_MIN_ROLE[cap]]} access or higher.`;
 }
 
 export const WORKSPACE_ROLE_LABEL: Record<WorkspaceRole, string> = {

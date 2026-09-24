@@ -16,6 +16,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2945: keywords for Promoted Listings Advanced.
 //
@@ -63,6 +65,10 @@ export function EbayKeywordsCard() {
   const qc = useQueryClient();
   const [newKeyword, setNewKeyword] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
+  // MP-02: keyword writes need listing_manager on the edge.
+  const { can } = useWorkspace();
+  const canAds = can("manage_ads");
+  const adsTitle = canAds ? undefined : roleNeededTitle("manage_ads");
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["ebay_keywords"],
@@ -178,7 +184,8 @@ export function EbayKeywordsCard() {
                     aria-label={`Stop bidding on ${cand.term}`}
                     size="sm"
                     variant="outline"
-                    disabled={block.isPending}
+                    disabled={block.isPending || !canAds}
+                    title={adsTitle}
                     onClick={() => block.mutate({ text: cand.term })}
                   >
                     <Ban className="mr-1 h-3.5 w-3.5" />
@@ -205,7 +212,8 @@ export function EbayKeywordsCard() {
             />
             <Button
               size="sm"
-              disabled={!newKeyword.trim() || addKeyword.isPending}
+              disabled={!newKeyword.trim() || addKeyword.isPending || !canAds}
+              title={adsTitle}
               onClick={() => addKeyword.mutate({ text: newKeyword.trim() })}
             >
               {addKeyword.isPending ? (

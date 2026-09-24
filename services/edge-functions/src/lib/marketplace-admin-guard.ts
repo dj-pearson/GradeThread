@@ -36,3 +36,27 @@ export async function refuseMarketplaceChange(
   }
   return await refuseWhileImpersonating(c, action);
 }
+
+const ROLE_WORDS: Record<WorkspaceRole, string> = {
+  viewer: "viewer",
+  member: "member",
+  listing_manager: "listing manager",
+  admin: "admin",
+  owner: "owner",
+};
+
+/**
+ * MP-02: a role floor for the eBay marketing routes that spend or end
+ * something on the owner's account. Returns a 403 below `min`, or null.
+ */
+export function refuseBelowRole(
+  c: GuardableContext,
+  role: WorkspaceRole | undefined,
+  min: WorkspaceRole,
+): Response | null {
+  if (roleAtLeast(role ?? "owner", min)) return null;
+  return c.json(
+    { error: `Only a workspace ${ROLE_WORDS[min]} or above can do this.` },
+    403,
+  );
+}

@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2946 + US-2947: eBay's own promotion suggestions, and the campaign
 // controls a seller had to go to Seller Hub for.
@@ -51,6 +53,10 @@ function money(cents: number | null | undefined): string {
 export function EbayCampaignCard() {
   const qc = useQueryClient();
   const confirm = useConfirm();
+  // MP-02: pause, resume and end are admin-only on the edge.
+  const { can } = useWorkspace();
+  const canCampaign = can("manage_campaign");
+  const campaignTitle = canCampaign ? undefined : roleNeededTitle("manage_campaign");
 
   const { data, isLoading } = useQuery({
     queryKey: ["ebay_marketing_suggestions"],
@@ -116,7 +122,8 @@ export function EbayCampaignCard() {
               size="sm"
               variant="ghost"
               className="h-7 text-xs font-normal"
-              disabled={act.isPending}
+              disabled={act.isPending || !canCampaign}
+              title={campaignTitle}
               onClick={() => act.mutate({ action: "pause" })}
             >
               <Pause className="mr-1 h-3.5 w-3.5" />
@@ -126,7 +133,8 @@ export function EbayCampaignCard() {
               size="sm"
               variant="ghost"
               className="h-7 text-xs font-normal"
-              disabled={act.isPending}
+              disabled={act.isPending || !canCampaign}
+              title={campaignTitle}
               onClick={() => act.mutate({ action: "resume" })}
             >
               <Play className="mr-1 h-3.5 w-3.5" />
@@ -136,7 +144,8 @@ export function EbayCampaignCard() {
               size="sm"
               variant="ghost"
               className="h-7 text-xs font-normal"
-              disabled={act.isPending}
+              disabled={act.isPending || !canCampaign}
+              title={campaignTitle}
               onClick={end}
             >
               <Square className="mr-1 h-3.5 w-3.5" />

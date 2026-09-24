@@ -3923,6 +3923,30 @@ Deno.test({
   },
 });
 
+// MP-02: ending the campaign, bidding on listings and emailing every follower
+// spend or end something on the owner's eBay account. The member and
+// listing_manager halves are driven in marketplace-admin-guard_test.ts.
+Deno.test({
+  name: "MP-02: viewer cannot end the campaign, bulk-promote or send a follower email",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const cases: Array<[string, string]> = [
+      ["POST", "/api/flipdesk/ebay/marketing/campaign/end"],
+      ["POST", "/api/flipdesk/ebay/marketing/ads/bulk"],
+      ["POST", "/api/flipdesk/ebay/marketing/email-campaigns/00000000-0000-0000-0000-000000000000/send"],
+    ];
+    for (const [method, path] of cases) {
+      const res = await fetch(`${BASE}${path}`, {
+        method,
+        headers: viewerHeaders(),
+        body: JSON.stringify({ listing_ids: [], bid_percentage: 5 }),
+      });
+      await res.body?.cancel();
+      assertDenied(res.status, `${method} ${path} as viewer`);
+    }
+  },
+});
+
 // DASH-2: the extension queue now runs workspaceMiddleware. Before it did, a
 // member's X-Workspace-Owner was ignored (they saw their own queue on the
 // owner's board) and the viewer floor could not see the role at all.
