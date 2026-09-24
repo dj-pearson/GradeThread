@@ -12,6 +12,8 @@ export interface SnapValue {
   confidence: number;
   sufficient: boolean;
   currency: string;
+  /** SNAP-09: the eBay category the comps were drawn from, when resolved. */
+  category_name?: string | null;
 }
 
 export interface SnapResult {
@@ -20,6 +22,12 @@ export interface SnapResult {
     grade_tier: string;
     confidence: number;
     factor_scores: Record<string, number>;
+    /** SNAP-09: the grade fell under the human-review bar or had a cap applied. */
+    needs_review?: boolean;
+    /** SNAP-09: which confidence caps fired (codes only). */
+    caps_applied?: string[];
+    /** SNAP-09 / US-1836: the photo looks like a screenshot (boolean only). */
+    screenshot_detected?: boolean;
   };
   value: SnapValue | null;
   // US-952: best-effort AI-detected garment type/category from the snap photo,

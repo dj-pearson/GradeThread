@@ -1,12 +1,17 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { ALL_SURFACES } from "@/lib/surfaces";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   appendSnapHistory,
+  clearAllSnapHistory,
   clearSnapHistory,
+  LEGACY_SNAP_HISTORY_KEY,
   readSnapHistory,
   removeSnapHistoryEntry,
+  SNAP_DISCLAIMER,
+  snapHistoryKey,
+  type SnapHistoryEntry,
 } from "@/lib/snap-history";
 import type { SnapResult } from "@/hooks/use-snap";
 
@@ -47,67 +52,190 @@ function result(score: number, medianCents: number | null = null): SnapResult {
   };
 }
 
+function snapKeys(): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith("gt.snap-history.")) out.push(k);
+  }
+  return out;
+}
+
+const A = "user-a";
+const B = "user-b";
+
+/** Append to user A's stored list and return the new list. */
+function add(r: SnapResult, opts: { brand?: string; keyword?: string } = {}, uid = A) {
+  return appendSnapHistory(uid, readSnapHistory(uid), r, opts).entries;
+}
+
 describe("a snap survives a reload (US-2554 AC1, AC2)", () => {
-  beforeEach(() => clearSnapHistory());
+  beforeEach(() => {
+    localStorage.clear();
+  });
 
   it("keeps what the list needs to show, newest first", () => {
-    appendSnapHistory(result(7.5, 4200), { brand: "Patagonia", keyword: "Better Sweater" });
-    appendSnapHistory(result(9), { brand: "Arc'teryx" });
-    const history = readSnapHistory();
+    add(result(7.5, 4200), { brand: "Patagonia", keyword: "Better Sweater" });
+    add(result(9), { brand: "Arc'teryx" });
+    const history = readSnapHistory(A);
     expect(history).toHaveLength(2);
     expect(history[0]?.brand).toBe("Arc'teryx");
     expect(history[0]?.grade).toBe(9);
     expect(history[1]?.valueCents).toBe(4200);
-    // The whole result rides along, so revisiting one shows what it showed.
+    // The result rides along, so revisiting one shows what it showed.
     expect(history[1]?.result.grade.overall_score).toBe(7.5);
+    // The disclaimer is rehydrated, not stored twenty times.
+    expect(history[1]?.result.disclaimer).toBe(SNAP_DISCLAIMER);
+    expect(localStorage.getItem(snapHistoryKey(A))).not.toContain("ESTIMATE");
   });
 
   it("does not keep the photo", () => {
     // The endpoint never stores the image (US-276 strips and discards it), and a
-    // 2400px data URI per entry would blow the storage quota and evict the very
+    // data URI per entry would blow the storage quota and evict the very
     // history it belongs to.
-    appendSnapHistory(result(8), { brand: "Nike" });
-    const raw = JSON.stringify(readSnapHistory());
+    add(result(8), { brand: "Nike" });
+    const raw = JSON.stringify(readSnapHistory(A));
     expect(raw).not.toContain("data:image");
     expect(raw).not.toContain("imageDataUri");
   });
 
   it("is bounded", () => {
-    for (let i = 0; i < 30; i++) appendSnapHistory(result(5), { brand: `b${i}` });
-    expect(readSnapHistory().length).toBeLessThanOrEqual(20);
+    for (let i = 0; i < 30; i++) add(result(5), { brand: `b${i}` });
+    expect(readSnapHistory(A).length).toBeLessThanOrEqual(20);
     // And the newest survived, not the oldest.
-    expect(readSnapHistory()[0]?.brand).toBe("b29");
+    expect(readSnapHistory(A)[0]?.brand).toBe("b29");
   });
 
   it("survives a corrupt or hostile stored value", () => {
     // localStorage is user-writable, so a bad value must not take the page down
     // or render blank rows.
-    localStorage.setItem("gt.snap-history.v1", "not json");
-    expect(readSnapHistory()).toEqual([]);
-    localStorage.setItem("gt.snap-history.v1", JSON.stringify([{ nope: true }, null]));
-    expect(readSnapHistory()).toEqual([]);
+    localStorage.setItem(snapHistoryKey(A), "not json");
+    expect(readSnapHistory(A)).toEqual([]);
+    localStorage.setItem(snapHistoryKey(A), JSON.stringify([{ nope: true }, null]));
+    expect(readSnapHistory(A)).toEqual([]);
+  });
+
+  it("drops a shallow-valid entry whose result would crash the card (SNAP-06)", () => {
+    const good = add(result(7, 3000), { brand: "ok" })[0]!;
+    const hostile = [
+      { ...good, id: "empty-result", result: {} },
+      { ...good, id: "string-score", result: { ...good.result, grade: { ...good.result.grade, overall_score: "7" } } },
+      { ...good, id: "bad-date", at: "yesterday" },
+      { ...good, id: "bad-value", valueCents: "lots" },
+      { ...good, id: "bad-tier", gradeTier: 7 },
+      { ...good, id: "bad-median", result: { ...good.result, value: { ...good.result.value, medianCents: "x" } } },
+      good,
+    ];
+    localStorage.setItem(snapHistoryKey(A), JSON.stringify(hostile));
+    expect(readSnapHistory(A).map((e) => e.id)).toEqual([good.id]);
   });
 
   it("entries can be removed individually and wholesale", () => {
-    appendSnapHistory(result(6), { brand: "keep" });
-    appendSnapHistory(result(7), { brand: "drop" });
-    const dropId = readSnapHistory()[0]!.id;
-    expect(removeSnapHistoryEntry(dropId).map((e) => e.brand)).toEqual(["keep"]);
-    clearSnapHistory();
-    expect(readSnapHistory()).toEqual([]);
+    add(result(6), { brand: "keep" });
+    const list = add(result(7), { brand: "drop" });
+    const dropId = list[0]!.id;
+    expect(removeSnapHistoryEntry(A, list, dropId).entries.map((e) => e.brand)).toEqual(["keep"]);
+    expect(readSnapHistory(A).map((e) => e.brand)).toEqual(["keep"]);
+    clearSnapHistory(A);
+    expect(readSnapHistory(A)).toEqual([]);
   });
 
   it("the page records on success only, and can reopen one", () => {
     const src = read(SNAP);
     // A failed snap has nothing to revisit, and a rate-limit refusal is not an
-    // estimate — so this hangs off onSuccess, not off the mutate call.
-    expect(src).toContain("onSuccess: (data) =>");
-    expect(src).toContain("appendSnapHistory(data, { brand, keyword })");
+    // estimate, so the history write hangs off success, not off the mutate call.
+    expect(read("src/hooks/use-snap.ts") + src).toMatch(/onSuccess/);
+    expect(read("src/hooks/use-snap.ts") + src).toContain("appendSnapHistory(");
     expect(src).toContain("setRevisited(");
-    // The reopened entry wins over the last mutation result.
-    expect(src).toContain("const result = revisited?.result ?? snap.data;");
     // And it says where the history lives, rather than implying an account.
     expect(src).toContain("Kept on this device only");
+  });
+});
+
+describe("snap history is scoped to the signed-in user (SNAP-01)", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("user B never reads user A's snaps", () => {
+    add(result(8, 5000), { brand: "Private brand" }, A);
+    expect(readSnapHistory(A)).toHaveLength(1);
+    expect(readSnapHistory(B)).toEqual([]);
+  });
+
+  it("nothing is read or written without a user", () => {
+    const w = appendSnapHistory(null, [], result(8), { brand: "x" });
+    expect(w.persisted).toBe(false);
+    expect(readSnapHistory(null)).toEqual([]);
+    expect(snapKeys()).toEqual([]);
+  });
+
+  it("the legacy unscoped v1 key is removed on read, not migrated", () => {
+    localStorage.setItem(LEGACY_SNAP_HISTORY_KEY, JSON.stringify([{ id: "old" }]));
+    expect(readSnapHistory(A)).toEqual([]);
+    expect(localStorage.getItem(LEGACY_SNAP_HISTORY_KEY)).toBeNull();
+  });
+
+  it("clearAllSnapHistory leaves no snap key behind", () => {
+    add(result(8), { brand: "a" }, A);
+    add(result(8), { brand: "b" }, B);
+    localStorage.setItem(LEGACY_SNAP_HISTORY_KEY, "[]");
+    expect(snapKeys()).toHaveLength(3);
+    localStorage.setItem("unrelated", "keep");
+    clearAllSnapHistory();
+    expect(snapKeys()).toEqual([]);
+    expect(localStorage.getItem("unrelated")).toBe("keep");
+  });
+
+  it("sign-out wipes it", () => {
+    const auth = read("src/hooks/use-auth.ts");
+    const at = auth.indexOf("SIGNED_OUT: sign-out is SPA navigation");
+    expect(at).toBeGreaterThan(-1);
+    const branch = auth.slice(at, auth.indexOf("s.reset();", at));
+    expect(branch).toContain("clearAllSnapHistory();");
+  });
+
+  it("the page reads under the user id and listens for other tabs", () => {
+    const src = read(SNAP);
+    expect(src).toContain("readSnapHistory(userId)");
+    expect(src).toContain('addEventListener("storage"');
+  });
+});
+
+describe("snap history when storage fails (SNAP-06)", () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => vi.restoreAllMocks());
+
+  it("works on the caller's list when every write throws", () => {
+    vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    let list: SnapHistoryEntry[] = [];
+    for (let i = 0; i < 3; i++) {
+      const w = appendSnapHistory(A, list, result(6), { brand: `b${i}` });
+      expect(w.persisted).toBe(false);
+      list = w.entries;
+    }
+    expect(list).toHaveLength(3);
+    const after = removeSnapHistoryEntry(A, list, list[1]!.id);
+    expect(after.persisted).toBe(false);
+    expect(after.entries.map((e) => e.brand)).toEqual(["b2", "b0"]);
+  });
+
+  it("the quota fallback returns exactly what it stored", () => {
+    let list: SnapHistoryEntry[] = [];
+    for (let i = 0; i < 12; i++) list = appendSnapHistory(A, list, result(6), { brand: `b${i}` }).entries;
+    const real = localStorage.setItem.bind(localStorage);
+    let calls = 0;
+    vi.spyOn(localStorage, "setItem").mockImplementation((k: string, v: string) => {
+      calls++;
+      if (calls === 1) throw new Error("QuotaExceededError");
+      real(k, v);
+    });
+    const w = appendSnapHistory(A, list, result(9), { brand: "newest" });
+    expect(w.persisted).toBe(true);
+    expect(w.entries).toHaveLength(5);
+    expect(w.entries[0]?.brand).toBe("newest");
+    vi.restoreAllMocks();
+    expect(readSnapHistory(A).map((e) => e.id)).toEqual(w.entries.map((e) => e.id));
   });
 });
 

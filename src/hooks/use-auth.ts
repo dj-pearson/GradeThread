@@ -11,6 +11,7 @@ import { sendWelcomeEmailOnce } from "@/lib/welcome-email";
 import { confirmSignupConsentOnce } from "@/lib/signup-consent";
 import { initIdleLogout, clearIdleActivity } from "@/lib/idle-logout";
 import { removeAutolisterLocalStorage } from "@/lib/autolister-session-idb";
+import { clearAllSnapHistory } from "@/lib/snap-history";
 import type {
   UserRow,
   WorkspaceMemberRow,
@@ -261,6 +262,9 @@ function initAuth() {
       useInventorySelection.getState().clear();
       // Nor may their dashboard layout mirror paint first for the next user.
       clearLayoutMirrors();
+      // SNAP-01: nor their Snap-to-Value history (brands, grades, values),
+      // which lives in this browser's storage under their user id.
+      clearAllSnapHistory();
       // AL-03: nor their AutoLister session. The session id, staged grid and
       // the original files queued for resume all live in this browser, and the
       // next user would otherwise rehydrate the grid and re-upload the files

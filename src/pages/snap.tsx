@@ -21,8 +21,12 @@ import {
   clearSnapHistory,
   readSnapHistory,
   removeSnapHistoryEntry,
+  snapHistoryKey,
+  writeSnapHistory,
   type SnapHistoryEntry,
+  type SnapHistoryWrite,
 } from "@/lib/snap-history";
+import { useAuth } from "@/hooks/use-auth";
 import { PageHelp } from "@/components/help/page-help";
 
 function dollars(cents: number | null): string {
@@ -45,11 +49,47 @@ export function SnapToValuePage() {
   // US-2554: a snap survives a reload now. `revisited` is an entry the seller
   // opened from the list; it takes precedence so the result card shows what
   // they asked to see rather than the last thing they graded.
-  const [history, setHistory] = useState<SnapHistoryEntry[]>([]);
+  //
+  // SNAP-01: the history belongs to the signed-in user. It is read under their
+  // id, re-read when the id changes, and kept in step with other tabs.
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const [historyOwner, setHistoryOwner] = useState(userId);
+  const [history, setHistory] = useState<SnapHistoryEntry[]>(() => readSnapHistory(userId));
   const [revisited, setRevisited] = useState<SnapHistoryEntry | null>(null);
+  if (historyOwner !== userId) {
+    setHistoryOwner(userId);
+    setHistory(readSnapHistory(userId));
+    setRevisited(null);
+  }
+  const historyRef = useRef(history);
+  historyRef.current = history;
   useEffect(() => {
-    setHistory(readSnapHistory());
-  }, []);
+    if (!userId) return;
+    const key = snapHistoryKey(userId);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === null || e.key === key) setHistory(readSnapHistory(userId));
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [userId]);
+
+  // SNAP-06: every write reports whether it reached storage. The list on screen
+  // is the caller's either way; the seller is told when it will not survive.
+  function commitHistory(w: SnapHistoryWrite) {
+    setHistory(w.entries);
+    if (!w.persisted) toast.warning("Couldn't save to this device");
+  }
+
+  function removeWithUndo(w: SnapHistoryWrite, previous: SnapHistoryEntry[], message: string) {
+    commitHistory(w);
+    toast(message, {
+      action: {
+        label: "Undo",
+        onClick: () => commitHistory(writeSnapHistory(userId, previous)),
+      },
+    });
+  }
   const result = revisited?.result ?? snap.data;
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -82,7 +122,7 @@ export function SnapToValuePage() {
         // Recorded on SUCCESS only: a failed snap has nothing to revisit, and
         // a rate-limit refusal is not an estimate.
         onSuccess: (data) =>
-          setHistory(appendSnapHistory(data, { brand, keyword })),
+          commitHistory(appendSnapHistory(userId, historyRef.current, data, { brand, keyword })),
       },
     );
   }
@@ -246,8 +286,8 @@ export function SnapToValuePage() {
               variant="ghost"
               size="sm"
               onClick={() => {
-                clearSnapHistory();
-                setHistory([]);
+                const previous = history;
+                removeWithUndo(clearSnapHistory(userId), previous, "Snap history cleared");
                 setRevisited(null);
               }}
             >
@@ -293,7 +333,11 @@ export function SnapToValuePage() {
                       size="icon"
                       aria-label={`Remove ${label} from your snap history`}
                       onClick={() => {
-                        setHistory(removeSnapHistoryEntry(entry.id));
+                        removeWithUndo(
+                          removeSnapHistoryEntry(userId, history, entry.id),
+                          history,
+                          "Snap removed",
+                        );
                         if (open) setRevisited(null);
                       }}
                     >
