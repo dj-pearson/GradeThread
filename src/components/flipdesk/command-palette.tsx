@@ -165,7 +165,9 @@ export function CommandPalette() {
       setSubsFailed(false);
       // US-1053: refresh recent searches each time the palette opens.
       // US-2517: shared with the Search page rather than duplicated.
-      void fetchRecentSearches(8).then(setRecentSearches);
+      void fetchRecentSearches(8).then((rows) =>
+        setRecentSearches(rows.map((r) => r.query)),
+      );
     }
   }, [open]);
 
@@ -568,15 +570,15 @@ export function CommandPalette() {
     if (entry.kind === "action") {
       entry.run();
     } else if (entry.kind === "item") {
-      recordSearch(query);
+      void recordSearch(query);
       setOpen(false);
       navigate(`/dashboard/flipdesk/items/${entry.item.id}`);
     } else if (entry.kind === "submission") {
-      recordSearch(query);
+      void recordSearch(query);
       setOpen(false);
       navigate(`/dashboard/submissions/${entry.sub.id}`);
     } else if (entry.kind === "deep") {
-      recordSearch(query);
+      void recordSearch(query);
       setOpen(false);
       // F4: the item itself (or its listing/sale tab), not /items?focus=,
       // which redirected to an unfiltered Inventory that never read `focus`.

@@ -17,7 +17,11 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
-import { fetchRecentSearches, recordSearch } from "@/lib/recent-searches";
+import {
+  fetchRecentSearches,
+  recordSearch,
+  type RecentSearch,
+} from "@/lib/recent-searches";
 import { useFlipdeskSearch } from "@/hooks/use-flipdesk-search";
 import { SnippetText } from "@/components/flipdesk/snippet-text";
 import {
@@ -56,7 +60,7 @@ export function FlipdeskSearchPage() {
   );
   // US-2517: recent terms, offered when the field is empty — the same RLS-scoped
   // history the command palette and iOS GlobalSearchView already show.
-  const [recent, setRecent] = useState<string[]>([]);
+  const [recent, setRecent] = useState<RecentSearch[]>([]);
   // US-2517: keyboard cursor over the result list. The rows have advertised a
   // return-key affordance since day one without the key doing anything.
   const [activeIdx, setActiveIdx] = useState(0);
@@ -150,7 +154,7 @@ export function FlipdeskSearchPage() {
   }, [results]);
 
   function openHit(hit: MappedHit, term: string) {
-    recordSearch(term, scope);
+    void recordSearch(term, { scope });
     void navigate(hit.link);
   }
 
@@ -255,7 +259,7 @@ export function FlipdeskSearchPage() {
               Recent searches
             </p>
             <ul className="divide-y rounded-md border">
-              {recent.map((term) => (
+              {recent.map(({ query: term }) => (
                 <li key={term}>
                   <button
                     type="button"
@@ -313,7 +317,7 @@ export function FlipdeskSearchPage() {
               <li key={hit.key} id={`search-hit-${i}`} role="option" aria-selected={i === activeIdx}>
                 <Link
                   to={hit.link}
-                  onClick={() => recordSearch(normalizeQuery(input), scope)}
+                  onClick={() => void recordSearch(normalizeQuery(input), { scope })}
                   className={`group flex items-start gap-3 px-3 py-3 hover:bg-muted/60 ${
                     i === activeIdx ? "bg-muted/60" : ""
                   }`}

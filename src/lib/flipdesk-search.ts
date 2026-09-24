@@ -161,3 +161,30 @@ export function mapHits(rows: SearchHit[] | null | undefined): MappedHit[] {
 export function searchArgsKey(args: SearchArgs | null): string {
   return args ? `${args.p_scope}|${args.p_limit}|${args.p_query}` : "";
 }
+
+/** "3m ago", "5h ago", "2d ago", or a short date past a week (F7). */
+export function formatRecentAge(iso: string, now: number = Date.now()): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const mins = Math.max(0, Math.round((now - t) / 60_000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days <= 7) return `${days}d ago`;
+  return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/**
+ * A remembered result count for display. A capped search is stored as
+ * limit + 1, so it reads "50+" rather than claiming exactly fifty.
+ */
+export function formatRecentCount(
+  n: number | null,
+  limit: number = DEFAULT_LIMIT,
+): string | null {
+  if (n == null) return null;
+  if (n > limit) return `${limit}+ results`;
+  return `${n} result${n === 1 ? "" : "s"}`;
+}
