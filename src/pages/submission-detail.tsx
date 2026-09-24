@@ -9,7 +9,6 @@ import {
   Flag,
   Clock,
   Loader2,
-  Upload,
   Package,
   Camera,
   Tag,
@@ -94,6 +93,13 @@ import { ShowcaseConsentPanel } from "@/components/showcase/showcase-consent-pan
 import { RepairTriagePanel } from "@/components/grade/repair-triage-panel";
 import { DetectedIssues } from "@/components/grade/detected-issues";
 import { DISPUTE_KIND_LABEL } from "@/lib/dispute-kind";
+import { DisputeEvidencePicker } from "@/components/grade/dispute-evidence-picker";
+import {
+  prepareEvidence,
+  EVIDENCE_MAX_WIDTH,
+  EVIDENCE_QUALITY,
+} from "@/lib/dispute-evidence";
+import { compressImage } from "@/lib/image-utils";
 import { GarmentPassportPanel } from "@/components/passport/garment-passport-panel";
 import { CertShareActions } from "@/components/certificate/cert-share-actions";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
@@ -139,7 +145,7 @@ function formatLabel(value: string): string {
 // than expected" (with a support link). Normal grades finish well under this.
 // US-1437: read a File as a base64 data URI so dispute evidence can be POSTed to
 // the server-side validation endpoint (which sniffs + strips it before storage).
-function fileToDataUrl(file: File): Promise<string> {
+function fileToDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
@@ -316,6 +322,7 @@ export function SubmissionDetailPage() {
   const [disputeCategory, setDisputeCategory] = useState("");
   const [disputeReason, setDisputeReason] = useState("");
   const [disputePhotos, setDisputePhotos] = useState<File[]>([]);
+  const [evidenceTooLarge, setEvidenceTooLarge] = useState(false);
   const [submittingDispute, setSubmittingDispute] = useState(false);
 
   // Tracks the currently-rendered submission id so an in-flight refetch bound to
@@ -872,10 +879,19 @@ export function SubmissionDetailPage() {
       // (US-276), and a WORKSPACE MEMBER can file at all — the old client-side
       // disputes.insert + storage.upload were keyed to the workspace owner's id
       // and so failed the auth.uid()=user_id RLS for a non-owner member.
-      const images: string[] = [];
-      for (const photo of disputePhotos) {
-        if (photo) images.push(await fileToDataUrl(photo));
+      // SUB-10: shrink each photo before encoding, and refuse a body the edge
+      // would answer 413 (nothing filed) before sending it.
+      const prepared = await prepareEvidence(
+        disputePhotos,
+        async (file) =>
+          (await compressImage(file, EVIDENCE_MAX_WIDTH, EVIDENCE_QUALITY)).blob,
+        fileToDataUrl,
+      );
+      if (prepared.overBudget) {
+        setEvidenceTooLarge(true);
+        return;
       }
+      const images = prepared.images;
 
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
@@ -1128,55 +1144,19 @@ export function SubmissionDetailPage() {
                   </div>
                   <div className="space-y-2">
                     <Label>Additional evidence (optional)</Label>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          const input = document.createElement("input");
-                          input.type = "file";
-                          input.accept = "image/jpeg,image/png,image/webp";
-                          input.multiple = true;
-                          input.onchange = (e) => {
-                            const files = (e.target as HTMLInputElement).files;
-                            if (files) {
-                              setDisputePhotos((prev) => [
-                                ...prev,
-                                ...Array.from(files),
-                              ]);
-                            }
-                          };
-                          input.click();
-                        }}
-                      >
-                        <Upload className="mr-1 h-4 w-4" />
-                        Upload Photos
-                      </Button>
-                      {disputePhotos.length > 0 && (
-                        <span className="text-sm text-muted-foreground">
-                          {disputePhotos.length} photo
-                          {disputePhotos.length !== 1 ? "s" : ""} selected
-                        </span>
-                      )}
-                    </div>
-                    {disputePhotos.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {disputePhotos.map((photo, i) => (
-                          <Badge
-                            key={i}
-                            variant="secondary"
-                            className="cursor-pointer"
-                            onClick={() =>
-                              setDisputePhotos((prev) =>
-                                prev.filter((_, idx) => idx !== i)
-                              )
-                            }
-                          >
-                            {photo.name} &times;
-                          </Badge>
-                        ))}
-                      </div>
+                    <DisputeEvidencePicker
+                      photos={disputePhotos}
+                      disabled={submittingDispute}
+                      onChange={(next) => {
+                        setEvidenceTooLarge(false);
+                        setDisputePhotos(next);
+                      }}
+                    />
+                    {evidenceTooLarge && (
+                      <p role="alert" className="text-sm text-brand-red-text">
+                        These photos are too large to send together. Remove one
+                        or two and try again.
+                      </p>
                     )}
                   </div>
                 </div>
