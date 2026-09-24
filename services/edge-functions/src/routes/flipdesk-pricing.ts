@@ -36,6 +36,10 @@ import {
 } from "../lib/grade-band-pricing.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import {
+  lastAutomatedPriceChangeByListing,
+  listingsInAutomationMarkdown,
+} from "../lib/automated-price-guard.ts";
+import {
   type PricingOutcome,
   registerRepricer,
   type RepriceApplyResult,
@@ -886,6 +890,8 @@ interface RuleListingRow {
     ebay_category_id: string | null;
     /** US-3192: seller's hard floor on the garment. Null when none is set. */
     floor_price: number | null;
+    /** The seller opted this garment out of every automation. */
+    exclude_from_automations: boolean | null;
   };
 }
 
@@ -920,7 +926,7 @@ async function touchRules(ids: string[]): Promise<void> {
  * rule wins per listing (≤ 1 action/listing/run). Every change is logged to
  * repricing_actions.
  */
-async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
+export async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
   const result: RuleRunResult = {
     rules_evaluated: 0,
     listings_scanned: 0,
@@ -952,13 +958,15 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
     .from("listings")
     .select(
       "id, inventory_item_id, listing_price, price_set_by, listed_at, platform_offer_id, platform_listing_id, platform_category_id, platform_fields, " +
-        "inventory_items!inner(user_id, brand, ebay_category_id, floor_price)",
+        "inventory_items!inner(user_id, brand, ebay_category_id, floor_price, exclude_from_automations)",
     )
     .eq("platform", "ebay")
     .eq("listing_status", "active")
     .eq("inventory_items.user_id", ownerId)
     .limit(CRON_SCAN_LIMIT);
-  const listings = (listingRows ?? []) as unknown as RuleListingRow[];
+  // A garment the seller opted out of automations is out of these rules too.
+  const listings = ((listingRows ?? []) as unknown as RuleListingRow[])
+    .filter((l) => l.inventory_items.exclude_from_automations !== true);
   result.listings_scanned = listings.length;
   if (listings.length === 0) {
     await touchRules(rules.map((r) => r.id));
@@ -966,19 +974,16 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
   }
   const listingIds = listings.map((l) => l.id);
 
-  // Latest action per listing (interval anchor).
-  const { data: actionRows } = await supabaseAdmin
-    .from("repricing_actions")
-    .select("listing_id, created_at")
-    .eq("user_id", ownerId)
-    .in("listing_id", listingIds)
-    .order("created_at", { ascending: false });
-  const lastActionByListing = new Map<string, string>();
-  for (const a of (actionRows ?? []) as Array<{ listing_id: string; created_at: string }>) {
-    if (!lastActionByListing.has(a.listing_id)) {
-      lastActionByListing.set(a.listing_id, a.created_at);
-    }
-  }
+  // Interval anchor: the newest AUTOMATED price change from either engine, so
+  // a repricing rule and an Automations price drop cannot stack cuts on one
+  // garment. A seller's own Apply (rule_id null) is not an anchor; a hand-set
+  // price is protected by price_set_by instead.
+  const lastActionByListing = await lastAutomatedPriceChangeByListing(ownerId, listingIds);
+  // Listings the Automations markdown sale covers, read only when sale-event
+  // mode could need it.
+  const onOtherEngineSale = useSaleEvents
+    ? await listingsInAutomationMarkdown(ownerId)
+    : new Set<string>();
 
   // Pending comp suggestions (for auto-accept).
   const { data: sugRows } = await supabaseAdmin
@@ -1058,11 +1063,16 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
     // the base price untouched (markdown is an overlay). Only when the toggle is
     // on, the listing is live on eBay, and it doesn't already have a Sale.
     const alreadyOnSale = typeof listing.platform_fields?.markdown_promotion_id ===
-      "string";
+        "string" || onOtherEngineSale.has(listing.id);
+    // A listing already under a sale from either engine is left alone. Cutting
+    // its base price as well would stack a second discount under the first.
+    if (useSaleEvents && alreadyOnSale) {
+      result.skipped++;
+      continue;
+    }
     const saleMode = useSaleEvents &&
       pricingEbay.isEbayConfigured() &&
-      Boolean(listing.platform_listing_id) &&
-      !alreadyOnSale;
+      Boolean(listing.platform_listing_id);
 
     if (saleMode) {
       try {

@@ -22,6 +22,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -139,7 +140,9 @@ function describeTrigger(t: AutomationTrigger): string {
 function describeAction(a: AutomationAction): string {
   switch (a.type) {
     case "price_drop_pct":
-      return `drop price ${a.pct}% (floor: cost +${a.margin_floor_pct}%)`;
+      return `drop price ${a.pct}% (floor: cost +${a.margin_floor_pct}%)${
+        a.override_manual ? ", may move hand-set prices" : ", skips hand-set prices"
+      }`;
     case "set_promo_rate_pct":
       return `set promo rate to ${a.pct}%`;
     case "create_coded_coupon":
@@ -372,6 +375,12 @@ function RuleDialog({
         : 10,
     ),
   );
+  // Off by default, like the repricing rules (US-9205): a price the seller
+  // typed is theirs.
+  const [overrideManual, setOverrideManual] = useState(
+    initial?.action_json.type === "price_drop_pct" &&
+      initial.action_json.override_manual === true,
+  );
   // ── US-2156 per-shape inputs ──────────────────────────────────
   const [minViolations, setMinViolations] = useState(
     String(
@@ -526,6 +535,7 @@ function RuleDialog({
           type: actionType,
           pct,
           margin_floor_pct: Math.max(0, Math.trunc(Number(marginFloorPct) || 0)),
+          override_manual: overrideManual,
         };
       case "set_promo_rate_pct":
         return { type: actionType, pct };
@@ -957,6 +967,21 @@ function RuleDialog({
                   aria-label="Margin floor percent"
                 />
                 % margin
+              </div>
+            )}
+            {actionType === "price_drop_pct" && (
+              <div className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  id="automation-override-manual"
+                  checked={overrideManual}
+                  onCheckedChange={(v) => setOverrideManual(v === true)}
+                />
+                <div>
+                  <Label htmlFor="automation-override-manual">May move prices I set by hand</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Off means the rule skips any listing whose price you typed over the graded price.
+                  </p>
+                </div>
               </div>
             )}
             {actionType === "set_promo_rate_pct" && (

@@ -52,6 +52,11 @@ import { writeSystemAuditLog } from "../lib/audit-log.ts";
 import { selectMarkdownItems } from "../lib/markdown-rules.ts";
 import { loadMarkdownCandidates } from "../lib/markdown-candidates.ts";
 import {
+  AUTOMATION_PRICE_ACTION_TYPES,
+  automatedCooldownPassed,
+  lastAutomatedPriceChangeByListing,
+} from "../lib/automated-price-guard.ts";
+import {
   createMarkdownSale,
   getItemPromotions,
   updateMarkdownSale,
@@ -139,6 +144,8 @@ interface AutomationListingRow {
   listing_description?: string | null;
   platform_fields?: Record<string, unknown> | null;
   listing_price: number;
+  /** Who set the current price; "seller" is protected from price drops by default. */
+  price_set_by?: string | null;
   listed_at: string;
   watchers: number | null;
   views: number | null;
@@ -287,7 +294,7 @@ async function loadOwnerListings(
   const { data, error } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, inventory_item_id, listing_price, listed_at, watchers, views, last_metrics_synced_at, platform_offer_id, platform_listing_id, promo_rate_pct, " +
+      "id, inventory_item_id, listing_price, price_set_by, listed_at, watchers, views, last_metrics_synced_at, platform_offer_id, platform_listing_id, promo_rate_pct, " +
         "compliance_violation_count, price_range_low_cents, price_range_high_cents, draft_id, marketplace_connection_id, " +
         "inventory_items!inner(user_id, title, brand, size, item_category, garment_category, acquired_price, target_price, floor_price, status, grade_value, updated_at, exclude_from_automations, sources(name))",
     )
@@ -587,20 +594,35 @@ async function loadOwnerFacts(
   return bundle;
 }
 
-/** Latest action timestamp per "<ruleId>:<listingId>" — the cooldown anchor. */
+/**
+ * Latest action timestamp per "<ruleId>:<listingId>" — the cooldown anchor.
+ *
+ * Bounded by the rules being run and by the longest cooldown among them, not by
+ * a row count. A flat limit of 2000 newest rows dropped the anchor for any
+ * listing whose last action fell past row 2000, and that listing then read as
+ * cooled down and was cut again.
+ */
 async function loadLastActionMap(
   ownerId: string,
   listingIds: string[],
+  rules: AutomationRuleRow[],
+  now: Date = new Date(),
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>();
-  if (listingIds.length === 0) return map;
+  if (listingIds.length === 0 || rules.length === 0) return map;
+  const maxCooldown = Math.max(
+    1,
+    ...rules.map((r) => Number(r.trigger_json?.cooldown_days) || 0),
+  );
+  const since = new Date(now.getTime() - maxCooldown * 86_400_000).toISOString();
   const { data } = await supabaseAdmin
     .from("flipdesk_automation_actions")
     .select("rule_id, listing_id, created_at")
     .eq("user_id", ownerId)
+    .in("rule_id", rules.map((r) => r.id))
     .in("listing_id", listingIds)
-    .order("created_at", { ascending: false })
-    .limit(2000);
+    .gte("created_at", since)
+    .order("created_at", { ascending: false });
   for (
     const a of (data ?? []) as Array<
       { rule_id: string; listing_id: string | null; created_at: string }
@@ -679,7 +701,7 @@ function describeMatch(
  * action per listing per run, so stacked rules can't compound markdowns in a
  * single pass. Returns the planned matches; applies nothing.
  */
-async function evaluateRules(
+export async function evaluateRules(
   ownerId: string,
   rules: AutomationRuleRow[],
   listings: AutomationListingRow[],
@@ -698,14 +720,18 @@ async function evaluateRules(
   if (rules.length === 0 || listings.length === 0) return matches;
   const listingIds = listings.map((l) => l.id);
   const lookbackDays = maxViewWindowDays(rules);
-  const [lastAction, viewWindows, bundle] = await Promise.all([
-    loadLastActionMap(ownerId, listingIds),
+  const now = new Date();
+  const [lastAction, lastAutomatedPrice, viewWindows, bundle] = await Promise.all([
+    loadLastActionMap(ownerId, listingIds, rules, now),
+    // The other engine's cuts count too, so two tabs cannot stack markdowns.
+    rules.some((r) => AUTOMATION_PRICE_ACTION_TYPES.includes(r.action_json.type))
+      ? lastAutomatedPriceChangeByListing(ownerId, listingIds)
+      : Promise.resolve(new Map<string, string>()),
     lookbackDays > 0
       ? loadViewWindows(ownerId, listingIds, lookbackDays)
       : Promise.resolve(new Map<string, ViewWindow[]>()),
     loadOwnerFacts(ownerId, rules, listings),
   ]);
-  const now = new Date();
   for (const listing of listings) {
     if (listing.inventory_items.exclude_from_automations) continue;
     const facts = listingFacts(listing, viewWindows, bundle);
@@ -719,8 +745,19 @@ async function evaluateRules(
           now,
         )
       ) continue;
+      // A price change waits out this rule's cooldown against the newest
+      // automated price change from EITHER engine, not just its own.
+      if (
+        AUTOMATION_PRICE_ACTION_TYPES.includes(rule.action_json.type) &&
+        !automatedCooldownPassed(
+          lastAutomatedPrice.get(listing.id),
+          rule.trigger_json.cooldown_days,
+          now,
+        )
+      ) continue;
       const planned = planAction(rule.action_json, {
         currentCents: Math.round(listing.listing_price * 100),
+        priceSetBy: listing.price_set_by ?? null,
         costBasisDollars: listing.inventory_items.acquired_price,
         // US-3192: composed with the rule's margin floor as the higher of the two.
         itemFloorCents:
@@ -834,7 +871,7 @@ async function applyMatch(
     }
     const { error } = await supabaseAdmin
       .from("listings")
-      .update({ listing_price: newDollars, price_is_estimated: false })
+      .update({ listing_price: newDollars, price_is_estimated: false, price_set_by: "rule" })
       .eq("id", listing.id);
     if (error) return false;
     before = { price_cents: currentCents };

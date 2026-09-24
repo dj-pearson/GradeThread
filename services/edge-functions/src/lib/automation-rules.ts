@@ -146,7 +146,17 @@ export type AutomationTrigger =
   };
 
 export type AutomationAction =
-  | { type: "price_drop_pct"; pct: number; margin_floor_pct: number }
+  | {
+    type: "price_drop_pct";
+    pct: number;
+    margin_floor_pct: number;
+    /**
+     * May this rule cut a price the seller typed by hand (price_set_by
+     * 'seller')? Default false, the same default the repricing rules use
+     * (US-9205). Absent on rules saved before it existed, which reads as false.
+     */
+    override_manual?: boolean;
+  }
   | { type: "set_promo_rate_pct"; pct: number }
   // US-1448: create a CODED_COUPON item promotion for the aged listing (the
   // "auto-coupon items >90 days" merchandising lever). The coupon code is
@@ -458,7 +468,14 @@ function normalizeAction(raw: unknown): AutomationAction | { error: string } {
         return { error: `Price drop must be between 1 and ${MAX_PRICE_DROP_PCT}%` };
       }
       const floor = nonNegInt(a.margin_floor_pct, DEFAULT_MARGIN_FLOOR_PCT)!;
-      return { type: "price_drop_pct", pct, margin_floor_pct: floor };
+      return {
+        type: "price_drop_pct",
+        pct,
+        margin_floor_pct: floor,
+        // Written only when on, so a rule saved before it existed still
+        // normalizes to exactly what was stored (US-2156 AC6).
+        ...(a.override_manual === true ? { override_manual: true } : {}),
+      };
     }
     case "set_promo_rate_pct": {
       const pct = typeof a.pct === "number" && Number.isFinite(a.pct) ? a.pct : 0;
@@ -897,6 +914,12 @@ export interface PlanInput {
    * whichever bites first. Null means the seller set none.
    */
   itemFloorCents?: number | null;
+  /**
+   * Who set the listing's current price (listings.price_set_by). "seller" is a
+   * price typed by hand, which a price drop leaves alone unless the rule says
+   * override_manual.
+   */
+  priceSetBy?: string | null;
   currentPromoRatePct: number | null;
   // ── US-2156 ─────────────────────────────────────────────────
   /** The item's current pipeline status — advance_status no-ops when equal. */
@@ -926,6 +949,7 @@ export function planAction(
   switch (action.type) {
     case "price_drop_pct": {
       if (i.currentCents <= 0) return null;
+      if (i.priceSetBy === "seller" && action.override_manual !== true) return null;
       const marginFloor = computeFloorCents(i.costBasisDollars, action.margin_floor_pct);
       const floor = effectiveFloorCents(marginFloor, i.itemFloorCents ?? null);
       const dropped = Math.floor(i.currentCents * (1 - action.pct / 100));

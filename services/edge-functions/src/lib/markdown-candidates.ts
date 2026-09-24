@@ -10,6 +10,12 @@
 import { supabaseAdmin } from "./supabase.ts";
 import type { MarkdownCandidate } from "./markdown-rules.ts";
 
+interface CandidateItem {
+  acquired_price: number | null;
+  floor_price: number | null;
+  exclude_from_automations: boolean | null;
+}
+
 /** Bound on one pass. A seller past this gets the oldest listings first. */
 export const MARKDOWN_SCAN_CAP = 1000;
 
@@ -21,7 +27,7 @@ export async function loadMarkdownCandidates(
     .from("listings")
     .select(
       "id, listing_title, listing_price, listed_at, inventory_item_id, " +
-        "inventory_items!inner(user_id, acquired_price)",
+        "inventory_items!inner(user_id, acquired_price, floor_price, exclude_from_automations)",
     )
     .eq("user_id", ownerId)
     .eq("platform", "ebay")
@@ -33,17 +39,19 @@ export async function loadMarkdownCandidates(
     console.error("[markdown-candidates] load failed:", error.message);
     return [];
   }
-  const rows = (data ?? []) as unknown as Array<{
+  const allRows = (data ?? []) as unknown as Array<{
     id: string;
     listing_title: string | null;
     listing_price: number | null;
     listed_at: string | null;
     inventory_item_id: string | null;
-    inventory_items:
-      | { acquired_price: number | null }
-      | { acquired_price: number | null }[]
-      | null;
+    inventory_items: CandidateItem | CandidateItem[] | null;
   }>;
+  const itemOf = (r: (typeof allRows)[number]): CandidateItem | null | undefined =>
+    Array.isArray(r.inventory_items) ? r.inventory_items[0] : r.inventory_items;
+  // A seller who opted a garment out of automations meant every automation,
+  // the markdown sale included.
+  const rows = allRows.filter((r) => itemOf(r)?.exclude_from_automations !== true);
   if (rows.length === 0) return [];
 
   // The grade, for the minimum-grade floor. One bulk read through the grading
@@ -98,7 +106,7 @@ export async function loadMarkdownCandidates(
   }
 
   return rows.map((r) => {
-    const inv = Array.isArray(r.inventory_items) ? r.inventory_items[0] : r.inventory_items;
+    const inv = itemOf(r);
     const listedAt = r.listed_at ? Date.parse(r.listed_at) : Number.NaN;
     return {
       listingId: r.id,
@@ -111,6 +119,9 @@ export async function loadMarkdownCandidates(
         ? Math.floor((nowMs - listedAt) / 86_400_000)
         : null,
       grade: r.inventory_item_id ? (gradeByItem.get(r.inventory_item_id) ?? null) : null,
+      itemFloorCents: typeof inv?.floor_price === "number" && Number.isFinite(inv.floor_price)
+        ? Math.round(inv.floor_price * 100)
+        : null,
     };
   });
 }
