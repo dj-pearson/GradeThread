@@ -59,8 +59,8 @@ import { EbayListingHealthCard } from "@/components/flipdesk/ebay-listing-health
 import { InventoryEquityCard } from "@/components/flipdesk/inventory-equity-card";
 import {
   fetchReturnReduction,
-  gradedReturnAdvantage,
-  lowVsHighBandMultiplier,
+  bandReturnFinding,
+  gradedReturnFinding,
   MIN_RETURN_SAMPLE,
   type ReturnStat,
 } from "@/lib/flipdesk-returns-analytics";
@@ -1181,8 +1181,17 @@ function ReturnReductionReport() {
     bands: [],
   };
 
-  const advantage = gradedReturnAdvantage(summary);
-  const lowVsHigh = lowVsHighBandMultiplier(summary);
+  // A4: tagged, so a zero return rate reads as the best case rather than as
+  // "not enough sales", and the sample line shows only when that is true.
+  const graded = gradedReturnFinding(summary);
+  const bands = bandReturnFinding(summary);
+  const bandFinding = bands?.finding ?? null;
+  const headlined = [graded?.kind, bandFinding?.kind].some(
+    (k) => k === "multiplier" || k === "zero",
+  );
+  const insufficient =
+    !headlined &&
+    (graded?.kind === "insufficient" || bandFinding?.kind === "insufficient");
   const highBand = summary.bands.find((b) => b.key === "high");
 
   function exportCsv() {
@@ -1246,34 +1255,57 @@ function ReturnReductionReport() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {lowVsHigh ? (
+              {bands && bandFinding?.kind === "multiplier" ? (
                 <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
                   Items{" "}
-                  <span className="font-medium">{lowVsHigh.low.label}</span>{" "}
+                  <span className="font-medium">{bands.low.label}</span>{" "}
                   come back{" "}
                   <span className="font-bold text-destructive">
-                    {lowVsHigh.multiplier.toFixed(1)}× more often
+                    {bandFinding.n.toFixed(1)}× more often
                   </span>{" "}
                   than your{" "}
-                  <span className="font-medium">{lowVsHigh.high.label}</span>{" "}
-                  items ({pct(lowVsHigh.low.returnRate)} vs{" "}
-                  {pct(lowVsHigh.high.returnRate)}).
+                  <span className="font-medium">{bands.high.label}</span>{" "}
+                  items ({pct(bands.low.returnRate)} vs{" "}
+                  {pct(bands.high.returnRate)}).
                 </p>
               ) : null}
-              {advantage ? (
+              {bands && bandFinding?.kind === "zero" ? (
+                <p className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+                  <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                    None of your {bandFinding.sample} items{" "}
+                    {bands.high.label.toLowerCase()} came back
+                  </span>
+                  , vs {pct(bandFinding.otherRate)} of items{" "}
+                  {bands.low.label.toLowerCase()}.
+                </p>
+              ) : null}
+              {graded?.kind === "multiplier" ? (
                 <p className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
                   Your graded items return{" "}
                   <span className="font-bold text-emerald-700 dark:text-emerald-300">
-                    {advantage.toFixed(1)}× less often
+                    {graded.n.toFixed(1)}× less often
                   </span>{" "}
                   than ungraded ({pct(summary.graded.returnRate)} vs{" "}
                   {pct(summary.ungraded.returnRate)}).
                 </p>
               ) : null}
-              {!lowVsHigh && !advantage ? (
+              {graded?.kind === "zero" ? (
+                <p className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+                  <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                    None of your {graded.sample} graded sales came back
+                  </span>
+                  , vs {pct(graded.otherRate)} of ungraded.
+                </p>
+              ) : null}
+              {insufficient ? (
                 <p className="py-2 text-center text-sm text-muted-foreground">
                   Not enough shipped sales yet to call a reliable difference —
                   need {MIN_RETURN_SAMPLE}+ on each side you&apos;re comparing.
+                </p>
+              ) : !headlined ? (
+                <p className="py-2 text-center text-sm text-muted-foreground">
+                  Your return rates don&apos;t differ by grade in a way we can
+                  call yet.
                 </p>
               ) : null}
             </CardContent>
