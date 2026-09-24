@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ban, Loader2, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { useEbayKeywords, useEbayKeywordSuggestions } from "@/hooks/use-ebay";
 import { roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2945: keywords for Promoted Listings Advanced.
@@ -72,28 +73,10 @@ export function EbayKeywordsCard() {
   const canAds = can("manage_ads");
   const adsTitle = canAds ? undefined : roleNeededTitle("manage_ads");
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["ebay_keywords"],
-    staleTime: 5 * 60_000,
-    queryFn: async (): Promise<KeywordsResponse> => {
-      const res = await edgeFetch("/api/flipdesk/ebay/marketing/keywords");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load your eBay keywords.");
-      return json as KeywordsResponse;
-    },
-  });
-
-  const { data: suggestions } = useQuery({
-    queryKey: ["ebay_keyword_suggestions"],
-    enabled: showSuggestions,
-    staleTime: 30 * 60_000,
-    queryFn: async (): Promise<{ suggestions: string[] }> => {
-      const res = await edgeFetch("/api/flipdesk/ebay/marketing/keywords/suggestions");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load suggestions.");
-      return json as { suggestions: string[] };
-    },
-  });
+  const { data, isLoading, isError } = useEbayKeywords<KeywordsResponse>();
+  const { data: suggestions } = useEbayKeywordSuggestions<{ suggestions: string[] }>(
+    showSuggestions,
+  );
 
   const addKeyword = useMutation<unknown, Error, { text: string }>({
     mutationFn: async ({ text }) => {

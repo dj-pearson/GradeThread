@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Mail, Send } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { useEbayEmailCampaigns } from "@/hooks/use-ebay";
 import { roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2953: the audience the seller already owns.
@@ -56,16 +57,7 @@ export function FollowerCampaignCard() {
   const { can } = useWorkspace();
   const canSend = can("manage_campaign");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["ebay_email_campaigns"],
-    staleTime: 10 * 60_000,
-    queryFn: async (): Promise<CampaignsResponse> => {
-      const res = await edgeFetch("/api/flipdesk/ebay/marketing/email-campaigns");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load your eBay campaigns.");
-      return json as CampaignsResponse;
-    },
-  });
+  const { data, isLoading } = useEbayEmailCampaigns<CampaignsResponse>();
 
   const send = useMutation<unknown, Error, { campaignId: string }>({
     mutationFn: async ({ campaignId }) => {

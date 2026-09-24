@@ -7,6 +7,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import { sendExtensionMessage } from "@/lib/lister-extension";
 
@@ -67,9 +68,11 @@ export interface SyncReview {
 }
 
 export function useSyncStatus(enabled = true) {
+  // MP-05: tenant-keyed (US-1933).
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["sold_sync_status"],
-    enabled,
+    queryKey: ["sold_sync_status", tenantKey],
+    enabled: enabled && !!tenantKey,
     staleTime: 60 * 1000,
     queryFn: async (): Promise<SyncChannel[]> => {
       const res = await edgeFetch("/api/flipdesk/sync/status");
@@ -81,9 +84,10 @@ export function useSyncStatus(enabled = true) {
 }
 
 export function useSyncReviews(enabled = true) {
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["sold_sync_reviews"],
-    enabled,
+    queryKey: ["sold_sync_reviews", tenantKey],
+    enabled: enabled && !!tenantKey,
     staleTime: 60 * 1000,
     queryFn: async (): Promise<SyncReview[]> => {
       const res = await edgeFetch("/api/flipdesk/sync/reviews");
@@ -344,9 +348,10 @@ export interface PollState {
 }
 
 export function usePollState(enabled = true) {
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["sold_sync_poll_state"],
-    enabled,
+    queryKey: ["sold_sync_poll_state", tenantKey],
+    enabled: enabled && !!tenantKey,
     staleTime: 30 * 1000,
     queryFn: async (): Promise<PollState | null> => {
       const res = await sendExtensionMessage<{ ok?: boolean; state?: PollState }>({
@@ -419,9 +424,10 @@ export interface ClaimCandidate {
 }
 
 export function useClaimCandidates(platform: string | null) {
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["sold_sync_claim_candidates", platform],
-    enabled: Boolean(platform),
+    queryKey: ["sold_sync_claim_candidates", tenantKey, platform],
+    enabled: Boolean(platform) && !!tenantKey,
     staleTime: 60 * 1000,
     queryFn: async (): Promise<ClaimCandidate[]> => {
       const res = await edgeFetch(

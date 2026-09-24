@@ -7,6 +7,8 @@ import { supabase } from "@/lib/supabase";
 import { removeStored, writeStored } from "@/lib/safe-storage";
 import { useAuth } from "@/hooks/use-auth";
 import { useAuthStore } from "@/stores/auth-store";
+import { queryClient } from "@/lib/query-client";
+import { useInventorySelection } from "@/stores/inventory-selection";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -116,6 +118,12 @@ export function AcceptInvitePage() {
     removeStored(PENDING_INVITE_KEY, "session");
     toast.success("You've joined the workspace");
     if (ownerId && user) {
+      // MP-05: joining switches the workspace, so it drops cached server data
+      // and the inventory selection first, exactly as switchWorkspace does.
+      // Without this, Cancel or Dismiss on a cached row could fire the previous
+      // tenant's ids inside the new workspace.
+      queryClient.clear();
+      useInventorySelection.getState().clear();
       setActiveWorkspaceOwnerId(ownerId);
       // US-3376: checked. Joining succeeded either way, but this write is what
       // makes the switch STICK. Dropped, local state moved to the new workspace

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // US-3197: Universal Import's linking half, from the browser.
 //
@@ -43,8 +44,11 @@ const BASE = "/api/flipdesk/import/link";
 
 /** The matches waiting on a human. Empty is the good state, not an error. */
 export function useLinkReviews(status: LinkReview["status"] = "pending") {
+  // MP-05: tenant-keyed (US-1933).
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["cross_channel_link_reviews", status],
+    queryKey: ["cross_channel_link_reviews", tenantKey, status],
+    enabled: !!tenantKey,
     queryFn: async (): Promise<LinkReview[]> => {
       const res = await edgeFetch(`${BASE}/reviews?status=${status}`);
       if (!res.ok) throw new Error("Could not load the matches waiting for you.");

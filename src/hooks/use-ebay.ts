@@ -6,6 +6,7 @@ import { getFreshAccessToken } from "@/lib/auth-token";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
 import { useTenantKey } from "@/hooks/use-tenant-key";
+import { edgeFetch } from "@/lib/edge-fetch";
 // US-2170: the score shape the /listings/validate response already carries. The
 // component file owns it because that is where it is rendered; the edge's
 // lib/listing-quality-score.ts is the authority for how it is COMPUTED.
@@ -2697,9 +2698,11 @@ export interface PromotedOverview {
 }
 
 export function useEbayPromotedOverview(enabled = true) {
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["ebay_promoted_overview"],
-    enabled,
+    // MP-05: tenant-keyed (US-1933).
+    queryKey: ["ebay_promoted_overview", tenantKey],
+    enabled: enabled && !!tenantKey,
     queryFn: async (): Promise<PromotedOverview> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/marketing/promoted/overview`,
@@ -3786,4 +3789,86 @@ export function useOfferAnalytics(days = 180, enabled = true) {
       return json as OfferAnalytics;
     },
   });
+}
+
+// ── MP-05: the Ads-tab card reads, tenant-keyed ─────────────────────
+//
+// These lived inline in the cards with keys like ["ebay_keywords"], which
+// broke the US-1933 rule: after a workspace switch the previous tenant's
+// campaign, keywords and follower list could be served from cache. The key is
+// [name, tenant] so a prefix invalidate of [name] still reaches it. The
+// response types stay with the cards that render them.
+
+function useEdgeJson<T>(
+  name: string,
+  path: string,
+  fallbackError: string,
+  opts: { enabled?: boolean; staleTime?: number } = {},
+) {
+  const tenantKey = useTenantKey();
+  return useQuery({
+    queryKey: [name, tenantKey],
+    enabled: !!tenantKey && (opts.enabled ?? true),
+    staleTime: opts.staleTime,
+    queryFn: async (): Promise<T> => {
+      const res = await edgeFetch(path);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((json as { error?: string }).error || fallbackError);
+      return json as T;
+    },
+  });
+}
+
+export function useEbayMarketingSuggestions<T>() {
+  return useEdgeJson<T>(
+    "ebay_marketing_suggestions",
+    "/api/flipdesk/ebay/marketing/suggestions",
+    "Couldn't load eBay's suggestions.",
+    { staleTime: 30 * 60_000 },
+  );
+}
+
+export function useEbayKeywords<T>() {
+  return useEdgeJson<T>(
+    "ebay_keywords",
+    "/api/flipdesk/ebay/marketing/keywords",
+    "Couldn't load your eBay keywords.",
+    { staleTime: 5 * 60_000 },
+  );
+}
+
+export function useEbayKeywordSuggestions<T>(enabled: boolean) {
+  return useEdgeJson<T>(
+    "ebay_keyword_suggestions",
+    "/api/flipdesk/ebay/marketing/keywords/suggestions",
+    "Couldn't load suggestions.",
+    { enabled, staleTime: 30 * 60_000 },
+  );
+}
+
+export function useEbayEmailCampaigns<T>() {
+  return useEdgeJson<T>(
+    "ebay_email_campaigns",
+    "/api/flipdesk/ebay/marketing/email-campaigns",
+    "Couldn't load your eBay campaigns.",
+    { staleTime: 10 * 60_000 },
+  );
+}
+
+export function useEbayPromotionPerformance<T>() {
+  return useEdgeJson<T>(
+    "ebay_promotion_performance",
+    "/api/flipdesk/ebay/promotions/performance",
+    "Couldn't work out how your promotions did.",
+    { staleTime: 10 * 60_000 },
+  );
+}
+
+export function useEbayStackCheck<T>() {
+  return useEdgeJson<T>(
+    "ebay_stack_check",
+    "/api/flipdesk/ebay/promotions/stack-check",
+    "Couldn't check your discounts.",
+    { staleTime: 10 * 60_000 },
+  );
 }

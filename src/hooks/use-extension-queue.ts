@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // US-2481: extension work queued from one device, run on the desktop.
 //
@@ -147,9 +148,12 @@ export function groupQueue(items: readonly ExtensionQueueItem[]): QueueGroup[] {
 }
 
 export function useExtensionQueue(enabled = true) {
+  // MP-05: tenant-keyed (US-1933). A prefix invalidate of ["extension_queue"]
+  // still reaches it.
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["extension_queue"],
-    enabled,
+    queryKey: ["extension_queue", tenantKey],
+    enabled: enabled && !!tenantKey,
     staleTime: 60 * 1000,
     queryFn: async (): Promise<QueueResponse> => {
       const res = await edgeFetch("/api/flipdesk/extension-queue");

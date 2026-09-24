@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, BarChart3, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -12,7 +12,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { useEbayPromotions } from "@/hooks/use-ebay";
+import {
+  useEbayPromotionPerformance,
+  useEbayPromotions,
+  useEbayStackCheck,
+} from "@/hooks/use-ebay";
 import { promotionPerformanceHasContent } from "@/components/flipdesk/promotion-performance";
 
 // US-2949 + US-2951: did the sale sell more, and can the discounts stack below
@@ -91,27 +95,8 @@ function liftText(v: number | null): string {
 export function PromotionPerformanceCard() {
   const qc = useQueryClient();
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["ebay_promotion_performance"],
-    staleTime: 10 * 60_000,
-    queryFn: async (): Promise<{ promotions: PromotionRow[] }> => {
-      const res = await edgeFetch("/api/flipdesk/ebay/promotions/performance");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't work out how your promotions did.");
-      return json as { promotions: PromotionRow[] };
-    },
-  });
-
-  const { data: stack } = useQuery({
-    queryKey: ["ebay_stack_check"],
-    staleTime: 10 * 60_000,
-    queryFn: async (): Promise<StackReport> => {
-      const res = await edgeFetch("/api/flipdesk/ebay/promotions/stack-check");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't check your discounts.");
-      return json as StackReport;
-    },
-  });
+  const { data, isLoading } = useEbayPromotionPerformance<{ promotions: PromotionRow[] }>();
+  const { data: stack } = useEbayStackCheck<StackReport>();
 
   const sync = useMutation<{ stored: number }, Error, void>({
     mutationFn: async () => {

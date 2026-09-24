@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Megaphone, Pause, Play, Square } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { useEbayMarketingSuggestions } from "@/hooks/use-ebay";
 import { roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2946 + US-2947: eBay's own promotion suggestions, and the campaign
@@ -61,16 +62,7 @@ export function EbayCampaignCard() {
   const canCampaign = can("manage_campaign");
   const campaignTitle = canCampaign ? undefined : roleNeededTitle("manage_campaign");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["ebay_marketing_suggestions"],
-    staleTime: 30 * 60_000,
-    queryFn: async (): Promise<SuggestionsResponse> => {
-      const res = await edgeFetch("/api/flipdesk/ebay/marketing/suggestions");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load eBay's suggestions.");
-      return json as SuggestionsResponse;
-    },
-  });
+  const { data, isLoading } = useEbayMarketingSuggestions<SuggestionsResponse>();
 
   const act = useMutation<unknown, Error, { action: "start" | "pause" | "resume" | "end" }>({
     mutationFn: async ({ action }) => {
