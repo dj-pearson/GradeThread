@@ -392,18 +392,19 @@ rewardsRoutes.get("/leaderboard", async (c) => {
       });
     }
 
-    const tz = await loadSeasonTimezone();
+    const [tz, cohort] = await Promise.all([loadSeasonTimezone(), loadCohort()]);
     const window = boardWindow(period, Date.now(), tz);
-    const cohort = await loadCohort();
 
-    const standings = [];
-    for (const metric of LEADERBOARD_METRICS) {
-      const board = await loadBoard(metric.key, cohort, window, {
-        brandSlug: null,
-        category: null,
-      });
+    // Four independent boards over one cohort: run together, keep the order.
+    const boards = await Promise.all(
+      LEADERBOARD_METRICS.map((metric) =>
+        loadBoard(metric.key, cohort, window, { brandSlug: null, category: null })
+      ),
+    );
+    const standings = LEADERBOARD_METRICS.map((metric, i) => {
+      const board = boards[i];
       const mine = viewerRank(board.candidates, LEADERBOARD_SITE_URL, userId);
-      standings.push({
+      return {
         metric: metric.key,
         name: metric.name,
         score_label: metric.scoreLabel,
@@ -417,8 +418,8 @@ rewardsRoutes.get("/leaderboard", async (c) => {
         secondary: mine?.secondary ?? 0,
         tied: mine?.tied ?? false,
         of: board.candidates.filter((x) => x.score > 0).length,
-      });
-    }
+      };
+    });
 
     return c.json({
       opt_in: true,

@@ -27,6 +27,8 @@
 import { supabaseAdmin } from "./supabase.ts";
 import {
   brandSlug,
+  chunk,
+  COHORT_IN_CHUNK,
   type LeaderboardCandidate,
   type LeaderboardFacet,
   type LeaderboardMetricKey,
@@ -49,6 +51,32 @@ function warnIfCapped(what: string, rows: number, cap: number): boolean {
     `[leaderboards] ${what} hit the ${cap}-row cap — this board is a partial view of the window.`,
   );
   return true;
+}
+
+/**
+ * Run one read per COHORT_IN_CHUNK slice of `ids`, in parallel, and merge.
+ *
+ * Every board filters by the cohort, and the cohort is up to COHORT_MAX ids. In
+ * one `.in(...)` that is ~185k URL characters against a proxy that answers 414
+ * at ~15.6k, and each board then fell back to EMPTY_BOARD: every opted-in
+ * seller read "Not ranked yet" with nothing in the logs but a 414. `capped` is
+ * true when any single chunk came back at `cap`, which is the real truncation.
+ */
+async function chunkedRead<R>(
+  ids: string[],
+  cap: number,
+  read: (slice: string[]) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+): Promise<{ rows: R[]; error: { message: string } | null; capped: boolean }> {
+  const results = await Promise.all(chunk(ids, COHORT_IN_CHUNK).map((slice) => read(slice)));
+  const rows: R[] = [];
+  let capped = false;
+  for (const r of results) {
+    if (r.error) return { rows: [], error: r.error, capped: false };
+    const page = (r.data ?? []) as R[];
+    if (page.length >= cap) capped = true;
+    rows.push(...page);
+  }
+  return { rows, error: null, capped };
 }
 
 // ─── The cohort ──────────────────────────────────────────────────────────────
@@ -206,7 +234,8 @@ function seed(cohort: CohortMember[]): Map<string, LeaderboardCandidate> {
   );
 }
 
-const REWARD_TYPES = new Set<string>(Object.keys(REWARD_XP_CATALOG));
+const REWARD_TYPE_LIST: string[] = Object.keys(REWARD_XP_CATALOG);
+const REWARD_TYPES = new Set<string>(REWARD_TYPE_LIST);
 
 /** XP board. All-time reads the monotonic peak; weekly re-scores the ledger. */
 async function xpBoard(cohort: CohortMember[], window: BoardWindow): Promise<BoardData> {
@@ -215,22 +244,22 @@ async function xpBoard(cohort: CohortMember[], window: BoardWindow): Promise<Boa
 
   // The LEVEL is the second column on both windows — it is the identity number,
   // and it is derived from `xp_peak`, never from the live total (00542).
-  const { data: stateRows, error: stateErr } = await supabaseAdmin
-    .from("user_reward_state")
-    .select("user_id, xp_peak, xp_total, level")
-    .in("user_id", ids);
+  const { rows: stateRows, error: stateErr } = await chunkedRead<{
+    user_id: string;
+    xp_peak: number | null;
+    xp_total: number | null;
+    level: number | null;
+  }>(ids, Number.POSITIVE_INFINITY, (slice) =>
+    supabaseAdmin
+      .from("user_reward_state")
+      .select("user_id, xp_peak, xp_total, level")
+      .in("user_id", slice)
+  );
   if (stateErr) {
     console.error("[leaderboards] xp state load failed:", stateErr.message);
     return EMPTY_BOARD;
   }
-  for (
-    const r of (stateRows ?? []) as Array<{
-      user_id: string;
-      xp_peak: number | null;
-      xp_total: number | null;
-      level: number | null;
-    }>
-  ) {
+  for (const r of stateRows) {
     const c = byUser.get(r.user_id);
     if (!c) continue;
     c.secondary = r.level ?? 0;
@@ -240,24 +269,28 @@ async function xpBoard(cohort: CohortMember[], window: BoardWindow): Promise<Boa
   }
 
   if (window.period === "weekly" && window.startMs != null && window.endMs != null) {
-    const { data, error } = await supabaseAdmin
-      .from("reputation_events")
-      .select("user_id, event_type, verified, metadata")
-      .in("user_id", ids)
-      .gte("occurred_at", iso(window.startMs))
-      .lt("occurred_at", iso(window.endMs))
-      .limit(SCAN_MAX);
-    if (error) {
-      console.error("[leaderboards] xp event load failed:", error.message);
-      return EMPTY_BOARD;
-    }
-    const rows = (data ?? []) as Array<{
+    const { rows, error, capped } = await chunkedRead<{
       user_id: string;
       event_type: string;
       verified: boolean;
       metadata: Record<string, unknown> | null;
-    }>;
-    const truncated = warnIfCapped("xp weekly events", rows.length, SCAN_MAX);
+    }>(ids, SCAN_MAX, (slice) =>
+      supabaseAdmin
+        .from("reputation_events")
+        .select("user_id, event_type, verified, metadata")
+        .in("user_id", slice)
+        // Only types that can score. Anything else is rows scanned toward
+        // SCAN_MAX for nothing, which truncates a busy week early.
+        .in("event_type", REWARD_TYPE_LIST)
+        .gte("occurred_at", iso(window.startMs!))
+        .lt("occurred_at", iso(window.endMs!))
+        .limit(SCAN_MAX)
+    );
+    if (error) {
+      console.error("[leaderboards] xp event load failed:", error.message);
+      return EMPTY_BOARD;
+    }
+    const truncated = warnIfCapped("xp weekly events", capped ? SCAN_MAX : 0, SCAN_MAX);
     for (const r of rows) {
       if (!REWARD_TYPES.has(r.event_type)) continue;
       const c = byUser.get(r.user_id);
@@ -284,30 +317,30 @@ async function gradesBoard(
   const byUser = seed(cohort);
   const ids = cohort.map((m) => m.userId);
 
-  let q = supabaseAdmin
-    .from("grade_reports")
-    .select("overall_score, submissions!inner(user_id, brand, garment_category)")
-    .in("submissions.user_id", ids)
-    // A grade is only on the board once it is a real, public certificate. Same
-    // visibility rule the certificate itself lives under (00356) — a board can
-    // never count something a buyer could not go and read.
-    .not("certificate_id", "is", null)
-    .in("review_status", ["approved", "modified"])
-    .limit(SCAN_MAX);
-  if (window.startMs != null) q = q.gte("created_at", iso(window.startMs));
-  if (window.endMs != null) q = q.lt("created_at", iso(window.endMs));
-  if (filters.category) q = q.eq("submissions.garment_category", filters.category);
-
-  const { data, error } = await q;
+  const { rows, error, capped } = await chunkedRead<{
+    overall_score: number;
+    submissions: { user_id: string; brand: string | null; garment_category: string | null } | null;
+  }>(ids, SCAN_MAX, (slice) => {
+    let q = supabaseAdmin
+      .from("grade_reports")
+      .select("overall_score, submissions!inner(user_id, brand, garment_category)")
+      .in("submissions.user_id", slice)
+      // A grade is only on the board once it is a real, public certificate. Same
+      // visibility rule the certificate itself lives under (00356) — a board can
+      // never count something a buyer could not go and read.
+      .not("certificate_id", "is", null)
+      .in("review_status", ["approved", "modified"])
+      .limit(SCAN_MAX);
+    if (window.startMs != null) q = q.gte("created_at", iso(window.startMs));
+    if (window.endMs != null) q = q.lt("created_at", iso(window.endMs));
+    if (filters.category) q = q.eq("submissions.garment_category", filters.category);
+    return q;
+  });
   if (error) {
     console.error("[leaderboards] grades load failed:", error.message);
     return EMPTY_BOARD;
   }
-  const rows = (data ?? []) as unknown as Array<{
-    overall_score: number;
-    submissions: { user_id: string; brand: string | null; garment_category: string | null } | null;
-  }>;
-  const truncated = warnIfCapped("grades", rows.length, SCAN_MAX);
+  const truncated = warnIfCapped("grades", capped ? SCAN_MAX : 0, SCAN_MAX);
 
   const sums = new Map<string, number>();
   const seeds: FacetSeed[] = [];
@@ -387,17 +420,24 @@ async function findsBoard(
   }
 
   const reportIds = [...ownerByReport.keys()];
-  const { data: reactionRows, error: reactionErr } = await supabaseAdmin
-    .from("showcase_reactions")
-    .select("grade_report_id, user_id")
-    .in("grade_report_id", reportIds)
-    .limit(SCAN_MAX);
+  const { rows: reactions, error: reactionErr, capped: reactionsCapped } = await chunkedRead<
+    { grade_report_id: string; user_id: string }
+  >(reportIds, SCAN_MAX, (slice) =>
+    supabaseAdmin
+      .from("showcase_reactions")
+      .select("grade_report_id, user_id")
+      .in("grade_report_id", slice)
+      .limit(SCAN_MAX)
+  );
   if (reactionErr) {
     console.error("[leaderboards] reaction load failed:", reactionErr.message);
     return { candidates: [], facets: buildFacets(seeds), truncated };
   }
-  const reactions = (reactionRows ?? []) as Array<{ grade_report_id: string; user_id: string }>;
-  const reactionsTruncated = warnIfCapped("finds reactions", reactions.length, SCAN_MAX);
+  const reactionsTruncated = warnIfCapped(
+    "finds reactions",
+    reactionsCapped ? SCAN_MAX : 0,
+    SCAN_MAX,
+  );
   for (const r of reactions) {
     const ownerId = ownerByReport.get(r.grade_report_id);
     if (!ownerId) continue;
@@ -420,26 +460,30 @@ async function sharesBoard(cohort: CohortMember[], window: BoardWindow): Promise
   const byUser = seed(cohort);
   const ids = cohort.map((m) => m.userId);
 
-  let q = supabaseAdmin
-    .from("referral_events")
-    .select("referrer_user_id")
-    .in("referrer_user_id", ids)
-    // GRANTED only: the pipeline sets that after the referred account actually
-    // qualified, so an invite blast that nobody acted on scores nothing.
-    .eq("reward_status", "granted")
-    .limit(SCAN_MAX);
-  // The weekly window is keyed on when the reward LANDED, not when the link was
-  // clicked — that is the moment the signup became real.
-  if (window.startMs != null) q = q.gte("granted_at", iso(window.startMs));
-  if (window.endMs != null) q = q.lt("granted_at", iso(window.endMs));
-
-  const { data, error } = await q;
+  const { rows, error, capped } = await chunkedRead<{ referrer_user_id: string }>(
+    ids,
+    SCAN_MAX,
+    (slice) => {
+      let q = supabaseAdmin
+        .from("referral_events")
+        .select("referrer_user_id")
+        .in("referrer_user_id", slice)
+        // GRANTED only: the pipeline sets that after the referred account actually
+        // qualified, so an invite blast that nobody acted on scores nothing.
+        .eq("reward_status", "granted")
+        .limit(SCAN_MAX);
+      // The weekly window is keyed on when the reward LANDED, not when the link
+      // was clicked — that is the moment the signup became real.
+      if (window.startMs != null) q = q.gte("granted_at", iso(window.startMs));
+      if (window.endMs != null) q = q.lt("granted_at", iso(window.endMs));
+      return q;
+    },
+  );
   if (error) {
     console.error("[leaderboards] shares load failed:", error.message);
     return EMPTY_BOARD;
   }
-  const rows = (data ?? []) as Array<{ referrer_user_id: string }>;
-  const truncated = warnIfCapped("shares", rows.length, SCAN_MAX);
+  const truncated = warnIfCapped("shares", capped ? SCAN_MAX : 0, SCAN_MAX);
   for (const r of rows) {
     const c = byUser.get(r.referrer_user_id);
     if (c) c.score += 1;
