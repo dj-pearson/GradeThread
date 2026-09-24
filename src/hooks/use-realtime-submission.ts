@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { toast } from "sonner";
@@ -12,6 +13,38 @@ interface SubmissionChange {
 }
 
 /**
+ * SUB-14: the last status a cached list page saw for this submission, if any.
+ * Seeds the change check so the first realtime event for a row already known
+ * to be completed does not read as the grade completing.
+ */
+function cachedStatus(queryClient: QueryClient, id: string): string | undefined {
+  for (const [, data] of queryClient.getQueriesData<{
+    submissions?: Array<{ id: string; status: string }>;
+  }>({ queryKey: ["submissions"] })) {
+    const hit = data?.submissions?.find((s) => s.id === id);
+    if (hit) return hit.status;
+  }
+  return undefined;
+}
+
+/**
+ * Decide whether an UPDATE is worth a toast. Every write to a completed row
+ * (a Showcase toggle, a view count, a passport link) is an UPDATE with
+ * status "completed", and each one used to toast "Grade Complete". Only a
+ * status that differs from the last one seen is news, and a row seen for the
+ * first time with no cached status is not assumed to have changed.
+ */
+export function statusChangeToast(
+  previous: string | undefined,
+  next: string,
+): "completed" | "failed" | null {
+  if (previous === undefined || previous === next) return null;
+  if (next === "completed") return "completed";
+  if (next === "failed") return "failed";
+  return null;
+}
+
+/**
  * Subscribes to realtime status changes on the submissions table for the
  * active workspace. Filters by workspaceOwnerId so a member acting inside
  * an owner's workspace sees grade-complete toasts for the workspace's
@@ -21,9 +54,19 @@ interface SubmissionChange {
 export function useRealtimeSubmissions() {
   const { workspaceOwnerId } = useWorkspace();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const location = useLocation();
+  // Read inside the handler without re-binding the channel on every route.
+  const navRef = useRef({ navigate, pathname: location.pathname });
+  useEffect(() => {
+    navRef.current = { navigate, pathname: location.pathname };
+  });
+  const lastStatus = useRef(new Map<string, string>());
 
   useEffect(() => {
     if (!workspaceOwnerId) return;
+    const seen = lastStatus.current;
+    seen.clear();
 
     const channel = supabase
       .channel(`submissions-realtime-${workspaceOwnerId}`)
@@ -37,6 +80,12 @@ export function useRealtimeSubmissions() {
         },
         (payload) => {
           const row = payload.new as SubmissionChange;
+          const previous = seen.get(row.id) ?? cachedStatus(queryClient, row.id);
+          seen.set(row.id, row.status);
+          const change = statusChangeToast(previous, row.status);
+          const href = `/dashboard/submissions/${row.id}`;
+          // The detail page shows the result itself; a toast there is noise.
+          const onThatPage = navRef.current.pathname === href;
 
           // Invalidate submission-related queries. US-1633: the previous
           // ["recent-submissions"] / ["dashboard-stats"] keys were phantoms — no
@@ -47,18 +96,17 @@ export function useRealtimeSubmissions() {
           queryClient.invalidateQueries({ queryKey: ["submission", row.id] });
           queryClient.invalidateQueries({ queryKey: ["dashboard-submissions"] });
 
-          // Notify user on completion
-          if (row.status === "completed") {
+          // Notify on a real change of status only (SUB-14).
+          if (!change || onThatPage) return;
+          if (change === "completed") {
             toast.success("Grade Complete", {
               description: `Your grade for "${row.title}" is ready!`,
               action: {
                 label: "View",
-                onClick: () => {
-                  window.location.href = `/dashboard/submissions/${row.id}`;
-                },
+                onClick: () => navRef.current.navigate(href),
               },
             });
-          } else if (row.status === "failed") {
+          } else {
             toast.error("Grading Failed", {
               description: `Grading for "${row.title}" encountered an error.`,
             });

@@ -41,15 +41,26 @@ interface GarmentPassportPanelProps {
   garmentId: string | null;
   /** Owning submission — attached to conversion events for attribution. */
   submissionId: string;
+  /**
+   * SUB-14: the tag and claim-link handoffs transfer the garment, so only the
+   * owner gets them. Defaults to true for existing callers.
+   */
+  canHandOff?: boolean;
 }
 
 export function GarmentPassportPanel({
   garmentId,
   submissionId,
+  canHandOff = true,
 }: GarmentPassportPanelProps) {
   const [slug, setSlug] = useState<string | null>(null);
+  // SUB-14: a failed or empty lookup used to leave "Loading passport…"
+  // spinning forever. Say so and offer a retry instead.
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    setFailed(false);
     if (!garmentId) {
       setSlug(null);
       return;
@@ -58,19 +69,23 @@ export function GarmentPassportPanel({
     (async () => {
       // RLS scopes `garments` to created_by = auth.uid(), so this only ever
       // resolves a passport the viewer owns.
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("garments")
         .select("public_passport_slug")
         .eq("id", garmentId)
         .maybeSingle();
       const row =
         (data ?? null) as unknown as Pick<GarmentRow, "public_passport_slug"> | null;
-      if (!cancelled) setSlug(row?.public_passport_slug ?? null);
-    })();
+      if (cancelled) return;
+      setSlug(row?.public_passport_slug ?? null);
+      setFailed(Boolean(error) || !row?.public_passport_slug);
+    })().catch(() => {
+      if (!cancelled) setFailed(true);
+    });
     return () => {
       cancelled = true;
     };
-  }, [garmentId]);
+  }, [garmentId, attempt]);
 
   // Legacy grade with no passport: introduce the feature + a create path.
   if (!garmentId) {
@@ -138,6 +153,13 @@ export function GarmentPassportPanel({
                 <ExternalLink className="ml-1.5 h-4 w-4" />
               </Link>
             </Button>
+          ) : failed ? (
+            <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              Couldn&apos;t load this item&rsquo;s passport.
+              <Button variant="outline" size="sm" onClick={() => setAttempt((a) => a + 1)}>
+                Try again
+              </Button>
+            </div>
           ) : (
             <Button disabled>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -149,8 +171,16 @@ export function GarmentPassportPanel({
       </Card>
       {/* US-2494: the two owner handoffs sit together. The reusable tag is for a
           hand-off in person, the single-use link for a garment that ships. */}
-      <PassportTagPanel garmentId={garmentId} />
-      <PassportClaimLinkPanel garmentId={garmentId} />
+      {canHandOff ? (
+        <>
+          <PassportTagPanel garmentId={garmentId} />
+          <PassportClaimLinkPanel garmentId={garmentId} />
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Only the workspace owner can hand this passport to a buyer.
+        </p>
+      )}
     </div>
   );
 }

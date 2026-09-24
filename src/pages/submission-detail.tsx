@@ -1074,6 +1074,13 @@ export function SubmissionDetailPage() {
     );
   }
 
+  // SUB-14: a disputed grade is still the live, certified grade until it is
+  // decided, so sharing and the Showcase stay available.
+  const gradeIsShareable =
+    submission.status === "completed" || submission.status === "disputed";
+  // SUB-14: Showcase consent and the passport handoff belong to the owner.
+  const isOwnerViewing = Boolean(user && submission.user_id === user.id);
+
   // US-1466: elapsed since submission + whether an in-flight grade has crossed
   // the "taking longer than expected" threshold (drives the escalation copy).
   const elapsedMs = nowMs - new Date(submission.created_at).getTime();
@@ -1146,7 +1153,7 @@ export function SubmissionDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           <SubmissionStatusBadge status={submission.status} />
-          {submission.status === "completed" && gradeReport?.certificate_id && (
+          {gradeIsShareable && gradeReport?.certificate_id && (
             // US: the header "Share Certificate" button used to be a plain Link to
             // /cert/:id — it just navigated to the page instead of offering share
             // options. Open the real share actions (native share sheet + one-tap
@@ -1927,16 +1934,25 @@ export function SubmissionDetailPage() {
           to do now the grade exists - so they are one section with one
           heading. The dispute card and the photo grid stay outside it: those
           are status and evidence, not next steps. */}
-      {submission.status === "completed" && gradeReport && (
+      {/* SUB-14: gated ONCE, and kept through a dispute. Filing one used to
+          hide the whole section, Showcase opt-out included, while the
+          certificate stayed public. */}
+      {gradeReport?.certificate_id && gradeIsShareable && (
         <section className="space-y-4">
           <h2 className="text-base font-semibold text-foreground">
             What's next
           </h2>
+          {submission.status === "disputed" && (
+            <p className="flex items-start gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              This grade is under dispute and may change. Your certificate stays
+              live until it is decided.
+            </p>
+          )}
         {/* Graded photo (US-765): the PSA-style certified image for this grade,
             ready to drop into a listing. Only once a certificate exists AND the
             grade is finalized (the cert is withheld while in review). */}
-        {submission.status === "completed" && gradeReport?.certificate_id && (
-          <Card>
+        <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <ImageIcon className="h-5 w-5 text-brand-navy dark:text-foreground" />
@@ -1958,24 +1974,31 @@ export function SubmissionDetailPage() {
               <GradedPhotoPanel certificateId={gradeReport.certificate_id} />
             </CardContent>
           </Card>
-        )}
 
         {/* US-1855: per-item consent for the public Showcase / Finds feed. Gated
             on a finalized certificate — there is nothing publishable before one,
             and the feed's own view refuses uncertified reports anyway. */}
-        {submission.status === "completed" && gradeReport?.certificate_id && (
+        {/* SUB-14: consent to publish a find is the owner's to give. A
+            member sees where it stands, read-only. */}
+        {isOwnerViewing ? (
           <ShowcaseConsentPanel
             submissionId={submission.id}
             optIn={submission.showcase_opt_in === true}
             valueCents={submission.showcase_value_cents ?? null}
           />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {submission.showcase_opt_in === true
+              ? "This find shows in the public Finds feed."
+              : "This find is not in the public Finds feed."}{" "}
+            Only the workspace owner can change that.
+          </p>
         )}
 
         {/* US-862: post-grade share prompt — nudge the seller to share their
             certificate at the moment the grade lands. Reuses CertShareActions,
             whose shared link carries ?s=share for attribution (US-769). */}
-        {submission.status === "completed" && gradeReport?.certificate_id && (
-          <Card className="border-brand-red/30 bg-brand-red/5">
+        <Card className="border-brand-red/30 bg-brand-red/5">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Share2 className="h-5 w-5 text-brand-red-text" />
@@ -1995,25 +2018,22 @@ export function SubmissionDetailPage() {
               />
             </CardContent>
           </Card>
-        )}
 
         {/* US-1120: turn a fresh grade into a Garment Passport conversion surface —
             a prominent "View / Create a Garment Passport" path (no longer gated
             solely on the physical-tag panel), plus the physical-tag generator
             (US-1096) and verified-seller / buyer-guarantee trust hints. */}
-        {submission.status === "completed" && gradeReport && (
-          <GarmentPassportPanel
-            garmentId={gradeReport.garment_id ?? null}
-            submissionId={submission.id}
-          />
-        )}
+        <GarmentPassportPanel
+          garmentId={gradeReport.garment_id ?? null}
+          submissionId={submission.id}
+          canHandOff={isOwnerViewing}
+        />
 
         {/* US-1075: cross-surface activation — once a grade lands and it isn't
             already tied to a FlipDesk item, nudge the grader to turn the verified
             certificate into a listing. Dismissable + event-tracked; suppressed if
             the user opted out of product messaging. */}
-        {submission.status === "completed" && gradeReport && !linkedItem &&
-          linkedItemCheckFailed && (
+        {!linkedItem && linkedItemCheckFailed && (
           // US-3428: the nudge below says this grade is not on an item yet. We
           // do not know that, so say what we do know and offer the retry.
           <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
@@ -2028,8 +2048,7 @@ export function SubmissionDetailPage() {
             </Button>
           </p>
         )}
-        {submission.status === "completed" && gradeReport && !linkedItem &&
-          !linkedItemCheckFailed && (
+        {!linkedItem && !linkedItemCheckFailed && (
           <CrossSurfaceNudge
             nudgeId="grade-to-flipdesk"
             icon={Tag}
