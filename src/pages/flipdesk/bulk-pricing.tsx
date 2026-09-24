@@ -7,6 +7,8 @@ import { Loader2, Tags, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
+import { usePageHost } from "@/hooks/use-page-host";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -72,6 +74,7 @@ function rawFloor(inv: RawListingRow["inventory_items"]): number | null {
 // quantity in one bulk call, with search / filter / sort over the full set.
 export function FlipdeskBulkPricingPage() {
   const confirm = useConfirm();
+  const { embedded } = usePageHost();
   const { data: connection, isLoading: connLoading } = useEbayConnection();
   const connected = !!connection;
 
@@ -344,12 +347,15 @@ export function FlipdeskBulkPricingPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    // Inside the Pricing host the host sets the width.
+    <div className={cn("space-y-6", !embedded && "mx-auto max-w-4xl")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <PageHeader
-          title="Bulk pricing"
-          subtitle="Select active eBay listings and update their price and/or quantity in one go. Changes push straight to eBay."
-        />
+        <PageHeader title="Bulk pricing" />
+        {/* In the body so it survives the host suppressing the header. */}
+        <p className="min-w-0 flex-1 basis-64 text-sm text-muted-foreground">
+          Select live eBay listings and change their price or quantity in one
+          go. Changes push straight to eBay.
+        </p>
         <Button asChild variant="outline" size="sm">
           <Link to="/dashboard/flipdesk/pricing?tab=repricing">
             <TrendingUp className="mr-2 h-4 w-4" />

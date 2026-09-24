@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
+import { usePageHost } from "@/hooks/use-page-host";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1405,6 +1407,7 @@ function RuleCard({
 
 export function FlipdeskAutomationsPage() {
   const { data: rules = [], isLoading, isError, refetch, isFetching } = useAutomationRules();
+  const { embedded } = usePageHost();
   const run = useRunAutomations();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<AutomationRule | null>(null);
@@ -1426,10 +1429,10 @@ export function FlipdeskAutomationsPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
+    // Inside the Pricing host the host sets the width and gutter.
+    <div className={cn("space-y-6", !embedded && "mx-auto w-full max-w-4xl p-6")}>
       <PageHeader
         title="Automations"
-        subtitle="Schedule price drops, promo rates, or end-listings for stale inventory — rules run hourly. Prices never drop below cost plus your margin floor."
         actions={
           <>
             <Button
@@ -1451,6 +1454,13 @@ export function FlipdeskAutomationsPage() {
           </>
         }
       />
+      {/* In the body, not the header subtitle, so the floor promise survives
+          when the Pricing host suppresses the header. */}
+      <p className="text-sm text-muted-foreground">
+        Schedule price drops, promo rates or end-listings for stale inventory.
+        Rules run every hour. Prices never drop below cost plus your margin
+        floor, or below the floor you set on an item.
+      </p>
 
       {isLoading ? (
         <div className="space-y-3">

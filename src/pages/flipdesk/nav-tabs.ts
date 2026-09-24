@@ -18,6 +18,13 @@ export const PRICING_TABS = [
 ] as const;
 export type PricingTab = (typeof PRICING_TABS)[number];
 
+/** What each Pricing tab is called, for the tab strip and the phone picker. */
+export const PRICING_TAB_LABELS: Readonly<Record<PricingTab, string>> = {
+  repricing: "Repricing",
+  bulk: "Bulk pricing",
+  automations: "Automations",
+};
+
 const PRICING_TAB_ALIASES: Readonly<Record<string, PricingTab>> = {
   suggestions: "repricing",
 };

@@ -62,6 +62,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Plus, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { usePageHost } from "@/hooks/use-page-host";
 import { Term } from "@/components/help/term";
 import { changeLabel, queueCounts, undoPriors } from "./reprice-plan";
 import { repriceRuleFormError } from "./rule-form-validation";
@@ -715,18 +716,14 @@ export function FlipdeskRepricingPage() {
   }
 
   const hasSuggestions = suggestions.length > 0;
+  const { embedded } = usePageHost();
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
+    // Inside the Pricing host the host sets the width and gutter; standalone,
+    // the page sets its own.
+    <div className={cn("space-y-6", !embedded && "mx-auto w-full max-w-4xl p-6")}>
       <PageHeader
         title="Repricing"
-        subtitle={
-          <>
-            Condition-aware price nudges. We compare each active listing against{" "}
-            <Term name="Comp">comps</Term> matched to its grade, so a grade-9 is
-            not priced like a grade-6.
-          </>
-        }
         actions={
           <Button onClick={() => scan.mutate(undefined)} disabled={scan.isPending}>
             {scan.isPending ? (
@@ -738,8 +735,14 @@ export function FlipdeskRepricingPage() {
           </Button>
         }
       />
-      {/* US-460: comps are active asking prices. Kept out of the header
-          subtitle so it survives when a tab host suppresses it. */}
+      {/* The page's purpose lives in the body, not the header subtitle, so it
+          survives when the Pricing host suppresses the header. */}
+      <p className="text-sm text-muted-foreground">
+        Condition-aware price nudges. We compare each active listing against{" "}
+        <Term name="Comp">comps</Term> matched to its grade, so a grade-9 is not
+        priced like a grade-6.
+      </p>
+      {/* US-460: comps are active asking prices. */}
       <p className="text-xs text-muted-foreground">
         Comps are <strong>active</strong> asking prices from live listings.
         Final sale prices usually come in lower, so treat a nudge as a ceiling.
