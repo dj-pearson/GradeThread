@@ -137,6 +137,9 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
   const [confirming, setConfirming] = useState<SessionTaskView | null>(null);
   const [minutes, setMinutes] = useState("");
   const [conflict, setConflict] = useState<string | null>(null);
+  // WMT-03: ending a session is one tap from losing the sitting, so it asks
+  // first. Holds which end is being confirmed.
+  const [confirmEnd, setConfirmEnd] = useState<"complete" | "abandon" | null>(null);
 
   const current = progress.current;
   const item = useItemFull(current?.inventory_item_id ?? undefined);
@@ -284,6 +287,11 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
   }
 
   const paused = session.state === "paused";
+  // WMT-03: a plan nobody has started yet. The server only lets `planned` go
+  // to active or abandoned, so Pause and "Finish for now" would both be
+  // refused, and the open session would then block every new plan.
+  const planned = session.state === "planned";
+  const openCount = progress.upcoming.length + (current ? 1 : 0);
 
   return (
     <section aria-labelledby="wmt-session" className="space-y-4 rounded-xl border p-4">
@@ -456,37 +464,74 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 border-t pt-3">
-        {paused
-          ? (
+      {confirmEnd
+        ? (
+          <div
+            role="group"
+            aria-labelledby="wmt-end"
+            className="space-y-2 border-t pt-3"
+          >
+            <p id="wmt-end" className="text-sm">
+              End this session? {openCount}{" "}
+              {openCount === 1 ? "job" : "jobs"} you haven't done will be kept
+              for next time.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  const action = confirmEnd;
+                  setConfirmEnd(null);
+                  void runSession(action);
+                }}
+              >
+                End session
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => setConfirmEnd(null)}
+              >
+                Keep going
+              </Button>
+            </div>
+          </div>
+        )
+        : (
+          <div className="flex flex-wrap gap-2 border-t pt-3">
+            {paused && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void runSession("resume")}
+              >
+                <Play className="mr-1 h-3 w-3" aria-hidden="true" /> Pick up where I left off
+              </Button>
+            )}
+            {!paused && !planned && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void runSession("pause")}
+              >
+                <Pause className="mr-1 h-3 w-3" aria-hidden="true" /> Pause
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
               disabled={busy}
-              onClick={() => void runSession("resume")}
+              onClick={() => setConfirmEnd(planned ? "abandon" : "complete")}
             >
-              <Play className="mr-1 h-3 w-3" /> Pick up where I left off
+              <Square className="mr-1 h-3 w-3" aria-hidden="true" />{" "}
+              {planned ? "Throw this plan away" : "Finish for now"}
             </Button>
-          )
-          : (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => void runSession("pause")}
-            >
-              <Pause className="mr-1 h-3 w-3" /> Pause
-            </Button>
-          )}
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          onClick={() => void runSession("complete")}
-        >
-          <Square className="mr-1 h-3 w-3" /> Finish for now
-        </Button>
-      </div>
+          </div>
+        )}
       <p className="text-xs text-muted-foreground">
         Everything is saved as you go. Closing this page won't lose it.
       </p>

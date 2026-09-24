@@ -507,3 +507,88 @@ Deno.test("WMT-02: the edge ceilings match the form's", () => {
   assertEquals(MAX_OVERRIDE_MINUTES, num("MAX_OVERRIDE_MINUTES"));
   assertEquals(MAX_OVERRIDE_CENTS, num("MAX_OVERRIDE_CENTS"));
 });
+
+// ── WMT-03: a planned session can end; closed sessions take no task actions ──
+
+function sessionSeed(state: string, taskState = "pending") {
+  return {
+    inventory_items: [{ id: ITEM, user_id: OWNER, status: "sourced" }],
+    flipdesk_work_sessions: [{
+      id: SESSION,
+      user_id: OWNER,
+      state,
+      revision: 3,
+      budget_minutes: 30,
+      work_context: "home",
+      available_tools: ["camera"],
+      started_at: null,
+      ended_at: null,
+    }],
+    flipdesk_work_session_tasks: [{
+      id: "task-1",
+      session_id: SESSION,
+      user_id: OWNER,
+      inventory_item_id: ITEM,
+      item_title_snapshot: "Jacket",
+      position: 0,
+      state: taskState,
+      action_key: "photograph",
+    }],
+  };
+}
+
+Deno.test("WMT-03: a planned session can be thrown away", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset(sessionSeed("planned"));
+    const r = await send("POST", `/sessions/${SESSION}/abandon`, { revision: 3 });
+    assertEquals(r.status, 200);
+    assertEquals(r.json.session.state, "abandoned");
+    assertEquals(db.tables.flipdesk_work_sessions[0].state, "abandoned");
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("WMT-03: a task action on a completed session is refused", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset(sessionSeed("completed"));
+    const r = await send("POST", "/tasks/task-1/start", { revision: 3 });
+    assertEquals(r.status, 409);
+    assertEquals(r.json.code, "session_closed");
+    assertEquals(r.json.session.state, "completed", "the true state comes back");
+    assertEquals(db.tables.flipdesk_work_session_tasks[0].state, "pending");
+    assertEquals(db.writes("flipdesk_work_session_tasks").length, 0);
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("WMT-03: a session write that matches no row is a 409, not a success", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset(sessionSeed("active", "active"));
+    // Another tab bumps the revision between our read and our write. The
+    // fake answers the read first, so move the row as the PATCH arrives.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: Request | URL | string, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(String(input), init);
+      if (req.method === "PATCH" && req.url.includes("flipdesk_work_sessions")) {
+        db.tables.flipdesk_work_sessions[0].revision = 4;
+      }
+      return realFetch(req);
+    }) as typeof fetch;
+    try {
+      const r = await send("POST", `/sessions/${SESSION}/complete`, { revision: 3 });
+      assertEquals(r.status, 409);
+      assertEquals(r.json.code, "stale");
+      // And the running job was NOT released by a refused end.
+      assertEquals(db.tables.flipdesk_work_session_tasks[0].state, "active");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  } finally {
+    db.restore();
+  }
+});

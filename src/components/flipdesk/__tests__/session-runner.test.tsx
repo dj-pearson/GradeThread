@@ -200,6 +200,38 @@ describe("an interruption (AC1, AC6)", () => {
   });
 });
 
+describe("ending a session (WMT-03)", () => {
+  it("a planned session hides Pause and can be thrown away in two taps", async () => {
+    sessionState = session({ state: "planned" });
+    render();
+    await settle();
+    expect(() => buttonNamed("Pause")).toThrow();
+    expect(() => buttonNamed("Finish for now")).toThrow();
+    await click("Throw this plan away");
+    expect(sessionMutate).not.toHaveBeenCalled();
+    expect(body()).toContain("End this session? 1 job you haven't done will be kept");
+    await click("End session");
+    expect(sessionMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "s1", action: "abandon", revision: 4 }),
+    );
+  });
+
+  it("'Finish for now' asks first, and 'Keep going' sends nothing", async () => {
+    sessionState = session({}, [task(), task({ id: "task-2", position: 2 })]);
+    render();
+    await settle();
+    await click("Finish for now");
+    expect(body()).toContain("2 jobs you haven't done");
+    await click("Keep going");
+    expect(sessionMutate).not.toHaveBeenCalled();
+    await click("Finish for now");
+    await click("End session");
+    expect(sessionMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "complete" }),
+    );
+  });
+});
+
 describe("a reload (AC1)", () => {
   it("restores whatever the server says, including a running task", async () => {
     sessionState = session({}, [task({ state: "active" })]);

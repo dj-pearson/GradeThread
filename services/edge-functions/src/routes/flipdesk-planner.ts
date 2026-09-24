@@ -38,7 +38,7 @@
 // task id is matched through its session; an inventory item is matched through
 // inventory_items.user_id.
 
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
@@ -1156,20 +1156,10 @@ flipdeskPlannerRoutes.post("/sessions/:id/:action", async (c) => {
   if (target === "active" && !session.started_at) {
     patch.started_at = new Date().toISOString();
   }
-  if (target === "completed" || target === "abandoned") {
-    patch.ended_at = new Date().toISOString();
-    // A session that ends releases its active task rather than leaving one
-    // running forever. `pending` and not `skipped`: the seller did not choose
-    // to skip it, they stopped working.
-    await supabaseAdmin
-      .from("flipdesk_work_session_tasks")
-      .update({ state: "pending" })
-      .eq("session_id", session.id)
-      .eq("user_id", ownerId) // US-268
-      .eq("state", "active");
-  }
+  const ending = target === "completed" || target === "abandoned";
+  if (ending) patch.ended_at = new Date().toISOString();
 
-  const { error } = await supabaseAdmin
+  const { data: moved, error } = await supabaseAdmin
     .from("flipdesk_work_sessions")
     .update(patch)
     .eq("id", session.id)
@@ -1177,9 +1167,28 @@ flipdeskPlannerRoutes.post("/sessions/:id/:action", async (c) => {
     // THE REVISION IS IN THE PREDICATE, not only in the check above. A check
     // followed by an unguarded write is two tabs both passing and the second
     // one winning silently.
-    .eq("revision", session.revision);
+    .eq("revision", session.revision)
+    .select("id");
   if (error) {
     return failSafe(c, 500, "Couldn't update that session.", error, "planner.session");
+  }
+  if (!moved || moved.length === 0) {
+    // WMT-03: zero rows is the race lost, not a success. Answer with the
+    // true state so the client recovers without replaying the action.
+    return staleRefusal(c, ownerId, session.id);
+  }
+
+  if (ending) {
+    // A session that ends releases its active task rather than leaving one
+    // running forever. `pending` and not `skipped`: the seller did not choose
+    // to skip it, they stopped working. AFTER the session write (WMT-03), so
+    // a refused end does not leave a running job released.
+    await supabaseAdmin
+      .from("flipdesk_work_session_tasks")
+      .update({ state: "pending" })
+      .eq("session_id", session.id)
+      .eq("user_id", ownerId) // US-268
+      .eq("state", "active");
   }
 
   const fresh = await loadOwnedSession(ownerId, sessionId);
@@ -1214,6 +1223,19 @@ flipdeskPlannerRoutes.post("/tasks/:id/:action", async (c) => {
   const owned = await loadOwnedTask(ownerId, taskId);
   if (!owned) return jsonError(c, 404, "Task not found.");
   const { task, session } = owned;
+
+  // WMT-03: a finished or thrown-away session takes no more task actions. The
+  // task transitions alone would let a pending task on a completed session
+  // start, and the "start starts the session" step below would then find it
+  // not planned and leave a running job inside a closed session.
+  if (!(OPEN_SESSION_STATES as readonly string[]).includes(session.state)) {
+    const tasks = await loadTasks(session.id, ownerId);
+    return c.json({
+      error: "That session has ended, so its jobs can't change now.",
+      code: "session_closed",
+      ...sessionBody(session, tasks),
+    }, 409);
+  }
 
   const rev = checkRevision(body.revision, session.revision);
   if (!rev.ok) {
@@ -1270,14 +1292,31 @@ flipdeskPlannerRoutes.post("/tasks/:id/:action", async (c) => {
     if (confirmed !== null) patch.confirmed_minutes = confirmed;
   }
 
-  const { error } = await supabaseAdmin
+  const { data: changed, error } = await supabaseAdmin
     .from("flipdesk_work_session_tasks")
     .update(patch)
     .eq("id", task.id)
     .eq("user_id", ownerId) // US-268
-    .eq("state", task.state); // and the state we read, so a race loses
+    .eq("state", task.state) // and the state we read, so a race loses
+    .select("id");
   if (error) {
+    // WMT-03: the one-active-task index. Two tabs starting two jobs is a
+    // conflict the seller can act on, not a 500.
+    if ((error as { code?: string }).code === "23505") {
+      const tasks = await loadTasks(session.id, ownerId);
+      return c.json({
+        error: "Another job is already running.",
+        code: "task_already_active",
+        ...sessionBody(session, tasks),
+      }, 409);
+    }
     return failSafe(c, 500, "Couldn't update that task.", error, "planner.task");
+  }
+  if (!changed || changed.length === 0) {
+    // The state predicate matched nothing: another request moved this task
+    // first. Reporting success here would record a start or a finish that
+    // did not happen.
+    return staleRefusal(c, ownerId, session.id);
   }
 
   // US-3177: STARTING A TASK STARTS THE SESSION. A session is created
@@ -1323,6 +1362,25 @@ flipdeskPlannerRoutes.post("/tasks/:id/:action", async (c) => {
   const tasks = await loadTasks(session.id, ownerId);
   return c.json(sessionBody(fresh ?? session, tasks));
 });
+
+/**
+ * WMT-03: a write whose guard matched no row lost a race. 409 with the
+ * session as it now stands, the same recovery shape as a stale revision.
+ */
+async function staleRefusal(
+  c: Context,
+  ownerId: string,
+  sessionId: string,
+): Promise<Response> {
+  const fresh = await loadOwnedSession(ownerId, sessionId);
+  if (!fresh) return jsonError(c, 404, "Session not found.");
+  const tasks = await loadTasks(sessionId, ownerId);
+  return c.json({
+    error: "Something changed this session before that landed.",
+    code: "stale",
+    ...sessionBody(fresh, tasks),
+  }, 409);
+}
 
 async function invalidate(task: TaskRow, ownerId: string): Promise<void> {
   await supabaseAdmin
