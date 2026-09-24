@@ -2402,6 +2402,10 @@ export function invalidatePostSaleMoney(qc: QueryClient): Promise<unknown> {
     ["sale_for_item"],
     ["inventory"],
     ["inventory_item"],
+    // The inventory table and the item canvas read this one. A refunded
+    // return or approved cancellation moves the item to 'returned' on the
+    // edge, and without it the table kept showing the garment as sold.
+    ["items_full"],
   ];
   return Promise.all(keys.map((queryKey) => qc.invalidateQueries({ queryKey })));
 }

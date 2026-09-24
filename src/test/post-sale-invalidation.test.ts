@@ -51,6 +51,8 @@ describe("post-sale mutations invalidate the ship queue (PS-07)", () => {
     expect(has("ebay_cancellations")).toBe(true);
     expect(has("inventory")).toBe(true);
     expect(has("sales_all")).toBe(true);
+    // The inventory table's key: the approved cancellation restocks the item.
+    expect(has("items_full")).toBe(true);
   });
 
   const cases: Array<[string, () => unknown, Record<string, unknown>]> = [
