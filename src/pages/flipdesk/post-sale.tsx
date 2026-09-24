@@ -283,9 +283,17 @@ function PostSaleTabs() {
   return (
     <>
       {settled ? (
+        // role=status announces changes, so the minute-by-minute "Checked"
+        // clock is kept out of it. Otherwise a screen reader hears the line
+        // again every minute and on every background poll.
         <p className="mb-3 text-sm" role="status">
           {totalWaiting === 0
-            ? `Nothing is waiting on you. Checked ${minutesAgo(checkedAt, now)}.`
+            ? (
+              <>
+                Nothing is waiting on you.
+                <span aria-hidden="true">{` Checked ${minutesAgo(checkedAt, now)}.`}</span>
+              </>
+            )
             : `${totalWaiting.toLocaleString()} ${totalWaiting === 1 ? "thing needs" : "things need"} you${
                 soonest ? `, the soonest due ${fmtDate(soonest)}` : ""
               }.`}
