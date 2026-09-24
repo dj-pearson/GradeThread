@@ -76,6 +76,11 @@ import {
 } from "@/lib/grading-journey";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
+import {
+  isFinalPayStatus,
+  PAY_RETRY_ATTEMPTS,
+  PAY_RETRY_DELAY_MS,
+} from "@/lib/pay-retry";
 import { track } from "@/lib/analytics";
 import {
   Select,
@@ -369,12 +374,22 @@ export function SubmissionDetailPage() {
   // payment precedence (/api/grade/pay/:id) so the grade proceeds without a
   // second click. The credit-grant webhook lands a beat after Stripe redirects,
   // so we retry a few times before giving up.
-  const payRetryDone = useRef(false);
+  // SUB-09: keyed by submission id, so a second submission's return flow is
+  // not swallowed by the first one's flag, and released if the loop is torn
+  // down before it finishes (StrictMode's double effect, a fast navigation).
+  const payRetryFor = useRef<string | null>(null);
+  // Set when the retries ran out without a final answer: the credits may still
+  // be arriving, and nothing on the server will start the grade by itself.
+  const [payRetryStalledTier, setPayRetryStalledTier] = useState<string | null>(null);
+  const [startingGrade, setStartingGrade] = useState(false);
+  useEffect(() => {
+    setPayRetryStalledTier(null);
+  }, [id]);
   useEffect(() => {
     if (!id) return;
     if (searchParams.get("pay_retry") !== "1") return;
-    if (payRetryDone.current) return;
-    payRetryDone.current = true;
+    if (payRetryFor.current === id) return;
+    payRetryFor.current = id;
 
     const checkout = searchParams.get("checkout");
     const tier = searchParams.get("tier") ?? "standard";
@@ -400,18 +415,22 @@ export function SubmissionDetailPage() {
     }
 
     let cancelled = false;
+    let finished = false;
     (async () => {
       toast.loading("Applying your new credits…", { id: "pay-retry" });
       // Up to ~16s of retries to outrun the credit-grant webhook.
-      for (let attempt = 0; attempt < 8 && !cancelled; attempt++) {
+      for (let attempt = 0; attempt < PAY_RETRY_ATTEMPTS && !cancelled; attempt++) {
         try {
           const res = await edgeFetch(`/api/grade/pay/${id}`, {
             method: "POST",
             json: { tier },
             silentGate: true,
           });
+          if (cancelled) return;
           const json = await res.json().catch(() => ({}));
+          if (cancelled) return;
           if (res.ok && json.payment?.paid) {
+            finished = true;
             track("grade.pack_upsell_converted", { tier });
             track("grade.paid", { method: json.payment.method, tier });
             toast.success("Grade unlocked with your new credits.", {
@@ -421,24 +440,77 @@ export function SubmissionDetailPage() {
             clearParams();
             return;
           }
+          // SUB-09: an answer that will not change on the next attempt.
+          if (isFinalPayStatus(res.status)) {
+            finished = true;
+            toast.error(
+              typeof json.error === "string" && json.error
+                ? json.error
+                : "Couldn't start this grade.",
+              { id: "pay-retry" },
+            );
+            clearParams();
+            return;
+          }
         } catch {
           /* transient — keep retrying */
         }
-        await new Promise((r) => setTimeout(r, 2000));
+        if (cancelled) return;
+        await new Promise((r) => setTimeout(r, PAY_RETRY_DELAY_MS));
       }
       if (!cancelled) {
+        finished = true;
+        // SUB-09: this used to promise the grade "will start automatically".
+        // Nothing on the server retries, so say what is true and hand the
+        // seller the button that does it.
         toast.info(
-          "Credits are being added — this grade will start automatically in a moment.",
+          "Your credits are still arriving. Press Start grading in a moment.",
           { id: "pay-retry" },
         );
+        setPayRetryStalledTier(tier);
         clearParams();
       }
     })();
 
     return () => {
       cancelled = true;
+      if (!finished) {
+        // Torn down mid-loop: never leave the loading toast spinning, and let
+        // a re-run of this effect start the loop again.
+        toast.dismiss("pay-retry");
+        payRetryFor.current = null;
+      }
     };
   }, [id, searchParams, setSearchParams, refetchData]);
+
+  async function handleStartGrading() {
+    if (!id || !payRetryStalledTier) return;
+    setStartingGrade(true);
+    try {
+      const res = await edgeFetch(`/api/grade/pay/${id}`, {
+        method: "POST",
+        json: { tier: payRetryStalledTier },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.payment?.paid) {
+        track("grade.paid", { method: json.payment.method, tier: payRetryStalledTier });
+        toast.success("Grading started.");
+        setPayRetryStalledTier(null);
+        await refetchData();
+      } else if (res.ok) {
+        toast.info("Your credits haven't arrived yet. Try again in a minute.");
+      } else {
+        toast.error(
+          typeof json.error === "string" && json.error ? json.error : "Couldn't start this grade.",
+        );
+        if (isFinalPayStatus(res.status)) setPayRetryStalledTier(null);
+      }
+    } catch (err) {
+      toastError(err, "Couldn't start this grade");
+    } finally {
+      setStartingGrade(false);
+    }
+  }
 
   // Re-fetch when submission status changes via realtime. We only care
   // about `.status` here — read it into a local so the deps array is
@@ -914,6 +986,20 @@ export function SubmissionDetailPage() {
 
   return (
     <div className="space-y-6">
+      {payRetryStalledTier && submission.status === "pending" && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm"
+        >
+          <p>
+            Your credits are still arriving. Once they land, start the grade here.
+          </p>
+          <Button size="sm" onClick={() => void handleStartGrading()} disabled={startingGrade}>
+            {startingGrade && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Start grading
+          </Button>
+        </div>
+      )}
       {refreshError && (
         <div role="alert" className="space-y-2">
           <p>Couldn't refresh this grade. You're seeing the last loaded result.</p>
