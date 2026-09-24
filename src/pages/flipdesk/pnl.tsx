@@ -22,6 +22,7 @@ import {
   ensureLedgerBuilt,
   fetchLedgerEntries,
   invalidateLedgerQueries,
+  ledgerEntriesKey,
   rebuildMyLedger,
   type LedgerEntryRow,
 } from "@/lib/ledger";
@@ -121,7 +122,7 @@ export function PnlPage() {
     refetch,
     isFetching,
   } = useQuery({
-    queryKey: ["pnl-entries", user?.id, range.from, range.to],
+    queryKey: ledgerEntriesKey(user?.id, range.from, range.to),
     enabled: !!user,
     queryFn: async () => {
       // The ledger is derived, so an account that has never built one shows an
@@ -132,10 +133,15 @@ export function PnlPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // Runs alongside the current read rather than after it. ensureLedgerBuilt
+  // shares one check between concurrent callers, so both wait on one build.
   const { data: priorRows } = useQuery({
-    queryKey: ["pnl-entries", user?.id, prior.from, prior.to],
-    enabled: !!user && !isLoading,
-    queryFn: () => fetchLedgerEntries(prior.from, prior.to),
+    queryKey: ledgerEntriesKey(user?.id, prior.from, prior.to),
+    enabled: !!user,
+    queryFn: async () => {
+      await ensureLedgerBuilt();
+      return fetchLedgerEntries(prior.from, prior.to);
+    },
     staleTime: 5 * 60 * 1000,
   });
 

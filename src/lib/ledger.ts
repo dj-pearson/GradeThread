@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { accountByCode, type LedgerAccount } from "@/lib/chart-of-accounts";
+import { fetchAllPages } from "@/lib/paged-read";
 
 // US-2984 — reading the ledger from the client.
 //
@@ -71,23 +72,47 @@ export async function rebuildMyLedger(): Promise<number> {
   return data ?? 0;
 }
 
-/** Entries in a date range, newest first. Half-open on `to`, like every range here. */
+/**
+ * The react-query key for a ledger_entries range read. Shared so the Money
+ * overview and the P&L hit ONE cache entry for the same range instead of
+ * reading the same rows twice under two names.
+ */
+export function ledgerEntriesKey(
+  ownerId: string | null | undefined,
+  from: string | null,
+  to: string | null,
+): readonly ["ledger-entries", string | null, string | null, string | null] {
+  return ["ledger-entries", ownerId ?? null, from, to];
+}
+
+/**
+ * Entries in a date range, newest first. Half-open on `to`, like every range here.
+ *
+ * Paged through fetchAllPages (US-2169): a single select past PostgREST's row
+ * cap returns a short array with no error, and every profit, P&L and tax figure
+ * would quietly drop the oldest entries. `id` is the last sort key so the page
+ * boundaries are stable; entry_date and created_at alone are not unique.
+ */
 export async function fetchLedgerEntries(
   from: string | null,
   to: string | null,
 ): Promise<LedgerEntryRow[]> {
-  let q = supabase
-    .from("ledger_entries")
-    .select(
-      "id, entry_date, amount_cents, currency, memo, source_kind, source_id, source_detail, ledger_accounts(code, name, flow, schedule_c_line)",
-    )
-    .order("entry_date", { ascending: false })
-    .order("created_at", { ascending: false });
-  if (from) q = q.gte("entry_date", from);
-  if (to) q = q.lt("entry_date", to);
-  const { data, error } = await q;
-  if (error) throw error;
-  return (data ?? []) as unknown as LedgerEntryRow[];
+  return fetchAllPages(async (start, end) => {
+    let q = supabase
+      .from("ledger_entries")
+      .select(
+        "id, entry_date, amount_cents, currency, memo, source_kind, source_id, source_detail, ledger_accounts(code, name, flow, schedule_c_line)",
+      );
+    if (from) q = q.gte("entry_date", from);
+    if (to) q = q.lt("entry_date", to);
+    const { data, error } = await q
+      .order("entry_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(start, end);
+    if (error) throw error;
+    return (data ?? []) as unknown as LedgerEntryRow[];
+  });
 }
 
 /**
@@ -114,9 +139,7 @@ export async function fetchLedgerReconciliation(
  * leaves the others showing the old books for their whole staleTime.
  */
 export const LEDGER_QUERY_KEYS = [
-  "pnl-entries",
-  "money-overview-ledger",
-  "money-overview-calendar",
+  "ledger-entries",
   "estimated-tax-entries",
   "ledger-reconciliation",
 ] as const;

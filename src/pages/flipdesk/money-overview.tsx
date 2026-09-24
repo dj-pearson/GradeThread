@@ -8,7 +8,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
 import { LedgerDriftBanner } from "@/components/finances/ledger-drift-banner";
 import { formatCents } from "@/lib/ledger-math";
-import { ensureLedgerBuilt, fetchLedgerEntries } from "@/lib/ledger";
+import {
+  ensureLedgerBuilt,
+  fetchLedgerEntries,
+  ledgerEntriesKey,
+} from "@/lib/ledger";
 import { buildStatement } from "@/lib/pnl-statement";
 import { fetchReviewCount } from "@/lib/books-review";
 import { fetchPayments, fetchTaxRateYear } from "@/lib/estimated-tax";
@@ -117,7 +121,7 @@ export function MoneyOverviewPage() {
   // third derives from those, so fetching it per card would be three copies of
   // the same answer that can disagree while they load.
   const ledgerQuery = useQuery({
-    queryKey: ["money-overview-ledger", user?.id, fiscal.from, fiscal.to],
+    queryKey: ledgerEntriesKey(user?.id, fiscal.from, fiscal.to),
     enabled: !!user,
     queryFn: async () => {
       await ensureLedgerBuilt();
@@ -147,12 +151,17 @@ export function MoneyOverviewPage() {
     queryFn: () => fetchTaxRateYear(taxYear),
     staleTime: 24 * 60 * 60 * 1000,
   });
+  // For a calendar-year seller the calendar range IS the fiscal range, so the
+  // key below is the same key as ledgerQuery's and react-query answers both
+  // from one request. Only a non-calendar fiscal year makes a second read.
+  const calFrom = `${taxYear}-01-01`;
+  const calTo = `${taxYear + 1}-01-01`;
   const calendarQuery = useQuery({
-    queryKey: ["money-overview-calendar", user?.id, taxYear],
+    queryKey: ledgerEntriesKey(user?.id, calFrom, calTo),
     enabled: !!user,
     queryFn: async () => {
       await ensureLedgerBuilt();
-      return fetchLedgerEntries(`${taxYear}-01-01`, `${taxYear + 1}-01-01`);
+      return fetchLedgerEntries(calFrom, calTo);
     },
     staleTime: 5 * 60 * 1000,
   });

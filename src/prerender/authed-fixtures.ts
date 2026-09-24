@@ -26,14 +26,12 @@ export const FIXTURES: Record<string, unknown> = {
     income_tax_rate_bps: null,
     last_year_total_tax_cents: null,
   },
-  "money-overview-ledger": [
+  // One key for every ledger range read (ledgerEntriesKey), so the Overview's
+  // fiscal and calendar reads and the P&L all take this answer.
+  "ledger-entries": [
     { ledger_accounts: { code: "4000" }, amount_cents: 41_250 },
     { ledger_accounts: { code: "5000" }, amount_cents: -14_800 },
     { ledger_accounts: { code: "6100" }, amount_cents: -2_340 },
-  ],
-  "money-overview-calendar": [
-    { ledger_accounts: { code: "4000" }, amount_cents: 52_900 },
-    { ledger_accounts: { code: "5000" }, amount_cents: -19_100 },
   ],
   // Shape copied from src/lib/estimated-tax.test.ts's RATES_2025, which is the
   // only place the real shape is written down outside the table.
