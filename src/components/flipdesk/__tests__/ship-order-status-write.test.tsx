@@ -44,9 +44,14 @@ vi.mock("@/lib/supabase", () => {
           // which is why the surrounding try/catch could not see this.
           eq: () => {
             writes.push({ table, patch });
-            return Promise.resolve({
-              data: null,
-              error: table === "sales" ? salesUpdateError : statusUpdateError,
+            const error = table === "sales" ? salesUpdateError : statusUpdateError;
+            const result = Promise.resolve({
+              // PS-08: the sales write reads back the rows it changed.
+              data: error ? null : [{ id: "sale-1" }],
+              error,
+            });
+            return Object.assign(result, {
+              is: () => ({ select: () => result }),
             });
           },
         }),

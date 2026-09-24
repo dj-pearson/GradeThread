@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
+import { markItemShipped, recordSaleShipped } from "@/lib/ship-sale";
 import {
   type EbayShippingRate,
   useEbayBuyLabel,
@@ -293,17 +294,11 @@ export function ShipOrderDialog({
         });
         pushed = res.pushed_to_ebay;
       } else if (sale) {
-        // Manual / other-marketplace sale — record shipping locally.
-        const { error } = await supabase
-          .from("sales")
-          .update({
-            shipped_at: new Date().toISOString(),
-            tracking_number: tn,
-            // US-960: persist the carrier (column added in 00250).
-            carrier,
-          } as never)
-          .eq("id", sale.id);
-        if (error) throw error;
+        // Manual / other-marketplace sale — record shipping locally. PS-08:
+        // the shared write, which throws when no row changed instead of
+        // reporting success on an RLS no-op, and never restamps a sale that
+        // is already shipped. US-960: the carrier is persisted (00250).
+        await recordSaleShipped({ saleId: sale.id, tracking: tn, carrier });
       }
 
       // Move the item to the Shipped tab (web's item-status model).
@@ -313,10 +308,7 @@ export function ShipOrderDialog({
       // a failure on THIS line was invisible: eBay had the tracking, the sale
       // recorded shipped_at, the toast said "Marked shipped" and the garment
       // stayed in the ship queue forever with nothing to say why.
-      const { error: statusErr } = await supabase
-        .from("inventory_items")
-        .update({ status: "shipped" } as never)
-        .eq("id", item.id);
+      const statusErr = await markItemShipped(item.id);
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       if (statusErr) {
         // NOT a plain failure, and not the catch below: the shipment really did
