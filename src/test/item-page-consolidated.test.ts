@@ -78,7 +78,9 @@ describe("one listings read for the whole item page (US-2519)", () => {
 describe("the panels are grouped, not stacked (US-2519)", () => {
   it("renders four tabs with the editor as the default", () => {
     const src = read(PAGE);
-    expect(src).toMatch(/useState\("details"\)/);
+    // F6: `?tab=` may pick another group; with none, the editor.
+    expect(src).toMatch(/useState<string>\(tabParam \?\? "details"\)/);
+    expect(src).toMatch(/itemTabFromParam\(/);
     for (const tab of ["details", "listing", "grade", "money"]) {
       expect(src).toContain(`<TabsTrigger value="${tab}">`);
       expect(src).toContain(`<TabsContent value="${tab}"`);

@@ -22,7 +22,9 @@ let rpcError: unknown = null;
 
 function submissionsChain() {
   const self: Record<string, unknown> = {};
-  for (const k of ["select", "ilike", "order", "limit"]) self[k] = () => self;
+  for (const k of ["select", "ilike", "order", "limit", "in", "eq", "abortSignal"]) {
+    self[k] = () => self;
+  }
   self["then"] = (
     onFulfilled: (v: unknown) => unknown,
     onRejected?: (e: unknown) => unknown,
@@ -43,7 +45,10 @@ function submissionsChain() {
 vi.mock("@/lib/supabase", () => ({
   supabase: {
     from: () => submissionsChain(),
-    rpc: () => Promise.resolve({ data: rpcError ? null : [], error: rpcError }),
+    rpc: () => {
+      const p = Promise.resolve({ data: rpcError ? null : [], error: rpcError });
+      return Object.assign(p, { abortSignal: () => p });
+    },
   },
 }));
 vi.mock("@/lib/recent-searches", () => ({
@@ -52,7 +57,7 @@ vi.mock("@/lib/recent-searches", () => ({
 }));
 vi.mock("@/stores/auth-store", () => ({
   useAuthStore: (sel: (s: unknown) => unknown) =>
-    sel({ user: { id: "user-1" }, profile: { role: "user" } }),
+    sel({ user: { id: "user-1" }, profile: { role: "user" }, activeWorkspaceOwnerId: null }),
 }));
 vi.mock("@/stores/recent-store", () => ({
   useRecentStore: (sel: (s: unknown) => unknown) => sel({ recentItemIds: [] }),
@@ -131,6 +136,20 @@ afterEach(() => {
   root = null;
   container?.remove();
   container = null;
+});
+
+describe("the palette's deep search: an RPC error is an outage (US-2517, S1)", () => {
+  it("warns the list is short and never says 'No matches.'", async () => {
+    rpcError = { code: "57014", message: "canceling statement due to statement timeout" };
+    mount();
+    await openAndType("carhartt");
+    const alerts = Array.from(document.querySelectorAll('[role="alert"]'))
+      .map((n) => n.textContent ?? "")
+      .join(" | ");
+    expect(alerts).toContain("Deep text search is unavailable right now");
+    expect(bodyText()).not.toContain("No matches.");
+    expect(bodyText()).toContain("Search is unavailable right now. Try again in a moment.");
+  });
 });
 
 describe("the palette's submissions search: the catch that was dead", () => {

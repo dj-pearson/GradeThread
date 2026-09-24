@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 // US-2517. The FlipDesk search page ran the flipdesk_search RPC, destructured
 // only `data`, and rendered the "No matches" empty state when it came back
@@ -19,37 +19,44 @@ function read(rel: string): string {
   return readFileSync(resolve(process.cwd(), rel), "utf8");
 }
 
-describe("a failed search says it failed (US-2517)", () => {
-  it("the search page reads `error` off the RPC result", () => {
-    const src = read(SEARCH_PAGE);
-    expect(src).toMatch(/const \{ data, error \} = await \(/);
-    expect(src).toMatch(/if \(error\) \{/);
-  });
+// The rendered half of this lives in flipdesk-search-page.test.tsx (the page)
+// and components/flipdesk/__tests__/palette-submission-search-outage.test.tsx
+// (the palette): both mock supabase.rpc resolving { data: null, error } and
+// assert the outage copy and the absence of "No matches". Those replaced the
+// regexes that used to sit here, which pinned one spelling of the fix rather
+// than the behaviour.
 
-  it("the search page renders ErrorState with a retry, not an empty state", () => {
-    const src = read(SEARCH_PAGE);
-    expect(src).toContain("<ErrorState");
-    expect(src).toMatch(/onRetry=\{\(\) => setRetryToken/);
-    // The failure branch must come FIRST, or the empty state wins.
-    const failedAt = src.indexOf("{failed && !loading ?");
-    const emptyAt = src.indexOf('title="No matches"');
-    expect(failedAt).toBeGreaterThan(-1);
-    expect(failedAt).toBeLessThan(emptyAt);
-  });
-
-  it("the palette reads `error` too and warns the list is short", () => {
-    const src = read(PALETTE);
-    expect(src).toMatch(/const \{ data, error \} = await \(/);
-    expect(src).toMatch(/setDeepFailed\(Boolean\(error\)\)/);
-    expect(src).toContain("Search is unavailable right now.");
-  });
-
-  it("neither surface silently drops the RPC error any more", () => {
-    // The exact shape that caused it: destructuring only `data` from an awaited
-    // supabase.rpc cast. If it comes back, this fails.
-    for (const rel of [SEARCH_PAGE, PALETTE]) {
-      expect(read(rel), rel).not.toMatch(/const \{ data \} = await \(/);
+function walk(dir: string, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) {
+      if (name === "__tests__" || name === "test") continue;
+      walk(p, out);
+    } else if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) {
+      out.push(p);
     }
+  }
+  return out;
+}
+
+describe("a failed search says it failed (US-2517)", () => {
+  it("no source file destructures only `data` from an awaited rpc", () => {
+    // The exact shape that caused it, anywhere in src/: `const { data } =
+    // await ...rpc(`. supabase-js resolves with { data: null, error }, so the
+    // error is gone and an outage reads as an empty answer.
+    const offenders = walk(resolve(process.cwd(), "src")).filter((f) =>
+      /const \{ data \} = await [^;]*?\.rpc\(/s.test(readFileSync(f, "utf8")),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("neither search surface casts its way around the typed search call", () => {
+    for (const rel of [SEARCH_PAGE, PALETTE]) {
+      expect(read(rel), rel).not.toContain('"flipdesk_search"');
+    }
+    expect(read("src/lib/flipdesk-search-fetch.ts")).not.toMatch(
+      /as unknown as[^;]*flipdesk_search/s,
+    );
   });
 });
 
@@ -70,19 +77,6 @@ describe("search parity with iOS GlobalSearchView (US-2517)", () => {
       // No inline re-implementation of either RPC outside the helper.
       expect(read(rel), rel).not.toContain('"record_search"');
     }
-  });
-
-  it("the result list is keyboard-navigable, matching its return-key glyph", () => {
-    const src = read(SEARCH_PAGE);
-    expect(src).toContain('e.key === "ArrowDown"');
-    expect(src).toContain('e.key === "ArrowUp"');
-    expect(src).toContain('e.key === "Enter"');
-    // Enter must open the row under the cursor.
-    expect(src).toMatch(/const hit = results\[activeIdx\]/);
-    expect(src).toMatch(/void navigate\(hit\.link\)/);
-    // And the cursor has to be announced, not just painted.
-    expect(src).toMatch(/aria-activedescendant/);
-    expect(src).toMatch(/aria-selected=\{i === activeIdx\}/);
   });
 });
 

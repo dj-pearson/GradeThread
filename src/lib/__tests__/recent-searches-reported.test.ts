@@ -14,7 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let rpcError: unknown = null;
 let rpcRejects = false;
-let rpcRows: { query: string }[] | null = null;
+let rpcRows: { query: string; scope?: string; result_count?: number | null; updated_at?: string }[] | null = null;
 const rpcCalls: { fn: string; args: unknown }[] = [];
 
 vi.mock("@/lib/supabase", () => ({
@@ -65,8 +65,13 @@ describe("fetchRecentSearches", () => {
   });
 
   it("stays silent and returns the terms when the RPC answers", async () => {
-    rpcRows = [{ query: "carhartt" }, { query: "" }, { query: "levis" }];
-    await expect(fetchRecentSearches(8)).resolves.toEqual(["carhartt", "levis"]);
+    rpcRows = [
+      { query: "carhartt", scope: "all", result_count: 4, updated_at: "2026-09-01T00:00:00Z" },
+      { query: "", scope: "all", result_count: null, updated_at: "2026-09-01T00:00:00Z" },
+      { query: "levis", scope: "sales", result_count: null, updated_at: "2026-09-02T00:00:00Z" },
+    ];
+    const got = await fetchRecentSearches(8);
+    expect(got.map((r) => r.query)).toEqual(["carhartt", "levis"]);
     expect(captured).toEqual([]);
   });
 
@@ -80,8 +85,7 @@ describe("fetchRecentSearches", () => {
 describe("recordSearch", () => {
   it("reports a RESOLVED refusal on the fire-and-forget write", async () => {
     rpcError = { code: "42501", message: "permission denied for function record_search" };
-    recordSearch("carhartt detroit");
-    await flush();
+    await recordSearch("carhartt detroit");
     expect(rpcCalls.map((c) => c.fn)).toEqual(["record_search"]);
     expect(captured).toHaveLength(1);
     expect(captured[0]!.action).toBe("record search term");

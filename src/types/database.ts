@@ -5189,6 +5189,42 @@ export interface Database {
         Row: { certificate_id: string; passport_slug: string };
       };
     };
+    Functions: {
+      // US-1050 / 00248: SECURITY INVOKER full-text + fuzzy search. RLS scopes
+      // the rows to what the caller may read, which is NOT the same as the
+      // active workspace (see src/hooks/use-flipdesk-search.ts).
+      flipdesk_search: {
+        Args: {
+          p_query: string;
+          p_scope?: "all" | "items" | "listings" | "sales";
+          p_limit?: number;
+          p_fuzzy_threshold?: number;
+        };
+        Returns: {
+          result_type: "item" | "listing" | "sale";
+          result_id: string;
+          // NOT NULL on items (its own id), listings and sales (00002 FKs).
+          inventory_item_id: string;
+          title: string;
+          snippet: string;
+          rank: number;
+        }[];
+      };
+      // 00248: the caller's own history, newest first.
+      recent_searches: {
+        Args: { p_limit?: number };
+        Returns: {
+          query: string;
+          scope: string;
+          result_count: number | null;
+          updated_at: string;
+        }[];
+      };
+      record_search: {
+        Args: { p_query: string; p_scope?: string; p_result_count?: number | null };
+        Returns: undefined;
+      };
+    };
     Enums: {
       user_plan: UserPlan;
       flipdesk_plan: FlipdeskPlan;

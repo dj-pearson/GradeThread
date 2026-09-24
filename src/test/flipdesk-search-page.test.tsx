@@ -1,0 +1,571 @@
+// The FlipDesk Search page, rendered. These replaced source-regex guards
+// (search-outage-not-empty.test.ts kept one file-agnostic rule) because the
+// failures they were about are timing failures: a stale row opened by Enter,
+// a "No matches" frame before the first answer, a URL the page ignored.
+//
+// THE RPC MOCK RESOLVES AND NEVER REJECTS. supabase-js returns
+// { data: null, error } on a Postgres error, so that is what a failure is here.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createElement as h, act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  type NavigateFunction,
+} from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import axe from "axe-core";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+type Row = {
+  result_type: string;
+  result_id: string;
+  inventory_item_id: string;
+  title: string;
+  snippet: string;
+  rank: number;
+};
+type RpcArgs = { p_query: string; p_scope: string; p_limit: number };
+
+let rpcImpl: (args: RpcArgs) => Promise<{ data: Row[] | null; error: unknown }>;
+const rpcCalls: RpcArgs[] = [];
+let itemRows: Record<string, unknown>[] = [];
+let exactRows: Record<string, unknown>[] = [];
+
+function chain(table: string) {
+  const ops: [string, unknown[]][] = [];
+  const self: Record<string, unknown> = {};
+  for (const k of ["select", "in", "eq", "order", "limit", "or", "abortSignal", "delete"]) {
+    self[k] = (...a: unknown[]) => {
+      ops.push([k, a]);
+      return self;
+    };
+  }
+  self["then"] = (ok: (v: unknown) => unknown, bad?: (e: unknown) => unknown) => {
+    let data: unknown[] = [];
+    if (table === "items_full") {
+      const inOp = ops.find(([k]) => k === "in");
+      const owner = ops.find(([k, a]) => k === "eq" && a[0] === "user_id")?.[1][1];
+      if (inOp) {
+        const ids = inOp[1][1] as string[];
+        data = itemRows.filter((r) => ids.includes(r.id as string) && r.user_id === owner);
+      } else if (ops.some(([k]) => k === "or")) {
+        data = exactRows.filter((r) => r.user_id === owner);
+      }
+    }
+    return Promise.resolve({ data, error: null }).then(ok, bad);
+  };
+  return self;
+}
+
+vi.mock("@/lib/supabase", () => ({
+  supabase: {
+    from: (t: string) => chain(t),
+    rpc: (_fn: string, args: RpcArgs) => {
+      rpcCalls.push(args);
+      const p = rpcImpl(args);
+      return Object.assign(p, { abortSignal: () => p });
+    },
+  },
+}));
+
+const recorded: unknown[][] = [];
+let recentRows: { query: string; scope: string; resultCount: number | null; updatedAt: string }[] = [];
+vi.mock("@/lib/recent-searches", () => ({
+  fetchRecentSearches: () => Promise.resolve(recentRows),
+  recordSearch: (...a: unknown[]) => {
+    recorded.push(a);
+    return Promise.resolve();
+  },
+  removeRecentSearch: () => Promise.resolve(),
+  clearRecentSearches: () => Promise.resolve(),
+}));
+
+// A tiny subscribable store, so a test can switch workspace mid-page.
+let authState = { user: { id: "owner-1" }, activeWorkspaceOwnerId: null as string | null };
+const authListeners = new Set<() => void>();
+function setActiveOwner(id: string | null) {
+  authState = { ...authState, activeWorkspaceOwnerId: id };
+  authListeners.forEach((l) => l());
+}
+vi.mock("@/stores/auth-store", async () => {
+  const { useSyncExternalStore } = await import("react");
+  return {
+    useAuthStore: (sel: (s: unknown) => unknown) =>
+      sel(
+        useSyncExternalStore(
+          (l) => {
+            authListeners.add(l);
+            return () => authListeners.delete(l);
+          },
+          () => authState,
+        ),
+      ),
+  };
+});
+
+const { FlipdeskSearchPage } = await import("@/pages/flipdesk/search");
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+let root: Root | null = null;
+let container: HTMLDivElement | null = null;
+let loc = "";
+let nav: NavigateFunction | null = null;
+
+function Probe() {
+  const l = useLocation();
+  nav = useNavigate();
+  loc = `${l.pathname}${l.search}`;
+  return null;
+}
+
+function mount(initial = "/dashboard/flipdesk/search") {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  act(() => {
+    root = createRoot(container!);
+    root.render(
+      h(
+        QueryClientProvider,
+        { client: qc },
+        h(
+          MemoryRouter,
+          { initialEntries: [initial] },
+          h(Probe),
+          h(
+            Routes,
+            null,
+            h(Route, { path: "/dashboard/flipdesk/search", element: h(FlipdeskSearchPage) }),
+            h(Route, { path: "/dashboard/flipdesk/items/:id", element: h("p", null, "ITEM PAGE") }),
+          ),
+        ),
+      ),
+    );
+  });
+}
+
+async function settle(ms = 0) {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, ms));
+  });
+}
+
+function field(): HTMLInputElement {
+  const el = document.querySelector<HTMLInputElement>('input[aria-label^="Search"]');
+  expect(el, "search field not rendered").toBeTruthy();
+  return el!;
+}
+
+async function type(term: string) {
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    setter.call(field(), term);
+    field().dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+async function press(key: string) {
+  await act(async () => {
+    field().dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  });
+}
+
+/** Poll inside act until `cond` holds, or fail with what was on screen. */
+async function until(cond: () => boolean, ms = 2000) {
+  const end = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > end) throw new Error(`timed out; page said: ${text().slice(0, 400)}`);
+    await settle(10);
+  }
+}
+
+function text(): string {
+  return document.body.textContent ?? "";
+}
+
+function row(id: string, type = "item", item = id, title = `Title ${id}`): Row {
+  return { result_type: type, result_id: id, inventory_item_id: item, title, snippet: "", rank: 1 };
+}
+
+function item(id: string, extra: Record<string, unknown> = {}) {
+  return {
+    id,
+    user_id: "owner-1",
+    item_title: `Title ${id}`,
+    item_number: null,
+    location_bin: null,
+    status: "cataloged",
+    ...extra,
+  };
+}
+
+beforeEach(() => {
+  authState = { user: { id: "owner-1" }, activeWorkspaceOwnerId: null };
+  rpcCalls.length = 0;
+  recorded.length = 0;
+  recentRows = [];
+  exactRows = [];
+  itemRows = [item("nike-1"), item("levis-1"), item("levis-2")];
+  rpcImpl = (a) =>
+    Promise.resolve({
+      data: a.p_query.startsWith("ni")
+        ? [row("nike-1")]
+        : a.p_query.startsWith("lev")
+          ? [row("levis-1"), row("levis-2")]
+          : [],
+      error: null,
+    });
+});
+
+afterEach(() => {
+  act(() => root?.unmount());
+  root = null;
+  container?.remove();
+  container = null;
+});
+
+describe("a failed search says it failed (US-2517, S1)", () => {
+  it("shows ErrorState with a retry and never 'No matches'", async () => {
+    rpcImpl = () =>
+      Promise.resolve({ data: null, error: { code: "57014", message: "canceling statement" } });
+    mount("/dashboard/flipdesk/search?q=nike");
+    await settle(50);
+    expect(text()).toContain("Search is unavailable");
+    expect(text()).not.toContain("No matches");
+    expect(text()).not.toMatch(/Nothing matched/);
+    const retry = [...document.querySelectorAll("button")].find((b) =>
+      /try again/i.test(b.textContent ?? ""),
+    );
+    expect(retry, "no retry button").toBeTruthy();
+
+    // And the retry really asks again.
+    rpcImpl = () => Promise.resolve({ data: [row("nike-1")], error: null });
+    await act(async () => retry!.click());
+    await settle(50);
+    expect(text()).toContain("Title nike-1");
+  });
+});
+
+describe("the shared hook caches (S1)", () => {
+  it("typing the same term twice within 30s makes one RPC call", async () => {
+    mount();
+    await type("nike");
+    await until(() => text().includes("Title nike-1"));
+    await type("");
+    await settle(300);
+    await type("nike");
+    await until(() => text().includes("Title nike-1"));
+    await settle(300);
+    expect(rpcCalls.filter((c) => c.p_query === "nike")).toHaveLength(1);
+  });
+});
+
+describe("loading is not empty (F2)", () => {
+  it("a pending search shows a status region, never 'No matches' or '0 results'", async () => {
+    let release: () => void = () => {};
+    rpcImpl = () =>
+      new Promise((r) => {
+        release = () => r({ data: [], error: null });
+      });
+    mount("/dashboard/flipdesk/search?q=nike");
+    await settle(0);
+    expect(text()).not.toContain("No matches");
+    expect(text()).not.toContain("0 results");
+    expect(document.querySelector('[role="status"]')).toBeTruthy();
+    await settle(300);
+    expect(text()).not.toContain("No matches");
+    expect(text()).not.toContain("0 results");
+    await act(async () => release());
+    await settle(10);
+    expect(text()).toMatch(/Nothing matched/);
+  });
+});
+
+describe("Enter never opens a row from an older query (F1)", () => {
+  it("a scanner that types and sends Enter inside the debounce opens the NEW term's hit", async () => {
+    mount();
+    // An older query is on screen.
+    await type("nike");
+    await until(() => text().includes("Title nike-1"));
+    // Wedge-speed: the new term and Enter, with no debounce wait between.
+    rpcImpl = (a) =>
+      new Promise((r) =>
+        setTimeout(
+          () =>
+            r({
+              data: a.p_query === "levis" ? [row("levis-2"), row("levis-1")] : [],
+              error: null,
+            }),
+          40,
+        ),
+      );
+    await type("levis");
+    await press("Enter");
+    await settle(100);
+    expect(loc).toBe("/dashboard/flipdesk/items/levis-2");
+    expect(recorded[recorded.length - 1]?.[0]).toBe("levis");
+  });
+
+  it("Enter on a settled list opens the row under the cursor", async () => {
+    mount();
+    await type("levis");
+    await until(() => text().includes("Title levis-2") && !!document.querySelector('[aria-selected="true"]'));
+    await settle(20);
+    await press("ArrowDown");
+    await press("Enter");
+    await settle(10);
+    expect(loc).toBe("/dashboard/flipdesk/items/levis-2");
+  });
+});
+
+describe("the URL is the source of truth (F3)", () => {
+  it("follows an outside navigation to a bare /search and to a new q/scope", async () => {
+    mount("/dashboard/flipdesk/search?q=nike");
+    await settle(300);
+    expect(field().value).toBe("nike");
+
+    await act(async () => nav!("/dashboard/flipdesk/search"));
+    await settle(10);
+    expect(field().value).toBe("");
+
+    await act(async () => nav!("/dashboard/flipdesk/search?q=levis&scope=sales"));
+    await settle(10);
+    expect(field().value).toBe("levis");
+    const sales = [...document.querySelectorAll('[role="tab"]')].find(
+      (t) => t.textContent === "Sales",
+    );
+    expect(sales?.getAttribute("data-state")).toBe("active");
+  });
+
+  it("keeps params it does not own when it writes q", async () => {
+    mount("/dashboard/flipdesk/search?from=sidebar");
+    await type("nike");
+    await until(() => loc.includes("q=nike"));
+    expect(loc).toContain("from=sidebar");
+    expect(loc).toContain("q=nike");
+  });
+});
+
+describe("recent searches (F7)", () => {
+  beforeEach(() => {
+    recentRows = [
+      { query: "jane doe", scope: "sales", resultCount: 2, updatedAt: new Date().toISOString() },
+      { query: "levis", scope: "all", resultCount: 51, updatedAt: new Date().toISOString() },
+    ];
+  });
+
+  it("picking a Sales term opens the Sales tab and searches at once", async () => {
+    mount();
+    await until(() => text().includes("jane doe"));
+    expect(text()).toContain("50+ results");
+    const opt = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((o) =>
+      (o.textContent ?? "").includes("jane doe"),
+    );
+    await act(async () => opt!.click());
+    await settle(20);
+    const sales = [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent === "Sales");
+    expect(sales?.getAttribute("data-state")).toBe("active");
+    expect(field().value).toBe("jane doe");
+    // Well inside the 250ms debounce: the pick skipped it.
+    expect(rpcCalls.some((c) => c.p_query === "jane doe" && c.p_scope === "sales")).toBe(true);
+  });
+
+  it("ArrowDown then Enter on an empty field runs the newest term", async () => {
+    mount();
+    await until(() => text().includes("jane doe"));
+    await press("ArrowDown");
+    expect(field().getAttribute("aria-activedescendant")).toBe("recent-0");
+    await press("Enter");
+    await settle(20);
+    expect(field().value).toBe("jane doe");
+    expect(rpcCalls.some((c) => c.p_query === "jane doe")).toBe(true);
+  });
+
+  it("Delete forgets the highlighted term with no mouse", async () => {
+    mount();
+    await until(() => text().includes("jane doe"));
+    await press("ArrowDown");
+    await press("Delete");
+    await settle(10);
+    expect(text()).not.toContain("jane doe");
+    expect(text()).toContain("levis");
+  });
+
+  it("has no serious axe violations with recent searches on screen", async () => {
+    mount();
+    await until(() => text().includes("jane doe"));
+    await press("ArrowDown");
+    const results = await axe.run(container!, {
+      rules: { "color-contrast": { enabled: false } },
+    });
+    const bad = results.violations.filter(
+      (v) => v.id.startsWith("aria") || v.impact === "serious" || v.impact === "critical",
+    );
+    expect(bad.map((v) => `${v.id}: ${v.help} ${v.nodes.map((n) => n.html).join(" ")}`)).toEqual([]);
+  });
+
+  it("each term can be removed", async () => {
+    mount();
+    await until(() => text().includes("jane doe"));
+    const remove = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove jane doe from recent searches"]',
+    );
+    expect(remove).toBeTruthy();
+    await act(async () => remove!.click());
+    await settle(10);
+    expect(text()).not.toContain("jane doe");
+  });
+});
+
+describe("the field and list are a combobox (U1)", () => {
+  it("has no serious axe violations with results on screen", async () => {
+    // With a SKU, so each row carries its copy button too.
+    itemRows = [item("levis-1", { item_number: "J0001" }), item("levis-2", { item_number: "J0002" })];
+    mount();
+    await type("levis");
+    await until(() => text().includes("Title levis-2"));
+    const results = await axe.run(container!, {
+      rules: { "color-contrast": { enabled: false } },
+    });
+    const bad = results.violations.filter(
+      (v) => v.id.startsWith("aria") || v.impact === "serious" || v.impact === "critical",
+    );
+    expect(bad.map((v) => `${v.id}: ${v.help} ${v.nodes.map((n) => n.html).join(" ")}`)).toEqual([]);
+    expect(field().getAttribute("role")).toBe("combobox");
+    expect(field().getAttribute("aria-controls")).toBe("search-results");
+    expect(field().getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById("search-results")?.getAttribute("role")).toBe("listbox");
+  });
+
+  it("Escape clears the field and '/' focuses it", async () => {
+    mount();
+    await type("levis");
+    await press("Escape");
+    expect(field().value).toBe("");
+    field().blur();
+    expect(document.activeElement).not.toBe(field());
+    await act(async () => {
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "/", bubbles: true }));
+    });
+    expect(document.activeElement).toBe(field());
+  });
+});
+
+describe("one rich row per garment (D1)", () => {
+  it("shows SKU, bin and status from items_full, and collapses the item's other hits", async () => {
+    itemRows = [item("coat", { item_number: "J0042", location_bin: "A3", status: "listed" })];
+    rpcImpl = () =>
+      Promise.resolve({
+        data: [
+          row("coat", "item", "coat", "Barn coat"),
+          row("L1", "listing", "coat", "Barn coat listing"),
+          row("S1", "sale", "coat", "buyer_jo"),
+        ],
+        error: null,
+      });
+    mount("/dashboard/flipdesk/search?q=barn");
+    await until(() => text().includes("J0042"));
+    const opts = document.querySelectorAll('#search-results [role="option"]');
+    expect(opts).toHaveLength(1);
+    const t = opts[0]!.textContent ?? "";
+    expect(t).toContain("SKU");
+    expect(t).toContain("Bin A3");
+    expect(t).toContain("Listed");
+    expect(t).toContain("Sold to buyer_jo");
+    expect(t).toContain("Matched in listing, sale");
+  });
+});
+
+describe("exact codes are pinned (D2)", () => {
+  it("J0042 + Enter opens the item with that SKU", async () => {
+    itemRows = [item("other")];
+    exactRows = [item("sku-item", { item_number: "J0042" })];
+    rpcImpl = () => Promise.resolve({ data: [row("other")], error: null });
+    mount();
+    await type("J0042");
+    await press("Enter");
+    await until(() => loc.startsWith("/dashboard/flipdesk/items/"));
+    expect(loc).toBe("/dashboard/flipdesk/items/sku-item");
+  });
+
+  it("A3 pins the bin match as the first row", async () => {
+    itemRows = [item("other")];
+    exactRows = [item("bin-item", { location_bin: "A3", item_title: "Wool scarf" })];
+    rpcImpl = () => Promise.resolve({ data: [row("other")], error: null });
+    mount();
+    await type("A3");
+    await until(() => text().includes("Wool scarf"));
+    const first = document.querySelector('#search-results [role="option"]');
+    expect(first?.textContent).toContain("In bin A3");
+    expect(first?.textContent).toContain("Wool scarf");
+  });
+});
+
+describe("honest counts (U2)", () => {
+  function fill(n: number, prefix: string) {
+    return Array.from({ length: n }, (_, i) => row(`${prefix}${i}`));
+  }
+
+  it("Show 200 applies to that search only, and a short capped page never says 'the best 50'", async () => {
+    // Every term fills its page: 51 rows at 50, 200 at 200.
+    rpcImpl = (a) => Promise.resolve({ data: fill(a.p_limit, a.p_query), error: null });
+    itemRows = [
+      ...Array.from({ length: 200 }, (_, i) => item(`levis${i}`)),
+      // Only 10 of nike's rows are this workspace's; the rest are another's.
+      ...Array.from({ length: 10 }, (_, i) => item(`nike${i}`)),
+    ];
+    mount();
+    await type("levis");
+    await until(() => text().includes("showing the best 50"));
+    const more = [...document.querySelectorAll("button")].find((b) => b.textContent === "Show 200");
+    await act(async () => more!.click());
+    await until(() => rpcCalls.some((c) => c.p_query === "levis" && c.p_limit === 200));
+
+    await type("nike");
+    await until(() => text().includes("Title nike0"));
+    expect(rpcCalls.filter((c) => c.p_query === "nike").map((c) => c.p_limit)).toEqual([51]);
+    expect(text()).toContain("10 results shown, there may be more");
+    expect(text()).not.toContain("showing the best 50");
+  });
+});
+
+describe("a workspace switch never shows the last workspace's rows (S2)", () => {
+  it("drops the previous owner's results instead of showing them as current", async () => {
+    itemRows = [item("nike-1"), { ...item("nike-2"), user_id: "client-9" }];
+    rpcImpl = () => Promise.resolve({ data: [row("nike-1"), row("nike-2")], error: null });
+    let release: () => void = () => {};
+    mount("/dashboard/flipdesk/search?q=nike");
+    await until(() => text().includes("Title nike-1"));
+    expect(text()).not.toContain("Title nike-2");
+
+    rpcImpl = () =>
+      new Promise((r) => {
+        release = () => r({ data: [row("nike-1"), row("nike-2")], error: null });
+      });
+    await act(async () => setActiveOwner("client-9"));
+    await settle(10);
+    // In flight for client-9: owner-1's row must not be on screen.
+    expect(text()).not.toContain("Title nike-1");
+    await act(async () => release());
+    await until(() => text().includes("Title nike-2"));
+    expect(text()).not.toContain("Title nike-1");
+  });
+});
+
+describe("copy is plain (U2)", () => {
+  it("search.tsx carries no em dash, curly quote or invisible character", () => {
+    const src = readFileSync(resolve(process.cwd(), "src/pages/flipdesk/search.tsx"), "utf8");
+    expect(src).not.toMatch(/[\u2014\u2013\u2018\u2019\u201C\u201D\u2026]/);
+    expect(src).not.toMatch(
+      /\u034F|[\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/u,
+    );
+  });
+});

@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSearchArgs,
+  classifyQuery,
+  escapeLike,
+  groupHitsByItem,
+  stripTitleEcho,
+  summarizeHits,
   deepLinkForHit,
   isSearchableQuery,
+  itemTabFromParam,
   mapHits,
   normalizeQuery,
   normalizeScope,
@@ -98,33 +104,48 @@ describe("deepLinkForHit", () => {
     );
   });
 
-  it("links a listing to its parent item when known", () => {
+  it("links a listing to its parent item's Listing tab", () => {
     expect(
       deepLinkForHit(
         hit({ result_type: "listing", result_id: "L1", inventory_item_id: "i9" }),
       ),
-    ).toBe("/dashboard/flipdesk/items/i9");
+    ).toBe("/dashboard/flipdesk/items/i9?tab=listing&listing=L1");
   });
 
-  it("falls back to the listings index when a listing has no parent item", () => {
-    expect(
-      deepLinkForHit(
-        hit({ result_type: "listing", result_id: "L1", inventory_item_id: null }),
-      ),
-    ).toBe("/dashboard/flipdesk/listings");
-  });
-
-  it("links a sale to its parent item, else reconciliation", () => {
+  it("links a sale to its parent item's Money tab", () => {
     expect(
       deepLinkForHit(
         hit({ result_type: "sale", result_id: "S1", inventory_item_id: "i3" }),
       ),
-    ).toBe("/dashboard/flipdesk/items/i3");
-    expect(
-      deepLinkForHit(
-        hit({ result_type: "sale", result_id: "S1", inventory_item_id: null }),
-      ),
-    ).toBe("/dashboard/flipdesk/money?view=reconcile&tab=payouts");
+    ).toBe("/dashboard/flipdesk/items/i3?tab=money&sale=S1");
+  });
+
+  it("never falls back to an index page (both FKs are NOT NULL, 00002)", () => {
+    for (const t of ["listing", "sale"] as const) {
+      expect(
+        deepLinkForHit(hit({ result_type: t, result_id: "x", inventory_item_id: "i1" })),
+      ).toMatch(/^\/dashboard\/flipdesk\/items\/i1/);
+    }
+  });
+});
+
+describe("itemTabFromParam (F6)", () => {
+  it("accepts every tab a deep link can name", () => {
+    for (const h of [
+      hit({ result_type: "listing", result_id: "L", inventory_item_id: "i" }),
+      hit({ result_type: "sale", result_id: "S", inventory_item_id: "i" }),
+    ]) {
+      const tab = new URL(deepLinkForHit(h), "https://x.test").searchParams.get("tab");
+      expect(itemTabFromParam(tab)).toBe(tab);
+    }
+    expect(itemTabFromParam("details")).toBe("details");
+    expect(itemTabFromParam("grade")).toBe("grade");
+  });
+
+  it("ignores anything else", () => {
+    expect(itemTabFromParam(null)).toBeNull();
+    expect(itemTabFromParam("")).toBeNull();
+    expect(itemTabFromParam("admin")).toBeNull();
   });
 });
 
@@ -168,7 +189,7 @@ describe("mapHits", () => {
       hit({
         result_type: "sale",
         result_id: "b",
-        inventory_item_id: null,
+        inventory_item_id: "i7",
         snippet: "buyer notes",
         rank: 0.1,
       }),
@@ -177,10 +198,122 @@ describe("mapHits", () => {
     expect(mapped.map((m) => m.key)).toEqual(["item-a", "sale-b"]);
     expect(mapped[0]!.link).toBe("/dashboard/flipdesk/items/a");
     expect(mapped[0]!.typeLabel).toBe("Item");
-    expect(mapped[1]!.link).toBe("/dashboard/flipdesk/money?view=reconcile&tab=payouts");
+    expect(mapped[1]!.link).toBe("/dashboard/flipdesk/items/i7?tab=money&sale=b");
     expect(mapped[1]!.typeLabel).toBe("Sale");
     expect(mapped[1]!.segments).toEqual([
       { text: "buyer notes", highlight: false },
     ]);
+  });
+});
+
+describe("summarizeHits (U2)", () => {
+  const rows = [
+    hit({ result_type: "item" }),
+    hit({ result_type: "item", result_id: "r2" }),
+    hit({ result_type: "listing", result_id: "L" }),
+    hit({ result_type: "sale", result_id: "S" }),
+  ];
+
+  it("counts exactly when the RPC did not hit its limit", () => {
+    const s = summarizeHits(rows, false, 50);
+    expect(s.headline).toBe("4 results");
+    expect(s.breakdown).toBe("2 items, 1 listing, 1 sale");
+    expect(s.byType).toEqual({ item: 2, listing: 1, sale: 1 });
+  });
+
+  it("says 50+ and marks the split as the top 50 when a full page is capped", () => {
+    const full = Array.from({ length: 50 }, (_, i) =>
+      hit({ result_type: "item", result_id: `i${i}` }),
+    );
+    const s = summarizeHits(full, true, 50);
+    expect(s.headline).toBe("50+ results, showing the best 50");
+    expect(s.breakdown).toBe("50 items in the top 50");
+  });
+
+  it("never claims 'the best 50' when the workspace filter left fewer", () => {
+    // The RPC hit its cap, but most rows were another workspace's.
+    const s = summarizeHits(rows, true, 50);
+    expect(s.headline).toBe("4 results shown, there may be more");
+    expect(s.headline).not.toMatch(/best 50/);
+    expect(s.breakdown).toBe("2 items, 1 listing, 1 sale");
+  });
+
+  it("handles one and none", () => {
+    expect(summarizeHits([rows[0]!], false).headline).toBe("1 result");
+    expect(summarizeHits([], false).breakdown).toBe("");
+  });
+});
+
+describe("groupHitsByItem (D1)", () => {
+  it("collapses an item, its listing and its sale into one entry", () => {
+    const mapped = mapHits([
+      hit({ result_type: "sale", result_id: "S1", inventory_item_id: "i1", title: "buyer_jo" }),
+      hit({ result_type: "item", result_id: "i1", inventory_item_id: "i1" }),
+      hit({ result_type: "listing", result_id: "L1", inventory_item_id: "i1" }),
+      hit({ result_type: "item", result_id: "i2", inventory_item_id: "i2" }),
+    ]);
+    const groups = groupHitsByItem(mapped);
+    expect(groups.map((g) => g.itemId)).toEqual(["i1", "i2"]);
+    expect(groups[0]!.matchedIn).toEqual(["item", "listing", "sale"]);
+    expect(groups[0]!.hits).toHaveLength(3);
+    // The best-ranked hit (first) decides where the row goes.
+    expect(groups[0]!.best.result_type).toBe("sale");
+    expect(groups[0]!.sale?.title).toBe("buyer_jo");
+    expect(groups[1]!.sale).toBeNull();
+  });
+});
+
+describe("classifyQuery (D2)", () => {
+  it("treats a single token with a digit as a code", () => {
+    expect(classifyQuery("J0042")).toEqual({
+      kind: "code",
+      term: "J0042",
+      fields: ["sku", "bin"],
+      rpcQuery: "J0042",
+    });
+    expect(classifyQuery(" A3 ").kind).toBe("code");
+  });
+
+  it("honours sku: and bin: and hands the RPC the bare code", () => {
+    expect(classifyQuery("sku:J0042")).toMatchObject({ kind: "code", fields: ["sku"], rpcQuery: "J0042" });
+    expect(classifyQuery("BIN: A3")).toMatchObject({ kind: "code", fields: ["bin"], term: "A3" });
+  });
+
+  it("leaves words, phrases and odd characters to full text", () => {
+    expect(classifyQuery("levis 501").kind).toBe("text");
+    expect(classifyQuery("carhartt").kind).toBe("text");
+    expect(classifyQuery("a,b1").kind).toBe("text");
+    expect(classifyQuery("sku:a,b").kind).toBe("text");
+  });
+});
+
+describe("escapeLike", () => {
+  it("escapes LIKE wildcards", () => {
+    expect(escapeLike("A_1%")).toBe("A\\_1\\%");
+  });
+});
+
+describe("stripTitleEcho (D1)", () => {
+  it("drops the leading title and separator the RPC writes", () => {
+    const segs = parseSnippet("Levi's 501 \u2014 faded <mark>denim</mark> jeans");
+    expect(stripTitleEcho(segs, "Levi's 501")).toEqual([
+      { text: "faded ", highlight: false },
+      { text: "denim", highlight: true },
+      { text: " jeans", highlight: false },
+    ]);
+  });
+
+  it("leaves a fragment from further in alone", () => {
+    const segs = parseSnippet("faded <mark>denim</mark> jeans");
+    expect(stripTitleEcho(segs, "Levi's 501")).toEqual(segs);
+  });
+
+  it("mapHits applies it to items but not to sales", () => {
+    const [item, sale] = mapHits([
+      hit({ title: "Coat", snippet: "Coat \u2014 wool" }),
+      hit({ result_type: "sale", result_id: "s", title: "Coat", snippet: "Coat \u2014 wool" }),
+    ]);
+    expect(item!.segments.map((x) => x.text).join("")).toBe("wool");
+    expect(sale!.segments.map((x) => x.text).join("")).toBe("Coat \u2014 wool");
   });
 });

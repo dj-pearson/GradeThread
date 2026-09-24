@@ -94,6 +94,16 @@ const DECLARED: readonly DeclaredPeek[] = [
       "the US-2372 optimistic write reads the current page back before " +
       "patching it; writer and reader are the same module",
   },
+  {
+    file: "src/pages/flipdesk/search.tsx",
+    key: "getQueryData<RecentSearch[]>(recentKey)",
+    writer: "src/pages/flipdesk/search.tsx",
+    writes: "queryKey: recentKey",
+    why:
+      "F7: removing or clearing a recent search snapshots the list before " +
+      "the optimistic update so a failed delete can put it back; the page's " +
+      "own useQuery is the writer",
+  },
 ];
 
 /** Every .ts/.tsx under src/, excluding tests. */
