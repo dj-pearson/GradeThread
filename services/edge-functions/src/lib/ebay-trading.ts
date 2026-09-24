@@ -766,7 +766,7 @@ export async function respondToBestOffer(
       throw new Error("counterPrice is required to counter a best offer.");
     }
     lines.push(
-      `  <CounterOfferPrice currencyID="${xmlEscape(getMarketplaceCurrency())}">${xmlEscape(String(args.counterPrice))}</CounterOfferPrice>`,
+      `  <CounterOfferPrice currencyID="${xmlEscape(getMarketplaceCurrency())}">${xmlEscape(args.counterPrice.toFixed(2))}</CounterOfferPrice>`,
       `  <CounterOfferQuantity>${xmlEscape(String(args.counterQuantity ?? 1))}</CounterOfferQuantity>`,
     );
   }
@@ -909,6 +909,9 @@ export async function replyToMemberMessage(
     recipientId: string;
     body: string;
   },
+  // OM-01 / US-1507: reply through the account that owns the listing. A reply
+  // on a second store's listing sent with the primary token is refused by eBay.
+  connectionId?: string,
 ): Promise<void> {
   const xml = [
     `<?xml version="1.0" encoding="utf-8"?>`,
@@ -922,7 +925,12 @@ export async function replyToMemberMessage(
     `</AddMemberMessageRTQRequest>`,
   ].join("\n");
 
-  const { ok, status, text } = await tradingCall(userId, "AddMemberMessageRTQ", xml);
+  const { ok, status, text } = await tradingCall(
+    userId,
+    "AddMemberMessageRTQ",
+    xml,
+    connectionId,
+  );
   if (!ok) {
     throw new Error(`eBay AddMemberMessageRTQ failed (${status}): ${text.slice(0, 300)}`);
   }

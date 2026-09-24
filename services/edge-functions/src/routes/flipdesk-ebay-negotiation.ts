@@ -13,6 +13,7 @@ import { OFFER_COOLDOWN_DAYS, totalDiscountExposureCents } from "../lib/offer-ca
 import { loadRankedOfferCandidates } from "../lib/offer-candidates-load.ts";
 import {
   incomingOfferToInput,
+  buyerKey,
   loadBuyerHistory,
   loadOffers,
   loadListPricesByItemId,
@@ -42,6 +43,18 @@ import {
   type BestOfferAction,
 } from "../lib/ebay-trading.ts";
 import { ebayFailureDetail } from "../lib/ebay-error-map.ts";
+import {
+  COUNTER_REFUSAL_COPY,
+  isEbayId,
+  parseCounterQuantity,
+  parseReplyBody,
+  parseSendOfferBody,
+  priceToCents,
+  SELLER_RESPONSE_MAX,
+  sendGroupsRecordingEach,
+  storedOfferClosedReason,
+  validateCounter,
+} from "../lib/offer-limits.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import {
@@ -393,6 +406,34 @@ async function connectionIdsByPlatformListingId(
   return out;
 }
 
+type OfferCostRow = {
+  platform_listing_id: string | null;
+  listing_price: number | null;
+  // PostgREST returns a to-one embed as an object, but supabase-js types it
+  // as an array — accept either.
+  inventory_items:
+    | { acquired_price: number | null; grade_value: number | null }
+    | { acquired_price: number | null; grade_value: number | null }[]
+    | null;
+};
+
+// US-2236 AC2 / US-2816: the cost, grade and asking price behind each offer.
+// Scoped twice (US-268): the listing's own user_id, and the owner-verified
+// parent item. acquired_price is numeric(10,2) dollars, matching eBay's offer
+// price units.
+async function loadOfferCostRows(userId: string, itemIds: string[]): Promise<OfferCostRow[]> {
+  const { data } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "platform_listing_id, listing_price, inventory_items!inner(user_id, acquired_price, grade_value)",
+    )
+    .eq("user_id", userId)
+    .eq("platform", "ebay")
+    .in("platform_listing_id", itemIds)
+    .eq("inventory_items.user_id", userId);
+  return (data ?? []) as unknown as OfferCostRow[];
+}
+
 // GET /negotiation/offers — incoming best offers across the seller's listings.
 flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
   if (!isEbayConfigured()) {
@@ -413,76 +454,63 @@ flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
     // pattern, US-268) as defence in depth. acquired_price is numeric(10,2)
     // dollars, matching the eBay offer/counter price units.
     const itemIds = [...new Set(offers.map((o) => o.itemId).filter(Boolean))];
+    // OM-14: the three reads below are independent, so they run together
+    // rather than one after another behind the eBay call. The listing price
+    // rides on the cost query instead of a second read of the same rows.
+    const [costRows, buyerHistory, sourcing] = await Promise.all([
+      itemIds.length === 0 ? Promise.resolve([]) : loadOfferCostRows(userId, itemIds),
+      // US-2941: what this seller already knows about the buyer.
+      loadBuyerHistory(
+        userId,
+        offers.map((o) => o.buyerUsername).filter((b): b is string => !!b),
+        // The offers on screen right now are not "prior" — counting them would
+        // tell every first-time buyer they had offered before.
+        offers.map((o) => o.bestOfferId),
+      ),
+      // US-3194: the two costs the margin on this screen used to ignore. Postage
+      // and the grading fee come from the seller's own sourcing settings (00770),
+      // read once for the whole page rather than per offer — they are the
+      // seller's standing figures for a garment, not facts about one listing.
+      sourcingCosts(userId),
+    ]);
     const costByItemId = new Map<string, number>();
     const gradedItemIds = new Set<string>();
-    if (itemIds.length > 0) {
-      const { data: rows } = await supabaseAdmin
-        .from("listings")
-        .select(
-          "platform_listing_id, inventory_items!inner(user_id, acquired_price, grade_value)",
-        )
-        .eq("platform", "ebay")
-        .in("platform_listing_id", itemIds)
-        .eq("inventory_items.user_id", userId);
-      type CostRow = {
-        platform_listing_id: string | null;
-        // PostgREST returns a to-one embed as an object, but supabase-js types it
-        // as an array — accept either.
-        inventory_items:
-          | { acquired_price: number | null; grade_value: number | null }
-          | { acquired_price: number | null; grade_value: number | null }[]
-          | null;
-      };
-      for (const r of (rows ?? []) as unknown as CostRow[]) {
-        const inv = Array.isArray(r.inventory_items)
-          ? r.inventory_items[0]
-          : r.inventory_items;
-        const cost = inv?.acquired_price;
-        if (r.platform_listing_id && typeof cost === "number") {
-          costByItemId.set(r.platform_listing_id, cost);
-        }
-        // US-3194: whether this item was actually graded decides whether the
-        // grading fee belongs in the net figure at all. An ungraded item that
-        // was charged one would show a smaller net than the sale really makes.
-        if (r.platform_listing_id && typeof inv?.grade_value === "number") {
-          gradedItemIds.add(r.platform_listing_id);
-        }
+    // US-2939: the asking price at the time of the offer, from the local record.
+    const listPrices = new Map<string, number>();
+    for (const r of costRows) {
+      const inv = Array.isArray(r.inventory_items) ? r.inventory_items[0] : r.inventory_items;
+      if (!r.platform_listing_id) continue;
+      if (typeof inv?.acquired_price === "number") {
+        costByItemId.set(r.platform_listing_id, inv.acquired_price);
       }
+      // US-3194: whether this item was actually graded decides whether the
+      // grading fee belongs in the net figure at all. An ungraded item that
+      // was charged one would show a smaller net than the sale really makes.
+      if (typeof inv?.grade_value === "number") gradedItemIds.add(r.platform_listing_id);
+      const price = r.listing_price == null ? Number.NaN : Number(r.listing_price);
+      if (Number.isFinite(price)) listPrices.set(r.platform_listing_id, Math.round(price * 100));
     }
-    // US-2939 + US-2941: the asking price at the time of the offer, and what
-    // this seller already knows about the buyer. Both come from the local
-    // record, so the page shows margin and buyer history without a second eBay
-    // call — and the list price is the SNAPSHOT, not today's number.
-    const listPrices = await loadListPricesByItemId(userId, itemIds);
-    const buyerHistory = await loadBuyerHistory(
-      userId,
-      offers.map((o) => o.buyerUsername).filter((b): b is string => !!b),
-      // The offers on screen right now are not "prior" — counting them would
-      // tell every first-time buyer they had offered before.
-      offers.map((o) => o.bestOfferId),
-    );
     // Record what this read saw, so a seller who never leaves the Offers page
-    // still builds the history the analytics is computed from.
-    await recordOffers(
+    // still builds the history the analytics is computed from. OFF the response
+    // path (OM-14): every open tab polls this every 90s, and the seller should
+    // not wait on an upsert of eBay's raw payload to see their offers.
+    void recordOffers(
       userId,
       offers.map((o) => incomingOfferToInput(o, listPrices.get(o.itemId))),
-    );
-    // US-3194: the two costs the margin on this screen used to ignore. Postage
-    // and the grading fee come from the seller's own sourcing settings (00770),
-    // read once for the whole page rather than per offer — they are the seller's
-    // standing figures for a garment, not facts about one listing, and an unsold
-    // item has no actual postage to look up because it has no destination yet.
-    const sourcing = await sourcingCosts(userId);
+    ).catch((err) => console.error("[flipdesk-ebay] recordOffers (offers poll):", err));
     const shippingCost = (sourcing.shippingCents ?? DEFAULT_SOURCING_SHIPPING_CENTS) / 100;
     const gradingCost = (sourcing.gradingCents ?? DEFAULT_SOURCING_GRADING_CENTS) / 100;
-    const enriched = offers.map((o) => ({
-      ...o,
-      itemCost: costByItemId.get(o.itemId) ?? null,
-      shippingCost,
-      gradingCost: gradedItemIds.has(o.itemId) ? gradingCost : null,
-      listPriceCents: listPrices.get(o.itemId) ?? null,
-      buyerHistory: o.buyerUsername ? (buyerHistory.get(o.buyerUsername) ?? null) : null,
-    }));
+    const enriched = offers.map((o) => {
+      const key = buyerKey(o.buyerUsername);
+      return {
+        ...o,
+        itemCost: costByItemId.get(o.itemId) ?? null,
+        shippingCost,
+        gradingCost: gradedItemIds.has(o.itemId) ? gradingCost : null,
+        listPriceCents: listPrices.get(o.itemId) ?? null,
+        buyerHistory: key ? (buyerHistory.get(key) ?? null) : null,
+      };
+    });
     return c.json({ offers: enriched });
   } catch (err) {
     console.error("[flipdesk-ebay] getBestOffers failed:", err);
@@ -492,6 +520,13 @@ flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
 
 // POST /negotiation/offers/:bestOfferId/respond — accept / decline / counter.
 // Body: { item_id, action, counter_price?, counter_quantity?, message? }
+//
+// OM-03: refuses before calling eBay when the stored copy says the offer is
+// finished, when a counter is not between the bid and the asking price, when
+// the quantity is not a positive whole number, or when the note is past eBay's
+// SellerResponse cap. Each of those used to come back from eBay as a generic
+// 502. Every response that does go out is recorded in the audit log with the
+// member who pressed it.
 flipdeskEbayRoutes.post("/negotiation/offers/:bestOfferId/respond", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -513,17 +548,76 @@ flipdeskEbayRoutes.post("/negotiation/offers/:bestOfferId/respond", async (c) =>
   const itemId = typeof body.item_id === "string" ? body.item_id : "";
   const action = body.action as BestOfferAction;
   if (!itemId) return c.json({ error: "item_id is required" }, 400);
+  if (!isEbayId(itemId) || !isEbayId(bestOfferId)) {
+    return c.json({ error: "That offer or item id isn't one eBay would send.", code: "invalid_id" }, 400);
+  }
   if (action !== "Accept" && action !== "Decline" && action !== "Counter") {
     return c.json({ error: "action must be Accept, Decline, or Counter" }, 400);
   }
-  let counterPrice: number | undefined;
+  const sellerMessage = typeof body.message === "string" ? body.message.trim() : "";
+  if (sellerMessage.length > SELLER_RESPONSE_MAX) {
+    return c.json({
+      error: `The note can be at most ${SELLER_RESPONSE_MAX} characters.`,
+      code: "message_too_long",
+      max: SELLER_RESPONSE_MAX,
+    }, 400);
+  }
+  // Only a counter carries a quantity; an accept or decline ignores the field.
+  const counterQuantity = action === "Counter" ? parseCounterQuantity(body.counter_quantity) : 1;
+  if (counterQuantity == null) {
+    return c.json({
+      error: "counter_quantity must be a whole number of 1 or more",
+      code: "invalid_quantity",
+    }, 400);
+  }
+  let counterCents: number | null = null;
   if (action === "Counter") {
-    counterPrice = Number(body.counter_price);
-    if (!Number.isFinite(counterPrice) || (counterPrice ?? 0) <= 0) {
+    counterCents = priceToCents(body.counter_price);
+    if (counterCents == null) {
       return c.json({ error: "counter_price must be a positive number" }, 400);
     }
   }
   try {
+    // The stored copy of this offer, owner-scoped (US-268). It answers two
+    // things without an eBay call: whether the offer is already over, and what
+    // the bid and the asking price were for the counter bounds.
+    const { data: stored } = await supabaseAdmin
+      .from("marketplace_offers")
+      .select("state, expires_at, amount_cents, list_price_cents")
+      .eq("user_id", userId)
+      .eq("platform", "ebay")
+      .eq("direction", "received")
+      .eq("external_offer_id", bestOfferId)
+      .maybeSingle();
+    const storedRow = stored as {
+      state: string | null;
+      expires_at: string | null;
+      amount_cents: number | null;
+      list_price_cents: number | null;
+    } | null;
+    if (storedOfferClosedReason(storedRow)) {
+      return c.json({ error: OFFER_NOT_OPEN_COPY, code: "offer_not_open" }, 409);
+    }
+    if (action === "Counter") {
+      let listCents = storedRow?.list_price_cents ?? null;
+      if (listCents == null) {
+        listCents = (await loadListPricesByItemId(userId, [itemId])).get(itemId) ?? null;
+      }
+      const verdict = validateCounter({
+        offerCents: storedRow?.amount_cents ?? null,
+        listCents,
+        counterCents,
+      });
+      if (!verdict.ok) {
+        return c.json({
+          error: COUNTER_REFUSAL_COPY[verdict.reason],
+          code: "counter_out_of_range",
+          reason: verdict.reason,
+        }, 400);
+      }
+    }
+    const counterPrice = counterCents != null ? counterCents / 100 : undefined;
+
     // US-1507: respond via the connection that owns this listing when a local
     // row records it; unknown/legacy listings keep the primary connection.
     const connByListing = await connectionIdsByPlatformListingId(userId, [itemId]);
@@ -532,10 +626,8 @@ flipdeskEbayRoutes.post("/negotiation/offers/:bestOfferId/respond", async (c) =>
       bestOfferId,
       action,
       counterPrice,
-      counterQuantity: Number.isFinite(Number(body.counter_quantity))
-        ? Number(body.counter_quantity)
-        : undefined,
-      sellerMessage: typeof body.message === "string" ? body.message : undefined,
+      counterQuantity,
+      sellerMessage: sellerMessage || undefined,
     }, connByListing.get(itemId));
     // US-1055: notify the owner that this offer was accepted/declined/countered.
     // Useful for workspace teams (a member may have responded) and for an audit
@@ -548,17 +640,26 @@ flipdeskEbayRoutes.post("/negotiation/offers/:bestOfferId/respond", async (c) =>
     // becomes a row of its OWN — our counter is a distinct event from the bid
     // it answered, and the conversion figures divide by both.
     await recordOfferResponse(userId, bestOfferId, responded, {
-      amountCents: counterPrice != null ? Math.round(counterPrice * 100) : null,
+      amountCents: counterCents,
     });
-    if (action === "Counter" && counterPrice != null) {
+    if (action === "Counter" && counterCents != null) {
       await recordOffers(userId, [{
         direction: "counter_sent",
         externalOfferId: bestOfferId,
         itemExternalId: itemId,
-        amountCents: Math.round(counterPrice * 100),
+        amountCents: counterCents,
         state: "Countered",
       }]);
     }
+    // A binding sale or an irreversible decline, possibly by a workspace
+    // member acting on the owner's store. writeAuditLog records the member who
+    // pressed it (c.get("userId")), not the owner.
+    await writeAuditLog(c, {
+      action: "ebay.offer.respond",
+      targetType: "ebay_best_offer",
+      targetId: bestOfferId,
+      details: { bestOfferId, itemId, action, counter_cents: counterCents },
+    });
     void (async () => {
       const fresh = await claimMarketplaceEvent(
         userId,
@@ -577,11 +678,7 @@ flipdeskEbayRoutes.post("/negotiation/offers/:bestOfferId/respond", async (c) =>
     // problem, not a server failure — return a machine-readable 409 so the
     // client can show "no longer open" and refresh its inbox.
     if (isBestOfferNotOpenError(err)) {
-      return c.json({
-        error:
-          "This offer is no longer open — it may have expired or already been answered.",
-        code: "offer_not_open",
-      }, 409);
+      return c.json({ error: OFFER_NOT_OPEN_COPY, code: "offer_not_open" }, 409);
     }
     // US-1511: human-readable detail only (raw Trading blob stays in the log).
     return c.json({
@@ -591,6 +688,9 @@ flipdeskEbayRoutes.post("/negotiation/offers/:bestOfferId/respond", async (c) =>
     }, 502);
   }
 });
+
+const OFFER_NOT_OPEN_COPY =
+  "This offer is no longer open. It may have expired or already been answered.";
 
 // US-1510: Trading's RespondToBestOffer failure LongMessages for an offer that
 // isn't actionable anymore. Message-based (the XML error ids aren't parsed onto
@@ -904,7 +1004,12 @@ flipdeskEbayRoutes.get("/negotiation/send-offer-today", async (c) => {
 });
 
 // POST /negotiation/send-offer — send a discount offer to interested buyers.
-// Body: { listing_ids: string[], discount_percentage?: string, message? }
+// Body: { listing_ids: string[], discount_percentage: number | string, message? }
+//
+// OM-02: the discount is a whole number from 1 to 60 (a numeric 15 used to be
+// silently dropped), the ids are de-duplicated and capped, and each account's
+// group is recorded the moment it goes out. A partial send answers 200 with the
+// ids that went and the ids that did not, so a retry resends only the failures.
 flipdeskEbayRoutes.post("/negotiation/send-offer", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -919,12 +1024,11 @@ flipdeskEbayRoutes.post("/negotiation/send-offer", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  const listingIds = Array.isArray(body.listing_ids)
-    ? body.listing_ids.filter((x): x is string => typeof x === "string")
-    : [];
-  if (listingIds.length === 0) {
-    return c.json({ error: "listing_ids must be a non-empty array" }, 400);
+  const parsed = parseSendOfferBody(body);
+  if (!parsed.ok) {
+    return c.json({ error: parsed.error, code: parsed.code, max: parsed.max }, 400);
   }
+  const { listingIds, discountPct, message } = parsed.value;
   try {
     // US-1507: group listings by their owning connection and send one offer batch
     // per account — a mixed multi-store selection otherwise pushes every offer
@@ -935,16 +1039,7 @@ flipdeskEbayRoutes.post("/negotiation/send-offer", async (c) => {
       const key = connByListing.get(id);
       groups.set(key, [...(groups.get(key) ?? []), id]);
     }
-    for (const [connectionId, ids] of groups) {
-      await sendOfferToInterestedBuyers(userId, {
-        listingIds: ids,
-        discountPercentage:
-          typeof body.discount_percentage === "string" ? body.discount_percentage : undefined,
-        message: typeof body.message === "string" ? body.message : undefined,
-      }, connectionId);
-    }
-    // US-1421: offers went out — the scope works; clear any stale denial flag.
-    await markNegotiationDenied(userId, false);
+    const listPrices = await loadListPricesByItemId(userId, listingIds);
     // US-2939/US-2943: record what went out. This is what powers the discount
     // curve AND the cooldown — without it tomorrow's list offers the same
     // watchers the same discount, which teaches them to wait.
@@ -953,44 +1048,82 @@ flipdeskEbayRoutes.post("/negotiation/send-offer", async (c) => {
     // id of its own, and the unique key is (offer id, direction), so a re-send
     // after the cooldown updates the row rather than making a second one. That
     // is a known limit and it is why `lastOfferedAt` reads created_at.
-    const discountPct = typeof body.discount_percentage === "string"
-      ? Number(body.discount_percentage)
-      : Number.NaN;
-    const listPrices = await loadListPricesByItemId(userId, listingIds);
-    await recordOffers(
-      userId,
-      listingIds.map((id) => {
-        const listCents = listPrices.get(id) ?? null;
-        return {
-          direction: "offer_sent" as const,
-          externalOfferId: id,
-          itemExternalId: id,
-          listPriceCents: listCents,
-          amountCents: listCents != null && Number.isFinite(discountPct)
-            ? Math.round(listCents * (1 - discountPct / 100))
-            : null,
-          state: "Sent",
-        };
-      }),
+    const result = await sendGroupsRecordingEach(
+      groups,
+      (connectionId, ids) =>
+        sendOfferToInterestedBuyers(userId, {
+          listingIds: ids,
+          discountPercentage: String(discountPct),
+          message,
+        }, connectionId),
+      async (ids) => {
+        await recordOffers(
+          userId,
+          ids.map((id) => {
+            const listCents = listPrices.get(id) ?? null;
+            return {
+              direction: "offer_sent" as const,
+              externalOfferId: id,
+              itemExternalId: id,
+              listPriceCents: listCents,
+              amountCents: listCents != null
+                ? Math.round(listCents * (1 - discountPct / 100))
+                : null,
+              state: "Sent",
+            };
+          }),
+        );
+      },
     );
-    return c.json({ ok: true, count: listingIds.length });
-  } catch (err) {
-    console.error("[flipdesk-ebay] sendOfferToInterestedBuyers failed:", err);
-    // US-1510/US-1421: pre-scope token → flag + reconnect vs deployment gate.
-    if (isScopeForbidden(err)) {
-      await markNegotiationDenied(userId, true);
-      return c.json(negotiationScope403Body(isNegotiationScopeAvailable()), 501);
+
+    if (result.sent.length === 0) {
+      const first = result.failed[0]?.error;
+      console.error("[flipdesk-ebay] sendOfferToInterestedBuyers failed:", first);
+      // US-1510/US-1421: pre-scope token → flag + reconnect vs deployment gate.
+      if (isScopeForbidden(first)) {
+        await markNegotiationDenied(userId, true);
+        return c.json(negotiationScope403Body(isNegotiationScopeAvailable()), 501);
+      }
+      // US-1511: mapped/human detail only — the raw blob stays in the log above.
+      return c.json({
+        error: "eBay rejected the offer.",
+        detail: sendOfferFailureDetail(first),
+      }, 502);
     }
-    // US-1511: mapped/human detail only — the raw blob stays in the log above.
+
+    // US-1421: offers went out — the scope works; clear any stale denial flag.
+    await markNegotiationDenied(userId, false);
+    await writeAuditLog(c, {
+      action: "ebay.offer.send",
+      targetType: "ebay_listing",
+      details: {
+        listing_ids: result.sent,
+        discount_pct: discountPct,
+        count: result.sent.length,
+        failed_count: result.failed.reduce((n, f) => n + f.ids.length, 0),
+      },
+    });
     return c.json({
-      error: "eBay rejected the offer.",
-      detail: ebayFailureDetail(
-        err,
-        "eBay declined to send this offer. The listing may no longer be eligible — refresh and try again.",
-      ),
-    }, 502);
+      ok: result.failed.length === 0,
+      count: result.sent.length,
+      sent: result.sent,
+      failed: result.failed.map((f) => {
+        console.error("[flipdesk-ebay] sendOfferToInterestedBuyers group failed:", f.error);
+        return { ids: f.ids, detail: sendOfferFailureDetail(f.error) };
+      }),
+    });
+  } catch (err) {
+    console.error("[flipdesk-ebay] send-offer failed:", err);
+    return failSafe(c, 500, "Couldn't send the offer.", err, "ebay.offers.send");
   }
 });
+
+function sendOfferFailureDetail(err: unknown): string {
+  return ebayFailureDetail(
+    err,
+    "eBay declined to send this offer. The listing may no longer be eligible. Refresh and try again.",
+  );
+}
 
 // GET /messages — buyer member-message inbox (last 30 days).
 flipdeskEbayRoutes.get("/messages", async (c) => {
@@ -1009,34 +1142,62 @@ flipdeskEbayRoutes.get("/messages", async (c) => {
 
 // POST /messages/:messageId/reply — reply to a buyer message.
 // Body: { item_id, recipient_id, body }
+//
+// OM-01: ids are bounded to what eBay sends, the body to eBay's 2000-character
+// cap, the reply goes out under the account that owns the listing (US-1507),
+// the failure detail is human text rather than the raw Trading XML, and the
+// send is recorded in the audit log without its text.
 flipdeskEbayRoutes.post("/messages/:messageId/reply", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const messageId = c.req.param("messageId");
   let body: { item_id?: unknown; recipient_id?: unknown; body?: unknown };
   try {
     body = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  const itemId = typeof body.item_id === "string" ? body.item_id : "";
-  const recipientId = typeof body.recipient_id === "string" ? body.recipient_id : "";
-  const text = typeof body.body === "string" ? body.body.trim() : "";
-  if (!itemId || !recipientId || !text) {
-    return c.json({ error: "item_id, recipient_id, and body are required" }, 400);
+  const parsed = parseReplyBody(c.req.param("messageId"), body);
+  if (!parsed.ok) {
+    return c.json({ error: parsed.error, code: parsed.code, max: parsed.max }, 400);
   }
+  const { messageId, itemId, recipientId, text } = parsed.value;
   try {
+    const connByListing = await connectionIdsByPlatformListingId(userId, [itemId]);
     await replyToMemberMessage(userId, {
       itemId,
       parentMessageId: messageId,
       recipientId,
       body: text,
+    }, connByListing.get(itemId));
+    await writeAuditLog(c, {
+      action: "ebay.message.reply",
+      targetType: "ebay_member_message",
+      targetId: messageId,
+      // The length, never the text: a buyer conversation is not audit data.
+      details: { messageId, itemId, length: text.length },
     });
     return c.json({ ok: true, message_id: messageId });
   } catch (err) {
     console.error("[flipdesk-ebay] replyToMemberMessage failed:", err);
-    return c.json({ error: "eBay rejected the reply.", detail: String(err) }, 502);
+    return c.json({
+      error: "eBay rejected the reply.",
+      detail: replyFailureDetail(err),
+    }, 502);
   }
 });
+
+/**
+ * OM-01: what a failed reply tells the browser. Exported for tests.
+ *
+ * The Trading error carries up to 300 characters of raw XML, which used to go
+ * straight into a toast and into Sentry. ebayFailureDetail only ever returns a
+ * mapped message or the generic below.
+ */
+export function replyFailureDetail(err: unknown): string {
+  return ebayFailureDetail(
+    err,
+    "eBay couldn't send this reply. Refresh the inbox and try again.",
+  );
+}

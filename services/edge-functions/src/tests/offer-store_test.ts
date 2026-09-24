@@ -17,7 +17,9 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { incomingOfferToInput, toOfferRow } = await import("../lib/offer-store.ts");
+const { foldBuyerHistory, incomingOfferToInput, toOfferRow } = await import(
+  "../lib/offer-store.ts"
+);
 
 const NOW = "2026-08-27T12:00:00.000Z";
 
@@ -100,4 +102,24 @@ Deno.test("the direction distinguishes our counter from the buyer's bid", () => 
   // Same external id, different direction: the unique index is on the pair, so
   // both rows can exist and neither overwrites the other.
   assertEquals(received.external_offer_id, counter.external_offer_id);
+});
+
+Deno.test("OM-14: mixed-case buyer names merge into one history", () => {
+  const history = foldBuyerHistory([
+    { external_offer_id: "a", buyer_username: "DenimFan", amount_cents: 3000, response: null },
+    { external_offer_id: "b", buyer_username: "denimfan", amount_cents: 3500, response: "accepted" },
+    { external_offer_id: "c", buyer_username: "other", amount_cents: 100, response: null },
+    { external_offer_id: "now", buyer_username: "DENIMFAN", amount_cents: 9999, response: null },
+  ], ["now"]);
+  assertEquals(history.get("denimfan"), {
+    priorOffers: 2,
+    bestPriorCents: 3500,
+    everAccepted: true,
+  });
+  assertFalse(history.has("DenimFan"));
+});
+
+Deno.test("OM-14: incoming offers store the buyer lower-cased", () => {
+  const input = incomingOfferToInput({ ...EBAY_OFFER, buyerUsername: "Buyer_One" });
+  assertEquals(input.buyerUsername, "buyer_one");
 });
