@@ -147,3 +147,18 @@ Deno.test("MP-03: start is the one action that creates a campaign", async () => 
   await res.body?.cancel();
   assertEquals(adCampaignPosts, 1);
 });
+
+for (const path of ["/marketing/keywords", "/marketing/negative-keywords"]) {
+  Deno.test(`MP-03: POST ${path} with no campaign is a 404, not a new campaign`, async () => {
+    // Starting a campaign is admin-only; adding a keyword needs only
+    // listing_manager, so it must not be a way round that floor.
+    reset();
+    const res = await app().request(path, {
+      method: "POST",
+      body: JSON.stringify({ text: "vintage denim" }),
+    });
+    await res.body?.cancel();
+    assertEquals(res.status, 404);
+    assertEquals(adCampaignPosts, 0, "a keyword add must not POST a campaign to eBay");
+  });
+}

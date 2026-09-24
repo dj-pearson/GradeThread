@@ -1057,9 +1057,10 @@ flipdeskEbayRoutes.post("/marketing/ads/bulk", async (c) => {
 // put a keyword in either. A bid you cannot aim is a bid you cannot control,
 // and that aim is the only difference between Advanced and Standard.
 //
-// Every route resolves the seller's own campaign from the connection (the reads
-// and PATCH through findCpcCampaign, which never creates; the adds through
-// ensureCpcCampaign), so a campaign id is never taken from the request (US-268).
+// Every route resolves the seller's own campaign from the connection through
+// findCpcCampaign, which never creates one (the adds fall back to
+// ensureCpcCampaign only to fill a missing ad group inside an existing
+// campaign), so a campaign id is never taken from the request (US-268).
 
 // GET /marketing/keywords — the seller's keywords, plus the negative-keyword
 // candidates their own reported search terms already prove.
@@ -1158,7 +1159,15 @@ flipdeskEbayRoutes.post("/marketing/keywords", async (c) => {
     ? Math.round(Number(body.bid_cents))
     : null;
   try {
-    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
+    // A keyword belongs to a campaign that already exists. Starting one is
+    // admin-only (POST /marketing/campaign/start); this route must not be a
+    // listing_manager's way round that floor. With the campaign present,
+    // ensureCpcCampaign only fills in a missing ad group inside it.
+    const found = await findCpcCampaign(ownerId);
+    if (!found) return c.json({ error: "There is no cost-per-click campaign." }, 404);
+    const { campaignId, adGroupId } = found.adGroupId
+      ? { campaignId: found.campaignId, adGroupId: found.adGroupId }
+      : await ensureCpcCampaign(ownerId);
     const keywordId = await createKeyword(ownerId, campaignId, adGroupId, {
       text,
       matchType,
@@ -1235,7 +1244,12 @@ flipdeskEbayRoutes.post("/marketing/negative-keywords", async (c) => {
   const text = typeof body.text === "string" ? body.text.trim() : "";
   if (!text) return c.json({ error: "text is required." }, 400);
   try {
-    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
+    // Same rule as POST /marketing/keywords: never start a campaign here.
+    const found = await findCpcCampaign(ownerId);
+    if (!found) return c.json({ error: "There is no cost-per-click campaign." }, 404);
+    const { campaignId, adGroupId } = found.adGroupId
+      ? { campaignId: found.campaignId, adGroupId: found.adGroupId }
+      : await ensureCpcCampaign(ownerId);
     const id = await createNegativeKeyword(
       ownerId,
       campaignId,
