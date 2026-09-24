@@ -3,6 +3,9 @@ import { Link, useNavigate } from "react-router";
 import {
   AlertTriangle,
   BadgeCheck,
+  CircleCheck,
+  CircleHelp,
+  CircleX,
   Camera,
   Clock,
   ImageIcon,
@@ -26,9 +29,13 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { compressImage } from "@/lib/image-utils";
 import {
+  buyVerdict,
   formatMoney,
   formatSnapScore,
   isLowConfidence,
+  maxPayForMargin,
+  parsePriceToCents,
+  verdictAllowed,
   SNAP_COMPRESS,
   SNAP_MAX_SOURCE_BYTES,
   SNAP_MAX_UPLOAD_BYTES,
@@ -118,6 +125,8 @@ export function SnapToValuePage() {
   const [dataUri, setDataUri] = useState<string | null>(null);
   const [brand, setBrand] = useState("");
   const [keyword, setKeyword] = useState("");
+  // SNAP-14: what the tag says. Editable after the result, costs no snap.
+  const [tagPrice, setTagPrice] = useState("");
   const libraryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const [touch] = useState(isTouchDevice);
@@ -312,12 +321,19 @@ export function SnapToValuePage() {
   // SNAP-13: a "yes" becomes a sourced FlipDesk item with the photo, brand,
   // grade note and target price carried over.
   function addToInventory(r: SnapResult, from: SnapResultSource) {
-    navigate("/dashboard/flipdesk/intake", { state: { snap: buildIntakeBridge(r, from) } });
+    navigate("/dashboard/flipdesk/intake", {
+      state: { snap: buildIntakeBridge(r, from, parsePriceToCents(tagPrice)) },
+    });
   }
   const value = result ? valueDisplay(result.value) : null;
   const lowConfidence = result ? isLowConfidence(result.grade) : false;
   const factors = result ? weakestFirst(result.grade.factor_scores) : [];
   const usageInfo = usageLine(usage);
+  const paidCents = parsePriceToCents(tagPrice);
+  const showVerdict = result ? verdictAllowed(result) : false;
+  const verdict = showVerdict && result ? buyVerdict(result.value?.medianCents, paidCents) : null;
+  const payUnder = showVerdict && result && paidCents == null ? maxPayForMargin(result.value?.medianCents) : null;
+  const currency = result?.value?.currency ?? "USD";
   const shownPreview = previewUrl ?? dataUri;
 
   const announcement = snap.isPending
@@ -574,6 +590,61 @@ export function SnapToValuePage() {
                 Brand changed: tap Get my value to re-price.
               </p>
             )}
+
+            {/* SNAP-14: the question the page exists to answer. Word plus
+                icon, so color is never the only cue. */}
+            <div className="space-y-2 rounded-md border p-3">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="snap-tag-price">Price on the tag</Label>
+                  <Input
+                    id="snap-tag-price"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    placeholder="8.00"
+                    className="w-28"
+                    value={tagPrice}
+                    onChange={(e) => setTagPrice(e.target.value)}
+                  />
+                </div>
+                {verdict && (
+                  <p
+                    className={cn(
+                      "flex items-center gap-1.5 text-sm font-semibold",
+                      verdict.verdict === "buy" && "text-green-700 dark:text-green-400",
+                      verdict.verdict === "maybe" && "text-amber-700 dark:text-amber-300",
+                      verdict.verdict === "pass" && "text-red-700 dark:text-red-400",
+                    )}
+                  >
+                    {verdict.verdict === "buy" ? (
+                      <CircleCheck className="h-4 w-4" aria-hidden="true" />
+                    ) : verdict.verdict === "maybe" ? (
+                      <CircleHelp className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <CircleX className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    {verdict.verdict === "buy" ? "Buy" : verdict.verdict === "maybe" ? "Maybe" : "Pass"}
+                  </p>
+                )}
+              </div>
+              {verdict ? (
+                <p className="text-xs text-muted-foreground">
+                  {verdict.profitCents > 0
+                    ? `About ${formatMoney(verdict.profitCents, currency)} profit after eBay fees at the median.`
+                    : `About ${formatMoney(-verdict.profitCents, currency)} loss after eBay fees at the median.`}
+                </p>
+              ) : payUnder != null ? (
+                <p className="text-xs text-muted-foreground">
+                  Pay under {formatMoney(payUnder, currency)} for a 3x margin.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {lowConfidence
+                    ? "No buy call on a grade this unsure."
+                    : "No buy call without enough sales to price it."}
+                </p>
+              )}
+            </div>
 
             <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
               <Info className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />

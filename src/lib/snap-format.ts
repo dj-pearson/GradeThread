@@ -3,6 +3,7 @@
 
 import { GRADE_FACTORS, GRADING_REVIEW_CONFIDENCE_THRESHOLD } from "@/lib/constants";
 import type { SnapResult, SnapUsage, SnapValue } from "@/hooks/use-snap";
+import { ebayNetProceedsCents } from "@/lib/ebay-fees";
 
 // SNAP-08: what Snap sends. The vision model downsamples to about 1568px, 1600
 // is still above the certified bridge's 1200px minimum, and JPEG never comes
@@ -104,4 +105,66 @@ export function usageLine(usage: SnapUsage | null | undefined): { text: string; 
     text: `${left} of ${usage.cap} check${usage.cap === 1 ? "" : "s"} left this month`,
     low: left <= 3,
   };
+}
+
+// ── SNAP-14: buy or pass at the price on the tag ─────────────────────────────
+
+/** "8", "$8.50", "8,50" -> cents. null for blank or nonsense. */
+export function parsePriceToCents(v: string): number | null {
+  const cleaned = v.replace(/[$\s]/g, "").replace(",", ".");
+  if (!cleaned) return null;
+  if (!/^\d+(\.\d{0,2})?$/.test(cleaned)) return null;
+  const cents = Math.round(Number(cleaned) * 100);
+  return Number.isFinite(cents) && cents > 0 ? cents : null;
+}
+
+/**
+ * The thresholds, stated once. A reseller's rule of thumb is to buy at a third
+ * of the sale price or less; the profit floor stops a $2 shirt that "triples"
+ * into $4 of profit reading as a buy.
+ *  - buy:   median at least 3x the tag price AND at least $10 profit after fees
+ *  - pass:  no profit after fees, or the median under 1.5x the tag price
+ *  - maybe: everything between
+ */
+export const BUY_MIN_MULTIPLE = 3;
+export const BUY_MIN_PROFIT_CENTS = 1000;
+export const PASS_MAX_MULTIPLE = 1.5;
+
+export interface BuyVerdict {
+  /** eBay net proceeds at the median, minus the tag price. */
+  profitCents: number;
+  /** Median over tag price. */
+  multiple: number;
+  verdict: "buy" | "maybe" | "pass";
+}
+
+export function buyVerdict(
+  medianCents: number | null | undefined,
+  paidCents: number | null | undefined,
+): BuyVerdict | null {
+  if (medianCents == null || !Number.isFinite(medianCents) || medianCents <= 0) return null;
+  if (paidCents == null || !Number.isFinite(paidCents) || paidCents <= 0) return null;
+  const profitCents = ebayNetProceedsCents(medianCents) - paidCents;
+  const multiple = medianCents / paidCents;
+  let verdict: BuyVerdict["verdict"];
+  if (profitCents <= 0 || multiple < PASS_MAX_MULTIPLE) verdict = "pass";
+  else if (multiple >= BUY_MIN_MULTIPLE && profitCents >= BUY_MIN_PROFIT_CENTS) verdict = "buy";
+  else verdict = "maybe";
+  return { profitCents, multiple, verdict };
+}
+
+/** The most to pay for a 3x margin at the median, rounded down to the cent. */
+export function maxPayForMargin(medianCents: number | null | undefined): number | null {
+  if (medianCents == null || !Number.isFinite(medianCents) || medianCents <= 0) return null;
+  return Math.floor(medianCents / BUY_MIN_MULTIPLE);
+}
+
+/**
+ * Whether a verdict may be shown at all: only on a real price and a grade the
+ * seller can trust. A buy line on a guess is worse than no line.
+ */
+export function verdictAllowed(result: SnapResult): boolean {
+  const v = result.value;
+  return !!v && v.sufficient && v.medianCents != null && v.lowCents != null && v.highCents != null &&
+    !isLowConfidence(result.grade);
 }

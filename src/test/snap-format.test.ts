@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  BUY_MIN_PROFIT_CENTS,
+  buyVerdict,
+  maxPayForMargin,
+  parsePriceToCents,
+  verdictAllowed,
   formatMoney,
   formatSnapScore,
   isLowConfidence,
@@ -126,5 +131,64 @@ describe("snapFileProblem (SNAP-08)", () => {
     expect(snapFileProblem(new File(["x"], "a.jpg", { type: "image/heic" }))).toMatch(/HEIC/);
     expect(snapFileProblem(new File(["x"], "IMG_1.HEIF", { type: "" }))).toMatch(/HEIC/);
     expect(snapFileProblem(new File(["x"], "a.jpg", { type: "image/jpeg" }))).toBeNull();
+  });
+});
+
+describe("buyVerdict (SNAP-14)", () => {
+  it("$8 on a $40 median is a buy with profit after eBay fees", () => {
+    // 4000 - (ceil(4000 * 0.136) + 40) = 3416 net; minus 800 paid.
+    expect(buyVerdict(4000, 800)).toEqual({ profitCents: 2616, multiple: 5, verdict: "buy" });
+  });
+
+  it("needs both the 3x multiple and $10 of profit to say buy", () => {
+    // Exactly 3x and plenty of profit: buy.
+    expect(buyVerdict(6000, 2000)?.verdict).toBe("buy");
+    // Just under 3x: maybe.
+    expect(buyVerdict(5999, 2000)?.verdict).toBe("maybe");
+    // 4x but only a few dollars: maybe, not buy.
+    const small = buyVerdict(1200, 300)!;
+    expect(small.multiple).toBe(4);
+    expect(small.profitCents).toBeLessThan(BUY_MIN_PROFIT_CENTS);
+    expect(small.verdict).toBe("maybe");
+  });
+
+  it("passes on no profit or under 1.5x", () => {
+    expect(buyVerdict(1000, 1000)?.verdict).toBe("pass");
+    expect(buyVerdict(2900, 2000)?.verdict).toBe("pass"); // 1.45x
+    expect(buyVerdict(3000, 2000)?.verdict).toBe("maybe"); // 1.5x with profit
+  });
+
+  it("says nothing without a median or a price", () => {
+    expect(buyVerdict(null, 800)).toBeNull();
+    expect(buyVerdict(0, 800)).toBeNull();
+    expect(buyVerdict(4000, null)).toBeNull();
+    expect(buyVerdict(4000, 0)).toBeNull();
+  });
+
+  it("offers the most to pay for a 3x margin", () => {
+    expect(maxPayForMargin(4000)).toBe(1333);
+    expect(maxPayForMargin(null)).toBeNull();
+  });
+
+  it("parses what people type on a phone", () => {
+    expect(parsePriceToCents("8")).toBe(800);
+    expect(parsePriceToCents("$8.50")).toBe(850);
+    expect(parsePriceToCents("8,5")).toBe(850);
+    expect(parsePriceToCents("")).toBeNull();
+    expect(parsePriceToCents("abc")).toBeNull();
+    expect(parsePriceToCents("0")).toBeNull();
+  });
+
+  it("is only allowed on a real price and a confident grade", () => {
+    const base = {
+      grade: { overall_score: 7, grade_tier: "good", confidence: 0.9, factor_scores: {} },
+      value: value(),
+      estimate: true as const,
+      disclaimer: "",
+    };
+    expect(verdictAllowed(base)).toBe(true);
+    expect(verdictAllowed({ ...base, grade: { ...base.grade, confidence: 0.6 } })).toBe(false);
+    expect(verdictAllowed({ ...base, value: value({ sufficient: false }) })).toBe(false);
+    expect(verdictAllowed({ ...base, value: null })).toBe(false);
   });
 });

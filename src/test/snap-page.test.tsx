@@ -109,6 +109,47 @@ describe("the snap result card (SNAP-11, SNAP-12)", () => {
   });
 });
 
+describe("buy or pass at the tag price (SNAP-14)", () => {
+  function priced(confidence: number): SnapResult {
+    const r = result(confidence);
+    return { ...r, value: { ...r.value!, lowCents: 2500, medianCents: 4000, highCents: 5500 } };
+  }
+
+  async function typeTag(container: HTMLElement, v: string) {
+    const input = container.querySelector<HTMLInputElement>("#snap-tag-price")!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, v);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("$8 on a $40 median shows a profit figure and Buy", async () => {
+    plantHistory(priced(0.9));
+    const m = mount(<SnapToValuePage />);
+    await settle();
+    await openFirstHistoryRow(m.container);
+    expect(m.container.textContent).toContain("Pay under $13.33 for a 3x margin.");
+    await typeTag(m.container, "8");
+    const text = m.container.textContent ?? "";
+    expect(text).toContain("About $26.16 profit after eBay fees at the median.");
+    expect(text).toContain("Buy");
+    m.unmount();
+  });
+
+  it("a low-confidence grade gets no verdict", async () => {
+    plantHistory(priced(0.6));
+    const m = mount(<SnapToValuePage />);
+    await settle();
+    await openFirstHistoryRow(m.container);
+    await typeTag(m.container, "8");
+    const text = m.container.textContent ?? "";
+    expect(text).not.toContain("profit after eBay fees");
+    expect(text).toContain("No buy call on a grade this unsure.");
+    m.unmount();
+  });
+});
+
 describe("snap page source (SNAP-10, SNAP-12)", () => {
   const src = readFileSync(resolve(process.cwd(), "src/pages/snap.tsx"), "utf8");
 
@@ -138,7 +179,7 @@ describe("snap page source (SNAP-10, SNAP-12)", () => {
   });
 
   it("turns a yes into a FlipDesk intake with the snap carried over (SNAP-13)", () => {
-    expect(src).toContain('navigate("/dashboard/flipdesk/intake", { state: { snap: buildIntakeBridge(');
+    expect(src).toMatch(/navigate\("\/dashboard\/flipdesk\/intake", \{\s*state: \{ snap: buildIntakeBridge\(/);
     expect(src).toContain("Add to inventory");
     expect(src).toContain("Bought it");
     expect(src).not.toContain('<Link to="/dashboard/flipdesk">');
