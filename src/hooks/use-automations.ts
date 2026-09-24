@@ -174,6 +174,35 @@ export interface AutomationActionRow {
 
 const RULES_KEY = ["automation_rules"];
 
+/**
+ * The ranges the server accepts (lib/automation-rules.ts). The form checks
+ * these inline and disables Save, rather than quietly changing the number the
+ * seller typed.
+ */
+export const AUTOMATION_BOUNDS = {
+  priceDropPct: { min: 1, max: 90 },
+  promoRatePct: { min: 1, max: 100 },
+  couponPct: { min: 5, max: 70 },
+  markdownPct: { min: 5, max: 70 },
+} as const;
+
+/**
+ * The scope fields normalizeScope accepts (SCOPE_FIELDS on the server). The
+ * shared FilterBuilder offers every inventory field, and a rule saved with one
+ * of the others was refused as "Unknown scope filter field".
+ */
+export const AUTOMATION_SCOPE_FIELDS: FilterField[] = [
+  "brand",
+  "category",
+  "size",
+  "source",
+  "cost",
+  "target_price",
+  "status",
+  "grade",
+  "days_in_status",
+];
+
 export function useAutomationRules() {
   return useQuery({
     queryKey: RULES_KEY,
@@ -250,6 +279,39 @@ export function useDeleteAutomationRule() {
       queryClient.invalidateQueries({ queryKey: RULES_KEY });
     },
     onError: (err: Error) => toastError(err),
+  });
+}
+
+/**
+ * Pause or resume a rule. Uses the PATCH built for exactly this, not the full
+ * PUT: the PUT is plan-gated and re-validates the whole rule, so a seller whose
+ * plan lapsed could not even switch a rule off. Optimistic, rolled back on error.
+ */
+export function useToggleAutomationRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { id: string; is_active: boolean }) => {
+      const res = await edgeFetch(`/api/flipdesk/automations/rules/${args.id}`, {
+        method: "PATCH",
+        json: { is_active: args.is_active },
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Couldn't update the rule.");
+    },
+    onMutate: async (args) => {
+      await queryClient.cancelQueries({ queryKey: RULES_KEY });
+      const prev = queryClient.getQueryData<AutomationRule[]>(RULES_KEY);
+      queryClient.setQueryData<AutomationRule[]>(
+        RULES_KEY,
+        (rows) => rows?.map((r) => (r.id === args.id ? { ...r, is_active: args.is_active } : r)),
+      );
+      return { prev };
+    },
+    onError: (err: Error, _args, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(RULES_KEY, ctx.prev);
+      toastError(err);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: RULES_KEY }),
   });
 }
 

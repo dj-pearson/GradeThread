@@ -14,6 +14,14 @@ import {
 import { effectiveFloorCents } from "./repricing-rules.ts";
 
 export const AUTOMATION_NAME_MAX = 80;
+
+/**
+ * eBay's bounds on a markdown sale. The same numbers as MIN_MARKDOWN_PCT /
+ * MAX_MARKDOWN_PCT in ebay-marketing.ts, restated so this module stays pure
+ * (that one imports the database client). A test holds the two together.
+ */
+export const MIN_MARKDOWN_PCT = 5;
+export const MAX_MARKDOWN_PCT = 70;
 export const MAX_PRICE_DROP_PCT = 90;
 export const MAX_PROMO_RATE_PCT = 100;
 export const DEFAULT_COOLDOWN_DAYS = 7;
@@ -378,6 +386,16 @@ function normalizeTrigger(
       const days = Math.max(1, Math.trunc(Number(t.min_days_listed) || 0));
       const pct = Math.trunc(Number(t.markdown_pct) || 0);
       if (!(pct > 0)) return { error: "Set a markdown percentage" };
+      // eBay clamps a sale to 5-70% off. Refused here so the rule the seller
+      // sees is the rule that runs, rather than 90% quietly becoming 70%.
+      if (pct < MIN_MARKDOWN_PCT || pct > MAX_MARKDOWN_PCT) {
+        return {
+          error: `Markdown must be between ${MIN_MARKDOWN_PCT} and ${MAX_MARKDOWN_PCT}% off`,
+        };
+      }
+      const floorRaw = t.margin_floor_pct == null || t.margin_floor_pct === ""
+        ? null
+        : Math.trunc(Number(t.margin_floor_pct));
       const grade = t.min_grade == null || t.min_grade === ""
         ? null
         : Number(t.min_grade);
@@ -388,10 +406,12 @@ function normalizeTrigger(
         type: "markdown_schedule",
         min_days_listed: days,
         markdown_pct: pct,
-        // Defaulted like the offer floor: every rule gets the safety net,
-        // even from a seller who never thinks about it.
-        margin_floor_pct: Math.max(0, Math.trunc(Number(t.margin_floor_pct) || 0)) ||
-          DEFAULT_OFFER_MARGIN_FLOOR_PCT,
+        // Defaulted like the offer floor when absent: every rule gets the
+        // safety net, even from a seller who never thinks about it. An explicit
+        // 0 is the seller's choice and is kept, not turned into 10.
+        margin_floor_pct: floorRaw != null && Number.isFinite(floorRaw)
+          ? Math.max(0, floorRaw)
+          : DEFAULT_OFFER_MARGIN_FLOOR_PCT,
         min_grade: grade,
         cooldown_days: cooldown,
       };

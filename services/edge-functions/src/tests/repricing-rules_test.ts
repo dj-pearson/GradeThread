@@ -22,22 +22,45 @@ Deno.test("normalize requires an effect (drop% or auto-accept)", () => {
   assert(!r.ok);
 });
 
-Deno.test("normalize clamps drop% and confidence, defaults interval", () => {
+Deno.test("normalize refuses out-of-range numbers instead of clamping them", () => {
+  // Pricing plan P10: a seller who typed 150% and got a 90% rule was never told
+  // their number changed. Each bound is now a refusal with a reason.
+  const base = { name: "Markdown", drop_pct: 10 };
+  for (const bad of [
+    { drop_pct: 150 },
+    { drop_pct: -1 },
+    { auto_accept_confidence: 2 },
+    { auto_accept_confidence: 0 },
+    { auto_accept_confidence: 0.49 },
+    { interval_days: 0 },
+    { interval_days: 91 },
+    { interval_days: 2.5 },
+    { min_age_days: -4 },
+    { min_age_days: 366 },
+  ]) {
+    const r = normalizeRuleInput({ ...base, ...bad });
+    assertEquals(r.ok, false, JSON.stringify(bad));
+  }
+});
+
+Deno.test("normalize keeps in-range numbers and defaults what is absent", () => {
   const r = normalizeRuleInput({
     name: "Markdown",
-    drop_pct: 150,
-    auto_accept_confidence: 2,
-    interval_days: 0,
-    min_age_days: -4,
+    drop_pct: 90,
+    auto_accept_confidence: 0.5,
     floor_price_cents: 999,
   });
   assert(r.ok);
-  assertEquals(r.value.drop_pct, 90); // clamped to MAX_DROP_PCT
-  assertEquals(r.value.auto_accept_confidence, 1); // clamped to 1
-  assertEquals(r.value.interval_days, 1); // min 1
-  assertEquals(r.value.min_age_days, 0); // min 0
+  assertEquals(r.value.drop_pct, 90);
+  assertEquals(r.value.auto_accept_confidence, 0.5);
+  assertEquals(r.value.interval_days, 7);
+  assertEquals(r.value.min_age_days, 0);
   assertEquals(r.value.floor_price_cents, 999);
   assertEquals(r.value.enabled, true);
+  const edge = normalizeRuleInput({ name: "E", drop_pct: 5, interval_days: 90, min_age_days: 365 });
+  assert(edge.ok);
+  assertEquals(edge.value.interval_days, 90);
+  assertEquals(edge.value.min_age_days, 365);
 });
 
 Deno.test("normalize trims scope filters to null when blank", () => {

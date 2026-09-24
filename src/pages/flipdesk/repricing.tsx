@@ -64,6 +64,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Term } from "@/components/help/term";
 import { undoPriors } from "./reprice-plan";
+import { repriceRuleFormError } from "./rule-form-validation";
 import { ruleRunToast } from "@/lib/rule-run-summary";
 
 // US-2171: the queue can carry dozens of nudges. Paginate the client-side list
@@ -258,12 +259,19 @@ function CreateRuleDialog() {
     setFloor("");
   }
 
+  // Checked as the seller types; Save stays off until it is null. The server
+  // refuses the same ranges, so nothing is quietly clamped on the way in.
+  const formError = repriceRuleFormError({
+    name,
+    dropPct,
+    intervalDays,
+    minAgeDays: minAge,
+  });
+
   function submit() {
+    if (formError) return;
     const drop = Number(dropPct);
     const interval = Number(intervalDays);
-    if (!name.trim()) return toast.error("Give the rule a name.");
-    if (!Number.isFinite(drop) || drop <= 0) return toast.error("Drop % must be a positive number.");
-    if (!Number.isFinite(interval) || interval <= 0) return toast.error("Interval (days) must be a positive number.");
     const floorDollars = Number(floor);
     const input: RepriceRuleInput = {
       name: name.trim(),
@@ -271,7 +279,7 @@ function CreateRuleDialog() {
       inventory_item_id: null,
       filter_brand: brand.trim() || null,
       filter_category_id: null,
-      min_age_days: Math.max(0, Math.trunc(Number(minAge) || 0)),
+      min_age_days: minAge.trim() === "" ? 0 : Number(minAge),
       drop_pct: drop,
       interval_days: Math.trunc(interval),
       floor_price_cents:
@@ -383,11 +391,16 @@ function CreateRuleDialog() {
             </div>
           </div>
         </div>
+        {formError && (
+          <p className="text-sm text-destructive" role="status">
+            {formError}
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={create.isPending}>
+          <Button onClick={submit} disabled={create.isPending || formError != null}>
             {create.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
             Create rule
           </Button>
@@ -436,7 +449,7 @@ function RepriceActionsFeed() {
 }
 
 function RepriceRulesCard() {
-  const { data: rules = [], isLoading } = useRepriceRules();
+  const { data: rules = [], isLoading, isError, refetch, isFetching } = useRepriceRules();
   const run = useRunRepriceRules();
   const update = useUpdateRepriceRule();
   const del = useDeleteRepriceRule();
@@ -455,10 +468,13 @@ function RepriceRulesCard() {
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
         <div className="space-y-1">
-          <CardTitle className="text-base">Automation rules</CardTitle>
+          {/* Not "Automation rules": the Automations tab is a separate engine,
+              and two headings claiming the word read as one set of rules. */}
+          <CardTitle className="text-base">Markdown rules</CardTitle>
           <p className="text-xs text-muted-foreground">
             Scheduled markdowns behind these nudges. Run them now to apply any
-            drops that are due.
+            drops that are due. A listing cut by an Automations rule waits out
+            this rule's interval too, so the two never stack.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -488,9 +504,17 @@ function RepriceRulesCard() {
       <CardContent>
         {isLoading ? (
           <Skeleton className="h-10 w-full" />
+        ) : isError ? (
+          <ErrorState
+            className="py-6"
+            title="Couldn't load your rules"
+            description="They still run on schedule."
+            onRetry={() => refetch()}
+            retrying={isFetching}
+          />
         ) : rules.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No automation rules yet. Create one to age out slow inventory
+            No markdown rules yet. Create one to age out slow inventory
             automatically.
           </p>
         ) : (

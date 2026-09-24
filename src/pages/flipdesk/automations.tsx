@@ -65,8 +65,15 @@ import {
   useDeleteAutomationRule,
   useDryRunAutomationRule,
   useRunAutomations,
+  useToggleAutomationRule,
   useUpdateAutomationRule,
+  AUTOMATION_SCOPE_FIELDS,
 } from "@/hooks/use-automations";
+import { ErrorState } from "@/components/ui/error-state";
+import {
+  automationFormError,
+  SELF_ACTING_TRIGGERS,
+} from "./rule-form-validation";
 import { useEbayNegotiationCapability } from "@/hooks/use-ebay";
 import {
   ITEM_STATUS_LABELS,
@@ -168,6 +175,13 @@ function describeScope(rule: AutomationRule): string {
   const parts = s.rules.map((r) => describeRule({ ...r, id: r.id ?? "" }));
   return `listings where ${parts.join(s.combinator === "and" ? " and " : " or ")}`;
 }
+
+/** The badge for a rule whose trigger is its own action. */
+const SELF_ACTING_LABELS: Record<string, string> = {
+  offer_threshold: "Answers offers",
+  return_threshold: "Answers returns",
+  markdown_schedule: "Markdown sale",
+};
 
 const ACTION_LABELS: Record<AutomationAction["type"], string> = {
   price_drop_pct: "Price drop",
@@ -498,9 +512,13 @@ function RuleDialog({
         const grade = mdMinGrade.trim() ? Number(mdMinGrade) : null;
         return {
           type: triggerType,
-          min_days_listed: Math.max(1, Math.trunc(Number(mdDays) || 45)),
-          markdown_pct: Math.max(1, Math.trunc(Number(mdPct) || 20)),
-          margin_floor_pct: Math.max(0, Math.trunc(Number(mdFloorPct) || 0)),
+          min_days_listed: Math.trunc(Number(mdDays)),
+          markdown_pct: Math.trunc(Number(mdPct)),
+          // Blank means the default floor; a typed 0 means no margin, and the
+          // server keeps it as 0.
+          margin_floor_pct: mdFloorPct.trim() === ""
+            ? 10
+            : Math.max(0, Math.trunc(Number(mdFloorPct) || 0)),
           min_grade: grade != null && Number.isFinite(grade) ? grade : null,
           cooldown_days: cooldown,
         };
@@ -555,18 +573,23 @@ function RuleDialog({
   }
 
   function buildInput(): AutomationRuleInput {
-    const days = Math.max(1, Math.trunc(Number(triggerDays) || 1));
-    const cooldown = Math.max(1, Math.trunc(Number(cooldownDays) || 7));
+    // Validated by automationFormError before Save is enabled, so these are
+    // read as typed. A blank used to become 1 day, which cut nearly everything.
+    const days = Math.trunc(Number(triggerDays));
+    const cooldown = selfActing ? Math.trunc(Number(cooldownDays)) || 7 : Math.trunc(Number(cooldownDays));
     const trigger = buildTrigger(days, cooldown);
-    const pct = Number(actionPct) || 0;
-    const action = buildAction(pct);
+    // A trigger that is its own action ignores this, so it is not asked for;
+    // an existing rule keeps what it had.
+    const action = selfActing
+      ? initial?.action_json ?? { type: "notify" as const, message: "Automation ran" }
+      : buildAction(Number(actionPct));
     return {
       name: name.trim(),
       is_active: isActive,
       trigger_json: trigger,
       action_json: action,
       scope_json:
-        scopeMode === "filter" && scopeQuery.rules.length > 0
+        !selfActing && scopeMode === "filter" && scopeQuery.rules.length > 0
           ? {
               type: "filter",
               combinator: scopeQuery.combinator,
@@ -587,6 +610,19 @@ function RuleDialog({
     TRIGGER_OPTIONS.find((o) => o.value === triggerType)?.days ?? true;
   const actionPctMax =
     ACTION_OPTIONS.find((o) => o.value === actionType)?.pctMax ?? null;
+  const selfActing = SELF_ACTING_TRIGGERS.has(triggerType);
+  const formError = automationFormError({
+    name,
+    triggerType,
+    triggerNeedsDays,
+    triggerDays,
+    cooldownDays,
+    actionType,
+    actionPctMax,
+    actionPct,
+    mdDays,
+    mdPct,
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -837,40 +873,43 @@ function RuleDialog({
             )}
             {triggerType === "offer_threshold" && (
               <p className="text-xs text-muted-foreground">
-                Answers eBay Best Offers hourly. This rule's action below is
-                ignored — accepting or declining IS the action. You are told
-                every time it answers one.
+                Answers eBay Best Offers hourly. Accepting, countering or
+                declining is the action, so there is nothing else to pick. You
+                are told every time it answers one.
               </p>
             )}
             {triggerType === "markdown_schedule" && (
               <p className="text-xs text-muted-foreground">
                 Runs hourly and keeps ONE eBay sale up to date rather than
-                creating a new one each time. This rule's action below is ignored
-                — the markdown IS the action.
+                creating a new one each time. The markdown is the action, so
+                there is nothing else to pick.
               </p>
             )}
             {triggerType === "return_threshold" && (
               <p className="text-xs text-muted-foreground">
-                Answers eBay returns hourly. This rule's action below is ignored
-                — approving or refunding IS the action. A return filed as "not
+                Answers eBay returns hourly. Approving or refunding is the
+                action, so there is nothing else to pick. A return filed as "not
                 as described" is never answered automatically, whatever you set
                 here.
               </p>
             )}
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              Re-apply at most every
-              <Input
-                type="number"
-                min={1}
-                value={cooldownDays}
-                onChange={(e) => setCooldownDays(e.target.value)}
-                className="w-20"
-                aria-label="Cooldown days"
-              />
-              days per listing
-            </div>
+            {!selfActing && (
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                Re-apply at most every
+                <Input
+                  type="number"
+                  min={1}
+                  value={cooldownDays}
+                  onChange={(e) => setCooldownDays(e.target.value)}
+                  className="w-20"
+                  aria-label="Cooldown days"
+                />
+                days per listing
+              </div>
+            )}
           </div>
 
+          {!selfActing && (
           <div className="space-y-1.5">
             <Label htmlFor={actionTypeId}>Then</Label>
             <div className="flex flex-wrap items-center gap-2">
@@ -1000,6 +1039,9 @@ function RuleDialog({
             )}
           </div>
 
+          )}
+
+          {!selfActing && (
           <div className="space-y-1.5">
             <Label htmlFor={scopeModeId}>Applies to</Label>
             <div className="flex items-center gap-2">
@@ -1016,7 +1058,11 @@ function RuleDialog({
                 </SelectContent>
               </Select>
               {scopeMode === "filter" && (
-                <FilterBuilder query={scopeQuery} onChange={setScopeQuery} />
+                <FilterBuilder
+                  query={scopeQuery}
+                  onChange={setScopeQuery}
+                  fields={AUTOMATION_SCOPE_FIELDS}
+                />
               )}
             </div>
             {scopeMode === "filter" && scopeQuery.rules.length > 0 && (
@@ -1027,6 +1073,7 @@ function RuleDialog({
               </p>
             )}
           </div>
+          )}
 
           <div className="flex items-center gap-2">
             <Switch
@@ -1038,11 +1085,16 @@ function RuleDialog({
           </div>
         </div>
 
+        {formError && (
+          <p className="text-sm text-destructive" role="status">
+            {formError}
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={saving || !name.trim()}>
+          <Button onClick={submit} disabled={saving || formError != null}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {initial ? "Save changes" : "Create rule"}
           </Button>
@@ -1117,8 +1169,20 @@ function DryRunResults({
 // ── Activity log ────────────────────────────────────────────────
 
 function RuleActivity({ ruleId }: { ruleId: string }) {
-  const { data: actions = [], isLoading } = useAutomationRuleActions(ruleId, true);
+  const { data: actions = [], isLoading, isError, refetch, isFetching } =
+    useAutomationRuleActions(ruleId, true);
   if (isLoading) return <Skeleton className="h-12 w-full" />;
+  if (isError) {
+    return (
+      <ErrorState
+        className="py-6"
+        title="Couldn't load this rule's activity"
+        description="The rule still runs on schedule."
+        onRetry={() => refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
   if (actions.length === 0) {
     return (
       <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
@@ -1226,22 +1290,14 @@ function RuleCard({
   onEdit: (rule: AutomationRule) => void;
 }) {
   const confirm = useConfirm();
-  const update = useUpdateAutomationRule();
+  const toggle = useToggleAutomationRule();
   const del = useDeleteAutomationRule();
   const dryRun = useDryRunAutomationRule();
   const [showActivity, setShowActivity] = useState(false);
+  const selfActing = SELF_ACTING_TRIGGERS.has(rule.trigger_json.type);
 
   function toggleActive(next: boolean) {
-    update.mutate({
-      id: rule.id,
-      input: {
-        name: rule.name,
-        is_active: next,
-        trigger_json: rule.trigger_json,
-        action_json: rule.action_json,
-        scope_json: rule.scope_json,
-      },
-    });
+    toggle.mutate({ id: rule.id, is_active: next });
   }
 
   async function remove() {
@@ -1262,12 +1318,14 @@ function RuleCard({
           <Switch
             checked={rule.is_active}
             onCheckedChange={toggleActive}
-            disabled={update.isPending}
+            disabled={toggle.isPending}
             aria-label={`Toggle ${rule.name}`}
           />
           <span className="font-medium">{rule.name}</span>
           <Badge variant="outline" className="text-xs">
-            {ACTION_LABELS[rule.action_json.type]}
+            {selfActing
+              ? SELF_ACTING_LABELS[rule.trigger_json.type]
+              : ACTION_LABELS[rule.action_json.type]}
           </Badge>
           {!rule.is_active && (
             <Badge variant="outline" className="text-xs text-muted-foreground">
@@ -1318,10 +1376,16 @@ function RuleCard({
           </div>
         </div>
         <p className="text-sm text-muted-foreground">
-          When {describeTrigger(rule.trigger_json)}, {describeAction(rule.action_json)}{" "}
-          — {describeScope(rule)}. Re-checks at most every{" "}
-          {rule.trigger_json.cooldown_days} day
-          {rule.trigger_json.cooldown_days === 1 ? "" : "s"} per listing.
+          {selfActing ? (
+            <>When {describeTrigger(rule.trigger_json)}. Checked every hour.</>
+          ) : (
+            <>
+              When {describeTrigger(rule.trigger_json)}, {describeAction(rule.action_json)}{" "}
+              for {describeScope(rule)}. Re-checks at most every{" "}
+              {rule.trigger_json.cooldown_days} day
+              {rule.trigger_json.cooldown_days === 1 ? "" : "s"} per listing.
+            </>
+          )}
           {rule.last_run_at &&
             ` Last run ${new Date(rule.last_run_at).toLocaleString()}.`}
         </p>
@@ -1340,7 +1404,7 @@ function RuleCard({
 // ── Page ────────────────────────────────────────────────────────
 
 export function FlipdeskAutomationsPage() {
-  const { data: rules = [], isLoading } = useAutomationRules();
+  const { data: rules = [], isLoading, isError, refetch, isFetching } = useAutomationRules();
   const run = useRunAutomations();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<AutomationRule | null>(null);
@@ -1393,6 +1457,15 @@ export function FlipdeskAutomationsPage() {
           <Skeleton className="h-28 w-full" />
           <Skeleton className="h-28 w-full" />
         </div>
+      ) : isError ? (
+        // An outage is not "no rules yet". The rules are still on the server
+        // and still run; only this read failed.
+        <ErrorState
+          title="Couldn't load your rules"
+          description="They still run on schedule."
+          onRetry={() => refetch()}
+          retrying={isFetching}
+        />
       ) : rules.length === 0 ? (
         <Card>
           <CardHeader>

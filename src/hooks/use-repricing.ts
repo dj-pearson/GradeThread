@@ -314,6 +314,13 @@ export interface RepriceRuleInput {
   override_manual: boolean;
 }
 
+/** The ranges normalizeRuleInput accepts on the server (lib/repricing-rules.ts). */
+export const REPRICE_RULE_BOUNDS = {
+  dropPct: { min: 1, max: 90 },
+  intervalDays: { min: 1, max: 90 },
+  minAgeDays: { min: 0, max: 365 },
+} as const;
+
 export function ruleToInput(r: RepriceRule): RepriceRuleInput {
   return {
     name: r.name,
