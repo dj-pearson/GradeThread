@@ -18,6 +18,7 @@
 // mid-session would come back to an empty screen and assume their evening's
 // work was gone.
 
+import { useCallback } from "react";
 import {
   useMutation,
   useQuery,
@@ -864,6 +865,97 @@ export function useBuildPlan() {
   });
 }
 
+// ── The built plan, kept across "Open item" round trips (WMT-11) ────────
+
+/** A plan older than this is flagged as possibly out of date. */
+export const PLAN_STALE_MS = 15 * 60 * 1000;
+
+const planKey = (ownerId: string | null) => ["planner_plan", ownerId] as const;
+const planStorageKey = (ownerId: string) => `wmt-plan:${ownerId}`;
+
+function currentOwnerId(): string | null {
+  const { activeWorkspaceOwnerId, user } = useAuthStore.getState();
+  return activeWorkspaceOwnerId ?? user?.id ?? null;
+}
+
+/**
+ * The plan saved for this owner in this tab, or null.
+ *
+ * sessionStorage, not localStorage: a plan is about this sitting, and one
+ * left for tomorrow would describe a stock that has moved. Every access is
+ * wrapped, because storage throws in private windows and blocked-site modes.
+ */
+export function readStoredPlan(ownerId: string | null): PreparedPlan | null {
+  if (!ownerId) return null;
+  try {
+    const raw = sessionStorage.getItem(planStorageKey(ownerId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PreparedPlan;
+    // The shape check that matters: a plan the page cannot render is worse
+    // than no plan.
+    if (
+      typeof parsed?.takenAt !== "string" ||
+      !Array.isArray(parsed?.plan?.tasks) ||
+      !Array.isArray(parsed?.ranked) ||
+      !Array.isArray(parsed?.candidates)
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPlan(ownerId: string | null, plan: PreparedPlan | null): void {
+  if (!ownerId) return;
+  try {
+    if (plan) sessionStorage.setItem(planStorageKey(ownerId), JSON.stringify(plan));
+    else sessionStorage.removeItem(planStorageKey(ownerId));
+  } catch {
+    // A plan that cannot be remembered is still a plan on screen.
+  }
+}
+
+/** Forget the built plan for one owner, in memory and in the tab. */
+export function clearPlannerPlan(qc: QueryClient, ownerId: string | null): void {
+  qc.removeQueries({ queryKey: planKey(ownerId), exact: true });
+  writeStoredPlan(ownerId, null);
+}
+
+/**
+ * The plan on screen, keyed by workspace owner (WMT-11).
+ *
+ * Every row links out to its item, and coming back used to remount the page
+ * with no plan. Keyed by OWNER so another workspace's plan never shows, and
+ * restored from sessionStorage when the in-memory copy is gone.
+ */
+export function usePlannerPlan() {
+  const qc = useQueryClient();
+  const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId ?? s.user?.id ?? null);
+  const query = useQuery<PreparedPlan | null>({
+    queryKey: planKey(ownerId),
+    // Restored synchronously as initial data, never fetched: a queryFn that
+    // resolved after a build would overwrite the fresh plan with the stored
+    // one. staleTime Infinity means this function is only a fallback.
+    initialData: () => readStoredPlan(ownerId),
+    queryFn: () =>
+      qc.getQueryData<PreparedPlan | null>(planKey(ownerId)) ?? readStoredPlan(ownerId),
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
+  const setPlan = useCallback(
+    (plan: PreparedPlan) => {
+      qc.setQueryData(planKey(ownerId), plan);
+      writeStoredPlan(ownerId, plan);
+    },
+    [qc, ownerId],
+  );
+  const clear = useCallback(() => clearPlannerPlan(qc, ownerId), [qc, ownerId]);
+  return { plan: query.data ?? null, ownerId, setPlan, clear };
+}
+
 // ── The session (R1 09/12, on the edge) ─────────────────────────────
 
 export interface PlannerSessionTask {
@@ -919,7 +1011,12 @@ export function useStartSession() {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: (next) => qc.setQueryData(["planner_session"], next),
+    onSuccess: (next) => {
+      qc.setQueryData(["planner_session"], next);
+      // WMT-11: the plan became the session. Keeping it would leave the old
+      // list under the runner, where it reads as a second to-do list.
+      clearPlannerPlan(qc, currentOwnerId());
+    },
     // No onError handler on purpose (AC5): a failure leaves the cached session
     // exactly as it was. Clearing it would show a seller whose connection
     // dropped an empty screen and let them assume the evening was lost.

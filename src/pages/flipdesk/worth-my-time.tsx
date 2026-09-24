@@ -14,7 +14,8 @@
 // item, and there is no filtering, sorting or bulk selection: the moment this
 // grows those it becomes a second inventory screen with worse tools.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { Clock, Loader2, MapPin, AlertTriangle, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
@@ -24,13 +25,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SEO } from "@/components/seo";
 import {
+  PLAN_STALE_MS,
+  clearPlannerPlan,
   planToSessionTasks,
   useBuildPlan,
   useCurrentSession,
   useSaveWorkPreferences,
   useStartSession,
+  usePlannerPlan,
   useWorkPreferences,
-  type PreparedPlan,
 } from "@/hooks/use-planner";
 import { SessionRunner } from "@/components/flipdesk/session-runner";
 import { TaskCorrections } from "@/components/flipdesk/task-corrections";
@@ -68,6 +71,29 @@ const TIER_REASONS: Record<string, string> = {
   research: "Needs a price before it can be ranked",
   unvalued: "We can't estimate this one yet",
 };
+
+/** "6:42pm", the seller's own clock, for "Plan from ..." (WMT-11). */
+export function planTimeLabel(iso: string): string {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "";
+  const h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, "0");
+  return `${h % 12 === 0 ? 12 : h % 12}:${m}${h < 12 ? "am" : "pm"}`;
+}
+
+const visitedKey = (ownerId: string | null, takenAt: string) =>
+  `wmt-visited:${ownerId ?? "-"}:${takenAt}`;
+
+function readVisited(ownerId: string | null, takenAt: string | undefined): Set<string> {
+  if (!takenAt) return new Set();
+  try {
+    const raw = sessionStorage.getItem(visitedKey(ownerId, takenAt));
+    const list = raw ? (JSON.parse(raw) as unknown) : [];
+    return new Set(Array.isArray(list) ? list.filter((k) => typeof k === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
 
 function money(cents: number | null): string | null {
   if (cents == null) return null;
@@ -177,7 +203,43 @@ export function WorthMyTimePage() {
   const currentSession = useCurrentSession();
   const startSession = useStartSession();
   const [custom, setCustom] = useState("");
-  const [plan, setPlan] = useState<PreparedPlan | null>(null);
+  // WMT-11: the plan survives "Open item" and back. It lives in the query
+  // cache keyed by workspace owner, mirrored to sessionStorage, rather than
+  // in state that a remount throws away.
+  const qc = useQueryClient();
+  const { plan, setPlan, ownerId } = usePlannerPlan();
+  const [visited, setVisited] = useState<Set<string>>(() =>
+    readVisited(ownerId, plan?.takenAt)
+  );
+  useEffect(() => {
+    setVisited(readVisited(ownerId, plan?.takenAt));
+  }, [ownerId, plan?.takenAt]);
+  function markVisited(key: string) {
+    if (!plan) return;
+    const next = new Set(visited).add(key);
+    setVisited(next);
+    try {
+      sessionStorage.setItem(visitedKey(ownerId, plan.takenAt), JSON.stringify([...next]));
+    } catch {
+      // A tick that cannot be remembered is a convenience lost, nothing more.
+    }
+  }
+  // A workspace switch drops the previous owner's plan outright, so it can
+  // never be shown against another tenant's stock.
+  const lastOwner = useRef(ownerId);
+  useEffect(() => {
+    if (lastOwner.current !== ownerId) {
+      clearPlannerPlan(qc, lastOwner.current);
+      lastOwner.current = ownerId;
+    }
+  }, [ownerId, qc]);
+  // A plan that has sat for a quarter of an hour is flagged, not replaced.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(t);
+  }, []);
+  const planIsOld = plan != null && nowMs - Date.parse(plan.takenAt) > PLAN_STALE_MS;
   // Set only when a correction lands AFTER a plan was built. The plan on
   // screen is the one the seller agreed to, so it is never replaced under
   // them -- they are told it is out of date and press the button (AC2).
@@ -218,6 +280,7 @@ export function WorthMyTimePage() {
       // AC5: a failed build leaves the previous plan on screen. setPlan runs
       // only on success, so a dropped connection never blanks the page.
       setPlan(built);
+      setNowMs(Date.now());
       void savePrefs.mutateAsync({ default_session_minutes: minutes }).catch(() => {
         // Remembering the choice is a convenience. Failing to remember it must
         // not look like failing to plan.
@@ -384,18 +447,20 @@ export function WorthMyTimePage() {
             {/* AC3: estimates are never presented as earnings. This line is
                 the whole guard against the screen reading as a payday. */}
             <p className="text-xs text-muted-foreground">
-              Times and values are estimates, not earnings.
+              Plan from {planTimeLabel(plan.takenAt)}. Times and values are
+              estimates, not earnings.
             </p>
           </div>
 
-          {stalePlan && (
+          {(stalePlan || planIsOld) && (
             <p
               role="status"
               className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/50 p-3 text-sm"
             >
               <span>
-                You changed something since this plan was built. It still shows
-                the old numbers.
+                {stalePlan
+                  ? "You changed something since this plan was built. It still shows the old numbers."
+                  : `This plan is from ${planTimeLabel(plan.takenAt)}. Your stock may have moved since.`}
               </span>
               <Button
                 size="sm"
@@ -503,6 +568,11 @@ export function WorthMyTimePage() {
                     <p className="font-medium">
                       <span className="text-muted-foreground">{i + 1}. </span>
                       {ACTION_LABELS[r?.action ?? ""] ?? r?.action}
+                      {visited.has(task.key) && (
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">
+                          (opened)
+                        </span>
+                      )}
                       {" — "}
                       {plan.candidates.find((c) => c.itemId === task.itemId)
                         ?.itemTitle ?? "Untitled item"}
@@ -563,7 +633,10 @@ export function WorthMyTimePage() {
                       />
                     )}
                     <Button variant="outline" size="sm" asChild>
-                      <Link to={itemHref(task.itemId)}>
+                      <Link
+                        to={itemHref(task.itemId)}
+                        onClick={() => markVisited(task.key)}
+                      >
                         Open item <ArrowRight className="ml-1 h-3 w-3" />
                       </Link>
                     </Button>

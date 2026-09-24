@@ -79,6 +79,7 @@ vi.mock("@/hooks/use-planner", async () => {
 });
 
 const { WorthMyTimePage } = await import("@/pages/flipdesk/worth-my-time");
+const { useAuthStore } = await import("@/stores/auth-store");
 
 function plan(over: Record<string, unknown> = {}) {
   return {
@@ -673,5 +674,64 @@ describe("the setup, edited where the plan is (WMT-06)", () => {
       .find((a) => a.textContent?.includes("Change your setup"));
     expect(link).toBeUndefined();
     expect(document.getElementById("wmt-setup")).not.toBeNull();
+  });
+});
+
+describe("the plan survives an 'Open item' round trip (WMT-11)", () => {
+  function signInAs(id: string, workspaceOwner: string | null = null) {
+    act(() => {
+      useAuthStore.setState({
+        user: { id } as never,
+        activeWorkspaceOwnerId: workspaceOwner,
+      });
+    });
+  }
+  function unmount() {
+    act(() => root?.unmount());
+    container?.remove();
+    root = null;
+    container = null;
+  }
+  afterEach(() => {
+    useAuthStore.setState({ user: null, activeWorkspaceOwnerId: null });
+    sessionStorage.clear();
+  });
+
+  it("build, leave, come back: the same plan, with its time stamp", async () => {
+    signInAs("owner-a");
+    buildMock.mockResolvedValue(plan({ takenAt: new Date().toISOString() }));
+    renderPage();
+    await click("30 minutes");
+    expect(has("Carhartt Detroit jacket")).toBe(true);
+    unmount();
+
+    // A fresh query client too: the tab's storage is what brings it back.
+    renderPage();
+    await settle();
+    expect(has("Carhartt Detroit jacket")).toBe(true);
+    expect(has(/Plan from \d{1,2}:\d{2}(am|pm)/)).toBe(true);
+    expect(buildMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("another workspace's plan never shows", async () => {
+    signInAs("owner-a");
+    buildMock.mockResolvedValue(plan({ takenAt: new Date().toISOString() }));
+    renderPage();
+    await click("30 minutes");
+    expect(has("Carhartt Detroit jacket")).toBe(true);
+    signInAs("owner-a", "owner-b");
+    await settle();
+    expect(has("Carhartt Detroit jacket")).toBe(false);
+  });
+
+  it("an old plan says when it is from, and offers a rebuild", async () => {
+    signInAs("owner-a");
+    buildMock.mockResolvedValue(
+      plan({ takenAt: new Date(Date.now() - 20 * 60_000).toISOString() }),
+    );
+    renderPage();
+    await click("30 minutes");
+    expect(has(/This plan is from/)).toBe(true);
+    expect(buttonNamed("Build it again")).toBeTruthy();
   });
 });

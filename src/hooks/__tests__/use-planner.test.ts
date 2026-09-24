@@ -45,7 +45,9 @@ vi.mock("@/lib/auth-token", () => ({
 }));
 vi.mock("@/lib/edge-api", () => ({ edgeApiUrl: () => "https://edge.test" }));
 
-const { buildPlan, planToSessionTasks } = await import("@/hooks/use-planner");
+const { buildPlan, planToSessionTasks, readStoredPlan, clearPlannerPlan } =
+  await import("@/hooks/use-planner");
+const { QueryClient } = await import("@tanstack/react-query");
 
 const NOW = "2026-09-21T12:00:00.000Z";
 
@@ -238,5 +240,35 @@ describe("the plan read (WMT-07)", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("the stored plan (WMT-11)", () => {
+  const stored = {
+    plan: { tasks: [] },
+    ranked: [],
+    candidates: [],
+    takenAt: "2026-09-21T12:00:00.000Z",
+  };
+
+  it("reads back only the owner it was saved for, and only a plan-shaped value", () => {
+    sessionStorage.setItem("wmt-plan:owner-a", JSON.stringify(stored));
+    sessionStorage.setItem("wmt-plan:owner-b", "{not json");
+    sessionStorage.setItem("wmt-plan:owner-c", JSON.stringify({ takenAt: 5 }));
+    expect(readStoredPlan("owner-a")?.takenAt).toBe(stored.takenAt);
+    expect(readStoredPlan("owner-b")).toBeNull();
+    expect(readStoredPlan("owner-c")).toBeNull();
+    expect(readStoredPlan("owner-z")).toBeNull();
+    expect(readStoredPlan(null)).toBeNull();
+    sessionStorage.clear();
+  });
+
+  it("clearing forgets it in memory and in the tab", () => {
+    const qc = new QueryClient();
+    sessionStorage.setItem("wmt-plan:owner-a", JSON.stringify(stored));
+    qc.setQueryData(["planner_plan", "owner-a"], stored);
+    clearPlannerPlan(qc, "owner-a");
+    expect(qc.getQueryData(["planner_plan", "owner-a"])).toBeUndefined();
+    expect(readStoredPlan("owner-a")).toBeNull();
   });
 });
