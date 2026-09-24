@@ -108,6 +108,13 @@ import {
   centsToDisplay,
   suggestKeepItRefund,
 } from "@/pages/flipdesk/keep-it-offer";
+import {
+  detectCarrier,
+  normalizeTracking,
+  SHIP_CARRIERS,
+  stripUspsZipPrefix,
+  type ShipCarrier,
+} from "@/pages/flipdesk/ship-queue";
 
 // US-1043 + US-1049: web surface for post-sale issues — returns, cancellations,
 // and payment disputes — with the accept/decline/refund/contest actions.
@@ -1377,6 +1384,7 @@ function TrackingDialog({
   busy,
   orderId,
   itemTitle,
+  shipped,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -1385,11 +1393,22 @@ function TrackingDialog({
   /** Which parcel this is for, so the seller can check before sending. */
   orderId: string | null;
   itemTitle: string | null;
+  /**
+   * PS-14: what the Ship tab already stored for this order. Starting from it
+   * makes the usual item-not-received answer one click. Mounted per case
+   * (PS-02), so these are real initial values rather than stale ones.
+   */
+  shipped?: { trackingNumber: string | null; carrier: string | null; shippedAt: string | null };
 }) {
-  const [carrier, setCarrier] = useState("");
-  const [tracking, setTracking] = useState("");
+  const initialTracking = shipped?.trackingNumber ?? "";
+  const [carrier, setCarrier] = useState<ShipCarrier | "">(
+    () => carrierFromStored(shipped?.carrier) ?? detectCarrier(initialTracking) ?? "",
+  );
+  const [carrierPicked, setCarrierPicked] = useState(false);
+  const [tracking, setTracking] = useState(initialTracking);
   const [comments, setComments] = useState("");
-  const ready = carrier.trim().length > 0 && tracking.trim().length > 0;
+  const ready = carrier.length > 0 && normalizeTracking(tracking).length > 0;
+  const fromShipTab = initialTracking !== "" && tracking === initialTracking;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -1405,22 +1424,46 @@ function TrackingDialog({
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="po-carrier">Carrier</Label>
-            <Input
-              id="po-carrier"
-              value={carrier}
-              onChange={(e) => setCarrier(e.target.value)}
-              placeholder="USPS"
-            />
-          </div>
-          <div className="space-y-1.5">
             <Label htmlFor="po-tracking">Tracking number</Label>
             <Input
               id="po-tracking"
               value={tracking}
-              onChange={(e) => setTracking(e.target.value)}
+              onChange={(e) => {
+                setTracking(e.target.value);
+                if (!carrierPicked) {
+                  setCarrier(detectCarrier(e.target.value) ?? carrier);
+                }
+              }}
               placeholder="9400 1000 0000 0000 0000 00"
+              autoComplete="off"
+              spellCheck={false}
+              aria-describedby={fromShipTab ? "po-tracking-source" : undefined}
             />
+            {fromShipTab ? (
+              <p id="po-tracking-source" className="text-xs text-muted-foreground">
+                From your Ship tab
+                {shipped?.shippedAt ? `, shipped ${fmtDate(shipped.shippedAt)}` : ""}.
+              </p>
+            ) : null}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="po-carrier">Carrier</Label>
+            <select
+              id="po-carrier"
+              value={carrier}
+              onChange={(e) => {
+                setCarrier(e.target.value as ShipCarrier | "");
+                setCarrierPicked(true);
+              }}
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="">Choose a carrier</option>
+              {SHIP_CARRIERS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="po-comments">Note to the buyer (optional)</Label>
@@ -1438,7 +1481,7 @@ function TrackingDialog({
           </Button>
           <Button
             disabled={!ready || busy}
-            onClick={() => onSubmit(carrier.trim(), tracking.trim(), comments.trim())}
+            onClick={() => onSubmit(carrier, stripUspsZipPrefix(tracking), comments.trim())}
           >
             {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
             Send tracking
@@ -1447,6 +1490,13 @@ function TrackingDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** A carrier stored on the sale, as one of the pick-list values. */
+function carrierFromStored(raw: string | null | undefined): ShipCarrier | null {
+  const key = (raw ?? "").trim().toLowerCase();
+  if (!key) return null;
+  return SHIP_CARRIERS.find((c) => c.toLowerCase() === key) ?? "Other";
 }
 
 /**
@@ -1643,6 +1693,9 @@ function InquiriesCard() {
         itemTitle={trackingFor
           ? caseItems?.get(caseItemKey(trackingFor) ?? "")?.title ?? null
           : null}
+        shipped={trackingFor
+          ? caseItems?.get(caseItemKey(trackingFor) ?? "") ?? undefined
+          : undefined}
         onSubmit={(carrier, trackingNumber, comments) => {
           if (trackingFor) {
             void run(trackingFor, "shipment", { carrier, trackingNumber, comments });
@@ -1891,6 +1944,9 @@ function CasesCard() {
         itemTitle={trackingFor
           ? caseItems?.get(caseItemKey(trackingFor) ?? "")?.title ?? null
           : null}
+        shipped={trackingFor
+          ? caseItems?.get(caseItemKey(trackingFor) ?? "") ?? undefined
+          : undefined}
         onSubmit={(carrier, trackingNumber, comments) => {
           if (trackingFor) {
             void run(trackingFor, "shipment", { carrier, trackingNumber, comments });

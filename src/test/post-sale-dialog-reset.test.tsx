@@ -14,6 +14,7 @@ import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 const state = vi.hoisted(() => ({
   inquiries: [] as Array<Record<string, unknown>>,
   cases: [] as Array<Record<string, unknown>>,
+  caseItems: undefined as Map<string, Record<string, unknown>> | undefined,
 }));
 
 vi.mock("@/hooks/use-needs-you", async (original) => ({
@@ -64,7 +65,7 @@ vi.mock("@/hooks/use-case-items", () => ({
   caseItemKey: (k: { orderId: string | null }) => k.orderId,
   ebayOrderUrl: () => "#",
   ebayReturnUrl: () => "#",
-  useCaseItems: () => ({ data: undefined }),
+  useCaseItems: () => ({ data: state.caseItems }),
 }));
 vi.mock("@/components/flipdesk/ship-queue-card", () => ({ ShipQueueCard: () => null }));
 vi.mock("@/components/flipdesk/return-analytics-card", () => ({ ReturnAnalyticsCard: () => null }));
@@ -108,6 +109,7 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   state.inquiries = [inquiry("inq-A", "ORDER-A"), inquiry("inq-B", "ORDER-B")];
   state.cases = [kase("case-A", "ORDER-C"), kase("case-B", "ORDER-D")];
+  state.caseItems = undefined;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -193,5 +195,39 @@ describe("post-sale dialogs reset per case (PS-02)", () => {
 
     expect(box().value).toBe("");
     expect(buttonByText("Submit appeal").disabled).toBe(true);
+  });
+});
+
+describe("INR tracking from the Ship tab (PS-14)", () => {
+  it("starts prefilled, with Send enabled, when the sale already has tracking", async () => {
+    state.caseItems = new Map([
+      ["ORDER-A", {
+        inventoryItemId: "item-1",
+        title: "Wool coat",
+        salePrice: 40,
+        acquiredPrice: null,
+        thumbnailUrl: null,
+        ebayItemId: null,
+        trackingNumber: "9400100000000000000000",
+        carrier: "usps",
+        shippedAt: "2026-09-20T15:00:00.000Z",
+      }],
+    ]);
+    await renderCases();
+    await act(async () => byLabel("Add tracking for order ORDER-A").click());
+    expect((document.getElementById("po-tracking") as HTMLInputElement).value)
+      .toBe("9400100000000000000000");
+    expect((document.getElementById("po-carrier") as HTMLSelectElement).value).toBe("USPS");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("From your Ship tab, shipped");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Wool coat");
+    expect(buttonByText("Send tracking").disabled).toBe(false);
+  });
+
+  it("starts empty when the sale has no tracking", async () => {
+    await renderCases();
+    await act(async () => byLabel("Add tracking for order ORDER-B").click());
+    expect((document.getElementById("po-tracking") as HTMLInputElement).value).toBe("");
+    expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain("From your Ship tab");
+    expect(buttonByText("Send tracking").disabled).toBe(true);
   });
 });
