@@ -71,6 +71,68 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00833_inventory_table_owner_scope.sql (INV-D1 - Inventory table and tab counts mixed two workspaces)
+
+**What it does.** Replaces `flipdesk_listing_page` (12 args, 00771) and
+`inventory_status_counts()` (00144) with versions that take one more argument,
+`p_owner_id uuid default null`, the workspace on screen. Every read is filtered
+to `user_id = p_owner_id`: the page rows, `total`, `soldAgg`, `buyerCounts`
+(which read `items_full` directly and needed its own predicate), and the
+per-status counts. The old signatures are DROPPED first so PostgREST never
+sees two overloads. Both stay SECURITY INVOKER, so RLS still applies on top.
+Grants are replayed exactly as they were: `flipdesk_listing_page` to
+`authenticated`; `inventory_status_counts` to `authenticated` and
+`service_role`. No revokes existed and none are added (US-2403).
+
+**The guard.** A non-NULL `p_owner_id` is checked, not trusted: the caller
+must be that owner or a member of that owner's workspace
+(`public.is_workspace_member`, any role, the same bar as the viewer SELECT
+policy), or the service role. Anyone else gets **42501**.
+**NULL means `auth.uid()`**, the caller's own rows only, never "everything RLS
+admits". That is what a client built before this migration sends, so an old
+tab can never mix tenants; a workspace member on an old tab sees their own
+(possibly empty) inventory until they reload.
+
+**Why.** Both functions relied on RLS over `items_full` / `inventory_items`,
+and that policy admits own rows OR any workspace the caller is a member of. A
+seller who owned items and also belonged to another workspace saw both mixed
+in the Inventory table, its tab badges, the repeat-buyer star, "Select all
+matching" and the CSV export. Grid, Kanban and Prep were fixed client-side
+(INV-1); the table filters inside these functions, so it needed this.
+
+**⚠ THE BROWSER CALLS BOTH, AND SENDS THE NEW ARGUMENT, in the same commit.**
+`src/pages/flipdesk/listings-page-queries.ts` (`listingPageArgs`, used by the
+page query, select-all and the CSV export) sends `p_owner_id`, and
+`src/hooks/use-inventory-status-counts.ts` sends it to `inventory_status_counts`.
+If Pages deploys before this is applied, PostgREST finds no function with a
+`p_owner_id` parameter and **the Inventory table fails to load for every
+seller** (PGRST202), and the tab badges go blank. The other way round is safe:
+the new functions answer an old client's call (the new argument defaults).
+**Apply BEFORE the push to main.**
+
+**Proved on a local Postgres 16** (all 825 migrations from zero, 0 failures):
+applied twice, second run clean with only "does not exist, skipping" notices
+from the drops. `node scripts/check-inventory-owner-scope.mjs --dsn ...` passes
+13/13: A (who also belongs to B's workspace) reading A sees only A's 2 rows and
+buyerCounts 1; A with NULL gets the same; A switched into B sees only B's row;
+M (member of both) sees only B's row for B and only A's rows for A; M with
+NULL gets M's own (zero); a stranger and anon naming A get 42501; the service
+role naming A gets A's rows; counts match per workspace and the stranger gets
+42501. Sabotage 1 (owner predicate replaced with `true` in both functions): 10
+of 13 red, e.g. A reading A got `total:3,foreign:1,buyer:2`, which is the
+shipped bug. Sabotage 2 (guard removed, buyerCounts predicate removed): the
+stranger and anon cases go red (they get an empty table instead of 42501) and
+every buyerCounts reads 2. Restored: 13/13.
+
+**Risk: LOW-MEDIUM.** Read-only functions, no table change. The risk is the
+deploy order above, and that a member on a stale tab briefly sees their own
+inventory instead of the workspace's.
+
+**Order.** 1) `npm run migrate:prod -- --apply --yes` (applies 00833 after
+00823-00832, then `NOTIFY pgrst, 'reload schema';`). 2) Redeploy the edge
+(boot guard expects 00833; the edge does not call either function). 3) THEN
+push to main so Pages builds the client that sends `p_owner_id`.
+
 ## HELD: 00832_one_ebay_draft_per_item.sql (marketplaces plan action 3 - one AutoLister eBay draft per item)
 
 **What it does.** Demotes duplicate eBay drafts, then adds

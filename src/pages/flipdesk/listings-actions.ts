@@ -407,6 +407,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
           columnSort,
           sortPreset,
           agedThresholdDays,
+          ownerId,
         }),
         p_limit: PAGE,
         p_offset: offset,

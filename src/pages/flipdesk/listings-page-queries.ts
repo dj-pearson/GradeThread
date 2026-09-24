@@ -72,6 +72,23 @@ export interface ListingPageCriteria {
   columnSort: { field: keyof ItemFullRow; dir: "asc" | "desc" } | null;
   sortPreset: SortPreset;
   agedThresholdDays: number;
+  /**
+   * INV-D1: the workspace on screen (activeWorkspaceOwnerId, else the user).
+   * RLS admits every workspace the caller belongs to, so without this a
+   * seller in two workspaces saw both mixed in one table.
+   */
+  ownerId: string;
+}
+
+/**
+ * INV-D1: the cache-key prefix for the listings table. It names the WORKSPACE
+ * rather than the signed-in user, so switching workspace is a different cache
+ * entry and a page from one workspace is never served under another. The
+ * first two elements are unchanged, so invalidateQueries({ queryKey:
+ * ["items_full"] }) still sweeps it.
+ */
+export function listingsItemsKeyFor(ownerId: string | undefined) {
+  return ["items_full", "listings", ownerId] as const;
 }
 
 /**
@@ -134,6 +151,9 @@ export function listingPageArgs(c: ListingPageCriteria, now: Date = new Date()) 
     p_columns: LISTINGS_COLUMN_LIST,
     // US-3195: only consulted on the Aged tab.
     p_aged_threshold_days: c.agedThresholdDays,
+    // INV-D1 (migration 00833): one workspace. The server checks the caller
+    // may read it (42501 otherwise) and treats null as the caller's own rows.
+    p_owner_id: c.ownerId || null,
   };
 }
 
