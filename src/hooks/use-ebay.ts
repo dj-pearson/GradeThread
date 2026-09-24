@@ -12,6 +12,11 @@ import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
 import { useTenantKey } from "@/hooks/use-tenant-key";
 import { edgeFetch } from "@/lib/edge-fetch";
+import {
+  orderTotalFromRows,
+  type OrderLineRow,
+  type OrderTotal,
+} from "@/lib/refund-amount";
 // US-2170: the score shape the /listings/validate response already carries. The
 // component file owns it because that is where it is rendered; the edge's
 // lib/listing-quality-score.ts is the authority for how it is COMPUTED.
@@ -3770,22 +3775,24 @@ export function useEbayReprintLabel() {
 // opening a return first — worse for both sides, and it drags the seller's
 // return metrics.
 
-/** The order total a partial refund is checked against. Null when unknown. */
+/**
+ * The order total a partial refund is checked against, across every line of
+ * the order (PS-05). `total` is null when unknown.
+ */
 export function useEbayOrderTotal(orderId: string | null) {
   return useQuery({
     queryKey: ["ebay_order_total", orderId],
     enabled: Boolean(orderId),
     // RLS scopes `sales` to the caller, so this cannot read another tenant's
     // order even though the id came off an eBay payload.
-    queryFn: async (): Promise<number | null> => {
+    queryFn: async (): Promise<OrderTotal> => {
       const { data, error: dataReadError } = await supabase
         .from("sales")
-        .select("sale_price")
+        .select("sale_price, currency")
         .eq("platform_order_id", orderId as string)
-        .maybeSingle();
+        .limit(50);
       if (dataReadError) throw dataReadError;
-      const price = (data as { sale_price?: number | null } | null)?.sale_price;
-      return typeof price === "number" && Number.isFinite(price) ? price : null;
+      return orderTotalFromRows((data ?? []) as unknown as OrderLineRow[]);
     },
   });
 }
@@ -3794,9 +3801,16 @@ export function useEbayIssueOrderRefund() {
   return useMutation<
     { ok: true; refund_id?: string },
     Error,
-    { orderId: string; reason: string; amountValue: string; comment?: string }
+    {
+      orderId: string;
+      reason: string;
+      amountValue: string;
+      /** The sale's own currency (PS-05). Never assumed. */
+      currency: string;
+      comment?: string;
+    }
   >({
-    mutationFn: async ({ orderId, reason, amountValue, comment }) => {
+    mutationFn: async ({ orderId, reason, amountValue, currency, comment }) => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/orders/${encodeURIComponent(orderId)}/refund`,
         {
@@ -3808,7 +3822,7 @@ export function useEbayIssueOrderRefund() {
             // eBay wants a decimal string; the currency rides with it because
             // the route rejects an amount with no currency rather than assuming
             // USD for a seller who is not selling in it.
-            amount: { currency: "USD", value: amountValue },
+            amount: { currency, value: amountValue },
           }),
         },
       );

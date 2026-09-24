@@ -60,6 +60,7 @@ import {
 import { compositeReturnEvidenceSheet } from "../lib/defect-annotations.ts";
 import { type EvidenceContext, planEvidence } from "../lib/evidence-plan.ts";
 import { applyOutcomeToSale } from "../lib/post-sale-outcome.ts";
+import { resolveOrderOwnership } from "../lib/order-refund-owner.ts";
 import {
   createShippingFulfillment,
   isEbayConfigured,
@@ -1143,38 +1144,15 @@ flipdeskEbayRoutes.post("/orders/:orderId/refund", async (c) => {
   }
 
   // Ownership FIRST — before any eBay call, and before any parsing that could
-  // leak the order's existence through a differently-shaped error.
-  // PostgREST returns an embed as an object for a to-one relationship and an
-  // array for a to-many, and which one you get depends on how it reads the FK.
-  // Handling both is cheaper than being wrong about it in a route that a seller
-  // only reaches while trying to refund somebody.
-  const saleConnectionId = (row: unknown): string | undefined => {
-    const l = (row as { listings?: unknown } | null)?.listings;
-    const one = Array.isArray(l) ? l[0] : l;
-    const id = (one as { marketplace_connection_id?: string | null } | null)
-      ?.marketplace_connection_id;
-    return id ?? undefined;
-  };
-
-  // US-2804: `sales` has NO marketplace_connection_id column — it lives on
-  // `listings` (00338), and sales reaches it through listing_id. Selecting it
-  // directly answered 42703, so this ownership check errored on every call and
-  // the refund route returned 500 to every seller who tried it.
-  //
-  // It fails CLOSED, which is the one piece of luck here: the check errored
-  // rather than passing, so no foreign order was ever reachable. The route was
-  // dead, not open.
-  const { data: sale, error: saleErr } = await supabaseAdmin
-    .from("sales")
-    .select("id, listings(marketplace_connection_id)")
-    .eq("user_id", ownerId)
-    .eq("platform_order_id", orderId)
-    .maybeSingle();
-  if (saleErr) {
-    console.error("[ebay.orders.refund] sale lookup failed:", saleErr.message);
+  // leak the order's existence through a differently-shaped error. PS-05: a
+  // multi-item order has one sales row per line, so this reads them all
+  // rather than demanding exactly one (see lib/order-refund-owner.ts).
+  const ownership = await resolveOrderOwnership(ownerId, orderId);
+  if (!ownership.ok) {
+    console.error("[ebay.orders.refund] sale lookup failed:", ownership.error);
     return c.json({ error: "Couldn't look up that order." }, 500);
   }
-  if (!sale) {
+  if (!ownership.owned) {
     // Deliberately the same 404 a nonexistent order gets: a foreign order must not
     // be distinguishable from one that isn't there.
     return c.json({ error: "Order not found." }, 404);
@@ -1218,9 +1196,8 @@ flipdeskEbayRoutes.post("/orders/:orderId/refund", async (c) => {
       orderId,
       input,
       // Through the embed, since the column is on `listings`. A sale with no
-      // linked listing yields undefined, which is the same fallback the old
-      // (never-reached) expression had: use the default connection.
-      saleConnectionId(sale),
+      // linked listing yields undefined: use the default connection.
+      ownership.connectionId,
     );
   } catch (err) {
     return failSafe(c, 502, "eBay rejected the refund.", err, "ebay.orders.refund");

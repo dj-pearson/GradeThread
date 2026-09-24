@@ -56,6 +56,9 @@ export function fakeOutcomeDb(rows: FakeRows) {
         call.eq[col] = v;
         return b;
       },
+      limit(_n: number) {
+        return b;
+      },
       in(col: string, vs: unknown[]) {
         call.in[col] = vs;
         return b;

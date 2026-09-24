@@ -37,6 +37,8 @@ import { Input } from "@/components/ui/input";
 import {
   centsToEbayValue,
   isFullRefund,
+  orderTotalLabel,
+  refundReasonFor,
   validateRefundAmount,
 } from "@/lib/refund-amount";
 import {
@@ -611,7 +613,13 @@ function ReturnsCard() {
     () => returns.find((r) => r.returnId === partialFor)?.orderId ?? null,
     [returns, partialFor],
   );
-  const { data: orderTotal, isError: orderTotalError, isLoading: orderTotalLoading, refetch: reloadOrderTotal } = useEbayOrderTotal(partialOrderId);
+  const { data: orderTotalInfo, isError: orderTotalError, isLoading: orderTotalLoading, refetch: reloadOrderTotal } = useEbayOrderTotal(partialOrderId);
+  // PS-05: across every line of the order, not one sales row.
+  const orderTotal = orderTotalInfo?.total ?? null;
+  const orderCurrency = orderTotalInfo?.currency ?? null;
+  // PS-05: the validation message sits under the box it is about, instead of
+  // only in a toast that is gone before the seller reads it.
+  const [partialError, setPartialError] = useState<string | null>(null);
 
   // US-2930. Confirmed, because telling eBay an item is back stops a clock and
   // is a statement of fact the seller is on record for.
@@ -724,18 +732,27 @@ function ReturnsCard() {
       toast.error("This return has no order id, so we can't refund against it.");
       return;
     }
-    const v = validateRefundAmount(partialAmount, orderTotal ?? null);
+    const v = validateRefundAmount(partialAmount, orderTotal);
     if (!v.ok) {
-      toast.error(v.error ?? "Enter a valid refund amount.");
+      setPartialError(v.error ?? "Enter a valid refund amount.");
       return;
     }
     // A full amount through this route refunds the buyer and leaves the return
     // sitting OPEN — two different eBay conversations. Send the seller to the
     // button that closes the case instead of quietly doing the wrong one.
-    if (isFullRefund(v.cents, orderTotal ?? null)) {
-      toast.error("That is the whole order — use Refund to close the return instead.");
+    if (isFullRefund(v.cents, orderTotal)) {
+      setPartialError("That is the whole order. Use Refund to close the return instead.");
       return;
     }
+    // PS-05: the amount goes to eBay in the sale's own currency. Lines that
+    // disagree leave it unknown, and a guess here would move the wrong money.
+    if (!orderCurrency) {
+      setPartialError(
+        "This order's lines are in different currencies, so we can't send a partial refund. Refund from eBay directly.",
+      );
+      return;
+    }
+    setPartialError(null);
     const ok = await confirm({
       title: `Refund ${centsToEbayValue(v.cents)} to the buyer?`,
       description:
@@ -748,8 +765,9 @@ function ReturnsCard() {
     try {
       await partialRefund.mutateAsync({
         orderId: r.orderId,
-        reason: "ITEM_NOT_AS_DESCRIBED",
+        reason: refundReasonFor(r.reason),
         amountValue: centsToEbayValue(v.cents),
+        currency: orderCurrency,
       });
       toast.success(`Refunded ${centsToEbayValue(v.cents)}.`);
       setPartialFor(null);
@@ -980,10 +998,11 @@ function ReturnsCard() {
                   disabled={!!busy}
                   onClick={() => {
                     setPartialAmount("");
+                    setPartialError(null);
                     setPartialFor(partialFor === r.returnId ? null : r.returnId);
                   }}
                 >
-                  Partial…
+                  Refund part now…
                 </Button>
                 )}
                 {/* US-2706: the grade evidence. Opens a review panel and sends
@@ -1021,12 +1040,23 @@ function ReturnsCard() {
                     inputMode="decimal"
                     placeholder="0.00"
                     value={partialAmount}
-                    onChange={(e) => setPartialAmount(e.target.value)}
+                    aria-invalid={partialError ? true : undefined}
+                    aria-describedby={partialError
+                      ? `partial-${r.returnId}-total partial-${r.returnId}-error`
+                      : `partial-${r.returnId}-total`}
+                    onChange={(e) => {
+                      setPartialAmount(e.target.value);
+                      setPartialError(null);
+                    }}
                   />
-                  <span className="text-xs text-muted-foreground">
-                    {orderTotalError ? "Couldn't load the order total" : orderTotalLoading ? "Loading order total..." : orderTotal != null
-                      ? `of ${orderTotal.toFixed(2)}`
-                      : "order total unavailable"}
+                  <span id={`partial-${r.returnId}-total`} className="text-xs text-muted-foreground">
+                    {orderTotalError
+                      ? "Couldn't load the order total"
+                      : orderTotalLoading
+                        ? "Loading order total..."
+                        : orderTotal != null
+                          ? orderTotalLabel(orderTotal, orderCurrency, orderTotalInfo?.lineCount ?? 1)
+                          : "order total unavailable"}
                   </span>
                   <Button
                     size="sm"
@@ -1038,6 +1068,15 @@ function ReturnsCard() {
                     ) : null}
                     Send
                   </Button>
+                  {partialError && (
+                    <p
+                      id={`partial-${r.returnId}-error`}
+                      role="alert"
+                      className="basis-full text-xs text-destructive"
+                    >
+                      {partialError}
+                    </p>
+                  )}
                   {orderTotalError && (
                     <Button
                       variant="outline"
