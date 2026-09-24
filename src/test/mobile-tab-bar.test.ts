@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ADD_MODES, MOBILE_TABS, tabRoutes } from "@/lib/mobile-tabs";
-import { ALL_SURFACES } from "@/lib/surfaces";
+import { ALL_SURFACES, routePathOf } from "@/lib/surfaces";
 
 // US-2880. The phone web was a hamburger over the desktop sidebar: twenty-three
 // entries across five collapsible subgroups. iOS answers the same problem with
@@ -59,10 +59,16 @@ describe("five tabs, the same five iOS has (US-2880 AC1)", () => {
       const s = ALL_SURFACES.find((x) => x.id === tab.surface);
       expect(s, `${tab.label} names surface "${tab.surface}", which is not in the registry`)
         .toBeDefined();
+      // ROUTE path, not the whole link. A registry entry may name a view
+      // inside a tabbed host -- US-3469 made /dashboard one Overview with a
+      // `?view=` per view -- and the phone's Home tab deliberately carries no
+      // param, so it opens on whichever view that seller last used. Comparing
+      // the raw strings would force a param into a tab whose whole job is not
+      // to have an opinion.
       expect(
-        s!.web,
+        routePathOf(s!),
         `${tab.label} points at ${tab.to} but the registry says ${s!.web}`,
-      ).toBe(tab.to);
+      ).toBe(tab.to.split("?")[0]);
     }
   });
 
