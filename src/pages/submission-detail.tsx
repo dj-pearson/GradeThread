@@ -87,20 +87,26 @@ import {
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { ShowcaseConsentPanel } from "@/components/showcase/showcase-consent-panel";
 import { RepairTriagePanel } from "@/components/grade/repair-triage-panel";
+import { DetectedIssues } from "@/components/grade/detected-issues";
 import { GarmentPassportPanel } from "@/components/passport/garment-passport-panel";
 import { CertShareActions } from "@/components/certificate/cert-share-actions";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
-import type {
-  SubmissionRow,
-  GradeReportRow,
-  SubmissionImageRow,
-  DisputeRow,
-  InventoryItemRow,
-  ImageType,
-} from "@/types/database";
+import type { DisputeRow, ImageType } from "@/types/database";
+import {
+  GRADE_REPORT_OWNER_SELECT,
+  SUBMISSION_DETAIL_COLUMNS,
+  type SubmissionDetailView,
+  SUBMISSION_IMAGE_COLUMNS,
+  LINKED_ITEM_COLUMNS,
+  DISPUTE_VIEW_COLUMNS,
+  type GradeReportOwnerView,
+  type SubmissionImageView,
+  type LinkedItemView,
+  type DisputeView,
+} from "@/lib/submission-detail-columns";
 import type { RetakeBridgeState } from "@/lib/retake-submission";
 import { HelpLink } from "@/components/help/help-link";
 
@@ -177,9 +183,9 @@ export function SubmissionDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const visible = useDocumentVisible();
-  const [submission, setSubmission] = useState<SubmissionRow | null>(null);
-  const [gradeReport, setGradeReport] = useState<GradeReportRow | null>(null);
-  const [images, setImages] = useState<SubmissionImageRow[]>([]);
+  const [submission, setSubmission] = useState<SubmissionDetailView | null>(null);
+  const [gradeReport, setGradeReport] = useState<GradeReportOwnerView | null>(null);
+  const [images, setImages] = useState<SubmissionImageView[]>([]);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   // US-2545 AC2: index of the photo open in the full-screen viewer.
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -189,7 +195,7 @@ export function SubmissionDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
-  const [dispute, setDispute] = useState<DisputeRow | null>(null);
+  const [dispute, setDispute] = useState<DisputeView | null>(null);
   /**
    * US-3427: the dispute lookup failed, so we do not know whether this report
    * has already been disputed.
@@ -204,7 +210,7 @@ export function SubmissionDetailPage() {
    * consults it rather than just leaning on `dispute` being null.
    */
   const [disputeCheckFailed, setDisputeCheckFailed] = useState(false);
-  const [linkedItem, setLinkedItem] = useState<InventoryItemRow | null>(null);
+  const [linkedItem, setLinkedItem] = useState<LinkedItemView | null>(null);
   /**
    * US-3428: the linked-inventory lookup failed, so we do not know whether this
    * grade is already attached to a FlipDesk item.
@@ -249,7 +255,7 @@ export function SubmissionDetailPage() {
     try {
       const { data: sub, error: subError } = await supabase
         .from("submissions")
-        .select("*")
+        .select(SUBMISSION_DETAIL_COLUMNS)
         .eq("id", id)
         .single();
       // A refetch (realtime handler or the 5s interval) can still be in flight
@@ -260,7 +266,7 @@ export function SubmissionDetailPage() {
 
       const { data: reportData, error: reportError } = await supabase
         .from("grade_reports")
-        .select("*")
+        .select(GRADE_REPORT_OWNER_SELECT)
         // US-479: a regraded submission keeps superseded history; fetch only the
         // active report so .single() resolves to exactly one row.
         .eq("submission_id", id)
@@ -422,7 +428,7 @@ export function SubmissionDetailPage() {
       // Fetch submission
       const { data: sub, error: subError } = await supabase
         .from("submissions")
-        .select("*")
+        .select(SUBMISSION_DETAIL_COLUMNS)
         .eq("id", id!)
         .single();
 
@@ -438,7 +444,7 @@ export function SubmissionDetailPage() {
       // keeps superseded history, which would break .single()).
       const { data: reportData, error: reportError } = await supabase
         .from("grade_reports")
-        .select("*")
+        .select(GRADE_REPORT_OWNER_SELECT)
         .eq("submission_id", id!)
         .is("superseded_at", null)
         .maybeSingle();
@@ -460,7 +466,7 @@ export function SubmissionDetailPage() {
       // No linked item is valid; a failed lookup must not hide an existing one.
       const { data: linkedItemData, error: linkedItemError } = await supabase
         .from("inventory_items")
-        .select("*")
+        .select(LINKED_ITEM_COLUMNS)
         .eq("submission_id", id!)
         .maybeSingle();
       if (cancelled) return;
@@ -470,13 +476,13 @@ export function SubmissionDetailPage() {
         setLinkedItemCheckFailed(true);
       } else {
         setLinkedItemCheckFailed(false);
-        setLinkedItem(linkedItemData ? (linkedItemData as InventoryItemRow) : null);
+        setLinkedItem(linkedItemData ? (linkedItemData as LinkedItemView) : null);
       }
 
       // Fetch submission images
       const { data: imagesRaw, error: imagesError } = await supabase
         .from("submission_images")
-        .select("*")
+        .select(SUBMISSION_IMAGE_COLUMNS)
         .eq("submission_id", id!);
 
       if (cancelled) return;
@@ -489,7 +495,7 @@ export function SubmissionDetailPage() {
         return;
       }
       setPhotosUnavailable(false);
-      const imagesData = (imagesRaw ?? []) as SubmissionImageRow[];
+      const imagesData = (imagesRaw ?? []) as SubmissionImageView[];
       if (imagesData.length > 0) {
         const sorted = [...imagesData].sort(
           (a, b) => a.display_order - b.display_order
@@ -531,10 +537,10 @@ export function SubmissionDetailPage() {
       // Fetch existing dispute for this grade report. US-1632: .maybeSingle() —
       // the normal zero-dispute case is NOT an error (.single() threw PGRST116).
       if (reportData) {
-        const reportId = (reportData as GradeReportRow).id;
+        const reportId = (reportData as GradeReportOwnerView).id;
         const { data: disputeData, error: disputeError } = await supabase
           .from("disputes")
-          .select("*")
+          .select(DISPUTE_VIEW_COLUMNS)
           .eq("grade_report_id", reportId)
           .maybeSingle();
 
@@ -547,7 +553,7 @@ export function SubmissionDetailPage() {
           setDisputeCheckFailed(true);
         } else {
           setDisputeCheckFailed(false);
-          setDispute(disputeData ? (disputeData as DisputeRow) : null);
+          setDispute(disputeData ? (disputeData as DisputeView) : null);
         }
       }
 
@@ -620,7 +626,7 @@ export function SubmissionDetailPage() {
     if (linkedItemCheckFailed) {
       const { data, error } = await supabase
         .from("inventory_items")
-        .select("*")
+        .select(LINKED_ITEM_COLUMNS)
         .eq("submission_id", submission.id)
         .maybeSingle();
       if (error) {
@@ -629,7 +635,7 @@ export function SubmissionDetailPage() {
         );
         return;
       }
-      linked = data ? (data as InventoryItemRow) : null;
+      linked = data ? (data as LinkedItemView) : null;
       setLinkedItem(linked);
       setLinkedItemCheckFailed(false);
     }
@@ -844,14 +850,6 @@ export function SubmissionDetailPage() {
         },
       ]
     : [];
-
-  const defects =
-    gradeReport?.detailed_notes &&
-    typeof gradeReport.detailed_notes === "object"
-      ? Object.entries(gradeReport.detailed_notes).filter(
-          ([key]) => key.toLowerCase().includes("defect") || key.toLowerCase().includes("issue")
-        )
-      : [];
 
   return (
     <div className="space-y-6">
@@ -1497,44 +1495,8 @@ export function SubmissionDetailPage() {
               </CardContent>
             </Card>
 
-            {/* Defects */}
-            {gradeReport.detailed_notes &&
-              Object.keys(gradeReport.detailed_notes).length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">
-                      Detected Issues
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {defects.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {defects.map(([key, value]) => (
-                          <Badge key={key} variant="secondary">
-                            {value}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : (
-                      <ul className="space-y-1 text-sm">
-                        {Object.entries(gradeReport.detailed_notes).map(
-                          ([key, value]) => (
-                            <li key={key} className="flex items-start gap-2">
-                              <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-muted-foreground" />
-                              <span>
-                                <span className="font-medium">
-                                  {formatLabel(key)}:
-                                </span>{" "}
-                                {value}
-                              </span>
-                            </li>
-                          )
-                        )}
-                      </ul>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
+            {/* SUB-03: one row per structured flaw, never the internal notes. */}
+            <DetectedIssues defects={gradeReport.defects_found} />
 
             {/* US-1286: AI repair triage — which reversible/repairable defects
                 are worth fixing, and what that recovers in grade + resale value.

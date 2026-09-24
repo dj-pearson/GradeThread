@@ -1082,12 +1082,20 @@ export interface PublicCoverageRecord {
   coverage_source?: "photos_2d" | "geometric_360";
 }
 
+// Migration 00489: a grade dispute contests the condition score; an
+// authenticity appeal contests the counterfeit verdict. They share the table
+// and must never be read as each other.
+export type DisputeKind = "grade" | "authenticity";
+
 export interface DisputeRow {
   id: string;
   grade_report_id: string;
   user_id: string;
+  kind: DisputeKind;
   reason: string;
   status: DisputeStatus;
+  // Migration 00355: claimed once when the admin alert is sent.
+  admin_alerted_at: string | null;
   resolution_notes: string | null;
   // US-1416: storage paths (submission-images bucket) of the evidence photos the
   // filer attached. Reviewers sign these via the admin evidence endpoint.
@@ -3316,6 +3324,8 @@ export interface DisputeInsert {
   grade_report_id: string;
   user_id: string;
   reason: string;
+  kind?: DisputeKind;
+  evidence_paths?: string[];
 }
 
 export interface ApiKeyInsert {
