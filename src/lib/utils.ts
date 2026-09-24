@@ -122,3 +122,13 @@ export function errorMessage(err: unknown): string {
   }
   return presentable(String(err))
 }
+
+/**
+ * SRC-15: make a string match itself literally in a Postgres LIKE/ILIKE
+ * pattern. `_` and `%` are wildcards there, so renaming "A_J" used to rewrite
+ * "ABJ" as well. Backslash is the default escape character, so it is escaped
+ * too, in the same single pass.
+ */
+export function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
