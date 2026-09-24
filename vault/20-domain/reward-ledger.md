@@ -27,7 +27,7 @@ code_refs:
   - services/edge-functions/src/lib/buyer-grade-confirmation.ts
   - src/lib/buyer-rewards-summary.ts
   - src/lib/reward-celebrations.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-24
 tags: [rewards, gamification, buyer, seller, contract]
 summary: There is ONE reward log for both the seller XP track and the buyer Trust Score; every award carries a dedupe key, and an event that consumes AI grading spend earns nothing unless the action was paid. grantReward is the primitive for a single act; the pipeline sweep is the one bulk writer and reproduces its sequence deliberately.
 ---
@@ -265,7 +265,10 @@ Four rules constrain a quest:
 - **Evaluation is lazy and idempotent** — it happens on `GET /api/rewards/quests`,
   the same choice (and rationale) as `finalizeCompletedSeason`. Claim-before-pay
   via `completed_at IS NULL`, plus `grantReward`'s dedupe key
-  `quest:<key>:<period>`, is what makes two tabs award once.
+  `quest:<key>:<period>`, is what makes two tabs award once. Each read also
+  settles the window that just CLOSED (`previousQuestWindow`: the previous
+  week or month, or a fixed quest for seven days after it ends), paying only a
+  finished one, so a quest done on Friday is paid on Monday's read.
 
 **A community challenge is time-boxed by definition** and its leaderboard names
 **only sellers who joined the leaderboards** (`leaderboard_opt_in`, the same
@@ -472,7 +475,12 @@ retroactively false — the same rule as
 [[extension-telemetry-consent|telemetry consent]]. The alias FALLS BACK through
 aliases the user already made public (verified display name → referral alias →
 buyer alias), so joining is one click; it is never invented, and an opted-in user
-with no resolvable alias is simply not listed.
+with no resolvable alias is simply not listed. A TYPED alias goes through
+`validateAlias` (NFKC, no control/format/bidi/tag characters, a reserved-word
+list, bounded by code point); clearing it while opted in with no fallback is
+refused. Every cohort-sized `.in()` on a board read is chunked at
+`COHORT_IN_CHUNK` (200) ids, because one filter over the whole cohort 414s at
+the proxy and each board then silently read as empty.
 
 **A rank is only ever as public as the identity behind it.** A `/verified/<handle>`
 link is emitted only for a seller whose verified profile is enabled. The finds
@@ -528,6 +536,11 @@ Three constraints hold, and a new reward type inherits all of them:
 3. **The first read is a BASELINE, never an achievement.** A null previous
    snapshot yields no events. Without that, shipping any change to the snapshot
    shape throws every existing user a party for something they earned months ago.
+   A snapshot older than seven days (`SNAPSHOT_MAX_AGE_MS`) counts as null too.
+4. **One celebration per event.** While the server's one-time arrival card is
+   pending, the runner runs `baselineOnly`: it advances the snapshot and marks
+   what it found as seen, and shows nothing. Unmounting it instead left the
+   snapshot stale, and "Got it" replayed the backfill as toasts.
 
 The engine is a **snapshot diff** against `GET /api/rewards/state`, persisted per
 user in `localStorage` — no new event stream, and a user who was away while ten

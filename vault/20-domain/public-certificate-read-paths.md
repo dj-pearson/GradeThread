@@ -15,7 +15,7 @@ code_refs:
   - services/edge-functions/src/lib/certificate-visibility.ts
   - services/edge-functions/src/lib/listing-certificates.ts
   - services/edge-functions/src/tests/listing-certificates_test.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-24
 tags: [certificates, public, schema, gotcha]
 summary: A public certificate is served by two independent projections — an edge column allowlist and a Postgres view — and adding a column to one has twice shipped as "done" while the other stayed silent.
 ---
