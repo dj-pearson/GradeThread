@@ -89,9 +89,12 @@ export interface ReconciliationQueue {
 
 export function useReconciliationQueue() {
   const user = useAuthStore((s) => s.user);
+  // Keyed on the workspace the edge answers for (X-Workspace-Owner), not the
+  // signed-in user, so a switch cannot serve the last workspace's queue.
+  const { workspaceOwnerId: ownerId } = useWorkspace();
   return useQuery({
-    queryKey: ["reconciliation_queue", user?.id],
-    enabled: !!user,
+    queryKey: ["reconciliation_queue", ownerId],
+    enabled: !!user && !!ownerId,
     queryFn: async (): Promise<ReconciliationQueue> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/reconciliation/queue`,
