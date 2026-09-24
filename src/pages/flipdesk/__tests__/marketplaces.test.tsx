@@ -32,6 +32,8 @@ const state = {
   role: "owner" as string,
   activeOwner: null as string | null,
   settingsError: false,
+  polError: false,
+  policyCalls: [] as boolean[],
 };
 
 vi.mock("@/hooks/use-workspace", async () => {
@@ -53,7 +55,15 @@ vi.mock("@/hooks/use-ebay", () => ({
     refetch: vi.fn(),
   }),
   useEbayConnectionIssue: () => ({ data: null }),
-  useEbayPolicies: () => ({ data: state.policies, isLoading: state.polLoading }),
+  useEbayPolicies: (enabled: boolean) => {
+    state.policyCalls.push(enabled);
+    return {
+      data: state.polError ? undefined : state.policies,
+      isLoading: state.polLoading,
+      isError: state.polError,
+      refetch: vi.fn(),
+    };
+  },
   useStartEbayOauth: mutation,
   useSyncEbayListings: mutation,
   useDisconnectEbay: mutation,
@@ -194,6 +204,8 @@ beforeEach(() => {
     role: "owner",
     activeOwner: null,
     settingsError: false,
+    polError: false,
+    policyCalls: [],
   });
 });
 
@@ -359,6 +371,73 @@ describe("Marketplaces page: settings (MP-06)", () => {
     const sw = document.getElementById("auto-end-cross") as HTMLButtonElement | null;
     expect(sw?.getAttribute("aria-checked")).toBe("true");
     expect(sw?.disabled).toBe(false);
+  });
+});
+
+describe("Marketplaces page: couldn't check is not missing (MP-07)", () => {
+  const MISSING = {
+    policies: [],
+    defaults: {
+      merchant_location_key: "home",
+      fulfillment_policy_id: null,
+      payment_policy_id: null,
+      return_policy_id: null,
+    },
+  };
+
+  it("a failed policies read in the dialog offers Check again, never Create these for me", async () => {
+    state.connection = CONNECTED;
+    state.policies = MISSING;
+    render();
+    act(() => buttonIn(stepRow("Business policies"), "Set up")!.click());
+    let dialog = document.querySelector("[role=dialog]") as HTMLElement;
+    expect(dialog.textContent).toContain("Create these for me");
+    state.polError = true;
+    // Any local state change re-renders the dialog against the failed read.
+    act(() => buttonIn(dialog, "No returns")!.click());
+    dialog = document.querySelector("[role=dialog]") as HTMLElement;
+    expect(dialog.textContent).not.toContain("Create these for me");
+    expect(buttonIn(dialog, "Check again")).toBeTruthy();
+    expect(dialog.textContent).toContain("not missing policies");
+  });
+
+  it("a failed policies read marks steps 2 and 3 unknown, with Check again", () => {
+    state.connection = CONNECTED;
+    state.polError = true;
+    render();
+    expect(stepRow("Ship-from location").textContent).toContain("Couldn't check");
+    expect(buttonIn(stepRow("Business policies"), "Check again")).toBeTruthy();
+    expect(buttonIn(stepRow("Business policies"), "Set up")).toBeUndefined();
+  });
+
+  it("disconnected with the dialog closed never asks for policies", () => {
+    render();
+    expect(state.policyCalls.length).toBeGreaterThan(0);
+    expect(state.policyCalls.every((c) => c === false)).toBe(true);
+  });
+
+  it("a failed connection read says couldn't check on Ads and Settings, not Connect eBay", async () => {
+    state.connError = true;
+    render();
+    await openTab("Ads & promotions");
+    expect(document.body.textContent).toContain("Couldn't check your eBay connection");
+    expect(document.body.textContent).not.toContain("Connect eBay on the Connections tab");
+    await openTab("Settings");
+    expect(document.body.textContent).toContain("Couldn't check your eBay connection");
+    expect(document.body.textContent).not.toContain("Connect eBay on the Connections tab");
+  });
+
+  it("the disconnected Ads prompt is a button back to Connections", async () => {
+    render();
+    await openTab("Ads & promotions");
+    const go = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Go to Connections",
+    );
+    expect(go).toBeTruthy();
+    await act(async () => {
+      go!.click();
+    });
+    expect(stepRow("Connect your eBay account")).toBeTruthy();
   });
 });
 

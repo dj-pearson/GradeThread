@@ -153,6 +153,10 @@ const COMING_SOON_CHANNELS = Object.keys(MARKETPLACE_TIER).filter(
     k !== "other",
 ) as (keyof typeof MARKETPLACE_TIER)[];
 
+// The tab the page opens on. The Tabs are controlled so the Ads and Settings
+// prompts can send a seller back to Connections.
+const DEFAULT_TAB = "connections";
+
 // User-facing copy for the Shopify OAuth callback result codes.
 const SHOPIFY_CALLBACK_MESSAGES: Record<
   string,
@@ -359,7 +363,9 @@ function EbayPoliciesDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { data, isLoading } = useEbayPolicies(true);
+  // MP-07: only while open. The dialog is always mounted, and reading here on
+  // every page load called GET /policies (and eBay) even when disconnected.
+  const { data, isLoading, isError, refetch } = useEbayPolicies(open);
   const setDefaults = useSetDefaultPolicies();
   const resync = useSyncEbayPolicies();
   // US-3265: the way out of the dead end below. Four answers, and FlipDesk
@@ -441,7 +447,23 @@ function EbayPoliciesDialog({
           </Button>
         </div>
 
-        {isLoading ? (
+        {isError ? (
+          // MP-07: a 502 used to fall through to "no business policies yet,
+          // Create these for me", which offers to create live policies on an
+          // account that may already have them.
+          <div
+            role="alert"
+            className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
+          >
+            <span>
+              Couldn&apos;t load your eBay policies. This is a loading problem,
+              not missing policies.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => void refetch()}>
+              Check again
+            </Button>
+          </div>
+        ) : isLoading ? (
           <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading your eBay policies…
@@ -614,7 +636,7 @@ function EbayPoliciesDialog({
 }
 
 // ── Setup checklist row ──────────────────────────────────────────────────
-type StepState = "done" | "todo" | "blocked" | "loading";
+type StepState = "done" | "todo" | "blocked" | "loading" | "unknown";
 
 function StepRow({
   state,
@@ -636,6 +658,8 @@ function StepRow({
           <Circle className="h-5 w-5 flex-shrink-0 text-muted-foreground/40" />
         ) : state === "loading" ? (
           <Loader2 className="h-5 w-5 flex-shrink-0 animate-spin text-muted-foreground" />
+        ) : state === "unknown" ? (
+          <AlertCircle className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
         ) : (
           <AlertCircle className="h-5 w-5 flex-shrink-0 text-amber-500" />
         )}
@@ -684,7 +708,12 @@ function EbaySetup({
   // change the owner's live eBay setup, and the edge refuses them below admin.
   const { can } = useWorkspace();
   const canManage = can("manage_marketplaces");
-  const { data: policyData, isLoading: polLoading } = useEbayPolicies(connected);
+  const {
+    data: policyData,
+    isLoading: polLoading,
+    isError: polError,
+    refetch: refetchPolicies,
+  } = useEbayPolicies(connected);
   const defaults = policyData?.defaults;
   const hasLocation = !!defaults?.merchant_location_key;
   const hasPolicies = !!(
@@ -702,10 +731,16 @@ function EbaySetup({
     (connected && hasPolicies ? 1 : 0);
   const allReady = connected && hasLocation && hasPolicies;
   const pct = Math.round((doneCount / 3) * 100);
-  const polReady = connected && !polLoading;
+  const polReady = connected && !polLoading && !polError;
+  // MP-07: a failed policies read is "couldn't check", not two todo steps.
+  const checkAgain = (
+    <Button size="sm" variant="outline" onClick={() => void refetchPolicies()}>
+      Check again
+    </Button>
+  );
 
   return (
-    <Card>
+    <Card id="ebay-setup" className="scroll-mt-20">
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2">
@@ -823,24 +858,30 @@ function EbaySetup({
                 state={
                   !connected
                     ? "blocked"
-                    : polLoading
-                      ? "loading"
-                      : hasLocation
-                        ? "done"
-                        : "todo"
+                    : polError
+                      ? "unknown"
+                      : polLoading
+                        ? "loading"
+                        : hasLocation
+                          ? "done"
+                          : "todo"
                 }
                 label="Ship-from location"
                 status={
                   !connected
                     ? "Connect your account first"
-                    : polLoading
+                    : polError
+                      ? "Status unknown. Couldn't check."
+                      : polLoading
                       ? "Checking…"
                       : hasLocation
                         ? "Set — used on every listing"
                         : "eBay needs a ship-from location to publish"
                 }
                 action={
-                  polReady && canManage ? (
+                  connected && polError ? (
+                    checkAgain
+                  ) : polReady && canManage ? (
                     <Button
                       size="sm"
                       variant={hasLocation ? "ghost" : "default"}
@@ -857,24 +898,30 @@ function EbaySetup({
                 state={
                   !connected
                     ? "blocked"
-                    : polLoading
-                      ? "loading"
-                      : hasPolicies
-                        ? "done"
-                        : "todo"
+                    : polError
+                      ? "unknown"
+                      : polLoading
+                        ? "loading"
+                        : hasPolicies
+                          ? "done"
+                          : "todo"
                 }
                 label="Business policies"
                 status={
                   !connected
                     ? "Connect your account first"
-                    : polLoading
+                    : polError
+                      ? "Status unknown. Couldn't check."
+                      : polLoading
                       ? "Checking…"
                       : hasPolicies
                         ? "Shipping, payment & return set"
                         : "Pick a shipping, payment & return default"
                 }
                 action={
-                  polReady && canManage ? (
+                  connected && polError ? (
+                    checkAgain
+                  ) : polReady && canManage ? (
                     <Button
                       size="sm"
                       variant={hasPolicies ? "ghost" : "default"}
@@ -996,7 +1043,7 @@ function ShopifySetup() {
   };
 
   return (
-    <Card>
+    <Card id="shopify-setup" className="scroll-mt-20">
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2">
@@ -2052,6 +2099,31 @@ export function FlipdeskMarketplacesPage() {
   }, [params, setParams, connection?.last_synced_at, syncBaseline]);
 
   const syncing = syncListings.isPending || syncBaseline != null;
+  const [tab, setTab] = useState<string>(DEFAULT_TAB);
+  // MP-07: a failed read, a pending read and a real "not connected" are three
+  // different answers in the Ads and Settings tabs too.
+  const connCouldNotCheck = (
+    <div
+      role="alert"
+      className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed p-4 text-sm"
+    >
+      <span>
+        Couldn&apos;t check your eBay connection. This is a loading problem, not
+        a disconnection.
+      </span>
+      <Button size="sm" variant="outline" onClick={() => void refetchConnection()}>
+        Retry
+      </Button>
+    </div>
+  );
+  const connectPrompt = (text: string) => (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+      <span>{text}</span>
+      <Button size="sm" variant="outline" onClick={() => setTab("connections")}>
+        Go to Connections
+      </Button>
+    </div>
+  );
 
   // Per-user FlipDesk behavior settings (migration 00134). Absent row =
   // defaults (auto-end ON), so the toggle reads that until the user changes it.
@@ -2166,7 +2238,7 @@ export function FlipdeskMarketplacesPage() {
           takes Connections back to what its name promises, and puts every card
           that spends money on eBay where they can be read against each other.
           The programs card went to Settings, which is what it always was. */}
-      <Tabs defaultValue="connections" className="space-y-6">
+      <Tabs value={tab} onValueChange={setTab} className="space-y-6">
         <TabsList>
           <TabsTrigger value="connections">Connections</TabsTrigger>
           <TabsTrigger value="ads">Ads &amp; promotions</TabsTrigger>
@@ -2351,11 +2423,12 @@ export function FlipdeskMarketplacesPage() {
             // and connect eBay for the half-second before the query answers is
             // worse than an empty tab.
             <div className="h-4" />
+          ) : connError ? (
+            connCouldNotCheck
           ) : !connection ? (
-            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              Connect eBay on the Connections tab and your ads, sales and
-              follower emails show up here.
-            </div>
+            connectPrompt(
+              "Connect eBay on the Connections tab and your ads, sales and follower emails show up here.",
+            )
           ) : (
             <>
               <section>
@@ -2498,12 +2571,14 @@ export function FlipdeskMarketplacesPage() {
           <h2 className="mb-3 text-base font-semibold text-foreground">
             eBay account programs
           </h2>
-          {connection ? (
+          {connLoading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : connError ? (
+            connCouldNotCheck
+          ) : connection ? (
             <EbayProgramsCard />
           ) : (
-            <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-              Connect eBay on the Connections tab to switch these on.
-            </p>
+            connectPrompt("Connect eBay on the Connections tab to switch these on.")
           )}
         </section>
         </TabsContent>

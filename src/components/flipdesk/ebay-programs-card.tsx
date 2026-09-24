@@ -6,6 +6,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -31,7 +32,7 @@ import { MARKETPLACE_ADMIN_ONLY } from "@/lib/workspace-permissions";
 export function EbayProgramsCard() {
   const { data: connection } = useEbayConnection();
   const connected = !!connection;
-  const { data, isLoading, isError } = useEbayPrograms(connected);
+  const { data, isLoading, isError, refetch } = useEbayPrograms(connected);
   const setProgram = useSetEbayProgram();
   // MP-01: these change the owner's whole eBay account; the edge refuses them
   // below admin, so the switches do too.
@@ -68,10 +69,15 @@ export function EbayProgramsCard() {
             ))}
           </div>
         ) : isError ? (
-          <p className="text-sm text-muted-foreground">
-            Couldn't read your eBay programs. Your connection may need a
-            reconnect.
-          </p>
+          <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="text-muted-foreground">
+              Couldn&apos;t read your eBay programs. Your connection may need a
+              reconnect.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => void refetch()}>
+              Retry
+            </Button>
+          </div>
         ) : (
           <ul className="space-y-4">
             {!canManage && (

@@ -235,7 +235,9 @@ describe("the tab split stays flat (US-3032)", () => {
     // panel() slices from one TabsContent to the next, which a nested Tabs
     // would quietly invalidate - every assertion above would still pass while
     // measuring the wrong thing.
-    const opens = code(PAGE).match(/<Tabs\s+defaultValue=/g) ?? [];
+    // MP-07/MP-14: the Marketplaces tabs are controlled (value=), so match
+    // either form.
+    const opens = code(PAGE).match(/<Tabs\s+(defaultValue|value)=/g) ?? [];
     expect(opens.length).toBe(1);
   });
 });
