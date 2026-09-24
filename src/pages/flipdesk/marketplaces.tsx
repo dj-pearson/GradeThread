@@ -332,6 +332,10 @@ function EbayLocationDialog({
   hasLocation: boolean;
 }) {
   const createLocation = useCreateEbayLocation();
+  // MP-13: the saved ship-from profile is the SIGNED-IN user's, and this saves
+  // to the workspace owner's eBay account. Inside someone else's workspace that
+  // prefill sent a member's home address to the owner's account.
+  const ownWorkspace = useOwnsActiveWorkspace();
   const [zip, setZip] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
@@ -342,7 +346,7 @@ function EbayLocationDialog({
   const shippingQuery = useQuery({
     queryKey: SHIPPING_PROFILE_QUERY_KEY,
     queryFn: fetchShippingProfile,
-    enabled: open,
+    enabled: open && ownWorkspace,
     staleTime: 5 * 60_000,
   });
 
@@ -350,13 +354,13 @@ function EbayLocationDialog({
   // re-key their location here. Seeds only empty fields, and only while the
   // dialog is open, so it never clobbers an in-progress edit.
   useEffect(() => {
-    if (!open) return;
+    if (!open || !ownWorkspace) return;
     const addr = shippingQuery.data?.ship_from_address;
     if (!addr) return;
     if (addr.postal_code) setZip((z) => z || addr.postal_code!.trim());
     if (addr.city) setCity((c) => c || addr.city!.trim());
     if (addr.state) setState((s) => s || addr.state!.trim());
-  }, [open, shippingQuery.data]);
+  }, [open, ownWorkspace, shippingQuery.data]);
 
   const save = async () => {
     if (!/^\d{5}(-\d{4})?$/.test(zip.trim())) {
@@ -389,6 +393,7 @@ function EbayLocationDialog({
             no way to add one in Seller Hub. Set it here once — it&apos;s used for
             all your published listings.
             {hasLocation && " Saving a new ZIP replaces the current one."}
+            {!ownWorkspace && " Enter the ZIP this workspace ships from."}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -457,6 +462,26 @@ function EbayPoliciesDialog({
   const [acceptsReturns, setAcceptsReturns] = useState(true);
   const [returnDays, setReturnDays] = useState<"30" | "60">("30");
   const [returnPaidBy, setReturnPaidBy] = useState<"BUYER" | "SELLER">("BUYER");
+  // MP-13: these become live buyer commitments on eBay. A blank handling field
+  // used to become 0 days and a typo in postage became free shipping.
+  const handlingNum = Number(handlingDays);
+  const handlingValid =
+    handlingDays.trim() !== "" && Number.isInteger(handlingNum) && handlingNum >= 1 &&
+    handlingNum <= 30;
+  const postageNum = Number(shippingCost);
+  const postageValid =
+    shippingCost.trim() !== "" && Number.isFinite(postageNum) && postageNum >= 0;
+  const policySummary = `Ships within ${handlingValid ? handlingNum : "?"} day${
+    handlingNum === 1 ? "" : "s"
+  }, buyer pays ${
+    postageValid ? (postageNum === 0 ? "nothing (free postage)" : `$${postageNum.toFixed(2)}`) : "?"
+  } for postage, ${
+    acceptsReturns
+      ? `${returnDays}-day returns, ${returnPaidBy === "BUYER" ? "buyer" : "you"} pay${
+        returnPaidBy === "BUYER" ? "s" : ""
+      } return postage.`
+      : "no returns."
+  }`;
 
   // Local selection seeded from the saved defaults; re-seed when data changes.
   const [selection, setSelection] = useState<Record<string, string>>({});
@@ -574,11 +599,18 @@ function EbayPoliciesDialog({
                     <Input
                       id="policy-handling"
                       type="number"
-                      min={0}
+                      min={1}
                       max={30}
                       value={handlingDays}
+                      aria-invalid={!handlingValid}
+                      aria-describedby={handlingValid ? undefined : "policy-handling-error"}
                       onChange={(e) => setHandlingDays(e.target.value)}
                     />
+                    {!handlingValid && (
+                      <p id="policy-handling-error" className="text-xs text-destructive">
+                        Enter a whole number of days from 1 to 30.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="policy-shipping" className="text-xs">
@@ -590,8 +622,15 @@ function EbayPoliciesDialog({
                       min={0}
                       step="0.01"
                       value={shippingCost}
+                      aria-invalid={!postageValid}
+                      aria-describedby={postageValid ? undefined : "policy-shipping-error"}
                       onChange={(e) => setShippingCost(e.target.value)}
                     />
+                    {!postageValid && (
+                      <p id="policy-shipping-error" className="text-xs text-destructive">
+                        Enter an amount, or 0 for free postage.
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -601,6 +640,7 @@ function EbayPoliciesDialog({
                       type="button"
                       size="sm"
                       variant={acceptsReturns ? "default" : "outline"}
+                      aria-pressed={acceptsReturns}
                       onClick={() => setAcceptsReturns(true)}
                     >
                       I accept returns
@@ -609,6 +649,7 @@ function EbayPoliciesDialog({
                       type="button"
                       size="sm"
                       variant={acceptsReturns ? "outline" : "default"}
+                      aria-pressed={!acceptsReturns}
                       onClick={() => setAcceptsReturns(false)}
                     >
                       No returns
@@ -639,23 +680,18 @@ function EbayPoliciesDialog({
                     </div>
                   )}
                 </div>
+                <p className="text-xs text-muted-foreground">{policySummary}</p>
                 <Button
                   onClick={() =>
                     createPolicies.mutate({
-                      handling_days: Math.max(
-                        0,
-                        Math.min(30, Math.round(Number(handlingDays) || 0)),
-                      ),
-                      shipping_cost_cents: Math.max(
-                        0,
-                        Math.round((Number(shippingCost) || 0) * 100),
-                      ),
+                      handling_days: handlingNum,
+                      shipping_cost_cents: Math.round(postageNum * 100),
                       accepts_returns: acceptsReturns,
                       return_days: returnDays === "60" ? 60 : 30,
                       return_shipping_paid_by: returnPaidBy,
                     })
                   }
-                  disabled={createPolicies.isPending}
+                  disabled={createPolicies.isPending || !handlingValid || !postageValid}
                 >
                   {createPolicies.isPending && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />

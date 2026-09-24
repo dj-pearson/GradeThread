@@ -59,8 +59,11 @@ describe("the empty-policies state (US-3265)", () => {
   it("sends whole cents and a bounded handling time", () => {
     // The input is dollars because that is what a seller thinks in; the wire is
     // cents because that is what the route validates.
-    expect(PAGE).toMatch(/shipping_cost_cents: Math\.max\(/);
-    expect(PAGE).toMatch(/Math\.min\(30, Math\.round\(Number\(handlingDays\)/);
+    // MP-13: the bound is enforced by validation that disables the button,
+    // not by clamping a blank into 0 days or a typo into free postage.
+    expect(PAGE).toMatch(/shipping_cost_cents: Math\.round\(postageNum \* 100\)/);
+    expect(PAGE).toMatch(/handlingNum >= 1 &&\s+handlingNum <= 30/);
+    expect(PAGE).toMatch(/disabled=\{createPolicies\.isPending \|\| !handlingValid \|\| !postageValid\}/);
   });
 });
 

@@ -105,6 +105,13 @@ vi.mock("@/hooks/use-ebay", async (orig) => ({
   useEbaySyncPromoted: mutation,
 }));
 
+vi.mock("@/lib/shipping-profile", () => ({
+  SHIPPING_PROFILE_QUERY_KEY: ["shipping_profile"],
+  fetchShippingProfile: async () => ({
+    ship_from_address: { postal_code: "90210", city: "Beverly Hills", state: "CA" },
+  }),
+}));
+
 vi.mock("@/hooks/use-shopify", () => ({
   useShopifyConnection: () => ({
     data: null,
@@ -762,5 +769,75 @@ describe("Marketplaces page: safe disconnect (MP-12)", () => {
     expect(state.toastErrors).toContain(
       "eBay sign-in didn't finish. Try again, and contact support if it keeps happening.",
     );
+  });
+});
+
+describe("Marketplaces page: setup dialogs (MP-13)", () => {
+  const NO_LOCATION = {
+    policies: [],
+    defaults: {
+      merchant_location_key: null,
+      fulfillment_policy_id: null,
+      payment_policy_id: null,
+      return_policy_id: null,
+    },
+  };
+
+  async function openLocation() {
+    act(() => buttonIn(stepRow("Ship-from location"), "Set up")!.click());
+    await settle();
+    return document.getElementById("ship-zip") as HTMLInputElement;
+  }
+
+  it("prefills the ZIP from the seller's own profile in their own workspace", async () => {
+    state.connection = CONNECTED;
+    state.policies = NO_LOCATION;
+    render();
+    const zip = await openLocation();
+    expect(zip.value).toBe("90210");
+  });
+
+  it("leaves the location blank inside another owner's workspace", async () => {
+    state.connection = CONNECTED;
+    state.policies = NO_LOCATION;
+    state.activeOwner = "someone-else";
+    render();
+    const zip = await openLocation();
+    expect(zip.value).toBe("");
+    expect(document.body.textContent).toContain("Enter the ZIP this workspace ships from.");
+  });
+
+  function openPolicies() {
+    act(() => buttonIn(stepRow("Business policies"), "Set up")!.click());
+    return document.querySelector("[role=dialog]") as HTMLElement;
+  }
+
+  function setInput(el: HTMLInputElement, value: string) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("a cleared handling field disables Create these for me", () => {
+    state.connection = CONNECTED;
+    state.policies = NO_LOCATION;
+    render();
+    const dialog = openPolicies();
+    expect(buttonIn(dialog, "Create these for me")!.disabled).toBe(false);
+    setInput(document.getElementById("policy-handling") as HTMLInputElement, "");
+    expect(buttonIn(dialog, "Create these for me")!.disabled).toBe(true);
+    expect(dialog.textContent).toContain("Enter a whole number of days from 1 to 30.");
+  });
+
+  it("the returns choice exposes aria-pressed, and a summary names the commitments", () => {
+    state.connection = CONNECTED;
+    state.policies = NO_LOCATION;
+    render();
+    const dialog = openPolicies();
+    expect(buttonIn(dialog, "I accept returns")!.getAttribute("aria-pressed")).toBe("true");
+    expect(buttonIn(dialog, "No returns")!.getAttribute("aria-pressed")).toBe("false");
+    expect(dialog.textContent).toContain("Ships within 1 day");
   });
 });
