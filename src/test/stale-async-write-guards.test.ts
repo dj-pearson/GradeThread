@@ -72,11 +72,14 @@ const FIXED_SITES: FixedSite[] = [
   {
     rel: "src/components/flipdesk/command-palette.tsx",
     why:
-      "Both searches are debounced, and a debounce cancels a PENDING query, " +
-      "never one in flight. Fixed 2026-09-09.",
+      "The submissions search is debounced, and a debounce cancels a PENDING " +
+      "query, never one in flight. Fixed 2026-09-09. The deep search moved to " +
+      "useFlipdeskSearch (S1), where the query key does this job: a response " +
+      "only ever lands under the key it was fetched for.",
     requires: [
-      { text: "let superseded = false", atLeast: 2 },
-      { text: "superseded = true", atLeast: 2 },
+      { text: "let superseded = false" },
+      { text: "superseded = true" },
+      { text: "useFlipdeskSearch(" },
     ],
   },
   {

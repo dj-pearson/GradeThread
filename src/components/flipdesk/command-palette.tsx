@@ -39,19 +39,13 @@ import { OPEN_SHORTCUTS_EVENT } from "@/components/dashboard/shortcuts-help";
 import type { SourceRow } from "@/types/database";
 import type { ItemListRow } from "@/lib/item-list-columns";
 import { itemsListQueryKey } from "@/hooks/use-items-full";
+import { useFlipdeskSearch } from "@/hooks/use-flipdesk-search";
+import type { MappedHit } from "@/lib/flipdesk-search";
 import {
   PaletteShell,
   type PaletteSection,
 } from "@/components/palette/palette-shell";
 
-interface SearchHit {
-  result_type: string;
-  result_id: string;
-  inventory_item_id: string | null;
-  title: string;
-  snippet: string;
-  rank: number;
-}
 
 // Just the columns the palette renders — kept narrow so the search query
 // stays cheap.
@@ -80,7 +74,7 @@ type Entry =
   | { kind: "item"; id: string; item: ItemListRow }
   | { kind: "source"; id: string; source: SourceRow }
   | { kind: "submission"; id: string; sub: SubmissionLite }
-  | { kind: "deep"; id: string; hit: SearchHit }
+  | { kind: "deep"; id: string; hit: MappedHit }
   | { kind: "recentsearch"; id: string; term: string };
 
 interface Section {
@@ -137,10 +131,6 @@ export function CommandPalette() {
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [deepHits, setDeepHits] = useState<SearchHit[]>([]);
-  // US-2517: the deep-text RPC failed — say the list is short, don't imply the
-  // seller owns nothing matching.
-  const [deepFailed, setDeepFailed] = useState(false);
   const [submissionHits, setSubmissionHits] = useState<SubmissionLite[]>([]);
   // US-3381: the submissions read failed. Same rule as deepFailed above: say
   // the list is short, never imply the seller has no matching submissions.
@@ -178,7 +168,6 @@ export function CommandPalette() {
   useEffect(() => {
     if (open) {
       setQuery("");
-      setDeepHits([]);
       setSubmissionHits([]);
       // US-1053: refresh recent searches each time the palette opens.
       // US-2517: shared with the Search page rather than duplicated.
@@ -230,42 +219,18 @@ export function CommandPalette() {
     };
   }, [query]);
 
-  // Debounced full-text search via the flipdesk_search RPC (US-144).
-  // Searches deep text (descriptions, notes) the client-side filter misses.
-  useEffect(() => {
-    const q = query.trim();
-    if (q.length < 2) {
-      setDeepHits([]);
-      return;
-    }
-    // Same as the submissions search above: the debounce cancels a pending
-    // query, never one already in flight (US-3223).
-    let superseded = false;
-    const handle = setTimeout(async () => {
-      try {
-        // US-2517: `error` was dropped here too. supabase-js resolves with
-        // { data: null, error } rather than throwing, so a dead RPC silently
-        // trimmed the deep-text hits and the palette looked merely thorough.
-        const { data, error } = await (
-          supabase.rpc as unknown as (
-            fn: string,
-            args: Record<string, unknown>,
-          ) => Promise<{ data: SearchHit[] | null; error: Error | null }>
-        )("flipdesk_search", { p_query: q, p_scope: "all", p_limit: 8 });
-        if (superseded) return;
-        setDeepFailed(Boolean(error));
-        setDeepHits(error ? [] : (data ?? []));
-      } catch {
-        if (superseded) return;
-        setDeepFailed(true);
-        setDeepHits([]);
-      }
-    }, 250);
-    return () => {
-      superseded = true;
-      clearTimeout(handle);
-    };
-  }, [query]);
+  // Full-text search via the flipdesk_search RPC (US-144), through the same
+  // cached hook the Search page uses. Searches deep text (descriptions, notes)
+  // the client-side filter misses, for the active workspace only. The hook
+  // debounces, drops a superseded request and caches a repeated term.
+  const deep = useFlipdeskSearch({ input: query, scope: "all", limit: 8 });
+  const deepSearchable = open && query.trim().length >= 2;
+  const deepHits: MappedHit[] = useMemo(
+    () => (deepSearchable ? deep.hits : []),
+    [deepSearchable, deep.hits],
+  );
+  // US-2517: a failed RPC says the list is short, never that nothing matched.
+  const deepFailed = deepSearchable && deep.isError;
 
   // Read whatever the app already cached — no extra round-trips. Wrapped
   // in useMemo so the references are stable for the downstream useMemo

@@ -106,25 +106,20 @@ describe("deepLinkForHit", () => {
     ).toBe("/dashboard/flipdesk/items/i9");
   });
 
-  it("falls back to the listings index when a listing has no parent item", () => {
-    expect(
-      deepLinkForHit(
-        hit({ result_type: "listing", result_id: "L1", inventory_item_id: null }),
-      ),
-    ).toBe("/dashboard/flipdesk/listings");
-  });
-
-  it("links a sale to its parent item, else reconciliation", () => {
+  it("links a sale to its parent item", () => {
     expect(
       deepLinkForHit(
         hit({ result_type: "sale", result_id: "S1", inventory_item_id: "i3" }),
       ),
     ).toBe("/dashboard/flipdesk/items/i3");
-    expect(
-      deepLinkForHit(
-        hit({ result_type: "sale", result_id: "S1", inventory_item_id: null }),
-      ),
-    ).toBe("/dashboard/flipdesk/money?view=reconcile&tab=payouts");
+  });
+
+  it("never falls back to an index page (both FKs are NOT NULL, 00002)", () => {
+    for (const t of ["listing", "sale"] as const) {
+      expect(
+        deepLinkForHit(hit({ result_type: t, result_id: "x", inventory_item_id: "i1" })),
+      ).toMatch(/^\/dashboard\/flipdesk\/items\/i1/);
+    }
   });
 });
 
@@ -168,7 +163,7 @@ describe("mapHits", () => {
       hit({
         result_type: "sale",
         result_id: "b",
-        inventory_item_id: null,
+        inventory_item_id: "i7",
         snippet: "buyer notes",
         rank: 0.1,
       }),
@@ -177,7 +172,7 @@ describe("mapHits", () => {
     expect(mapped.map((m) => m.key)).toEqual(["item-a", "sale-b"]);
     expect(mapped[0]!.link).toBe("/dashboard/flipdesk/items/a");
     expect(mapped[0]!.typeLabel).toBe("Item");
-    expect(mapped[1]!.link).toBe("/dashboard/flipdesk/money?view=reconcile&tab=payouts");
+    expect(mapped[1]!.link).toBe("/dashboard/flipdesk/items/i7");
     expect(mapped[1]!.typeLabel).toBe("Sale");
     expect(mapped[1]!.segments).toEqual([
       { text: "buyer notes", highlight: false },

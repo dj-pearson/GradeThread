@@ -16,17 +16,15 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
-import { supabase } from "@/lib/supabase";
+import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { fetchRecentSearches, recordSearch } from "@/lib/recent-searches";
+import { useFlipdeskSearch } from "@/hooks/use-flipdesk-search";
 import {
   SEARCH_SCOPES,
-  buildSearchArgs,
   isSearchableQuery,
-  mapHits,
+  normalizeQuery,
   normalizeScope,
   type MappedHit,
-  type SearchArgs,
-  type SearchHit,
   type SearchScope,
 } from "@/lib/flipdesk-search";
 
@@ -34,6 +32,12 @@ const TYPE_ICONS: Record<string, typeof Package> = {
   item: Package,
   listing: ListChecks,
   sale: DollarSign,
+};
+
+const SCOPE_TYPE: Record<Exclude<SearchScope, "all">, MappedHit["result_type"]> = {
+  items: "item",
+  listings: "listing",
+  sales: "sale",
 };
 
 function ResultIcon({ type }: { type: string }) {
@@ -66,13 +70,6 @@ export function FlipdeskSearchPage() {
   const [scope, setScope] = useState<SearchScope>(() =>
     normalizeScope(searchParams.get("scope")),
   );
-  const [debounced, setDebounced] = useState(input);
-  const [results, setResults] = useState<MappedHit[]>([]);
-  const [loading, setLoading] = useState(false);
-  // US-2517: a failed search is not an empty search. Held apart so the UI can
-  // say so instead of claiming the seller has no matching inventory.
-  const [failed, setFailed] = useState(false);
-  const [retryToken, setRetryToken] = useState(0);
   // US-2517: recent terms, offered when the field is empty — the same RLS-scoped
   // history the command palette and iOS GlobalSearchView already show.
   const [recent, setRecent] = useState<string[]>([]);
@@ -81,6 +78,9 @@ export function FlipdeskSearchPage() {
   const [activeIdx, setActiveIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+
+  const search = useFlipdeskSearch({ input, scope });
+  const { data, isStale, isFetching, isError, flush } = search;
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -96,99 +96,119 @@ export function FlipdeskSearchPage() {
     };
   }, []);
 
-  // Debounce the raw input into the committed query so we don't fire an RPC on
-  // every keystroke.
+  // F3: the URL is the source of truth for q and scope. `written` is what this
+  // page last put there, so an outside change (the sidebar link, back/forward)
+  // can be told apart from our own echo.
+  const written = useRef({
+    q: searchParams.get("q") ?? "",
+    scope: normalizeScope(searchParams.get("scope")),
+  });
+  const urlQ = searchParams.get("q") ?? "";
+  const urlScope = normalizeScope(searchParams.get("scope"));
   useEffect(() => {
-    const handle = setTimeout(() => setDebounced(input), 250);
-    return () => clearTimeout(handle);
-  }, [input]);
+    if (urlQ === written.current.q && urlScope === written.current.scope) return;
+    written.current = { q: urlQ, scope: urlScope };
+    setInput(urlQ);
+    setScope(urlScope);
+    // The outside change is a committed search, not a keystroke: skip the wait.
+    void flush({ input: urlQ, scope: urlScope }).catch(() => null);
+    // Only an outside URL change should run this. flush's identity changes on
+    // every keystroke and must not re-trigger it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlQ, urlScope]);
 
-  // Keep the URL in sync so a search is shareable and survives back/forward.
-  useEffect(() => {
-    const next = new URLSearchParams();
-    const q = debounced.trim();
-    if (q) next.set("q", q);
-    if (scope !== "all") next.set("scope", scope);
-    setSearchParams(next, { replace: true });
-  }, [debounced, scope, setSearchParams]);
+  function writeUrl(next: { q?: string; scope?: SearchScope }, push = false) {
+    const q = next.q ?? written.current.q;
+    const s = next.scope ?? written.current.scope;
+    if (q === written.current.q && s === written.current.scope) return;
+    written.current = { q, scope: s };
+    setSearchParams(
+      (prev) => {
+        const copy = new URLSearchParams(prev);
+        if (q) copy.set("q", q);
+        else copy.delete("q");
+        if (s !== "all") copy.set("scope", s);
+        else copy.delete("scope");
+        return copy;
+      },
+      { replace: !push },
+    );
+  }
 
-  // Run the FTS RPC whenever the committed query or scope changes. The RPC is
-  // SECURITY INVOKER, so RLS scopes results to the caller — no tenant filter
-  // needed here.
+  // Keystrokes replace the history entry, once the debounce has settled.
+  const { debouncedQuery } = search;
   useEffect(() => {
-    const args = buildSearchArgs(debounced, scope);
-    if (!args) {
-      setResults([]);
-      setFailed(false);
-      setLoading(false);
-      return;
+    writeUrl({ q: debouncedQuery });
+    // writeUrl reads refs and a stable setter; only the settled text matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery]);
+
+  function changeScope(next: SearchScope) {
+    setScope(next);
+    writeUrl({ scope: next }, true);
+  }
+
+  const searchable = isSearchableQuery(input);
+
+  // F2: rows to paint. Stale rows from a wider scope are narrowed to the tab
+  // that is now selected, so the first paint after a tab click is not wrong.
+  const results = useMemo(() => {
+    const hits = data?.hits ?? [];
+    if (isStale && data?.args.p_scope === "all" && scope !== "all") {
+      return hits.filter((h) => h.result_type === SCOPE_TYPE[scope]);
     }
-    let cancelled = false;
-    setLoading(true);
-    (async () => {
-      try {
-        // US-2517: `error` used to be dropped on the floor. supabase-js does not
-        // throw on a Postgres error — it returns { data: null, error }, so a
-        // dead RPC came back as zero hits and the page said "No matches". The
-        // catch below almost never ran.
-        const { data, error } = await (
-          supabase.rpc as unknown as (
-            fn: string,
-            a: SearchArgs,
-          ) => Promise<{ data: SearchHit[] | null; error: Error | null }>
-        )("flipdesk_search", args);
-        if (cancelled) return;
-        if (error) {
-          setFailed(true);
-          setResults([]);
-          return;
-        }
-        setFailed(false);
-        setResults(mapHits(data));
-      } catch {
-        if (!cancelled) {
-          setFailed(true);
-          setResults([]);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [debounced, scope, retryToken]);
+    return hits;
+  }, [data, isStale, scope]);
 
   // Keep the keyboard cursor inside the list as results change.
   useEffect(() => {
     setActiveIdx(0);
   }, [results]);
 
-  const searchable = isSearchableQuery(debounced);
+  function openHit(hit: MappedHit, term: string) {
+    recordSearch(term, scope);
+    void navigate(hit.link);
+  }
 
   // US-2517: the rows show a return-key glyph, so the return key should work.
   // Up/Down move the cursor, Enter opens the row under it.
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (results.length === 0) return;
+  async function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      if (!searchable) return;
+      e.preventDefault();
+      const term = normalizeQuery(input);
+      // F1: a barcode wedge types the SKU and sends Enter inside the debounce.
+      // The rows on screen then belong to an older prefix, so opening
+      // results[activeIdx] would open the wrong garment. Resolve the current
+      // text first and open ITS best row.
+      if (isStale || isFetching || !data) {
+        const fresh = await flush().catch(() => null);
+        const first = fresh?.hits[0];
+        if (first) openHit(first, term);
+        return;
+      }
+      const hit = results[activeIdx];
+      if (hit) openHit(hit, term);
+      return;
+    }
+    if (results.length === 0 || isStale) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActiveIdx((i) => (i + 1) % results.length);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActiveIdx((i) => (i - 1 + results.length) % results.length);
-    } else if (e.key === "Enter") {
-      const hit = results[activeIdx];
-      if (!hit) return;
-      e.preventDefault();
-      recordSearch(debounced, scope);
-      void navigate(hit.link);
     }
   }
+
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
     for (const r of results) c[r.result_type] = (c[r.result_type] ?? 0) + 1;
     return c;
   }, [results]);
+
+  const showList = searchable && !!data && !isError;
+  const settledEmpty = showList && !isStale && results.length === 0;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -211,20 +231,20 @@ export function FlipdeskSearchPage() {
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
+          onKeyDown={(e) => void handleKeyDown(e)}
           placeholder='Try: "vintage denim" -kids OR levis'
           className="pl-9"
           aria-label="Search inventory, listings and sales"
           aria-activedescendant={
-            results.length > 0 ? `search-hit-${activeIdx}` : undefined
+            showList && results.length > 0 ? `search-hit-${activeIdx}` : undefined
           }
         />
-        {loading && (
+        {searchable && isFetching && (
           <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
         )}
       </div>
 
-      <Tabs value={scope} onValueChange={(v) => setScope(v as SearchScope)}>
+      <Tabs value={scope} onValueChange={(v) => changeScope(normalizeScope(v))}>
         <TabsList>
           {SEARCH_SCOPES.map((s) => (
             <TabsTrigger key={s.id} value={s.id}>
@@ -236,12 +256,13 @@ export function FlipdeskSearchPage() {
 
       {/* US-2517: an outage says so, with a retry, instead of rendering the
           "No matches" empty state and letting the seller conclude their
-          inventory is empty. */}
-      {failed && !loading ? (
+          inventory is empty. F2: the order of these branches is the contract.
+          Error, then nothing to search, then loading, then empty, then rows. */}
+      {searchable && isError ? (
         <ErrorState
           title="Search is unavailable"
           description="We couldn't run that search. Your inventory is fine — this is the search index, and it is usually temporary."
-          onRetry={() => setRetryToken((t) => t + 1)}
+          onRetry={() => void search.refetch()}
         />
       ) : !searchable ? (
         recent.length > 0 ? (
@@ -274,29 +295,41 @@ export function FlipdeskSearchPage() {
             description="Type at least two characters to search items, listings, and sales."
           />
         )
-      ) : results.length === 0 && !loading ? (
+      ) : !data ? (
+        <LoadingRegion label="Searching">
+          <SkeletonRows rows={5} />
+        </LoadingRegion>
+      ) : settledEmpty ? (
         <EmptyState
           icon={FileSearch}
           title="No matches"
-          description={`Nothing matched “${debounced.trim()}”. Try different keywords or a broader scope.`}
+          description={`Nothing matched “${data.args.p_query}”. Try different keywords or a broader scope.`}
         />
       ) : (
         <div className="space-y-1">
-          <p className="px-1 text-xs text-muted-foreground">
-            {results.length} result{results.length === 1 ? "" : "s"}
-            {scope === "all" &&
-              results.length > 0 &&
-              ` · ${SEARCH_SCOPES.filter((s) => s.id !== "all")
-                .filter((s) => counts[s.id.replace(/s$/, "")])
-                .map((s) => `${counts[s.id.replace(/s$/, "")]} ${s.label.toLowerCase()}`)
-                .join(", ")}`}
-          </p>
-          <ul className="divide-y rounded-md border" role="listbox">
+          {!isStale && (
+            <p className="px-1 text-xs text-muted-foreground">
+              {results.length} result{results.length === 1 ? "" : "s"}
+              {scope === "all" &&
+                results.length > 0 &&
+                ` · ${SEARCH_SCOPES.filter((s) => s.id !== "all")
+                  .filter((s) => counts[SCOPE_TYPE[s.id as keyof typeof SCOPE_TYPE]])
+                  .map((s) => `${counts[SCOPE_TYPE[s.id as keyof typeof SCOPE_TYPE]]} ${s.label.toLowerCase()}`)
+                  .join(", ")}`}
+            </p>
+          )}
+          <ul
+            className={`divide-y rounded-md border ${
+              isStale ? "pointer-events-none opacity-60" : ""
+            }`}
+            role="listbox"
+            aria-busy={isStale || undefined}
+          >
             {results.map((hit, i) => (
               <li key={hit.key} id={`search-hit-${i}`} role="option" aria-selected={i === activeIdx}>
                 <Link
                   to={hit.link}
-                  onClick={() => recordSearch(debounced, scope)}
+                  onClick={() => recordSearch(normalizeQuery(input), scope)}
                   className={`group flex items-start gap-3 px-3 py-3 hover:bg-muted/60 ${
                     i === activeIdx ? "bg-muted/60" : ""
                   }`}

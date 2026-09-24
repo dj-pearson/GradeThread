@@ -1,28 +1,28 @@
 // Pure helpers for the global FlipDesk full-text search surface (US-1050).
 //
 // The weighted tsvector columns + the `flipdesk_search()` RPC already exist in
-// the DB (supabase/migrations/00016_full_text_search.sql). That RPC is
-// SECURITY INVOKER, so RLS on the underlying tables scopes every result to the
-// caller's own rows — the UI never has to filter for tenant isolation.
+// the DB (supabase/migrations/00016_full_text_search.sql, 00248). That RPC is
+// SECURITY INVOKER, so RLS keeps every row to one the caller MAY read. That is
+// not the same as the workspace on screen: the SELECT policies admit the
+// caller's own rows OR any workspace they belong to (00451), so a seller who is
+// also a member of a client's workspace gets both. The hook
+// (src/hooks/use-flipdesk-search.ts) filters to the active owner before
+// anything renders, the same defect 00833 fixed for Inventory.
 //
 // This module owns the query-building and result-mapping logic so it can be
-// unit-tested without a database or React. The page (search.tsx) is a thin
-// shell over these functions.
+// unit-tested without a database or React. The IO lives in
+// flipdesk-search-fetch.ts and the React side in the hook.
+
+import type { Database } from "@/types/database";
 
 export type SearchScope = "all" | "items" | "listings" | "sales";
 export type ResultType = "item" | "listing" | "sale";
 
 /** A raw row as returned by the `flipdesk_search` RPC. */
-export interface SearchHit {
-  result_type: string;
-  result_id: string;
-  inventory_item_id: string | null;
-  title: string;
-  snippet: string;
-  rank: number;
-}
+export type SearchHit =
+  Database["public"]["Functions"]["flipdesk_search"]["Returns"][number];
 
-/** Positional args passed straight to `supabase.rpc("flipdesk_search", …)`. */
+/** Named args passed straight to `supabase.rpc("flipdesk_search", ...)`. */
 export interface SearchArgs {
   p_query: string;
   p_scope: SearchScope;
@@ -37,16 +37,16 @@ export const SEARCH_SCOPES: { id: SearchScope; label: string }[] = [
   { id: "sales", label: "Sales" },
 ];
 
-const RESULT_TYPE_LABELS: Record<string, string> = {
+const RESULT_TYPE_LABELS: Record<ResultType, string> = {
   item: "Item",
   listing: "Listing",
   sale: "Sale",
 };
 
 const MIN_QUERY_LENGTH = 2;
-const DEFAULT_LIMIT = 50;
+export const DEFAULT_LIMIT = 50;
 // Mirrors the RPC's own LEAST(p_limit, 200) clamp.
-const MAX_LIMIT = 200;
+export const MAX_LIMIT = 200;
 
 /**
  * Collapse internal whitespace and trim. We intentionally preserve websearch
@@ -84,25 +84,13 @@ export function buildSearchArgs(
 }
 
 /**
- * Deep link for a result. Listings and sales hang off an inventory item, so we
- * jump to the item detail page when we know the parent; otherwise we fall back
- * to the relevant index surface.
+ * Deep link for a result. Listings and sales hang off an inventory item, and
+ * `inventory_item_id` is NOT NULL on both (00002), so every hit has a parent
+ * item page to open.
  */
 export function deepLinkForHit(hit: SearchHit): string {
-  const itemPath = (id: string) => `/dashboard/flipdesk/items/${id}`;
-  const itemId = hit.inventory_item_id;
-  switch (hit.result_type) {
-    case "item":
-      return itemPath(hit.result_id);
-    case "listing":
-      return itemId ? itemPath(itemId) : "/dashboard/flipdesk/listings";
-    case "sale":
-      return itemId
-        ? itemPath(itemId)
-        : "/dashboard/flipdesk/money?view=reconcile&tab=payouts";
-    default:
-      return itemId ? itemPath(itemId) : "/dashboard/flipdesk/inventory";
-  }
+  const itemId = hit.result_type === "item" ? hit.result_id : hit.inventory_item_id;
+  return `/dashboard/flipdesk/items/${itemId}`;
 }
 
 export interface SnippetSegment {
@@ -148,4 +136,9 @@ export function mapHits(rows: SearchHit[] | null | undefined): MappedHit[] {
     segments: parseSnippet(h.snippet),
     typeLabel: RESULT_TYPE_LABELS[h.result_type] ?? h.result_type,
   }));
+}
+
+/** Stable identity of a request, for telling current data from stale data. */
+export function searchArgsKey(args: SearchArgs | null): string {
+  return args ? `${args.p_scope}|${args.p_limit}|${args.p_query}` : "";
 }
