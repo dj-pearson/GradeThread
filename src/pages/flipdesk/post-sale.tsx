@@ -1463,9 +1463,17 @@ function TrackingDialog({
     () => carrierFromStored(shipped?.carrier) ?? detectCarrier(initialTracking) ?? "",
   );
   const [carrierPicked, setCarrierPicked] = useState(false);
+  // eBay takes a carrier NAME here, and it checks the tracking against it. A
+  // seller on Royal Mail or Canada Post picks Other and types the name; sending
+  // the word "Other" would give eBay nothing to check the number against.
+  const [otherName, setOtherName] = useState(() => {
+    const raw = (shipped?.carrier ?? "").trim();
+    return carrierFromStored(raw) === "Other" && raw.toLowerCase() !== "other" ? raw : "";
+  });
   const [tracking, setTracking] = useState(initialTracking);
   const [comments, setComments] = useState("");
-  const ready = carrier.length > 0 && normalizeTracking(tracking).length > 0;
+  const carrierName = carrier === "Other" ? otherName.trim() : carrier;
+  const ready = carrierName.length > 0 && normalizeTracking(tracking).length > 0;
   const fromShipTab = initialTracking !== "" && tracking === initialTracking;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1522,6 +1530,16 @@ function TrackingDialog({
                 </option>
               ))}
             </select>
+            {carrier === "Other" ? (
+              <Input
+                id="po-carrier-other"
+                aria-label="Carrier name"
+                value={otherName}
+                onChange={(e) => setOtherName(e.target.value)}
+                placeholder="Royal Mail"
+                autoComplete="off"
+              />
+            ) : null}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="po-comments">Note to the buyer (optional)</Label>
@@ -1539,7 +1557,7 @@ function TrackingDialog({
           </Button>
           <Button
             disabled={!ready || busy}
-            onClick={() => onSubmit(carrier, stripUspsZipPrefix(tracking), comments.trim())}
+            onClick={() => onSubmit(carrierName, stripUspsZipPrefix(tracking), comments.trim())}
           >
             {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
             Send tracking

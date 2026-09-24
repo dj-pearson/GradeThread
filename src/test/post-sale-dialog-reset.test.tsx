@@ -223,6 +223,31 @@ describe("INR tracking from the Ship tab (PS-14)", () => {
     expect(buttonByText("Send tracking").disabled).toBe(false);
   });
 
+  it("keeps a carrier outside the pick list by name, under Other", async () => {
+    state.caseItems = new Map([
+      ["ORDER-A", {
+        inventoryItemId: "item-1",
+        title: "Wool coat",
+        salePrice: 40,
+        acquiredPrice: null,
+        thumbnailUrl: null,
+        ebayItemId: null,
+        trackingNumber: "RN123456789GB",
+        carrier: "Royal Mail",
+        shippedAt: null,
+      }],
+    ]);
+    await renderCases();
+    await act(async () => byLabel("Add tracking for order ORDER-A").click());
+    expect((document.getElementById("po-carrier") as HTMLSelectElement).value).toBe("Other");
+    const name = document.getElementById("po-carrier-other") as HTMLInputElement;
+    expect(name.value).toBe("Royal Mail");
+    expect(buttonByText("Send tracking").disabled).toBe(false);
+    // "Other" with no name is not a carrier eBay can check a number against.
+    type(name, "");
+    expect(buttonByText("Send tracking").disabled).toBe(true);
+  });
+
   it("starts empty when the sale has no tracking", async () => {
     await renderCases();
     await act(async () => byLabel("Add tracking for order ORDER-B").click());
