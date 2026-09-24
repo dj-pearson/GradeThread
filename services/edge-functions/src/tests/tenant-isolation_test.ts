@@ -1229,6 +1229,37 @@ Deno.test({
 });
 
 Deno.test({
+  // Pricing plan P6: bulk-price-quantity takes listing ids in the BODY, so a
+  // refusal here can only come from the owner-scoped load. A 402 also passes:
+  // B lacking bulkActions is refused before it reaches A's rows either way.
+  name: "B cannot bulk-reprice A's listing through bulk-price-quantity",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/listings/bulk-price-quantity`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ updates: [{ listing_id: id, price: 1 }] }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      results?: Array<{ ok?: boolean }>;
+    };
+    if (res.status === 200) {
+      assertEquals(
+        body.results?.filter((r) => r.ok).length ?? 0,
+        0,
+        "bulk-price-quantity must not apply to another tenant's listing",
+      );
+    } else {
+      assert(
+        [401, 402, 403, 404, 503].includes(res.status),
+        `bulk-price-quantity for another tenant should be denied, got ${res.status}`,
+      );
+    }
+  },
+});
+
+Deno.test({
   // Pricing plan P1: single-row Apply now refuses dismissed nudges, dead
   // listings and stale prices with a 409 that NAMES the reason. That refusal
   // must never become a way for B to learn about A's suggestion: the lookup is
