@@ -8,7 +8,7 @@ This is not a list of blocked work. Most of these stories have buildable criteri
 
 Computed from supabase/held-migrations.json and the criteria below, so it is right on the day you read it. Everything under this heading is two sittings, and it is the two that move the most stories.
 
-**1. Apply the 11 held migrations, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
+**1. Apply the 12 held migrations, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
 
 - `00823_imported_sales_shipped.sql` — US-3465 — old imported sales out of the Ship queue
 - `00824_get_or_create_source_tenant_scope.sql` — security - a signed-in user could write another seller's sources
@@ -21,6 +21,7 @@ Computed from supabase/held-migrations.json and the criteria below, so it is rig
 - `00831_source_item_counts.sql` — flipdesk-inventory plan action 7 - Sources page counts items in SQL
 - `00832_one_ebay_draft_per_item.sql` — marketplaces plan action 3 - one AutoLister eBay draft per item
 - `00833_inventory_table_owner_scope.sql` — INV-D1 - Inventory table and tab counts mixed two workspaces
+- `00834_overview_metrics_owner_scope.sql` — INV-D1 - FlipDesk Overview on /dashboard mixed two workspaces
 
    Applying them and flipping each heading to `## ✅ APPLIED:` with a date is also what clears `node scripts/held-migration-gate.mjs --ci`, which CI runs first and which fails on any branch carrying a held migration. Until then a pull request from a branch that has one cannot go green, however good the rest of it is.
 
