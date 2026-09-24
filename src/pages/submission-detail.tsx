@@ -88,6 +88,7 @@ import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { ShowcaseConsentPanel } from "@/components/showcase/showcase-consent-panel";
 import { RepairTriagePanel } from "@/components/grade/repair-triage-panel";
 import { DetectedIssues } from "@/components/grade/detected-issues";
+import { DISPUTE_KIND_LABEL } from "@/lib/dispute-kind";
 import { GarmentPassportPanel } from "@/components/passport/garment-passport-panel";
 import { CertShareActions } from "@/components/certificate/cert-share-actions";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
@@ -177,6 +178,73 @@ function LoadingSkeleton() {
   );
 }
 
+function getDisputeStatusBadge(status: string) {
+  switch (status) {
+    case "open":
+      return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-950/50 dark:text-yellow-300 dark:border-yellow-800";
+    case "under_review":
+      return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800";
+    case "resolved":
+      return "bg-green-100 text-green-800 border-green-200 dark:bg-green-950/50 dark:text-green-300 dark:border-green-800";
+    case "rejected":
+      return "bg-red-100 text-red-800 border-red-200 dark:bg-red-950/50 dark:text-red-300 dark:border-red-800";
+    default:
+      return "";
+  }
+}
+
+function DisputeStatusCard({
+  dispute,
+  title,
+  pendingCopy,
+}: {
+  dispute: DisputeView;
+  title: string;
+  pendingCopy: string;
+}) {
+  return (
+    <Card className="border-yellow-500/60 bg-yellow-500/5">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Flag className="h-4 w-4" />
+            {title}
+          </CardTitle>
+          <Badge
+            variant="outline"
+            className={cn(getDisputeStatusBadge(dispute.status))}
+          >
+            {formatLabel(dispute.status)}
+          </Badge>
+        </div>
+        <CardDescription>
+          Submitted {new Date(dispute.created_at).toLocaleDateString()}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div>
+          <p className="text-sm font-medium text-muted-foreground">Reason</p>
+          <p className="text-sm">{dispute.reason}</p>
+        </div>
+        {dispute.resolution_notes && (
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">
+              Resolution
+            </p>
+            <p className="text-sm">{dispute.resolution_notes}</p>
+          </div>
+        )}
+        {(dispute.status === "open" || dispute.status === "under_review") && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4" />
+            {pendingCopy}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SubmissionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -210,6 +278,8 @@ export function SubmissionDetailPage() {
    * consults it rather than just leaning on `dispute` being null.
    */
   const [disputeCheckFailed, setDisputeCheckFailed] = useState(false);
+  // SUB-04: the authenticity appeal on this report, kept apart from `dispute`.
+  const [appeal, setAppeal] = useState<DisputeView | null>(null);
   const [linkedItem, setLinkedItem] = useState<LinkedItemView | null>(null);
   /**
    * US-3428: the linked-inventory lookup failed, so we do not know whether this
@@ -421,6 +491,7 @@ export function SubmissionDetailPage() {
       setSubmission(null);
       setGradeReport(null);
       setDispute(null);
+      setAppeal(null);
       setLinkedItem(null);
       setImages([]);
       setImageUrls({});
@@ -534,18 +605,32 @@ export function SubmissionDetailPage() {
         setImageUrls(urls);
       }
 
-      // Fetch existing dispute for this grade report. US-1632: .maybeSingle() —
+      // Fetch existing dispute for this grade report. US-1632: .maybeSingle() --
       // the normal zero-dispute case is NOT an error (.single() threw PGRST116).
+      // SUB-04: grade disputes and authenticity appeals share the table (00489).
+      // Without the kind filter an appeal read as a dispute (hiding Dispute
+      // Grade), and a report carrying both made maybeSingle error forever.
       if (reportData) {
         const reportId = (reportData as GradeReportOwnerView).id;
-        const { data: disputeData, error: disputeError } = await supabase
-          .from("disputes")
-          .select(DISPUTE_VIEW_COLUMNS)
-          .eq("grade_report_id", reportId)
-          .maybeSingle();
+        const [gradeDisputeRes, appealRes] = await Promise.all([
+          supabase
+            .from("disputes")
+            .select(DISPUTE_VIEW_COLUMNS)
+            .eq("grade_report_id", reportId)
+            .eq("kind", "grade")
+            .maybeSingle(),
+          supabase
+            .from("disputes")
+            .select(DISPUTE_VIEW_COLUMNS)
+            .eq("grade_report_id", reportId)
+            .eq("kind", "authenticity")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        ]);
 
         if (cancelled) return;
-        if (disputeError) {
+        if (gradeDisputeRes.error) {
           // US-3427: withhold the dispute action, not the report. Clearing
           // `dispute` alongside the flag keeps the two from disagreeing on a
           // retry that fails after one that succeeded.
@@ -553,8 +638,12 @@ export function SubmissionDetailPage() {
           setDisputeCheckFailed(true);
         } else {
           setDisputeCheckFailed(false);
-          setDispute(disputeData ? (disputeData as DisputeView) : null);
+          setDispute(gradeDisputeRes.data ? (gradeDisputeRes.data as DisputeView) : null);
         }
+        // An appeal that failed to load only hides its own status card.
+        setAppeal(
+          !appealRes.error && appealRes.data ? (appealRes.data as DisputeView) : null,
+        );
       }
 
       if (cancelled) return;
@@ -776,21 +865,6 @@ export function SubmissionDetailPage() {
       toastError(err, "Failed to submit dispute");
     } finally {
       setSubmittingDispute(false);
-    }
-  }
-
-  function getDisputeStatusBadge(status: string) {
-    switch (status) {
-      case "open":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-950/50 dark:text-yellow-300 dark:border-yellow-800";
-      case "under_review":
-        return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800";
-      case "resolved":
-        return "bg-green-100 text-green-800 border-green-200 dark:bg-green-950/50 dark:text-green-300 dark:border-green-800";
-      case "rejected":
-        return "bg-red-100 text-red-800 border-red-200 dark:bg-red-950/50 dark:text-red-300 dark:border-red-800";
-      default:
-        return "";
     }
   }
 
@@ -1838,50 +1912,21 @@ export function SubmissionDetailPage() {
       )}
 
       {/* Dispute Status */}
+      {/* SUB-04: a grade dispute and an authenticity appeal are different
+          things with different outcomes, so each has its own card. */}
       {dispute && (
-        <Card className="border-yellow-500/60 bg-yellow-500/5">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Flag className="h-4 w-4" />
-                Dispute
-              </CardTitle>
-              <Badge
-                variant="outline"
-                className={cn(getDisputeStatusBadge(dispute.status))}
-              >
-                {formatLabel(dispute.status)}
-              </Badge>
-            </div>
-            <CardDescription>
-              Submitted {new Date(dispute.created_at).toLocaleDateString()}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Reason
-              </p>
-              <p className="text-sm">{dispute.reason}</p>
-            </div>
-            {dispute.resolution_notes && (
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  Resolution
-                </p>
-                <p className="text-sm">{dispute.resolution_notes}</p>
-              </div>
-            )}
-            {(dispute.status === "open" ||
-              dispute.status === "under_review") && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Clock className="h-4 w-4" />
-                Your dispute is being reviewed. We{"'"}ll notify you when a
-                decision is made.
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <DisputeStatusCard
+          dispute={dispute}
+          title={DISPUTE_KIND_LABEL.grade}
+          pendingCopy="Your dispute is being reviewed. We'll notify you when a decision is made."
+        />
+      )}
+      {appeal && (
+        <DisputeStatusCard
+          dispute={appeal}
+          title={DISPUTE_KIND_LABEL.authenticity}
+          pendingCopy="Your appeal is being reviewed. We'll notify you when a decision is made."
+        />
       )}
 
       {/*

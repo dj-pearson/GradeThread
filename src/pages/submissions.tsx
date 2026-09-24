@@ -68,7 +68,12 @@ import {
   getStatusBadgeClasses,
   getScoreColor,
 } from "@/lib/constants";
-import type { SubmissionRow, GradeReportRow, DisputeRow } from "@/types/database";
+import type {
+  SubmissionRow,
+  GradeReportRow,
+  DisputeRow,
+} from "@/types/database";
+import { DISPUTE_KIND_LABEL, disputeCountLabel } from "@/lib/dispute-kind";
 
 const PAGE_SIZE = 20;
 
@@ -262,10 +267,14 @@ function getDisputeStatusBadgeClasses(status: string): string {
   }
 }
 
-interface DisputeWithSubmission extends DisputeRow {
+type DisputeWithSubmission = Pick<
+  DisputeRow,
+  "id" | "kind" | "status" | "reason" | "resolution_notes" | "created_at"
+> & {
   submission_title?: string;
   submission_id?: string;
-}
+};
+
 
 export function SubmissionsPage() {
   const navigate = useNavigate();
@@ -486,63 +495,40 @@ export function SubmissionsPage() {
     refetch: refetchDisputes,
   } = useQuery({
     queryKey: ["my-disputes", ownerId],
-    enabled: !!ownerId,
-    queryFn: async () => {
-      // Fetch all user disputes
+    queryFn: async (): Promise<DisputeWithSubmission[]> => {
+      // SUB-04: one embedded read instead of three serial ones. The grade
+      // report and submission ride along through their foreign keys, and RLS
+      // still applies to each embedded table.
       const { data: disputes, error: disputeError } = await supabase
         .from("disputes")
-        .select("*")
+        .select(
+          "id, kind, status, reason, resolution_notes, created_at, grade_reports(submission_id, submissions(title))",
+        )
         .eq("user_id", ownerId!)
         .order("created_at", { ascending: false })
         .limit(50);
 
       if (disputeError) throw disputeError;
 
-      const disputeRows = (disputes ?? []) as DisputeRow[];
+      const rows = (disputes ?? []) as unknown as Array<
+        Pick<
+          DisputeRow,
+          "id" | "kind" | "status" | "reason" | "resolution_notes" | "created_at"
+        > & {
+          grade_reports: {
+            submission_id: string;
+            submissions: { title: string } | null;
+          } | null;
+        }
+      >;
 
-      if (disputeRows.length === 0) return [];
-
-      // Fetch grade reports to get submission IDs
-      const gradeReportIds = disputeRows.map((d) => d.grade_report_id);
-      const { data: gradeReports, error: grError } = await supabase
-        .from("grade_reports")
-        .select("id, submission_id")
-        .in("id", gradeReportIds);
-      // US-1636: surface a join failure instead of silently dropping every
-      // dispute's item title (which read as "unknown item").
-      if (grError) throw grError;
-
-      const gradeReportRows = (gradeReports ?? []) as Array<{
-        id: string;
-        submission_id: string;
-      }>;
-      const gradeReportMap = new Map(
-        gradeReportRows.map((gr) => [gr.id, gr.submission_id])
-      );
-
-      // Fetch submission titles
-      const submissionIds = gradeReportRows.map((gr) => gr.submission_id);
-      const { data: subs, error: subsError } = await supabase
-        .from("submissions")
-        .select("id, title")
-        .eq("user_id", ownerId!)
-        .in("id", submissionIds);
-      if (subsError) throw subsError;
-
-      const subRows = (subs ?? []) as Array<{ id: string; title: string }>;
-      const subMap = new Map(subRows.map((s) => [s.id, s.title]));
-
-      const result: DisputeWithSubmission[] = disputeRows.map((d) => {
-        const subId = gradeReportMap.get(d.grade_report_id);
-        return {
-          ...d,
-          submission_id: subId,
-          submission_title: subId ? subMap.get(subId) : undefined,
-        };
-      });
-
-      return result;
+      return rows.map(({ grade_reports: gr, ...d }) => ({
+        ...d,
+        submission_id: gr?.submission_id,
+        submission_title: gr?.submissions?.title,
+      }));
     },
+    enabled: !!ownerId,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -1061,9 +1047,7 @@ export function SubmissionsPage() {
               My Disputes
             </CardTitle>
             {myDisputes.length > 0 && (
-              <CardDescription>
-                {myDisputes.length} dispute{myDisputes.length !== 1 ? "s" : ""}
-              </CardDescription>
+              <CardDescription>{disputeCountLabel(myDisputes)}</CardDescription>
             )}
           </div>
         </CardHeader>
@@ -1083,6 +1067,7 @@ export function SubmissionsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Submission</TableHead>
+                    <TableHead>Type</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Reason</TableHead>
                     <TableHead>Filed</TableHead>
@@ -1094,7 +1079,12 @@ export function SubmissionsPage() {
                     const cells = (
                       <>
                         <TableCell className="font-medium">
-                          {d.submission_title ?? "Unknown"}
+                          {d.submission_title ?? "Deleted submission"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="whitespace-nowrap">
+                            {DISPUTE_KIND_LABEL[d.kind] ?? DISPUTE_KIND_LABEL.grade}
+                          </Badge>
                         </TableCell>
                         <TableCell>
                           <Badge
@@ -1106,13 +1096,19 @@ export function SubmissionsPage() {
                             {formatLabel(d.status)}
                           </Badge>
                         </TableCell>
-                        <TableCell className="max-w-[200px] truncate text-muted-foreground">
+                        <TableCell
+                          className="max-w-[200px] truncate text-muted-foreground"
+                          title={d.reason}
+                        >
                           {d.reason}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {new Date(d.created_at).toLocaleDateString()}
                         </TableCell>
-                        <TableCell className="max-w-[200px] truncate text-muted-foreground">
+                        <TableCell
+                          className="max-w-[200px] truncate text-muted-foreground"
+                          title={d.resolution_notes ?? undefined}
+                        >
                           {d.resolution_notes ?? "—"}
                         </TableCell>
                       </>
