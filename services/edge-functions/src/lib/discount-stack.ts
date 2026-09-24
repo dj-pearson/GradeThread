@@ -34,6 +34,12 @@ export interface DiscountInput {
   couponPct?: number | null;
   /** An auto-accept threshold in cents, which caps the realised price. */
   autoAcceptCents?: number | null;
+  /**
+   * MP-16: the Promoted Listings (Cost-Per-Sale) ad rate, in percent, when the
+   * listing's ad is active. eBay charges it on the final sale price, so it is
+   * taken off AFTER every discount, and it is money the seller does not keep.
+   */
+  adFeePct?: number | null;
   /** Minimum margin over cost, in percent. */
   marginFloorPct: number;
 }
@@ -90,8 +96,17 @@ export function evaluateStack(input: DiscountInput): StackVerdict {
     running = input.autoAcceptCents;
   }
 
+  // MP-16: the ad fee comes off the FINAL discounted price, which is what eBay
+  // charges it on. Leaving it out let a 20% markdown plus a 12% ad plus an
+  // auto-accept sell under cost with no warning.
+  let adFee = 0;
+  if (usable(input.adFeePct)) {
+    adFee = Math.round(running * (input.adFeePct / 100));
+    contributions.push({ kind: "Promoted Listings ad fee", cents: adFee });
+  }
+
   const shipping = usable(input.shippingCostCents) ? input.shippingCostCents : 0;
-  const worstCaseCents = running - shipping;
+  const worstCaseCents = running - adFee - shipping;
   if (shipping > 0) contributions.push({ kind: "shipping you absorb", cents: shipping });
 
   if (!usable(input.costCents)) {

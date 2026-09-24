@@ -287,3 +287,31 @@ describe("MP-11: a failed read is an error with Retry, not an empty state", () =
     expect(hasRetry()).toBe(true);
   });
 });
+
+describe("MP-16: the stack warning names the ad fee", () => {
+  it("renders the server's line, ad fee included", async () => {
+    state.routes["/api/flipdesk/ebay/promotions/performance"] = {
+      status: 200,
+      body: { promotions: [] },
+    };
+    state.routes["/api/flipdesk/ebay/promotions/stack-check"] = {
+      status: 200,
+      body: {
+        margin_floor_pct: 10,
+        breaching: [
+          {
+            listing_id: "l1",
+            title: "Wool coat",
+            detail:
+              "Worst case $70.40, BELOW your $77.00 floor (markdown sale $20.00, Promoted Listings ad fee $9.60).",
+          },
+        ],
+        unchecked: 0,
+        checked: 1,
+      },
+    };
+    await render(<PromotionPerformanceCard />);
+    expect(document.body.textContent).toContain("Promoted Listings ad fee $9.60");
+    expect(document.body.textContent).toContain("can sell below your cost floor");
+  });
+});

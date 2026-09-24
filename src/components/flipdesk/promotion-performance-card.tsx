@@ -190,7 +190,8 @@ export function PromotionPerformanceCard() {
             </ul>
             <p className="text-xs text-muted-foreground">
               Nothing has been changed. Take the item out of a promotion, raise its
-              price, or lower its auto-accept.
+              price, lower its auto-accept, or lower its ad rate. Promoted Listings
+              ad fees are counted.
             </p>
           </div>
         )}

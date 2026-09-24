@@ -75,6 +75,7 @@ import {
   fetchTrendingAdRates,
   summarizePromotedListings,
   syncPromotedListingsForOwner,
+  isPromoActive,
   updateAdRateForListing,
 } from "../lib/ebay-marketing.ts";
 import { type EbayEnv } from "./flipdesk-ebay-shared.ts";
@@ -614,6 +615,7 @@ flipdeskEbayRoutes.get("/promotions/stack-check", async (c) => {
       .from("listings")
       .select(
         "id, listing_title, listing_price, best_offer_auto_accept_cents, " +
+          "promo_rate_pct, promo_status, " +
           "inventory_items!inner(user_id, acquired_price)",
       )
       .eq("user_id", ownerId)
@@ -629,6 +631,8 @@ flipdeskEbayRoutes.get("/promotions/stack-check", async (c) => {
       listing_title: string | null;
       listing_price: number | null;
       best_offer_auto_accept_cents: number | null;
+      promo_rate_pct: number | null;
+      promo_status: string | null;
       inventory_items:
         | { acquired_price: number | null }
         | { acquired_price: number | null }[]
@@ -650,6 +654,10 @@ flipdeskEbayRoutes.get("/promotions/stack-check", async (c) => {
         markdownPct,
         couponPct,
         autoAcceptCents: row.best_offer_auto_accept_cents,
+        // MP-16: only a LIVE ad costs anything; a paused or ended one does not.
+        adFeePct: isPromoActive(row.promo_status) && row.promo_rate_pct != null
+          ? Number(row.promo_rate_pct)
+          : null,
         marginFloorPct,
       });
       return {
