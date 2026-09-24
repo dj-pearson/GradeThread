@@ -36,7 +36,7 @@ import {
   type DurationEstimate,
   type DurationResult,
 } from "@/lib/work-duration";
-import { isComplete, type ValueResult } from "@/lib/work-value";
+import { isComplete, type EvidenceSource, type ValueResult } from "@/lib/work-value";
 
 /** Bumped when the ORDERING changes, so two plans can be told apart. */
 export const RANKER_VERSION = 1;
@@ -108,6 +108,16 @@ export interface RankedTask {
   duration: RankedDuration | null;
   /** The conservative (low) end of the contribution, or null. */
   conservativeCents: number | null;
+  /**
+   * The value estimate the ranker ranked on, kept as the plan's snapshot
+   * (WMT-05) so "Why this one?" and the session record read it instead of
+   * rebuilding it from half the inputs.
+   */
+  value: ValueResult;
+  /** Where the price came from, or null when there was no complete estimate. */
+  valueSource: EvidenceSource | null;
+  /** True when the value is the seller's own corrected range. */
+  valueFromOverride: boolean;
   dueAt: string | null;
   /**
    * Carried through from the candidate so the scheduler (R1 07/12) can keep
@@ -147,6 +157,8 @@ export interface RankTaskInput {
   remainingActions: readonly CandidateAction[];
   /** When this work became available, ISO. The oldest-first tie-break. */
   unfinishedSince?: string | null;
+  /** True when `value` came from the seller's corrected range (US-3182). */
+  valueFromOverride?: boolean;
 }
 
 export interface RankInput {
@@ -343,6 +355,9 @@ export function rankWork(input: RankInput): RankedTask[] {
       chainMinutes: chain ?? 0,
       duration: rankedDurationOf(own),
       conservativeCents,
+      value: task.value,
+      valueSource: isComplete(task.value) ? task.value.evidence : null,
+      valueFromOverride: task.valueFromOverride === true,
       dueAt: task.candidate.shipBy.at,
       prerequisiteKeys: task.candidate.prerequisiteKeys,
       conflict,
@@ -423,12 +438,4 @@ function sinceOf(key: string, tasks: readonly RankTaskInput[]): string {
   // An absent timestamp sorts LAST among ties rather than first: work whose
   // age nobody recorded should not jump ahead of work that is provably old.
   return t?.unfinishedSince ?? "￿";
-}
-
-/** Convenience for callers that only have candidates. */
-export function remainingActionsFrom(c: WorkCandidate): CandidateAction[] {
-  const prereqs = c.prerequisiteKeys
-    .map((k) => k.split(":").slice(1).join(":"))
-    .filter((a): a is CandidateAction => a.length > 0);
-  return [...prereqs, c.action];
 }

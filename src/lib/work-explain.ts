@@ -56,6 +56,7 @@ export const EXPLAIN_FACTS = [
   "value_from_sold_comp",
   "value_from_seller_estimate",
   "value_from_asking_price",
+  "value_from_override",
   "value_inputs_missing",
   "clears_hourly_target",
   "below_hourly_target",
@@ -245,7 +246,10 @@ export function explainTask(input: ExplainInput): TaskExplanation {
   // ── where the money came from (AC2, AC3) ─────────────────────────
   const value = valueFacts(input.value, task);
   if (value.evidence === "sold_comp") facts.push("value_from_sold_comp");
-  if (value.evidence === "seller_estimate") facts.push("value_from_seller_estimate");
+  // WMT-05: a range the seller corrected is theirs, and says so, rather than
+  // reading as "the price you typed" on an item that has none.
+  if (task.valueFromOverride) facts.push("value_from_override");
+  else if (value.evidence === "seller_estimate") facts.push("value_from_seller_estimate");
   // THE ONE THAT MATTERS MOST. An unsold listing at $200 is evidence that
   // $200 did not sell, and a plan built on one should read as the guess it is.
   if (value.evidence === "active_asking") facts.push("value_from_asking_price");

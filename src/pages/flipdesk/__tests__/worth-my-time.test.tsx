@@ -105,6 +105,14 @@ function plan(over: Record<string, unknown> = {}) {
           unattendedMinutes: 0, source: "default", version: 1, sampleCount: null,
         },
         conservativeCents: 4800,
+        // WMT-05: the value snapshot the ranker ranked on.
+        value: {
+          complete: true, wholeItemProfitCents: 5000, remainingContributionCents: 6000,
+          lowCents: 4800, highCents: 7200, evidence: "seller_estimate",
+          observedAt: "2026-09-20T00:00:00.000Z", missing: [], horizonDays: 30,
+        },
+        valueSource: "seller_estimate",
+        valueFromOverride: false,
         dueAt: null,
         prerequisiteKeys: [],
         conflict: null,
@@ -300,6 +308,14 @@ describe("why this task (US-3181)", () => {
     expect(t).toContain("Left on this item");
     // The R1 default is a guess and says so, rather than reading as measured.
     expect(t).toContain("starting guess");
+  });
+
+  it("WMT-05: shows the Worth range from the snapshot, not a rebuilt value", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    expect(text()).toContain("Worth: $48.00 to $72.00, if it sells");
+    expect(text()).toContain("The value is the price you typed.");
   });
 
   it("shows NO confidence percentage anywhere", async () => {

@@ -85,6 +85,12 @@ export interface WorkCandidate {
   action: CandidateAction;
   /** Keys of the candidates that must finish first, in order. */
   prerequisiteKeys: string[];
+  /**
+   * Every step this item still owes to be sale-ready, this one included
+   * (WMT-05). The ranker divides the item's value by the minutes of ALL of
+   * them, so an item one step from listing outranks one five steps away.
+   */
+  remainingActions: CandidateAction[];
   /** Contexts this task can run in. A physical task is `home` only. */
   requiredContext: WorkContext[];
   requiredTools: WorkTool[];
@@ -216,14 +222,44 @@ function prerequisitesFor(
 ): CandidateAction[] {
   const index = PREP_CHAIN.indexOf(action);
   if (index <= 0) return [];
+  const done = doneSteps(item);
+  return PREP_CHAIN.slice(0, index).filter((step) => done[step] !== true);
+}
+
+/** Which prep steps the item's FACTS say are done. Publish never is here. */
+function doneSteps(item: ItemListRow): Record<string, boolean> {
   const facts = factsOf(item);
-  const done: Record<string, boolean> = {
+  return {
     measure: facts.hasMeasurements,
     photograph: facts.hasRequiredPhotos,
     price_research: facts.hasTargetPrice,
     draft_review: facts.hasDraftListing,
   };
-  return PREP_CHAIN.slice(0, index).filter((step) => done[step] !== true);
+}
+
+/**
+ * Everything this item still owes from `action` to a live listing: any
+ * unfinished step before it, the action itself, and every later PREP_CHAIN
+ * step not yet done (WMT-05).
+ *
+ * The earlier version rebuilt the chain from prerequisite keys, which only
+ * ever hold the steps BEFORE the action. nextAction always offers the first
+ * unfinished step, so that was the action alone in practice, and the ranker
+ * divided an item's whole value by one step's minutes.
+ *
+ * A step off the chain (review_grade, pack_ship) is just itself: grading is
+ * optional and a parcel is the end of the line.
+ */
+export function remainingStepsFrom(
+  item: ItemListRow,
+  action: CandidateAction,
+): CandidateAction[] {
+  const before = prerequisitesFor(item, action);
+  const index = PREP_CHAIN.indexOf(action);
+  if (index < 0) return [...before, action];
+  const done = doneSteps(item);
+  const after = PREP_CHAIN.slice(index + 1).filter((step) => done[step] !== true);
+  return [...before, action, ...after];
 }
 
 /**
@@ -396,6 +432,7 @@ export function candidateFor(
     itemTitle: item.item_title ?? null,
     action,
     prerequisiteKeys: prerequisites.map((p) => `${item.id}:${p}`),
+    remainingActions: remainingStepsFrom(item, action),
     requiredContext: spec.context,
     requiredTools: spec.tools,
     completionEvidence: spec.evidence,

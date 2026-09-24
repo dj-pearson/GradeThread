@@ -49,7 +49,6 @@ import {
   OMISSION_COPY,
   WOULD_CHANGE_COPY,
 } from "@/lib/work-explain-copy";
-import { estimateWorkValue } from "@/lib/work-value";
 
 const ACTION_LABELS: Record<string, string> = {
   measure: "Measure",
@@ -100,23 +99,13 @@ function WhyThisTask({
 }) {
   const explanation = explainTask({
     task,
-    // WMT-04: the duration the ranker resolved, override and learned pace
-    // included, rather than a fresh default.
+    // WMT-04/05: the duration and the value the ranker actually ranked on,
+    // straight from the snapshot. The value used to be rebuilt here with no
+    // marketplace, so it always reported the fee schedule missing and never
+    // showed a range.
     duration: task.duration ??
       { unestimated: true, reason: "No duration model for this step." },
-    // The same estimator call the plan made, from the snapshot's own numbers.
-    // It is rebuilt rather than stored because ValueResult is not carried on
-    // the ranked task; the INPUTS are the snapshot's, which is what AC5 asks.
-    value: estimateWorkValue({
-      marketplace: null,
-      evidence: task.conservativeCents != null
-        ? {
-          amountCents: task.conservativeCents,
-          source: "seller_estimate",
-          observedAt: takenAt,
-        }
-        : null,
-    }),
+    value: task.value,
     shipBy: candidate?.shipBy
       ? { at: candidate.shipBy.at, confidence: candidate.shipBy.confidence }
       : undefined,

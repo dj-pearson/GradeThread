@@ -131,3 +131,24 @@ describe("one resolved duration per task (WMT-04)", () => {
     expect(sent.estimate_minutes).toBe(25);
   });
 });
+
+describe("the value snapshot travels with the task (WMT-05)", () => {
+  it("the session records WHERE the price came from, in a source the scorecard knows", async () => {
+    const { EVIDENCE_SOURCES } = await import("@/lib/work-value");
+    const built = await buildPlan({ ...BASE, book: book() });
+    const sent = planToSessionTasks(built);
+    expect(sent.length).toBeGreaterThan(0);
+    for (const t of sent) {
+      expect(t.estimate_source).toBe("seller_estimate");
+      expect(EVIDENCE_SOURCES as readonly unknown[]).toContain(t.estimate_source);
+    }
+  });
+
+  it("divides by the whole chain: the ranked task carries every step left", async () => {
+    const built = await buildPlan({ ...BASE, book: book() });
+    const c = built.candidates.find((x) => x.key === "item-1:photograph")!;
+    // Measured, target price set, no draft yet: photograph, then the draft,
+    // then publish.
+    expect(c.remainingActions).toEqual(["photograph", "draft_review", "publish"]);
+  });
+});

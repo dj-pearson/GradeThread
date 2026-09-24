@@ -5,12 +5,17 @@ import {
   chainMinutesFor,
   RANKER_VERSION,
   rankWork,
-  remainingActionsFrom,
   URGENT_WINDOW_HOURS,
   type RankInput,
   type RankTaskInput,
 } from "@/lib/work-ranker";
-import type { CandidateAction, WorkCandidate } from "@/lib/work-candidates";
+import {
+  candidateFor,
+  remainingStepsFrom,
+  type CandidateAction,
+  type WorkCandidate,
+} from "@/lib/work-candidates";
+import type { ItemListRow } from "@/lib/item-list-columns";
 import { estimateWorkValue, type ValueResult } from "@/lib/work-value";
 
 // Worth My Time, R1 06/12 (US-3171).
@@ -519,10 +524,72 @@ describe("a score is a priority, not a payday (AC5)", () => {
   });
 });
 
-describe("remainingActionsFrom", () => {
-  it("turns prerequisite keys back into the chain", () => {
-    const c = candidate({ itemId: "x", action: "publish" });
-    c.prerequisiteKeys = ["x:measure", "x:photograph"];
-    expect(remainingActionsFrom(c)).toEqual(["measure", "photograph", "publish"]);
+describe("the whole chain to sale-ready (WMT-05)", () => {
+  function row(over: Record<string, unknown>): ItemListRow {
+    return {
+      id: "x",
+      item_title: "Jacket",
+      status: "cataloged",
+      measurements: null,
+      has_required_photos: false,
+      target_price: null,
+      listing_id: null,
+      grade_value: null,
+      location_bin: null,
+      container: null,
+      listing_platform: "ebay",
+      sale_status: null,
+      sale_cancelled_at: null,
+      sale_date: null,
+      ...over,
+    } as unknown as ItemListRow;
+  }
+  const HOME = {
+    workContext: "home" as const,
+    availableTools: ["camera", "measuring_tape", "steamer", "packing_supplies"] as never,
+  };
+
+  it("counts every later step the item still owes, not just this one", () => {
+    expect(remainingStepsFrom(row({}), "measure")).toEqual([
+      "measure", "photograph", "price_research", "draft_review", "publish",
+    ]);
+    // Priced and drafted already: only the photos and the publish are left.
+    expect(
+      remainingStepsFrom(
+        row({ measurements: { chest: 22 }, target_price: 40, listing_id: "l1" }),
+        "photograph",
+      ),
+    ).toEqual(["photograph", "publish"]);
+    // Off the chain: just itself.
+    expect(remainingStepsFrom(row({}), "pack_ship")).toEqual(["pack_ship"]);
+  });
+
+  it("an item two steps from listing outranks one five steps away, at equal value", () => {
+    // The near item's NEXT step (photograph, 8 min) is longer than the far
+    // item's (measure, 5 min). Scored on the next step alone the far item
+    // won; divided by the whole chain, the near one does.
+    const near = candidateFor(
+      row({ id: "near", measurements: { chest: 22 }, target_price: 40, listing_id: "l1" }),
+      HOME,
+    )!;
+    const far = candidateFor(row({ id: "far" }), HOME)!;
+    expect(near.action).toBe("photograph");
+    expect(far.action).toBe("measure");
+    const order = plan([
+      { candidate: far, value: valueOf(8000), remainingActions: far.remainingActions },
+      { candidate: near, value: valueOf(8000), remainingActions: near.remainingActions },
+    ]).map((t) => t.key);
+    expect(order).toEqual(["near:photograph", "far:measure"]);
+  });
+
+  it("keeps the value snapshot and its source on the ranked task", () => {
+    const [r] = plan([{
+      candidate: candidate({ itemId: "a", action: "measure" }),
+      value: valueOf(8000),
+      remainingActions: ["measure"],
+    }]);
+    expect(r!.valueSource).toBe("sold_comp");
+    expect(r!.value.complete).toBe(true);
+    expect(r!.valueFromOverride).toBe(false);
   });
 });

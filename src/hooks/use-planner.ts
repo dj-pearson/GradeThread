@@ -38,7 +38,6 @@ import { adviseOnItem, type AdviceResult } from "@/lib/work-advice";
 import {
   isUrgentCandidate,
   rankWork,
-  remainingActionsFrom,
   type RankedTask,
 } from "@/lib/work-ranker";
 import {
@@ -572,8 +571,10 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
       return {
         candidate: c,
         value,
-        remainingActions: remainingActionsFrom(c),
+        // WMT-05: the whole chain to sale-ready, not just this step.
+        remainingActions: c.remainingActions,
         unfinishedSince: item?.created_at ?? null,
+        valueFromOverride: corrected != null,
       };
     }),
   });
@@ -935,7 +936,11 @@ export function planToSessionTasks(plan: PreparedPlan): Record<string, unknown>[
       // learned pace is what the session records, not the bare default.
       estimate_minutes: r?.duration?.typical ?? null,
       estimate_value_cents: r?.conservativeCents ?? null,
-      estimate_source: r?.tier ?? null,
+      // WMT-05: where the PRICE came from (sold_comp, seller_estimate,
+      // active_asking), which is what the scorecard groups on. This used to
+      // send the rank tier, which no scorecard source matches, so every
+      // session read "unknown".
+      estimate_source: r?.valueSource ?? null,
     };
   });
 }
@@ -989,7 +994,7 @@ export function adviseOnCurrentItem(args: {
     availableTools: ["camera", "measuring_tape", "steamer", "packing_supplies"],
   });
   const mine = candidates.find((c) => c.itemId === item.id) ?? null;
-  const remaining = mine ? remainingActionsFrom(mine) : [];
+  const remaining = mine ? mine.remainingActions : [];
   const remainingMinutes = remaining.reduce((sum, a) => {
     const d = estimateDuration({ action: a });
     return sum + (isUnestimated(d) ? 0 : d.typical);
