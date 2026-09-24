@@ -14,6 +14,7 @@ import {
   SUPPRESSION_KINDS,
   decideMinutes,
   differenceFromOverride,
+  dollarsToCents,
   isSuppressed,
   isTrainingData,
   snoozeUntil,
@@ -329,3 +330,19 @@ function codeOf(rel: string): string {
     .filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*"))
     .join("\n");
 }
+
+describe("WMT-08: money as people type it, and whole minutes", () => {
+  it("strips $, commas and spaces", () => {
+    expect(dollarsToCents("$1,200")).toBe(120000);
+    expect(dollarsToCents(" 40.5 ")).toBe(4050);
+    expect(dollarsToCents("$")).toBeNaN();
+    expect(dollarsToCents("forty")).toBeNaN();
+  });
+
+  it("refuses a fractional duration rather than rounding it silently", () => {
+    const r = validateOverride("task_minutes", { amount: 7.5 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors).toContain("not_whole_minutes");
+    expect(validateOverride("task_minutes", { amount: 7 }).ok).toBe(true);
+  });
+});

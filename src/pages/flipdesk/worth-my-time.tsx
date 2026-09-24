@@ -547,7 +547,6 @@ export function WorthMyTimePage() {
                         actionKey={r.action}
                         estimateMinutes={minutes}
                         chargedMinutes={minutes}
-                        book={plan.book}
                         remainingBudgetMinutes={Math.max(
                           0,
                           plan.budgetMinutes - plan.plan.plannedMinutes,

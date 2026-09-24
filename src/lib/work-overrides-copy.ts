@@ -20,6 +20,7 @@ export const OVERRIDE_ERROR_COPY: Record<ValidationError, string> = {
   not_finite: "That isn't a number we can use.",
   negative: "It can't be less than zero.",
   zero_minutes: "Zero minutes isn't a real answer. Put at least one.",
+  not_whole_minutes: "Use whole minutes.",
   above_minutes_bound: "That's longer than a whole session. Check the number.",
   above_value_bound: "That looks like dollars typed as cents. Check the number.",
   range_inverted: "The low has to come first.",

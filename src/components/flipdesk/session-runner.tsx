@@ -56,12 +56,10 @@ import {
   useCurrentSession,
   useSessionAction,
   useTaskAction,
-  useWorkOverrides,
   useWorkPreferences,
   type PlannerSession,
 } from "@/hooks/use-planner";
 import { TaskCorrections } from "@/components/flipdesk/task-corrections";
-import { emptyBook } from "@/lib/work-overrides";
 import { ADVICE_COPY, ADVICE_REASON_COPY } from "@/lib/work-advice-copy";
 import {
   reconcile,
@@ -162,13 +160,6 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
       }),
     [item.data, current, prefs.data],
   );
-
-  // US-3182: the seller's corrections, so the runner can offer the same
-  // controls the plan does. A failed read leaves an empty book rather than
-  // hiding the panel -- a seller who cannot load their old snoozes can still
-  // set this one aside.
-  const overrides = useWorkOverrides();
-  const book = overrides.data ?? emptyBook(new Date().toISOString());
 
   const busy = sessionAction.isPending || taskAction.isPending;
 
@@ -357,7 +348,6 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
               itemId={current.inventory_item_id}
               actionKey={current.action_key}
               estimateMinutes={current.estimate_minutes ?? null}
-              book={book}
               // What is left of the session, so "this no longer fits" means
               // the sitting in hand rather than a plan that is already half
               // spent.

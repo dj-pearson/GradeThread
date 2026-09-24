@@ -64,11 +64,24 @@ export const MAX_OVERRIDE_MINUTES = 240;
 /** A value correction above this is almost certainly cents typed as dollars. */
 export const MAX_OVERRIDE_CENTS = 100_000_00;
 
+/**
+ * Dollars typed by a person, as whole cents. NaN stays NaN for validation.
+ * "$1,200" is how people write money, so the $, commas and spaces go
+ * (WMT-08) rather than turning a real answer into "type a number".
+ */
+export function dollarsToCents(text: string): number {
+  const cleaned = text.replace(/[$,\s]/g, "");
+  if (cleaned === "") return Number.NaN;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? Math.round(n * 100) : Number.NaN;
+}
+
 export type ValidationError =
   | "not_a_number"
   | "not_finite"
   | "negative"
   | "zero_minutes"
+  | "not_whole_minutes"
   | "above_minutes_bound"
   | "above_value_bound"
   | "range_inverted"
@@ -127,6 +140,14 @@ export function validateOverride(
 
   if (kind === "task_minutes") {
     errors.push(...check(value.amount, false, MAX_OVERRIDE_MINUTES));
+    // WMT-08: the route rounds, so 7.5 would be stored as 8 without a word.
+    // Say so instead.
+    if (
+      typeof value.amount === "number" && Number.isFinite(value.amount) &&
+      !Number.isInteger(value.amount)
+    ) {
+      errors.push("not_whole_minutes");
+    }
   } else if (kind === "remaining_cost") {
     errors.push(...check(value.amount, true, MAX_OVERRIDE_CENTS));
   } else {
