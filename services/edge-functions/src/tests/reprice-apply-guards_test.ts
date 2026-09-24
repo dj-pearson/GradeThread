@@ -81,6 +81,8 @@ function seed(opts: {
   status?: string;
   currentCents?: number;
   suggestedCents?: number;
+  reasonCode?: string;
+  dismissedAt?: string | null;
 } = {}): void {
   offerPushes = [];
   const item: Row = {
@@ -97,6 +99,7 @@ function seed(opts: {
     listing_status: opts.listingStatus ?? "active",
     listing_price: opts.listingPrice ?? 50,
     platform_offer_id: "offer-1",
+    platform_category_id: "57988",
     price_set_by: null,
   };
   const sug: Row = {
@@ -107,6 +110,8 @@ function seed(opts: {
     status: opts.status ?? "pending",
     current_price_cents: opts.currentCents ?? 5000,
     suggested_price_cents: opts.suggestedCents ?? 4200,
+    reason_code: opts.reasonCode ?? "OVERPRICED",
+    dismissed_at: opts.dismissedAt ?? null,
   };
   db.reset({ inventory_items: [item], listings: [listing], repricing_suggestions: [sug] });
 }
@@ -223,4 +228,59 @@ Deno.test("P2: a live listing's nudge is still listed", async () => {
   seed();
   const list = await call("/suggestions");
   assertEquals((list.body.suggestions as unknown[]).length, 1);
+});
+
+// ── P3 ──────────────────────────────────────────────────────────────
+//
+// With comps at a $40 median and no grade, the engine positions a $50 listing
+// at $38.29 and calls it OVERPRICED. Those are the numbers below.
+
+const DAY = 86_400_000;
+
+Deno.test("P3: a dismissed nudge stays dismissed when the scan sees the same comps", async () => {
+  compMedian = 40;
+  seed({
+    status: "dismissed",
+    suggestedCents: 3829,
+    dismissedAt: new Date(Date.now() - DAY).toISOString(),
+  });
+  const scan = await call("/scan", {});
+  assertEquals(scan.status, 200);
+  assertEquals(db.tables.repricing_suggestions[0].status, "dismissed");
+  assertEquals(db.writes("repricing_suggestions").filter((c) => c.method === "POST").length, 0);
+});
+
+Deno.test("P3: it comes back when the comps move 10%", async () => {
+  compMedian = 44;
+  seed({
+    status: "dismissed",
+    suggestedCents: 3829,
+    dismissedAt: new Date(Date.now() - DAY).toISOString(),
+  });
+  await call("/scan", {});
+  compMedian = 40;
+  const row = db.tables.repricing_suggestions[0];
+  assertEquals(row.status, "pending");
+  assertEquals(row.suggested_price_cents, 4211);
+});
+
+Deno.test("P3: it comes back once the hold runs out", async () => {
+  compMedian = 40;
+  seed({
+    status: "dismissed",
+    suggestedCents: 3829,
+    dismissedAt: new Date(Date.now() - 15 * DAY).toISOString(),
+  });
+  await call("/scan", {});
+  assertEquals(db.tables.repricing_suggestions[0].status, "pending");
+});
+
+Deno.test("P3: a failed write counts as an error, not as a nudge", async () => {
+  compMedian = 40;
+  seed();
+  db.tables.repricing_suggestions = [];
+  db.failNext("repricing_suggestions", "POST");
+  const scan = await call("/scan", {});
+  assertEquals(scan.body.errors, 1);
+  assertEquals(scan.body.actionable, 0);
 });

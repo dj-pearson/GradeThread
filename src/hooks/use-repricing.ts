@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { applyRefusalMessage } from "@/pages/flipdesk/reprice-plan";
+import { applyRefusalMessage, scanSummary } from "@/pages/flipdesk/reprice-plan";
 
 // Condition-aware dynamic repricing — nudges feed + scan/apply/dismiss.
 
@@ -95,15 +95,16 @@ export function useScanRepricing() {
       const data = (await res.json().catch(() => ({}))) as {
         scanned?: number;
         actionable?: number;
+        errors?: number;
         error?: string;
       };
       if (!res.ok) throw new Error(data.error ?? "Scan failed");
       return data;
     },
     onSuccess: (r) => {
-      toast.success(
-        `Scanned ${r.scanned ?? 0} listing${r.scanned === 1 ? "" : "s"} — ${r.actionable ?? 0} repricing nudge${r.actionable === 1 ? "" : "s"}.`,
-      );
+      const summary = scanSummary(r);
+      if ((r.errors ?? 0) > 0) toast.warning(summary);
+      else toast.success(summary);
       queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
     },
     onError: (err: Error) => toastError(err),

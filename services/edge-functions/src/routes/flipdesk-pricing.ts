@@ -227,6 +227,7 @@ async function scanListings(
   await clearDeadSuggestions(ownerId);
 
   const listings = (data ?? []) as unknown as ListingJoinRow[];
+  const existing = await loadExistingSuggestions(ownerId, listings.map((l) => l.id));
   for (const listing of listings) {
     result.scanned++;
     const item = listing.inventory_items;
@@ -239,13 +240,17 @@ async function scanListings(
       }
 
       if (ACTIONABLE.includes(suggestion.reasonCode)) {
-        result.actionable++;
-        await supabaseAdmin.from("repricing_suggestions").upsert(
+        const currentCents = Math.round(listing.listing_price * 100);
+        const prior = existing.get(listing.id);
+        if (prior && keepPriorDecision(prior, suggestion, currentCents, Date.now())) {
+          continue;
+        }
+        const { error: upErr } = await supabaseAdmin.from("repricing_suggestions").upsert(
           {
             user_id: item.user_id,
             inventory_item_id: listing.inventory_item_id,
             listing_id: listing.id,
-            current_price_cents: Math.round(listing.listing_price * 100),
+            current_price_cents: currentCents,
             suggested_price_cents: suggestion.suggestedPriceCents,
             comp_median_cents: suggestion.compMedianCents,
             comp_count: suggestion.compCount,
@@ -260,12 +265,23 @@ async function scanListings(
           },
           { onConflict: "listing_id" },
         );
+        if (upErr) {
+          result.errors++;
+          console.error("[repricing] suggestion write failed for listing", listing.id, upErr.message);
+          continue;
+        }
+        result.actionable++;
       } else {
         // No longer actionable — drop any stale suggestion so the feed is clean.
-        await supabaseAdmin
+        const { error: delErr } = await supabaseAdmin
           .from("repricing_suggestions")
           .delete()
-          .eq("listing_id", listing.id);
+          .eq("listing_id", listing.id)
+          .eq("user_id", item.user_id);
+        if (delErr) {
+          result.errors++;
+          console.error("[repricing] suggestion clear failed for listing", listing.id, delErr.message);
+        }
       }
     } catch (err) {
       result.errors++;
@@ -278,6 +294,65 @@ async function scanListings(
   }
 
   return result;
+}
+
+interface ExistingSuggestion {
+  listing_id: string;
+  status: string;
+  dismissed_at: string | null;
+  suggested_price_cents: number;
+  reason_code: string;
+}
+
+/** How long a Dismiss holds when the comps have not really moved. */
+export const DISMISS_HOLD_DAYS = 14;
+/** How far the new suggestion may drift from the dismissed one and still be "the same nudge". */
+export const SAME_NUDGE_TOLERANCE = 0.05;
+
+/**
+ * Should the scan leave a seller's earlier decision alone? A dismissed nudge
+ * stays dismissed for DISMISS_HOLD_DAYS unless the reason or the price moved;
+ * an applied one stays applied while the listing still carries the price the
+ * seller took. Without this the 6-hourly cron re-opened every dismissed nudge.
+ */
+export function keepPriorDecision(
+  prior: ExistingSuggestion,
+  next: { reasonCode: string; suggestedPriceCents: number },
+  currentCents: number,
+  nowMs: number,
+): boolean {
+  if (prior.reason_code !== next.reasonCode) return false;
+  const base = prior.suggested_price_cents;
+  if (!(base > 0)) return false;
+  if (Math.abs(next.suggestedPriceCents - base) / base > SAME_NUDGE_TOLERANCE) return false;
+  if (prior.status === "dismissed") {
+    const at = prior.dismissed_at ? Date.parse(prior.dismissed_at) : NaN;
+    return Number.isFinite(at) && nowMs - at < DISMISS_HOLD_DAYS * 86_400_000;
+  }
+  if (prior.status === "applied") return currentCents === base;
+  return false;
+}
+
+/** The stored suggestion per listing, for the scan's keep-or-rewrite check. */
+async function loadExistingSuggestions(
+  ownerId: string | null,
+  listingIds: string[],
+): Promise<Map<string, ExistingSuggestion>> {
+  const out = new Map<string, ExistingSuggestion>();
+  if (listingIds.length === 0) return out;
+  let q = supabaseAdmin
+    .from("repricing_suggestions")
+    .select("listing_id, status, dismissed_at, suggested_price_cents, reason_code")
+    .in("listing_id", listingIds);
+  if (ownerId) q = q.eq("user_id", ownerId);
+  const { data, error } = await q;
+  if (error) {
+    // Failing open here only means a dismissed nudge may come back once.
+    console.error("[repricing] existing-suggestion read failed:", error.message);
+    return out;
+  }
+  for (const r of (data ?? []) as ExistingSuggestion[]) out.set(r.listing_id, r);
+  return out;
 }
 
 /**

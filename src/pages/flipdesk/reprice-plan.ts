@@ -51,3 +51,20 @@ export function undoPriors(
     .filter((r) => r.old_price_cents !== r.new_price_cents)
     .map((r) => ({ listing_id: r.listing_id, price_cents: r.old_price_cents }));
 }
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** The scan toast. Rows the server could not check are said out loud. */
+export function scanSummary(r: { scanned?: number; actionable?: number; errors?: number }): string {
+  const parts = [
+    `Scanned ${plural(r.scanned ?? 0, "listing", "listings")}.`,
+    `${plural(r.actionable ?? 0, "repricing nudge", "repricing nudges")}.`,
+  ];
+  const errors = r.errors ?? 0;
+  if (errors > 0) {
+    parts.push(`${plural(errors, "listing", "listings")} could not be checked.`);
+  }
+  return parts.join(" ");
+}
