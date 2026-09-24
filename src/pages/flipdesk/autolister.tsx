@@ -29,6 +29,8 @@ import { QUOTA_WALL_STATUSES, runMeteredWindows, trimTrailingPartialGroup } from
 import { usePhotoTools } from "./autolister/use-photo-tools";
 import { DELETE_UNDO_MS, usePendingStagedDeletes } from "./autolister/pending-deletes";
 import { DELETE_CONFIRM_AT, DeleteConfirmDialog } from "./autolister/delete-confirm-dialogs";
+import { useWorkbenchHotkeys } from "./autolister/use-workbench-hotkeys";
+import { WorkbenchHotkeysHelp } from "./autolister/workbench-hotkeys-help";
 import { uploadActions } from "./autolister/upload-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -722,6 +724,22 @@ function AutolisterWorkbench() {
   }, [activeDragId, shownGroups]);
 
   const gridRows = virtualItemsWithPin(gridVirtualizer, dragSourceRow);
+  // AL-15: keyboard sorting (arrows, Space, g, 1-9, Delete, Esc, ?).
+  const hotkeys = useWorkbenchHotkeys({
+    photoIds: ungroupedSorted.map((p) => p.id),
+    columns: gridColumns,
+    suspended: editingPhotoId != null,
+    setSelected,
+    onGroupSelection: () => createGroupFromSelection(),
+    onSendToGroup: (i) => {
+      const g = shownGroups[i];
+      if (g && selected.size > 0) movePhotos(Array.from(selected), g.id);
+    },
+    onDeleteSelection: () => {
+      if (selected.size > 0) removePhotos(Array.from(selected));
+    },
+    onFocusIndex: (i) => gridVirtualizer.scrollToIndex(Math.floor(i / gridColumns)),
+  });
   const groupRows = virtualItemsWithPin(groupsVirtualizer, dragSourceGroup);
 
   // US-957 / AL-10: covers not yet scored. Scoring costs one AI action per
@@ -2342,6 +2360,7 @@ function AutolisterWorkbench() {
                     selected.has(p.id)
                       ? "border-primary ring-2 ring-primary/40"
                       : "border-transparent hover:border-muted-foreground/40",
+                    hotkeys.focusedId === p.id && "outline outline-2 outline-offset-2 outline-primary",
                   )}
                 >
                   <button
@@ -2862,6 +2881,7 @@ function AutolisterWorkbench() {
         }}
       />
 
+      <WorkbenchHotkeysHelp open={hotkeys.helpOpen} onOpenChange={hotkeys.setHelpOpen} />
       <DeleteConfirmDialog
         open={deleteConfirmIds != null}
         title={`Delete ${deleteConfirmIds?.length ?? 0} photos?`}

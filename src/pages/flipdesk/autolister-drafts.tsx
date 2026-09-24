@@ -325,6 +325,10 @@ export function FlipdeskAutolisterDraftsPage() {
   const [editPrice, setEditPrice] = useState("");
   const [editCost, setEditCost] = useState("");
   const [saving, setSaving] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
+  // AL-15: "a" approves the active draft (stamps reviewed_at), so the queue
+  // actually shrinks; this counts them for the header.
+  const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // US-2817: re-run identification over the selected drafts. Old stock was
   // catalogued by an older model; this reads the photos again and corrects what
@@ -358,6 +362,7 @@ export function FlipdeskAutolisterDraftsPage() {
 
   const openEditor = useCallback((d: DraftRow) => {
     setEditingId(d.id);
+    setPriceError(null);
     setEditTitle(
       (d.listing_title && d.listing_title.trim()) ||
         itemMeta[d.inventory_item_id]?.title ||
@@ -375,20 +380,39 @@ export function FlipdeskAutolisterDraftsPage() {
       const title = editTitle.trim();
       const parsed = editPrice.trim() === "" ? null : Number(editPrice);
       const price = parsed != null && Number.isFinite(parsed) ? parsed : null;
+      // AL-15: a price of 0 or less would list for nothing; say so here.
+      if (price != null && price <= 0) {
+        setPriceError("Enter a price above $0, or leave it blank.");
+        return false;
+      }
+      setPriceError(null);
       const parsedCost = editCost.trim() === "" ? null : Number(editCost);
       const cost =
         parsedCost != null && Number.isFinite(parsedCost) && parsedCost >= 0
           ? parsedCost
           : null;
+      const originalTitle = (row.listing_title && row.listing_title.trim()) ||
+        itemMeta[row.inventory_item_id]?.title || "";
+      const listingChanged = title !== originalTitle || price !== row.listing_price;
       setSaving(true);
       try {
-        const { error } = await supabase
-          .from("listings")
-          .update({ listing_title: title || null, listing_price: price } as never)
-          .eq("id", row.id);
-        if (error) {
-          toastError(error, "Couldn't save.");
-          return false;
+        // AL-15: nothing changed, nothing written. A price the seller typed
+        // is theirs, so it is no longer an estimate.
+        if (listingChanged) {
+          const patch = {
+            listing_title: title || null,
+            listing_price: price,
+            ...(price !== row.listing_price ? { price_is_estimated: false } : {}),
+          };
+          const { error } = await supabase
+            .from("listings")
+            .update(patch as never)
+            .eq("id", row.id);
+          if (error) {
+            toastError(error, "Couldn't save.");
+            return false;
+          }
+          patchAutolisterDraft(queryClient, user?.id, row.id, patch);
         }
         // Cost lives on the ITEM, not the listing — a separate write, and only
         // when it actually changed so the keyboard review loop doesn't issue a
@@ -407,10 +431,6 @@ export function FlipdeskAutolisterDraftsPage() {
             patchAutolisterDraft(queryClient, user?.id, row.id, { acquired_price: cost });
           }
         }
-        patchAutolisterDraft(queryClient, user?.id, row.id, {
-          listing_title: title || null,
-          listing_price: price,
-        });
         return true;
       } finally {
         setSaving(false);
@@ -435,6 +455,26 @@ export function FlipdeskAutolisterDraftsPage() {
       toast.success("Reviewed the last draft.");
     }
   }, [sorted, activeIndex, persistEdit, openEditor]);
+
+  const approveActive = useCallback(async () => {
+    const row = sorted[activeIndex];
+    if (!row || reviewedIds.has(row.id)) {
+      setActiveIndex((i) => Math.min(i + 1, Math.max(sorted.length - 1, 0)));
+      return;
+    }
+    const { error } = await supabase
+      .from("listings")
+      .update({ reviewed_at: new Date().toISOString() } as never)
+      .eq("id", row.id);
+    if (error) {
+      toastError(error, "Couldn't mark that draft reviewed.");
+      return;
+    }
+    // Kept on screen (marked) until the next refetch drops it, so the row
+    // under the cursor doesn't jump mid-review.
+    setReviewedIds((prev) => new Set(prev).add(row.id));
+    setActiveIndex((i) => Math.min(i + 1, Math.max(sorted.length - 1, 0)));
+  }, [sorted, activeIndex, reviewedIds]);
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -670,6 +710,12 @@ export function FlipdeskAutolisterDraftsPage() {
             toggleSelect(active.id);
           }
           break;
+        case "a":
+          if (active) {
+            e.preventDefault();
+            void approveActive();
+          }
+          break;
         case "p":
           e.preventDefault();
           if (publishPreview.count === 0) {
@@ -689,7 +735,7 @@ export function FlipdeskAutolisterDraftsPage() {
   }, [
     sorted, activeIndex, editingId, saveAndNext, openEditor, toggleSelect,
     crossListOpen, reidentifyOpen, publishConfirmOpen, publishPreview,
-    ebayConnection, bulkPublish.running,
+    ebayConnection, bulkPublish.running, approveActive,
   ]);
 
   const totalValue = useMemo(
@@ -948,8 +994,14 @@ export function FlipdeskAutolisterDraftsPage() {
                 <Shortcut keys="e" label="edit" />
                 <Shortcut keys="Enter" label="save & next" />
                 <Shortcut keys="x" label="select" />
+                <Shortcut keys="a" label="approve & next" />
                 <Shortcut keys="p" label="publish selected" />
                 <Shortcut keys="/" label="find" />
+                {reviewedIds.size > 0 && (
+                  <span className="ml-auto font-medium text-foreground" role="status">
+                    Reviewed {reviewedIds.size} this session
+                  </span>
+                )}
               </div>
               <Table>
                 <TableHeader>
@@ -1030,6 +1082,11 @@ export function FlipdeskAutolisterDraftsPage() {
                               can see at a glance which drafts are weak — and
                               which cannot be listed at all. */}
                           <QualityScoreChip score={scoreByListing[d.id]} />
+                          {reviewedIds.has(d.id) && (
+                            <span className="shrink-0 text-xs font-normal text-muted-foreground">
+                              Reviewed
+                            </span>
+                          )}
                         </span>
                         {/* US-1892: flag weak titles (<60 chars or a lint
                             finding) so a bulk session catches them pre-publish. */}
@@ -1304,9 +1361,19 @@ export function FlipdeskAutolisterDraftsPage() {
                                 min="0"
                                 step="0.01"
                                 value={editPrice}
-                                onChange={(e) => setEditPrice(e.target.value)}
+                                onChange={(e) => {
+                                  setEditPrice(e.target.value);
+                                  setPriceError(null);
+                                }}
                                 className="h-9 tabular-nums"
+                                aria-invalid={priceError != null}
+                                aria-describedby={priceError ? `edit-price-err-${d.id}` : undefined}
                               />
+                              {priceError && (
+                                <p id={`edit-price-err-${d.id}`} className="text-xs text-destructive">
+                                  {priceError}
+                                </p>
+                              )}
                             </div>
                             <div className="w-32 space-y-1">
                               <label
