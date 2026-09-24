@@ -134,7 +134,10 @@ describe("resumeUploads (US-1905)", () => {
 
     expect(useAutolisterUploadStore.getState().results).toHaveLength(0);
     expect(_transport.upload).not.toHaveBeenCalled();
-    expect(await listBlobs("s1")).toHaveLength(1); // untouched, still resumable
+    // AL-11: the file is already staged, so its resume blob is dropped rather
+    // than kept around to come back after every reload.
+    await flush();
+    expect(await listBlobs("s1")).toHaveLength(0);
   });
 
   it("keeps the persisted blob when a queued upload fails retryably", async () => {
@@ -251,5 +254,49 @@ describe("scopeSessionToOwner (AL-03)", () => {
     );
     expect(out.trusted).toBe(true);
     expect(out.session?.staged).toHaveLength(1);
+  });
+});
+
+describe("in-app return mid-upload (AL-11)", () => {
+  it("resuming the same session keeps 20 queued tasks at 20, with no duplicates skipped", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    _transport.upload = vi.fn(async (_s, full: Blob) => {
+      await gate;
+      return {
+        storagePath: `staging/${(full as File).name}`,
+        url: "http://cdn.test/x",
+        thumbnailStoragePath: null,
+        thumbnailUrl: null,
+        width: 2000,
+        height: 2000,
+        bytes: 1,
+      };
+    });
+    const files = Array.from({ length: 20 }, (_, i) => makeFile(`f${i}.jpg`));
+    const run = useAutolisterUploadStore.getState().enqueueFiles(files, "s-live");
+    await flush();
+    expect(useAutolisterUploadStore.getState().tasks).toHaveLength(20);
+
+    // The seller navigates away and back: the page resumes the same session.
+    await useAutolisterUploadStore.getState().resumeUploads("s-live");
+    expect(useAutolisterUploadStore.getState().tasks).toHaveLength(20);
+
+    release();
+    await run;
+    expect(useAutolisterUploadStore.getState().results).toHaveLength(20);
+  });
+
+  it("a dismissed failure does not come back after a reload", async () => {
+    _transport.upload = vi.fn(async () => {
+      throw new Error("network down");
+    });
+    await useAutolisterUploadStore.getState().enqueueFiles([makeFile("gone.jpg")], "s2");
+    await flush();
+    const [task] = useAutolisterUploadStore.getState().tasks;
+    expect(await listBlobs("s2")).toHaveLength(1);
+    useAutolisterUploadStore.getState().dismissTask(task!.id);
+    await flush();
+    expect(await listBlobs("s2")).toHaveLength(0);
   });
 });

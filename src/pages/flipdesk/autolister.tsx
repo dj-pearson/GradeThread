@@ -108,6 +108,7 @@ import {
   ProposalReviewChips,
 } from "./autolister/suggestion-chips";
 import {
+  activeCount,
   type StagedPhoto,
   useAutolisterUploadStore,
 } from "@/stores/autolister-upload-store";
@@ -351,6 +352,14 @@ function virtualItemsWithPin(
 // "reshoot recommended" nudge before Generate. Advisory only — never blocks.
 
 
+/** AL-11: the one component that re-renders on each upload progress tick. */
+function LiveUploadProgressPanel(
+  props: Omit<React.ComponentProps<typeof UploadProgressPanel>, "tasks">,
+) {
+  const tasks = useAutolisterUploadStore((s) => s.tasks);
+  return <UploadProgressPanel tasks={tasks} {...props} />;
+}
+
 export function FlipdeskAutolisterPage() {
   const user = useAuthStore((s) => s.user);
   const { workspaceOwnerId } = useWorkspace();
@@ -484,10 +493,9 @@ function AutolisterWorkbench() {
   // US-539/US-1542: per-file pipeline tasks (progress bars + failure retry)
   // now live in the app-level store, so uploads survive in-app navigation and
   // this page just renders live progress + claims finished photos.
-  const uploadTasks = useAutolisterUploadStore((s) => s.tasks);
-  const uploading = uploadTasks.filter(
-    (t) => t.status === "queued" || t.status === "processing" || t.status === "uploading",
-  ).length;
+  // AL-11: the page subscribes to the in-flight COUNT only. The task array
+  // changes on every 2% progress tick; LiveUploadProgressPanel owns it.
+  const uploading = useAutolisterUploadStore((s) => activeCount(s.tasks));
   const [busy, setBusy] = useState(false);
   // US-955: fire-and-forget — auto-publish the green, clean drafts on completion.
   const [autoPublishGreen, setAutoPublishGreen] = useState(false);
@@ -544,7 +552,7 @@ function AutolisterWorkbench() {
 
   // US-1542 / US-1905 / AL-03: upload-store wiring, the IndexedDB rehydrate
   // and the session persist live in autolister/use-workbench-persistence.ts.
-  useWorkbenchPersistence<Group>({
+  const { cancelPendingPersist } = useWorkbenchPersistence<Group>({
     sessionId: sessionId.current,
     storageKey,
     ownerId,
@@ -1795,6 +1803,7 @@ function AutolisterWorkbench() {
   // don't re-show drafts on the next visit.
   function clearStoredSession() {
     if (typeof window === "undefined") return;
+    cancelPendingPersist();
     // US-1905: drop the IndexedDB session + its resume blobs too.
     void clearSession(sessionId.current);
     try {
@@ -2170,8 +2179,7 @@ function AutolisterWorkbench() {
         phoneCapture={phoneCapture}
       />
 
-      <UploadProgressPanel
-        tasks={uploadTasks}
+      <LiveUploadProgressPanel
         uploading={uploading}
         onRetry={(ids) => void retryUploadTasks(ids)}
         onDismiss={dismissUploadTask}

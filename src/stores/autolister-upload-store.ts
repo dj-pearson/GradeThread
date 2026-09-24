@@ -104,6 +104,11 @@ export interface UploadTask {
   error?: string;
   retryable?: boolean;
   file: File;
+  /**
+   * AL-11: unique per task OBJECT. A resumed blob reuses its task id, so an id
+   * alone could name two tasks, and removing a duplicate by id removed both.
+   */
+  laneKey?: string;
 }
 
 export interface StagedUploadResult {
@@ -373,7 +378,9 @@ interface AutolisterUploadState {
   reset: () => void;
 }
 
-function activeCount(tasks: UploadTask[]): number {
+/** Tasks still queued, processing or uploading. AL-11: exported so the page
+ * can subscribe to this one number instead of the whole task array. */
+export function activeCount(tasks: UploadTask[]): number {
   return tasks.filter(
     (t) => t.status === "queued" || t.status === "processing" || t.status === "uploading",
   ).length;
@@ -386,8 +393,13 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
     }));
   }
 
-  function removeTask(id: string) {
-    set((state) => ({ tasks: state.tasks.filter((t) => t.id !== id) }));
+  // AL-11: remove THIS task, not every task sharing its id.
+  function removeTask(task: UploadTask) {
+    set((state) => ({
+      tasks: state.tasks.filter(
+        (t) => !(t.id === task.id && (task.laneKey == null || t.laneKey === task.laneKey)),
+      ),
+    }));
   }
 
   // Deliver one finished photo: into `results` for the page to claim, and —
@@ -417,7 +429,7 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
     const sig = fileSig(file);
     const skipDuplicate = () => {
       stats.duplicates++;
-      removeTask(id);
+      removeTask(task);
     };
     if (isKnownSig(sig)) {
       skipDuplicate();
@@ -672,6 +684,7 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
         status: "queued",
         progress: 0,
         file,
+        laneKey: crypto.randomUUID(),
       }));
       set((s) => ({ tasks: [...s.tasks.filter((t) => t.status !== "done"), ...tasks] }));
       // US-1905: persist each queued file up front so a reload/crash can resume
@@ -699,6 +712,11 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
     // synced their sigs on mount) are skipped; the pipeline re-checks too.
     resumeUploads: async (sessionId) => {
       if (!idbAvailable()) return;
+      // AL-11: an in-app return to a session still uploading finds its tasks
+      // live in this store. Re-appending them from IDB duplicated every one,
+      // and the duplicate check then removed both copies mid-upload.
+      const before = get();
+      if (before.sessionId === sessionId && activeCount(before.tasks) > 0) return;
       let blobs: Awaited<ReturnType<typeof listBlobs>>;
       try {
         blobs = await listBlobs(sessionId);
@@ -706,8 +724,12 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
         return;
       }
       if (blobs.length === 0) return;
+      const liveIds = new Set(get().tasks.map((t) => t.id));
+      // AL-11: a blob whose file is already staged is done with; drop it so it
+      // never comes back.
+      for (const b of blobs) if (isKnownSig(b.sig)) void deleteBlob(b.taskId);
       const tasks: UploadTask[] = blobs
-        .filter((b) => !isKnownSig(b.sig))
+        .filter((b) => !isKnownSig(b.sig) && !liveIds.has(b.taskId))
         .map((b) => ({
           id: b.taskId,
           name: b.name,
@@ -716,6 +738,7 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
           // Rebuild a File from the stored bytes + original name/type (don't
           // trust structured clone to preserve the File subtype/MIME).
           file: new File([b.blob], b.name, { type: b.type }),
+          laneKey: crypto.randomUUID(),
         }));
       if (tasks.length === 0) return;
       const state = get();
@@ -744,9 +767,17 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
       set((s) => ({ tasks: s.tasks.filter((t) => t.status !== "done") }));
     },
 
-    dismissTask: (id) => set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) })),
+    // AL-11: a dismissed failure is gone for good. Its resume blob went
+    // with it, or a reload brought the file straight back.
+    dismissTask: (id) => {
+      void deleteBlob(id);
+      set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }));
+    },
 
-    clearTasks: () => set({ tasks: [] }),
+    clearTasks: () => {
+      for (const t of get().tasks) void deleteBlob(t.id);
+      set({ tasks: [] });
+    },
 
     claimResults: (ids) => {
       const idSet = new Set(ids);
@@ -881,6 +912,8 @@ if (typeof window !== "undefined") {
   // Keep the lost-uploads marker current: any task that isn't `done` holds a
   // File that cannot survive a full unload. Written on every task change so
   // the count is accurate whenever the unload actually happens.
+  // AL-11: written only when the count changes, not on every progress tick.
+  let lastAtRisk = -1;
   useAutolisterUploadStore.subscribe((state) => {
     try {
       // US-1905: when IndexedDB is available, unfinished uploads were persisted
@@ -889,6 +922,8 @@ if (typeof window !== "undefined") {
       const atRisk = idbAvailable()
         ? 0
         : state.tasks.filter((t) => t.status !== "done").length;
+      if (atRisk === lastAtRisk) return;
+      lastAtRisk = atRisk;
       if (atRisk > 0) {
         window.localStorage.setItem(LOST_UPLOADS_KEY, String(atRisk));
       } else {
