@@ -17,6 +17,9 @@ import {
   type NavigateFunction,
 } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import axe from "axe-core";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 type Row = {
   result_type: string;
@@ -329,5 +332,145 @@ describe("the URL is the source of truth (F3)", () => {
     await until(() => loc.includes("q=nike"));
     expect(loc).toContain("from=sidebar");
     expect(loc).toContain("q=nike");
+  });
+});
+
+describe("recent searches (F7)", () => {
+  beforeEach(() => {
+    recentRows = [
+      { query: "jane doe", scope: "sales", resultCount: 2, updatedAt: new Date().toISOString() },
+      { query: "levis", scope: "all", resultCount: 51, updatedAt: new Date().toISOString() },
+    ];
+  });
+
+  it("picking a Sales term opens the Sales tab and searches at once", async () => {
+    mount();
+    await until(() => text().includes("jane doe"));
+    expect(text()).toContain("50+ results");
+    const opt = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((o) =>
+      (o.textContent ?? "").includes("jane doe"),
+    );
+    await act(async () => opt!.click());
+    await settle(20);
+    const sales = [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent === "Sales");
+    expect(sales?.getAttribute("data-state")).toBe("active");
+    expect(field().value).toBe("jane doe");
+    // Well inside the 250ms debounce: the pick skipped it.
+    expect(rpcCalls.some((c) => c.p_query === "jane doe" && c.p_scope === "sales")).toBe(true);
+  });
+
+  it("ArrowDown then Enter on an empty field runs the newest term", async () => {
+    mount();
+    await until(() => text().includes("jane doe"));
+    await press("ArrowDown");
+    expect(field().getAttribute("aria-activedescendant")).toBe("recent-0");
+    await press("Enter");
+    await settle(20);
+    expect(field().value).toBe("jane doe");
+    expect(rpcCalls.some((c) => c.p_query === "jane doe")).toBe(true);
+  });
+
+  it("each term can be removed", async () => {
+    mount();
+    await until(() => text().includes("jane doe"));
+    const remove = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove jane doe from recent searches"]',
+    );
+    expect(remove).toBeTruthy();
+    await act(async () => remove!.click());
+    await settle(10);
+    expect(text()).not.toContain("jane doe");
+  });
+});
+
+describe("the field and list are a combobox (U1)", () => {
+  it("has no serious axe violations with results on screen", async () => {
+    mount();
+    await type("levis");
+    await until(() => text().includes("Title levis-2"));
+    const results = await axe.run(container!, {
+      rules: { "color-contrast": { enabled: false } },
+    });
+    const bad = results.violations.filter(
+      (v) => v.id.startsWith("aria") || v.impact === "serious" || v.impact === "critical",
+    );
+    expect(bad.map((v) => `${v.id}: ${v.help} ${v.nodes.map((n) => n.html).join(" ")}`)).toEqual([]);
+    expect(field().getAttribute("role")).toBe("combobox");
+    expect(field().getAttribute("aria-controls")).toBe("search-results");
+    expect(field().getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById("search-results")?.getAttribute("role")).toBe("listbox");
+  });
+
+  it("Escape clears the field and '/' focuses it", async () => {
+    mount();
+    await type("levis");
+    await press("Escape");
+    expect(field().value).toBe("");
+    field().blur();
+    expect(document.activeElement).not.toBe(field());
+    await act(async () => {
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "/", bubbles: true }));
+    });
+    expect(document.activeElement).toBe(field());
+  });
+});
+
+describe("one rich row per garment (D1)", () => {
+  it("shows SKU, bin and status from items_full, and collapses the item's other hits", async () => {
+    itemRows = [item("coat", { item_number: "J0042", location_bin: "A3", status: "listed" })];
+    rpcImpl = () =>
+      Promise.resolve({
+        data: [
+          row("coat", "item", "coat", "Barn coat"),
+          row("L1", "listing", "coat", "Barn coat listing"),
+          row("S1", "sale", "coat", "buyer_jo"),
+        ],
+        error: null,
+      });
+    mount("/dashboard/flipdesk/search?q=barn");
+    await until(() => text().includes("J0042"));
+    const opts = document.querySelectorAll('#search-results [role="option"]');
+    expect(opts).toHaveLength(1);
+    const t = opts[0]!.textContent ?? "";
+    expect(t).toContain("SKU");
+    expect(t).toContain("Bin A3");
+    expect(t).toContain("Listed");
+    expect(t).toContain("Sold to buyer_jo");
+    expect(t).toContain("Matched in listing, sale");
+  });
+});
+
+describe("exact codes are pinned (D2)", () => {
+  it("J0042 + Enter opens the item with that SKU", async () => {
+    itemRows = [item("other")];
+    exactRows = [item("sku-item", { item_number: "J0042" })];
+    rpcImpl = () => Promise.resolve({ data: [row("other")], error: null });
+    mount();
+    await type("J0042");
+    await press("Enter");
+    await until(() => loc.startsWith("/dashboard/flipdesk/items/"));
+    expect(loc).toBe("/dashboard/flipdesk/items/sku-item");
+  });
+
+  it("A3 pins the bin match as the first row", async () => {
+    itemRows = [item("other")];
+    exactRows = [item("bin-item", { location_bin: "A3", item_title: "Wool scarf" })];
+    rpcImpl = () => Promise.resolve({ data: [row("other")], error: null });
+    mount();
+    await type("A3");
+    await until(() => text().includes("Wool scarf"));
+    const first = document.querySelector('#search-results [role="option"]');
+    expect(first?.textContent).toContain("In bin A3");
+    expect(first?.textContent).toContain("Wool scarf");
+  });
+});
+
+describe("copy is plain (U2)", () => {
+  it("search.tsx carries no em dash, curly quote or invisible character", () => {
+    const src = readFileSync(resolve(process.cwd(), "src/pages/flipdesk/search.tsx"), "utf8");
+    expect(src).not.toMatch(/[\u2014\u2013\u2018\u2019\u201C\u201D\u2026]/);
+    expect(src).not.toMatch(
+      /\u034F|[\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/u,
+    );
   });
 });

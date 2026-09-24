@@ -40,7 +40,7 @@ import type { SourceRow } from "@/types/database";
 import type { ItemListRow } from "@/lib/item-list-columns";
 import { itemsListQueryKey } from "@/hooks/use-items-full";
 import { useFlipdeskSearch } from "@/hooks/use-flipdesk-search";
-import type { MappedHit } from "@/lib/flipdesk-search";
+import { SEARCH_PAGE_FIELD_ATTR, type MappedHit } from "@/lib/flipdesk-search";
 import { SnippetText } from "@/components/flipdesk/snippet-text";
 import {
   PaletteShell,
@@ -143,7 +143,14 @@ export function CommandPalette() {
     // "/" stays typing-aware: it is a printable character, so opening a dialog
     // when somebody types a slash into a field would be a bug rather than a
     // shortcut.
-    { key: "/", handler: () => setOpen(true) },
+    // On the Search page, "/" focuses that page's own field instead.
+    {
+      key: "/",
+      handler: () => {
+        if (document.querySelector(`[${SEARCH_PAGE_FIELD_ATTR}]`)) return;
+        setOpen(true);
+      },
+    },
   ]);
 
   // US-2863: the header's search control opens the same dialog.
