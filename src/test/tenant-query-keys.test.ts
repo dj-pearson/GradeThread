@@ -32,13 +32,7 @@ const KNOWN: Record<string, string> = {
   ebay_comps: "market comparables for a query, not seller data",
   // Predate MP-05 and are off the Marketplaces page. Migrate, then delete.
   ebay_sync_runs: "keyed on user.id, not the workspace owner",
-  ebay_returns: "untenanted; returns page",
-  ebay_inquiries: "untenanted; returns page",
-  ebay_cases: "untenanted; returns page",
-  ebay_cancellations: "untenanted; orders page",
-  ebay_payment_disputes: "untenanted; disputes page",
   ebay_promotable_listings: "keyed on user.id, not the workspace owner",
-  ebay_return_analytics: "untenanted; analytics page",
   ebay_listings: "keyed on user.id; SKU match",
   ebay_ad_spend: "untenanted; ad spend card",
 };

@@ -2225,9 +2225,12 @@ export interface EbayReturn {
 }
 
 export function useEbayReturns(enabled = true) {
+  // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
+  // tenant's cases from cache.
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["ebay_returns"],
-    enabled,
+    queryKey: ["ebay_returns", tenantKey],
+    enabled: enabled && !!tenantKey,
     queryFn: async (): Promise<EbayReturn[]> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/returns`, {
         headers: await ebayHeaders(),
@@ -2522,9 +2525,12 @@ export interface EbayInquiry {
 }
 
 export function useEbayInquiries(enabled = true) {
+  // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
+  // tenant's cases from cache.
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["ebay_inquiries"],
-    enabled,
+    queryKey: ["ebay_inquiries", tenantKey],
+    enabled: enabled && !!tenantKey,
     queryFn: async (): Promise<EbayInquiry[]> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/inquiries`, {
         headers: await ebayHeaders(),
@@ -2600,9 +2606,12 @@ export interface EbayCase {
 }
 
 export function useEbayCases(enabled = true) {
+  // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
+  // tenant's cases from cache.
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["ebay_cases"],
-    enabled,
+    queryKey: ["ebay_cases", tenantKey],
+    enabled: enabled && !!tenantKey,
     queryFn: async (): Promise<EbayCase[]> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/cases`, {
         headers: await ebayHeaders(),
@@ -2651,9 +2660,12 @@ export function useEbayCaseAction() {
 }
 
 export function useEbayCancellations(enabled = true) {
+  // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
+  // tenant's cases from cache.
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["ebay_cancellations"],
-    enabled,
+    queryKey: ["ebay_cancellations", tenantKey],
+    enabled: enabled && !!tenantKey,
     queryFn: async (): Promise<EbayCancellation[]> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/cancellations`, {
         headers: await ebayHeaders(),
@@ -2704,9 +2716,12 @@ export interface EbayPaymentDispute {
 }
 
 export function useEbayPaymentDisputes(enabled = true) {
+  // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
+  // tenant's cases from cache.
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["ebay_payment_disputes"],
-    enabled,
+    queryKey: ["ebay_payment_disputes", tenantKey],
+    enabled: enabled && !!tenantKey,
     queryFn: async (): Promise<EbayPaymentDispute[]> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/payment-disputes`, {
         headers: await ebayHeaders(),
@@ -3899,9 +3914,10 @@ export interface ReturnAnalytics {
 }
 
 export function useReturnAnalytics(days = 90, enabled = true) {
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["ebay_return_analytics", days],
-    enabled,
+    queryKey: ["ebay_return_analytics", tenantKey, days],
+    enabled: enabled && !!tenantKey,
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<ReturnAnalytics> => {
       const res = await fetch(

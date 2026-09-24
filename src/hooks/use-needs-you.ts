@@ -113,15 +113,32 @@ export function needsYouHref(item: Pick<NeedsYouItem, "kind" | "id">): string {
     : `/dashboard/flipdesk/post-sale?${focus}`;
 }
 
-export function useNeedsYou(enabled = true, ebayEnabled = true): NeedsYouState {
+export interface UseNeedsYouOptions {
+  /**
+   * PS-11: the queues this caller shows. The rest are not fetched, and
+   * `pending`, `isError` and `isPartial` speak only for the included ones.
+   * The post-sale page has no offers tab, so it was fetching offers and
+   * re-polling them every 90 seconds to count nothing.
+   */
+  include?: readonly NeedsYouQueue[];
+}
+
+export function useNeedsYou(
+  enabled = true,
+  ebayEnabled = true,
+  opts: UseNeedsYouOptions = {},
+): NeedsYouState {
+  const include = opts.include ?? NEEDS_YOU_QUEUES;
+  const on = (q: NeedsYouQueue) => include.includes(q);
+  const offersOn = on("offers");
   const ebay = enabled && ebayEnabled;
-  const returns = useEbayReturns(ebay);
-  const cancellations = useEbayCancellations(ebay);
-  const inquiries = useEbayInquiries(ebay);
-  const cases = useEbayCases(ebay);
-  const disputes = useEbayPaymentDisputes(ebay);
-  const offers = useEbayBestOffers(ebay);
-  const shipments = useShipQueue(enabled);
+  const returns = useEbayReturns(ebay && on("returns"));
+  const cancellations = useEbayCancellations(ebay && on("cancellations"));
+  const inquiries = useEbayInquiries(ebay && on("inquiries"));
+  const cases = useEbayCases(ebay && on("cases"));
+  const disputes = useEbayPaymentDisputes(ebay && on("disputes"));
+  const offers = useEbayBestOffers(ebay && on("offers"));
+  const shipments = useShipQueue(enabled && on("shipments"));
 
   const items = useMemo(() => {
     const out: NeedsYouItem[] = [];
@@ -179,7 +196,7 @@ export function useNeedsYou(enabled = true, ebayEnabled = true): NeedsYouState {
     }
     // Offers belong here for one reason: they expire, and an unanswered offer
     // is not a deferred decision, it is a lost sale.
-    for (const o of offers.data ?? []) {
+    for (const o of offersOn ? offers.data ?? [] : []) {
       if (o.status && isClosedCase({ state: o.status })) continue;
       out.push({
         kind: "offer",
@@ -211,6 +228,7 @@ export function useNeedsYou(enabled = true, ebayEnabled = true): NeedsYouState {
     cases.data,
     disputes.data,
     offers.data,
+    offersOn,
     shipments.rows,
   ]);
 
@@ -249,29 +267,34 @@ export function useNeedsYou(enabled = true, ebayEnabled = true): NeedsYouState {
   // only retried when they are enabled. Otherwise Retry on a seller with no
   // eBay connection fires six calls that each 502, and turns a clean board
   // into "one of your eBay queues did not answer".
+  // PS-11: and only the included ones, for the same reason.
+  const includeKey = include.join(",");
   const refetch = useCallback(() => {
+    const has = (q: NeedsYouQueue) => includeKey.split(",").includes(q);
     if (ebay) {
-      void returns.refetch();
-      void cancellations.refetch();
-      void inquiries.refetch();
-      void cases.refetch();
-      void disputes.refetch();
-      void offers.refetch();
+      if (has("returns")) void returns.refetch();
+      if (has("cancellations")) void cancellations.refetch();
+      if (has("inquiries")) void inquiries.refetch();
+      if (has("cases")) void cases.refetch();
+      if (has("disputes")) void disputes.refetch();
+      if (has("offers")) void offers.refetch();
     }
-    if (enabled) void shipments.refetch();
-  }, [ebay, enabled, returns, cancellations, inquiries, cases, disputes, offers, shipments]);
+    if (enabled && has("shipments")) void shipments.refetch();
+  }, [ebay, enabled, includeKey, returns, cancellations, inquiries, cases, disputes, offers, shipments]);
 
-  const states = Object.values(queues);
-  const answered = [
-    returns,
-    cancellations,
-    inquiries,
-    cases,
-    disputes,
-    offers,
-    shipments,
-  ].some((q) => q.data !== undefined);
-  const pending = NEEDS_YOU_QUEUES.filter((q) => queues[q].isLoading);
+  const states = NEEDS_YOU_QUEUES.filter(on).map((q) => queues[q]);
+  const answered = (
+    [
+      ["returns", returns],
+      ["cancellations", cancellations],
+      ["inquiries", inquiries],
+      ["cases", cases],
+      ["disputes", disputes],
+      ["offers", offers],
+      ["shipments", shipments],
+    ] as const
+  ).some(([q, r]) => on(q) && r.data !== undefined);
+  const pending = NEEDS_YOU_QUEUES.filter((q) => on(q) && queues[q].isLoading);
   return {
     items,
     queues,
@@ -280,7 +303,7 @@ export function useNeedsYou(enabled = true, ebayEnabled = true): NeedsYouState {
     // Every queue down is an outage worth an error state. One queue down is
     // not: the others carry real work the seller still has to do, and
     // hiding it behind "could not load" would be the more expensive mistake.
-    isError: states.every((s) => s.isError),
+    isError: states.length > 0 && states.every((s) => s.isError),
     isPartial: states.some((s) => s.isError),
     isFetching:
       returns.isFetching ||

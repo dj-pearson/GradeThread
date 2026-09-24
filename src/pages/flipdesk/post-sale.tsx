@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { QueueBody } from "@/components/flipdesk/post-sale/queue-body";
+import { InlineRetry } from "@/components/flipdesk/inline-retry";
 import { PlatformCoverageNote } from "@/components/flipdesk/platform-coverage-note";
 import { CaseItemSummary } from "@/components/flipdesk/case-item-summary";
 import { ReturnEvidencePanel } from "@/components/flipdesk/return-evidence-panel";
@@ -94,11 +95,15 @@ import { useNeedsYou } from "@/hooks/use-needs-you";
 import { useFocusParam } from "@/hooks/use-focus-param";
 import {
   DEFAULT_POST_SALE_TAB,
+  POST_SALE_QUEUES,
   POST_SALE_TABS,
   postSaleTabCounts,
+  QUEUE_NOUN,
   resolvePostSaleTabId,
   type PostSaleTabId,
   tabForKind,
+  tabLoadState,
+  type TabLoadState,
 } from "@/pages/flipdesk/post-sale-tabs";
 import {
   centsToDisplay,
@@ -186,8 +191,11 @@ function PostSaleTabs() {
 
   // One hook for every badge. It is the same merged query the ranked card used,
   // so opening this page costs no more reads than it did before.
-  const needsYou = useNeedsYou();
+  // PS-11: offers are not on this page, so they are neither fetched nor
+  // polled here, and cannot hold the page in a loading state.
+  const needsYou = useNeedsYou(true, true, { include: POST_SALE_QUEUES });
   const counts = postSaleTabCounts(needsYou.items);
+  const failedQueues = POST_SALE_QUEUES.filter((q) => needsYou.queues[q]?.isError);
 
   function setTab(next: PostSaleTabId, keepFocus = false) {
     const params = new URLSearchParams(searchParams);
@@ -232,23 +240,28 @@ function PostSaleTabs() {
           eBay.
         </p>
       ) : null}
+      {/* PS-11: which queues did not answer, in words, with one Retry. A tab
+          that failed carries a warning mark, and this line says what it is. */}
+      {failedQueues.length > 0 ? (
+        <div className="mb-3">
+          <InlineRetry
+            message={`Couldn't load ${joinWords(failedQueues.map((q) => QUEUE_NOUN[q]))}. What is waiting there may not be counted.`}
+            onRetry={needsYou.refetch}
+          />
+        </div>
+      ) : null}
       <Tabs value={tab} onValueChange={(v) => setTab(v as PostSaleTabId)}>
         <TabsList className="flex flex-wrap">
           {POST_SALE_TABS.map((t) => (
             <TabsTrigger key={t.id} value={t.id} className="gap-2">
               {t.label}
-              {/* No badge while the queues are still loading, and none on a tab
-                  that counts nothing. A "0" that is really "not known yet"
-                  reads as "nothing waiting", which is the one wrong answer
-                  this page must not give. */}
-              {t.kinds.length > 0 && !needsYou.isLoading && counts[t.id] > 0 && (
-                <Badge
-                  variant={tab === t.id ? "default" : "secondary"}
-                  className="px-1.5 py-0 text-[10px] tabular-nums"
-                >
-                  {counts[t.id].toLocaleString()}
-                </Badge>
-              )}
+              {t.kinds.length > 0 ? (
+                <TabMarker
+                  load={tabLoadState(t.id, needsYou.queues)}
+                  count={counts[t.id]}
+                  active={tab === t.id}
+                />
+              ) : null}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -268,6 +281,54 @@ function PostSaleTabs() {
       {tab === "insights" && <ReturnAnalyticsCard />}
     </>
   );
+}
+
+/**
+ * PS-11: one tab's marker. Loading and failed each say so, and a count only
+ * appears once every queue behind the tab has answered. A "0" that is really
+ * "not known yet" reads as "nothing waiting", which is the one wrong answer
+ * this page must not give, so an answered zero shows no badge at all.
+ */
+function TabMarker({
+  load,
+  count,
+  active,
+}: {
+  load: TabLoadState;
+  count: number;
+  active: boolean;
+}) {
+  if (load === "loading") {
+    return (
+      <span className="text-xs text-muted-foreground">
+        <span aria-hidden="true">...</span>
+        <span className="sr-only">loading</span>
+      </span>
+    );
+  }
+  if (load === "error") {
+    return (
+      <span className="inline-flex items-center">
+        <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 text-destructive" />
+        <span className="sr-only">could not load</span>
+      </span>
+    );
+  }
+  if (count <= 0) return null;
+  return (
+    <Badge
+      variant={active ? "default" : "secondary"}
+      className="px-1.5 py-0 text-[10px] tabular-nums"
+    >
+      {count.toLocaleString()}
+      <span className="sr-only"> waiting on you</span>
+    </Badge>
+  );
+}
+
+function joinWords(words: string[]): string {
+  if (words.length <= 1) return words[0] ?? "";
+  return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
 }
 
 function fmtDate(iso: string | null): string {

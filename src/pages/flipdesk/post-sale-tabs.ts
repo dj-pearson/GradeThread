@@ -21,6 +21,7 @@
 // coverage — the same reason inventory-tabs.ts is separate.
 
 import type { NeedsYouItem, NeedsYouKind } from "@/pages/flipdesk/needs-you";
+import type { NeedsYouQueue } from "@/hooks/use-needs-you";
 
 export type PostSaleTabId =
   | "ship"
@@ -126,3 +127,53 @@ export function postSaleTabCounts(items: NeedsYouItem[]): PostSaleTabCounts {
   }
   return counts;
 }
+
+/**
+ * PS-11: the Needs-You queues whose load state a tab's badge reports.
+ *
+ * A badge used to hide while `needsYou.isLoading`, which turns false the moment
+ * the local ship queue answers, so the eBay tabs read as "nothing waiting"
+ * while their calls were still in flight. Each tab now answers for its own
+ * queues: loading, failed, or a count.
+ */
+const TAB_QUEUES: Readonly<Record<PostSaleTabId, readonly NeedsYouQueue[]>> = {
+  ship: ["shipments"],
+  disputes: ["disputes"],
+  cases: ["cases", "inquiries"],
+  returns: ["returns"],
+  cancellations: ["cancellations"],
+  insights: [],
+};
+
+export function queuesForTab(tab: PostSaleTabId): readonly NeedsYouQueue[] {
+  return TAB_QUEUES[tab];
+}
+
+/** Every queue the page's tabs read. Offers are not one of them. */
+export const POST_SALE_QUEUES: readonly NeedsYouQueue[] = [
+  ...new Set(POST_SALE_TABS.flatMap((t) => TAB_QUEUES[t.id])),
+];
+
+export type TabLoadState = "loading" | "error" | "ready";
+
+/** What one tab's badge should say, from the per-queue flags. */
+export function tabLoadState(
+  tab: PostSaleTabId,
+  queues: Partial<Record<NeedsYouQueue, { isLoading: boolean; isError: boolean }>>,
+): TabLoadState {
+  const mine = queuesForTab(tab).map((q) => queues[q]);
+  if (mine.some((q) => q?.isLoading)) return "loading";
+  if (mine.some((q) => q?.isError)) return "error";
+  return "ready";
+}
+
+/** How a failed queue is named in the line above the tabs. */
+export const QUEUE_NOUN: Readonly<Record<NeedsYouQueue, string>> = {
+  returns: "returns",
+  cancellations: "cancellations",
+  inquiries: "item-not-received inquiries",
+  cases: "cases",
+  disputes: "payment disputes",
+  offers: "offers",
+  shipments: "the ship queue",
+};
