@@ -71,6 +71,70 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00834_overview_metrics_owner_scope.sql (INV-D1 - FlipDesk Overview on /dashboard mixed two workspaces)
+
+**What it does.** Replaces `flipdesk_overview_metrics` (5 args, 00594 body as
+guarded by 00611) with a version that takes one more argument,
+`p_owner_id uuid default null`, the workspace on screen. The one scan every
+figure reads from is filtered to `user_id = p_owner_id`, so pipeline counts,
+inventory value, listed/sold/gross/net in range, aging, stale, top brands,
+recent sales and the North Star weeks all come from one workspace. The old
+signature is DROPPED first so PostgREST never sees two overloads. It stays
+SECURITY INVOKER and `language plpgsql stable`, with `search_path = public`,
+and 00611's anon refusal is kept word for word and runs first. Grants are
+replayed as they were: `authenticated` and `service_role` (PUBLIC comes back
+with CREATE). `proacl` read before and after on the local cluster:
+`{=X/postgres,postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`
+both times. No revokes (US-2403).
+
+**The guard.** The same as 00833: a non-NULL `p_owner_id` must be the caller,
+a workspace the caller is a member of (`public.is_workspace_member`), or the
+caller must be the service role. Anyone else gets **42501**. **NULL means
+`auth.uid()`**, the caller's own rows, which is what a client built before this
+migration sends.
+
+**Also fixed, same function.** `recentSales` listed every sale in the window,
+refunded and cancelled included, beside a Sold tile that counts completed sales
+only. It now reads the same `in_sold_window` predicate as `soldInRange`, so the
+list and the count agree (00111: metrics exclude anything but `completed`).
+`soldInRange` itself is unchanged; see the commit for why it was not moved to
+the Inventory Sold tab's rule.
+
+**Why.** The function relied on RLS over `items_full`, and that policy admits
+own rows OR any workspace the caller is a member of. A seller who owned items
+and also belonged to another workspace saw both tenants' numbers added
+together on /dashboard.
+
+**⚠ THE BROWSER SENDS THE NEW ARGUMENT, in the same commit.**
+`src/hooks/use-flipdesk-overview.ts` sends `p_owner_id`. If Pages deploys
+before this is applied, PostgREST finds no function with that parameter and
+**every FlipDesk widget on /dashboard fails to load** (PGRST202). The other way
+round is safe: the new function answers an old client's call (the argument
+defaults), and the old client then sees the caller's own numbers only.
+**Apply BEFORE the push to main.**
+
+**Proved on a local Postgres 16** (migrations through 00833 already applied):
+applied twice, second run clean with only the "does not exist, skipping"
+notice from the drop. `node scripts/check-overview-owner-scope.mjs --dsn ...`
+passes 12/12: A (also a member of B) reading A gets
+`total:3,sold:1,gross:40,recent:1`; A with NULL the same; A in B and M in B get
+B's `total:1,sold:1,gross:50,recent:1`; M in A gets A's; M, S and the service
+role with NULL get zeros; S naming A, anon naming A and anon with NULL get
+42501; the service role naming A gets A's. Sabotage 1 (owner filter replaced
+with `true`): 8 of 12 red, A reading A got `total:4,sold:2,gross:90,recent:2`,
+which is the shipped bug. Sabotage 2 (owner guard removed): the stranger case
+goes red (an empty dashboard instead of 42501). Sabotage 3 (recentSales back to
+any sale in the window): 4 red, `recent:2` with the refunded sale listed.
+Restored: 12/12, and `check-inventory-owner-scope.mjs` still 13/13.
+
+**Risk: LOW-MEDIUM.** Read-only function, no table change. The risk is the
+deploy order above.
+
+**Order.** 1) `npm run migrate:prod -- --apply --yes` (applies 00834 after
+00823-00833, then `NOTIFY pgrst, 'reload schema';`). 2) Redeploy the edge (boot
+guard expects 00834; the edge does not call this function). 3) THEN push to
+main so Pages builds the client that sends `p_owner_id`.
+
 ## HELD: 00833_inventory_table_owner_scope.sql (INV-D1 - Inventory table and tab counts mixed two workspaces)
 
 **What it does.** Replaces `flipdesk_listing_page` (12 args, 00771) and

@@ -10,14 +10,18 @@ import {
 //
 // This replaces a full `items_full` read plus a client-side loop over every row
 // the account owns. `flipdesk_overview_metrics` (migration 00594) is SECURITY
-// INVOKER over the same security_invoker view, so the rows counted are exactly
-// the rows RLS would have handed the browser — the arithmetic just happens where
-// the rows already are.
+// INVOKER over the same security_invoker view, so RLS still applies, and the
+// arithmetic happens where the rows already are.
 //
 // Keyed under the ["items_full"] prefix so every existing
 // invalidateQueries({ queryKey: ["items_full"] }) after a status change, a sale
 // or an import refreshes the overview too. The range is part of the key: two
 // windows are two different answers, not one answer to re-derive.
+//
+// Migration 00834: the numbers are for ONE workspace, the one on screen. RLS
+// admits every workspace the caller belongs to, so before it a seller who was
+// also a member elsewhere got both workspaces blended on the dashboard. The key
+// names the owner so a workspace switch is a new cache entry.
 
 /** Days without movement before an item counts as aging / a listing as stale. */
 export const OVERVIEW_AGING_DAYS = 14;
@@ -107,11 +111,17 @@ function viewerTimeZone(): string {
   }
 }
 
+/** The workspace argument. Null lets the server fall back to the caller's own rows. */
+export function overviewOwnerArg(ownerId: string | undefined) {
+  return { p_owner_id: ownerId || null };
+}
+
 export function useFlipdeskOverview(range: OverviewRangeId, enabled = true) {
   const user = useAuthStore((s) => s.user);
+  const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId) ?? user?.id;
   return useQuery({
-    queryKey: ["items_full", "overview_metrics", user?.id, range],
-    enabled: enabled && !!user,
+    queryKey: ["items_full", "overview_metrics", ownerId, range],
+    enabled: enabled && !!user && !!ownerId,
     staleTime: 5 * 60 * 1000,
     // A range click keeps the previous numbers on screen (dimmed by the tiles
     // while isPlaceholderData) instead of blanking eleven widgets to skeletons.
@@ -128,6 +138,9 @@ export function useFlipdeskOverview(range: OverviewRangeId, enabled = true) {
           p_tz: viewerTimeZone(),
           p_aging_days: OVERVIEW_AGING_DAYS,
           p_limit: OVERVIEW_LIST_LIMIT,
+          // 00834: one workspace. The server checks the caller may read it
+          // (42501 otherwise) and treats null as the caller's own rows.
+          ...overviewOwnerArg(ownerId),
         } as never,
       );
       if (error) throw error;
