@@ -155,8 +155,16 @@ export function RewardsPage() {
   const ready = !!rewards;
   useEffect(() => {
     if (!ready || !hash) return;
-    const el = document.getElementById(decodeURIComponent(hash.slice(1)));
-    el?.scrollIntoView?.({ block: "start" });
+    // A hand-typed or truncated link can carry a malformed escape ("#%E0"),
+    // and decodeURIComponent throws on it. Inside an effect that would take
+    // the whole page down, so an undecodable anchor is simply not scrolled to.
+    let id: string;
+    try {
+      id = decodeURIComponent(hash.slice(1));
+    } catch {
+      return;
+    }
+    document.getElementById(id)?.scrollIntoView?.({ block: "start" });
   }, [ready, hash, tab]);
 
   const header = (

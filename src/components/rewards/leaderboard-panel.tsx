@@ -257,12 +257,17 @@ export function LeaderboardPanel() {
                         <span className="text-muted-foreground tabular-nums">
                           {num(s.score)} {s.score_label.toLowerCase()}
                         </span>
-                        <span
-                          className="font-semibold tabular-nums"
-                          aria-label={s.tied ? `Rank ${s.rank}, tied` : `Rank ${s.rank}`}
-                        >
-                          #{s.rank}
-                          {s.tied ? "=" : ""}
+                        {/* aria-label on a plain span is ignored by most screen
+                            readers (a generic role cannot be named), so the
+                            spoken form is real text and the glyphs are hidden. */}
+                        <span className="font-semibold tabular-nums">
+                          <span aria-hidden="true">
+                            #{s.rank}
+                            {s.tied ? "=" : ""}
+                          </span>
+                          <span className="sr-only" data-testid="rank-spoken">
+                            {s.tied ? `Rank ${s.rank}, tied` : `Rank ${s.rank}`}
+                          </span>
                         </span>
                       </>
                     )}

@@ -208,7 +208,10 @@ describe("LeaderboardPanel (R9)", () => {
   it("a tied rank is read out as tied", async () => {
     server({ get: () => json(state()) });
     await render();
-    expect(container!.querySelector('[aria-label="Rank 3, tied"]')).not.toBeNull();
+    const spoken = [...container!.querySelectorAll('[data-testid="rank-spoken"]')].map(
+      (n) => n.textContent,
+    );
+    expect(spoken).toContain("Rank 3, tied");
   });
 
   it("R4: shows the server's sentence for a refused name under the field", async () => {

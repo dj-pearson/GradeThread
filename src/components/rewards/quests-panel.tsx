@@ -145,7 +145,9 @@ function ChallengeCard({ challenge }: { challenge: Challenge }) {
         <ol className="mt-3 space-y-1">
           {challenge.standings.map((s) => (
             <li
-              key={s.handle}
+              // Rank first: a standing without a Verified handle is keyed by its
+              // board alias, and two sellers can pick the same alias.
+              key={`${s.rank}:${s.handle}`}
               className={cn(
                 "flex items-baseline justify-between gap-3 text-sm",
                 s.is_you && "font-semibold",

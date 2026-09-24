@@ -82,6 +82,12 @@ describe("Rewards tabs follow ?tab= (R6)", () => {
     expect(container!.querySelector("#quests")).not.toBeNull();
   });
 
+  it("a malformed #anchor is ignored instead of crashing the page", () => {
+    const router = mount("/dashboard/rewards?tab=season#%E0%A4%A");
+    expect(router.state.location.hash).toBe("#%E0%A4%A");
+    expect(has("quests-panel")).toBe(true);
+  });
+
   it("an unknown ?tab= falls back to standing rather than an empty page", () => {
     mount("/dashboard/rewards?tab=bogus");
     expect(has("badge-shelf")).toBe(true);

@@ -39,6 +39,13 @@ function expiryNote(expiresAt: string | null): string {
   return ` · ${days} day${days === 1 ? "" : "s"} left`;
 }
 
+/** An expired grant keeps its row but offers nothing to go and use. */
+function isExpired(expiresAt: string | null): boolean {
+  if (!expiresAt) return false;
+  const ms = Date.parse(expiresAt);
+  return Number.isFinite(ms) && ms <= Date.now();
+}
+
 export function MilestoneRewards({ milestones }: { milestones: MilestoneProgress }) {
   const { enabled, granted, next } = milestones;
   if (!enabled && granted.length === 0) return null;
@@ -75,6 +82,8 @@ export function MilestoneRewards({ milestones }: { milestones: MilestoneProgress
                   </p>
                   {g.consumed_at
                     ? <p className="text-xs font-medium text-muted-foreground">Used</p>
+                    : isExpired(g.expires_at)
+                    ? null
                     : <RewardActionLink action={grantAction(g.reward_type)} />}
                 </div>
               </li>
