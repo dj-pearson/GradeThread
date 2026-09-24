@@ -7,7 +7,7 @@
 // lt / lte filters (dotted paths reach into embeds), order, limit, embeds joined
 // by `<singular>_id` (inventory_items -> inventory_item_id), `!inner` dropping
 // rows whose embed is missing, insert / upsert(on_conflict) / update / delete,
-// single() / maybeSingle(), and the two job-lock RPCs.
+// single() / maybeSingle(), ignore-duplicates upserts, and the two job-lock RPCs.
 //
 // Usage:
 //   import "./_env.ts";
@@ -272,10 +272,14 @@ export function installFakePostgrest(): FakePostgrest {
       const input = (Array.isArray(body) ? body : [body]) as Row[];
       const conflict = params.get("on_conflict");
       const merge = prefer.includes("resolution=merge-duplicates");
+      const ignore = prefer.includes("resolution=ignore-duplicates");
       const out: Row[] = [];
       for (const r of input) {
         const keys = conflict ? conflict.split(",") : ["id"];
-        const hit = merge ? list.find((x) => keys.every((k) => x[k] === r[k])) : undefined;
+        const hit = merge || ignore
+          ? list.find((x) => keys.every((k) => x[k] === r[k]))
+          : undefined;
+        if (hit && ignore) continue; // ON CONFLICT DO NOTHING returns no row
         if (hit) {
           Object.assign(hit, r);
           out.push(hit);

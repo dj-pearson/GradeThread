@@ -67,19 +67,25 @@ rewardsRoutes.get("/state", async (c) => {
   try {
     const tz = await loadSeasonTimezone();
 
-    // Roll over the season that just ended, if it hasn't been recapped yet.
-    // Lazy + idempotent (UNIQUE(user_id, season_key), 00542) — see
-    // finalizeCompletedSeason for why this isn't a quarterly cron. Best-effort:
-    // a rollover problem must not take down the whole screen.
-    await finalizeCompletedSeason(userId, tz, nowMs);
-
     // US-2972: bring pipeline XP up to date before reading it, so a seller who
     // just finished listing sees that work on this load rather than tomorrow.
     // Throttled to one sweep per SWEEP_THROTTLE_MS and internally best-effort —
     // it returns null when throttled OR when it failed, and either way the
     // screen renders from whatever state is already stored. A sweep problem
     // must not cost the seller their rewards screen.
+    //
+    // ⚠ The sweep runs BEFORE the rollover below, not after. Pipeline XP is
+    // backdated to when the work happened, so an item listed on the last day of
+    // a quarter and swept on the first day of the next one belongs to the
+    // quarter that just ended. Finalizing first wrote the recap without it, and
+    // the recap row is write-once.
     await sweepOnDemand(userId, nowMs);
+
+    // Roll over the season that just ended, if it hasn't been recapped yet.
+    // Lazy + idempotent (UNIQUE(user_id, season_key), 00542) — see
+    // finalizeCompletedSeason for why this isn't a quarterly cron. Best-effort:
+    // a rollover problem must not take down the whole screen.
+    await finalizeCompletedSeason(userId, tz, nowMs);
 
     const [state, season, recaps] = await Promise.all([
       readRewardState(userId),
