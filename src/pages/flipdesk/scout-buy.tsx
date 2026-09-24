@@ -1,4 +1,7 @@
 import { useRef, useState } from "react";
+import { Link } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   Camera,
   Loader2,
@@ -25,9 +28,12 @@ import { PageHeader } from "@/components/ui/page-header";
 import {
   useScoutAppraise,
   useScoutBuy,
+  type AppraiseInput,
   type AppraiseResult,
   type BuyRecommendation,
 } from "@/hooks/use-scout-appraise";
+import { compressImage } from "@/lib/image-utils";
+import { inventoryItemHref } from "@/lib/scout-links";
 import { ValueBasisNote } from "@/components/value/value-basis-note";
 import { SourcingCeilingNote } from "@/components/value/sourcing-ceiling-note";
 import { SourcingTargetSetting } from "@/components/flipdesk/sourcing-target-setting";
@@ -37,6 +43,22 @@ import { usePageHost } from "@/hooks/use-page-host";
 function dollars(cents: number | null | undefined): string {
   if (cents == null) return "—";
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+/** SRC-12: the grading contract's review line, the same one grading uses. */
+export const BUY_REVIEW_CONFIDENCE = 0.75;
+
+/** Blob to a data: URI. */
+function blobToDataUri(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () =>
+      typeof reader.result === "string"
+        ? resolve(reader.result)
+        : reject(new Error("Could not read that photo."));
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read that photo."));
+    reader.readAsDataURL(blob);
+  });
 }
 
 // Parse a dollars string ("12.50") to integer cents, or null when blank/invalid.
@@ -75,17 +97,21 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
 
 function DecisionCard({
   result,
-  keyword,
-  brand,
-  size,
+  appraised,
   costCents,
+  onNextItem,
 }: {
   result: AppraiseResult;
-  keyword: string;
-  brand: string;
-  size: string;
+  /**
+   * SRC-12: what was APPRAISED, snapshotted from the mutation's variables. The
+   * form fields are live, so a seller who retyped the brand after the verdict
+   * used to save the new words against the old verdict.
+   */
+  appraised: AppraiseInput;
   costCents: number | null;
+  onNextItem: () => void;
 }) {
+  const qc = useQueryClient();
   const buy = useScoutBuy();
   const { decision, grade, value, sellThrough, ceiling } = result;
   const rec = REC_STYLES[decision.recommendation];
@@ -149,7 +175,10 @@ function DecisionCard({
             </div>
           )}
 
-          {grade.value != null && grade.confidence < 0.6 && (
+          {/* SRC-12: the grading contract's line is 0.75, and a grade the
+              engine already flagged for review is uncertain whatever its
+              number says. This used 0.6 and ignored the flag. */}
+          {grade.value != null && (grade.needsHumanReview || grade.confidence < BUY_REVIEW_CONFIDENCE) && (
             <div className="flex items-start gap-2 rounded-md bg-background/60 p-2 text-xs">
               <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
               Low grade confidence ({Math.round(grade.confidence * 100)}%) — inspect the item closely in person.
@@ -163,21 +192,33 @@ function DecisionCard({
             // hook's onError toast.)
             disabled={buy.isPending || buy.isSuccess}
             onClick={() =>
-              buy.mutate({
-                // US-2763: only an AUTHORITATIVE match may name the item.
-                // A visual match is a look-alike listing's title, and saving it
-                // silently is how a garment with no brand mark in frame ends up
-                // named after somebody else's Lululemon tank. What the seller
-                // typed wins over a guess; the guess is shown, not stored.
-                title: (result.identityIsAuthoritative ? result.matchedTitle : null) ||
-                  keyword.trim() || "Scout item",
-                brand: brand.trim() || undefined,
-                size: size.trim() || undefined,
-                costCents: costCents ?? undefined,
-                targetCents: value.medianCents ?? undefined,
-                gradeValue: grade.value ?? undefined,
-                gradeLabel: grade.tier ?? undefined,
-              })
+              buy.mutate(
+                {
+                  // US-2763: only an AUTHORITATIVE match may name the item.
+                  // A visual match is a look-alike listing's title, and saving it
+                  // silently is how a garment with no brand mark in frame ends up
+                  // named after somebody else's Lululemon tank. What the seller
+                  // typed wins over a guess; the guess is shown, not stored.
+                  title: (result.identityIsAuthoritative ? result.matchedTitle : null) ||
+                    appraised.q?.trim() || "Scout item",
+                  brand: appraised.brand?.trim() || undefined,
+                  size: appraised.size?.trim() || undefined,
+                  // SRC-12 / US-3100: the leaf the appraisal resolved, else the
+                  // one the seller asked about.
+                  categoryId: result.matchedCategoryId ?? appraised.categoryId ?? undefined,
+                  costCents: costCents ?? undefined,
+                  // SRC-12: a thin-comp median is not a price to aim at. Sent
+                  // only when the value range was sufficient.
+                  targetCents: value.sufficient ? (value.medianCents ?? undefined) : undefined,
+                  gradeValue: grade.value ?? undefined,
+                  gradeLabel: grade.tier ?? undefined,
+                },
+                {
+                  onSuccess: () => {
+                    void qc.invalidateQueries({ queryKey: ["items_full"] });
+                  },
+                },
+              )
             }
           >
             {buy.isPending ? (
@@ -187,6 +228,20 @@ function DecisionCard({
             )}
             {buy.isSuccess ? "Added to inventory" : "Bought it — add to inventory"}
           </Button>
+
+          {/* SRC-12: what to do after "Bought it". The id used to be dropped,
+              so there was no way to the new item and nothing reset the form
+              for the next one on the rack. */}
+          {buy.isSuccess && buy.data?.id ? (
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="sm" variant="outline">
+                <Link to={inventoryItemHref(buy.data.id)}>Open item</Link>
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={onNextItem}>
+                Next item
+              </Button>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -223,13 +278,38 @@ export function FlipdeskScoutBuyPage() {
   const result = appraise.data;
   const submittedCost = result ? result.costCents : null;
 
-  function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = () => setPhoto(typeof reader.result === "string" ? reader.result : null);
-    reader.readAsDataURL(file);
+    if (!file.type.startsWith("image/")) {
+      toast.error("That file isn't a photo. Pick a JPEG, PNG or HEIC image.");
+      return;
+    }
+    // SRC-12: a phone photo is 4-8 MB, which base64 turns into a request body
+    // near the edge's 12 MB cap. 1600px is plenty for a condition read.
+    try {
+      let blob: Blob = file;
+      try {
+        blob = (await compressImage(file, 1600, 0.85)).blob;
+      } catch {
+        // A photo the canvas cannot decode is still sent as it is; the edge
+        // enforces its own cap.
+      }
+      setPhoto(await blobToDataUri(blob));
+    } catch {
+      toast.error("Couldn't read that photo. Try taking it again.");
+    }
+  }
+
+  /** SRC-12: ready for the next garment. The cost usually stays the same. */
+  function nextItem() {
+    setPhoto(null);
+    if (fileRef.current) fileRef.current.value = "";
+    setBarcode("");
+    setKeyword("");
+    setBrand("");
+    setSize("");
+    appraise.reset();
   }
 
   const canAppraise =
@@ -309,7 +389,7 @@ export function FlipdeskScoutBuyPage() {
                     accept="image/*"
                     capture="environment"
                     className="hidden"
-                    onChange={onPickPhoto}
+                    onChange={(e) => void onPickPhoto(e)}
                   />
                   <p className="text-xs text-muted-foreground">
                     A photo gives a condition signal. Without one you'll still get value
@@ -407,17 +487,21 @@ export function FlipdeskScoutBuyPage() {
               <CardHeader>
                 <CardTitle className="text-base text-destructive">Appraisal failed</CardTitle>
               </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">
-                {appraise.error.message}
+              <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <p>{appraise.error.message}</p>
+                {appraise.error.status === 402 || appraise.error.status === 429 ? (
+                  <Button asChild size="sm">
+                    <Link to="/dashboard/billing">See plans</Link>
+                  </Button>
+                ) : null}
               </CardContent>
             </Card>
           ) : result ? (
             <DecisionCard
               result={result}
-              keyword={keyword}
-              brand={brand}
-              size={size}
+              appraised={appraise.variables ?? {}}
               costCents={submittedCost}
+              onNextItem={nextItem}
             />
           ) : null}
         </div>

@@ -98,8 +98,19 @@ export interface AppraiseInput {
   costCents?: number;
 }
 
+/**
+ * SRC-12: an appraisal failure that carries the HTTP status, so the page can
+ * offer an upgrade on 402 (plan) and 429 (allowance) instead of a dead end.
+ */
+export class AppraiseError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "AppraiseError";
+  }
+}
+
 export function useScoutAppraise() {
-  return useMutation<AppraiseResult, Error, AppraiseInput>({
+  return useMutation<AppraiseResult, AppraiseError, AppraiseInput>({
     mutationFn: async (input) => {
       const res = await edgeFetch("/api/flipdesk/scout/appraise", {
         method: "POST",
@@ -108,10 +119,11 @@ export function useScoutAppraise() {
       const data = (await res.json().catch(() => ({}))) as
         & Partial<AppraiseResult>
         & { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Appraisal failed");
+      if (!res.ok) throw new AppraiseError(data.error ?? "Appraisal failed", res.status);
       return data as AppraiseResult;
     },
-    onError: (err) => toastError(err),
+    // SRC-12: no toast. The page shows the failure inline, right where the
+    // answer would have been, and a toast saying the same thing covered it.
   });
 }
 
@@ -120,6 +132,12 @@ export interface ScoutBuyInput {
   brand?: string;
   size?: string;
   color?: string;
+  /** SRC-12 / US-3100: the eBay leaf category, so the composer does not ask again. */
+  categoryId?: string;
+  /** SRC-13: the Source this was bought from. Owner-verified by the edge. */
+  sourceId?: string;
+  /** SRC-13: the eBay listing it was bought from (https only). */
+  sourceListingUrl?: string;
   costCents?: number;
   targetCents?: number;
   gradeValue?: number;

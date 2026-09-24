@@ -11,3 +11,11 @@ export function scoutHrefForFacet(term: string, kind: "brand" | "category"): str
   params.set(kind === "brand" ? "brand" : "q", term);
   return `/dashboard/flipdesk/sourcing?${params.toString()}`;
 }
+
+/**
+ * SRC-12: where a just-bought item lives. The item canvas is /items/<id>;
+ * /inventory/<id> is not a route.
+ */
+export function inventoryItemHref(id: string): string {
+  return `/dashboard/flipdesk/items/${encodeURIComponent(id)}`;
+}
