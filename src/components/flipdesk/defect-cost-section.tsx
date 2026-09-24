@@ -19,7 +19,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { downloadCsv } from "@/lib/csv-export";
-import { useAuthStore } from "@/stores/auth-store";
 import {
   costPercent,
   defectImpact,
@@ -30,6 +29,7 @@ import {
   type DefectCostReport,
 } from "@/lib/defect-cost";
 import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // US-2821: the Defect Cost Ledger, on the Grading ROI tab.
 //
@@ -51,15 +51,15 @@ export function DefectCostSection({
 }: {
   periodStart: string | null;
 }) {
-  const user = useAuthStore((s) => s.user);
+  const tenantKey = useTenantKey();
   const {
     data = EMPTY_DEFECT_COST,
     isError,
     isFetching,
     refetch,
   } = useQuery<DefectCostReport>({
-    queryKey: ["items_full", "analytics", "defect-cost", user?.id, periodStart],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "defect-cost", tenantKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { fetchDefectCost } = await import("@/lib/defect-cost");

@@ -8,6 +8,7 @@ import {
   scanSummary,
   type AppliedRow,
 } from "@/pages/flipdesk/reprice-plan";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // Condition-aware dynamic repricing — nudges feed + scan/apply/dismiss.
 
@@ -64,8 +65,12 @@ export interface PerformanceSuggestion {
 }
 
 export function usePerformanceSuggestions() {
+  // A8/A11: tenant-partitioned, and under the listing_performance prefix so the
+  // listing sync's one invalidate refreshes these with the table and KPIs.
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["performance_suggestions"],
+    queryKey: ["listing_performance", tenantKey, "suggestions"],
+    enabled: !!tenantKey,
     staleTime: 60_000,
     queryFn: async (): Promise<PerformanceSuggestion[]> => {
       const res = await edgeFetch("/api/flipdesk/pricing/performance");

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -40,7 +40,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAuthStore } from "@/stores/auth-store";
 import {
   MIN_BUCKET_SIZE,
   sellThroughDatum,
@@ -71,6 +70,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
 import { ScorecardSkeleton } from "@/components/flipdesk/scorecard-skeleton";
 import { pctTick, SERIES, usdTick } from "@/lib/chart-theme";
+import { useTenantKey } from "@/hooks/use-tenant-key";
+import { isPreset, presetStart, RANGE_LABEL, type Preset } from "@/lib/analytics-range";
 
 // Lazy-load the Recharts bar chart at the chart boundary so the route-entry
 // chunk stays light and the page shell + table paint before Recharts streams
@@ -168,34 +169,12 @@ const usd = (n: number | null | undefined): string =>
 const pct = (n: number | null | undefined): string =>
   n == null || !Number.isFinite(n) ? "—" : `${Math.round(n * 100)}%`;
 
-type Preset = "all" | "30d" | "90d" | "12mo";
-
-// The window each preset covers, in words, for titles and copy.
-const RANGE_LABEL: Record<Preset, string> = {
-  all: "all time",
-  "30d": "last 30 days",
-  "90d": "last 90 days",
-  "12mo": "last 12 months",
-};
-
-// Lower bound (yyyy-mm-dd) for a preset, or null for all-time. The DB RPC does
-// the actual date filtering; this just translates the preset into the period
-// start it expects (US-418 — aggregation moved server-side).
-function presetStart(p: Preset): string | null {
-  if (p === "all") return null;
-  const days = p === "30d" ? 30 : p === "90d" ? 90 : 365;
-  const from = new Date();
-  from.setDate(from.getDate() - days);
-  return from.toISOString().slice(0, 10);
-}
-
 // US-2234: persist the period preset in the URL so an analytics view is
 // shareable and survives a refresh, instead of resetting to all-time.
 function usePresetParam(): [Preset, (p: Preset) => void] {
   const [sp, setSp] = useSearchParams();
   const raw = sp.get("preset");
-  const preset: Preset =
-    raw === "30d" || raw === "90d" || raw === "12mo" ? raw : "all";
+  const preset: Preset = isPreset(raw) ? raw : "all";
   const setPreset = (p: Preset) =>
     setSp(
       (prev) => {
@@ -396,14 +375,14 @@ export function FlipdeskAnalyticsPage() {
 // here so its own module never has to know what a preset is.
 function TeamReportHost() {
   const [preset] = usePresetParam();
-  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  const periodStart = presetStart(preset);
   return <TeamReportPage periodStart={periodStart} />;
 }
 
 // Reads the shared range preset so the scorecard windows with everything else.
 function ScorecardHost() {
   const [preset] = usePresetParam();
-  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  const periodStart = presetStart(preset);
   return (
     <SellerScorecardCard
       periodStart={periodStart}
@@ -415,7 +394,7 @@ function ScorecardHost() {
 
 function PriceCurveTab() {
   const [preset] = usePresetParam();
-  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  const periodStart = presetStart(preset);
   return <PriceCurveReport periodStart={periodStart} />;
 }
 
@@ -463,14 +442,14 @@ function Loading() {
 }
 
 function SellThroughReport() {
-  const user = useAuthStore((s) => s.user);
+  const tenantKey = useTenantKey();
   const [preset] = usePresetParam();
   const [groupKey, setGroupKey] = useGroupKeyParam();
   // US-3303: unrealized rows are hidden by default and never silently. See the
   // note below the picker for the reasoning.
   const [showUnrealized, setShowUnrealized] = useState(false);
 
-  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  const periodStart = presetStart(preset);
   const {
     data: rows = [],
     isLoading,
@@ -480,8 +459,8 @@ function SellThroughReport() {
   } = useQuery({
     // Kept under the "items_full" prefix so the same mutation invalidations that
     // refresh the pipeline/listings caches also refresh these aggregates.
-    queryKey: ["items_full", "analytics", "sell-through", user?.id, groupKey, preset],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "sell-through", tenantKey, groupKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchSellThrough(groupKey, periodStart),
   });
@@ -495,8 +474,8 @@ function SellThroughReport() {
     isFetching: trendFetching,
     refetch: refetchTrend,
   } = useQuery({
-    queryKey: ["items_full", "analytics", "trend", user?.id, preset],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "trend", tenantKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const dash = await fetchFinancesDashboard(periodStart);
@@ -739,11 +718,11 @@ function SellThroughReport() {
 }
 
 export function GradingRoiReport() {
-  const user = useAuthStore((s) => s.user);
+  const tenantKey = useTenantKey();
   // US-2234 (AC3): honour the same period presets as the sibling tabs. The RPCs
   // now take p_period_start (migration 00505); periodStart flows into both.
   const [preset] = usePresetParam();
-  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  const periodStart = presetStart(preset);
   const {
     data: buckets = [],
     isLoading,
@@ -751,8 +730,8 @@ export function GradingRoiReport() {
     isFetching: bucketsFetching,
     refetch: refetchBuckets,
   } = useQuery({
-    queryKey: ["items_full", "analytics", "grading-roi", user?.id, preset],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "grading-roi", tenantKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchGradingRoi(periodStart),
   });
@@ -763,8 +742,8 @@ export function GradingRoiReport() {
     isFetching: summaryFetching,
     refetch: refetchSummary,
   } = useQuery({
-    queryKey: ["items_full", "analytics", "grading-roi-summary", user?.id, preset],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "grading-roi-summary", tenantKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchGradingRoiSummary(periodStart),
   });
@@ -1180,13 +1159,13 @@ function RoiStatTile({
 // headline + a grade-backed condition-guarantee surface the seller can copy
 // into their listings. Return rate = refunded ÷ fulfilled (shipped) sales.
 function ReturnReductionReport() {
-  const user = useAuthStore((s) => s.user);
+  const tenantKey = useTenantKey();
   const [preset] = usePresetParam();
 
-  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  const periodStart = presetStart(preset);
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["items_full", "analytics", "returns", user?.id, preset],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "returns", tenantKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchReturnReduction(periodStart),
   });

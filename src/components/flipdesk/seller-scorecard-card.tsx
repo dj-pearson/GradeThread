@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { downloadCsv } from "@/lib/csv-export";
 import { cn, ordinal } from "@/lib/utils";
-import { useAuthStore } from "@/stores/auth-store";
 import {
   diagnosisLine,
   EMPTY_SCORECARD,
@@ -23,6 +22,7 @@ import {
 } from "@/lib/seller-scorecard";
 import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
 import { ScorecardSkeleton } from "@/components/flipdesk/scorecard-skeleton";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // US-2822: five percentiles and one sentence, at the top of Analytics.
 //
@@ -40,7 +40,7 @@ export function SellerScorecardCard({
   /** "30d", "all": used in the CSV filename. */
   periodSlug?: string;
 }) {
-  const user = useAuthStore((s) => s.user);
+  const tenantKey = useTenantKey();
   const location = useLocation();
   const {
     data = EMPTY_SCORECARD,
@@ -49,8 +49,8 @@ export function SellerScorecardCard({
     isFetching,
     refetch,
   } = useQuery<Scorecard>({
-    queryKey: ["items_full", "analytics", "scorecard", user?.id, periodStart],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "scorecard", tenantKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { fetchSellerScorecard } = await import("@/lib/seller-scorecard");

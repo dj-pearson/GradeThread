@@ -19,7 +19,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { downloadCsv } from "@/lib/csv-export";
-import { useAuthStore } from "@/stores/auth-store";
 import { useItemsList } from "@/hooks/use-items-full";
 import {
   EMPTY_SOURCE_YIELD,
@@ -34,6 +33,7 @@ import {
 } from "@/lib/capital-velocity";
 import { splitPlaceholderBrandRows } from "@/lib/placeholder-brand";
 import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // US-2824 + US-2825: the two "what should I buy more of" reports, on the
 // Sell-through tab.
@@ -54,15 +54,15 @@ export function SourceYieldCard({
 }: {
   periodStart: string | null;
 }) {
-  const user = useAuthStore((s) => s.user);
+  const tenantKey = useTenantKey();
   const {
     data = EMPTY_SOURCE_YIELD,
     isError,
     isFetching,
     refetch,
   } = useQuery<SourceYieldReport>({
-    queryKey: ["items_full", "analytics", "source-yield", user?.id, periodStart],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "source-yield", tenantKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { fetchSourceYield } = await import("@/lib/source-yield");

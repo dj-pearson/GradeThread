@@ -50,10 +50,13 @@ import {
   normalizeBenchmarkFilters,
   type CommunityBenchmarkFilters,
   MIN_COHORT_SELLERS,
+  communityBenchmarksKey,
 } from "@/lib/community-benchmarks";
 import { deriveRecommendations } from "@/lib/community-recommendations";
 import { RecommendationRow } from "@/components/flipdesk/community-insights-widget";
 import { ordinalSuffix } from "@/lib/utils";
+import { useTenantKey } from "@/hooks/use-tenant-key";
+import { presetStart, type Preset } from "@/lib/analytics-range";
 
 const pct = (n: number | null | undefined): string =>
   n == null || !Number.isFinite(n) ? "—" : `${Math.round(n * 100)}%`;
@@ -74,15 +77,6 @@ const monthLabel = (key: string): string => {
   return names[idx] ?? key;
 };
 
-type Preset = "all" | "90d" | "12mo";
-
-function presetStart(p: Preset): string | null {
-  if (p === "all") return null;
-  const days = p === "90d" ? 90 : 365;
-  const from = new Date();
-  from.setDate(from.getDate() - days);
-  return from.toISOString().slice(0, 10);
-}
 
 // US-2235: dismissed recommendations persist across refreshes (keyed by rec id,
 // which is stable for a given cohort signal). Best-effort — a storage failure
@@ -112,8 +106,9 @@ function saveDismissedRecs(ids: Set<string>): void {
 export function FlipdeskCommunityInsightsPage(
   { embedded = false }: { embedded?: boolean } = {},
 ) {
+  const tenantKey = useTenantKey();
   const [preset, setPreset] = useState<Preset>("12mo");
-  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  const periodStart = presetStart(preset);
   // US-2235 AC1. Two pieces of state, not one, and the split is the point: the
   // DRAFT is what the inputs hold while someone is typing, and `filters` is what
   // has actually been submitted. Firing the query per keystroke would re-run a
@@ -137,8 +132,9 @@ export function FlipdeskCommunityInsightsPage(
   // cache entry rather than two identical queries.
   const activeFilters = useMemo(() => normalizeBenchmarkFilters(filters), [filters]);
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["community-benchmarks", periodStart, activeFilters],
+    queryKey: communityBenchmarksKey(tenantKey, periodStart, activeFilters),
     queryFn: () => fetchCommunityBenchmarks(periodStart, activeFilters),
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
   });
 

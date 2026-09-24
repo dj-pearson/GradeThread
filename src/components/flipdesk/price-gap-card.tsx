@@ -21,7 +21,6 @@ import {
 } from "@/components/ui/table";
 import { downloadCsv } from "@/lib/csv-export";
 import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
-import { useAuthStore } from "@/stores/auth-store";
 import {
   basisLabel,
   fetchPriceGap,
@@ -31,6 +30,7 @@ import {
   EMPTY_PRICE_GAP,
   type PriceGapReport,
 } from "@/lib/price-gap";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // US-2820: Money Left On The Table.
 //
@@ -48,10 +48,10 @@ const usd = (n: number | null | undefined): string =>
 const CURVE_TAB = "/dashboard/flipdesk/analytics/price-curve";
 
 function usePriceGap(periodStart: string | null) {
-  const user = useAuthStore((s) => s.user);
+  const tenantKey = useTenantKey();
   return useQuery<PriceGapReport>({
-    queryKey: ["items_full", "analytics", "price-gap", user?.id, periodStart],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "price-gap", tenantKey, periodStart],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchPriceGap(periodStart),
   });

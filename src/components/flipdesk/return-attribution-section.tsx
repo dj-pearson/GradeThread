@@ -19,7 +19,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { downloadCsv } from "@/lib/csv-export";
-import { useAuthStore } from "@/stores/auth-store";
 import {
   EMPTY_ATTRIBUTION,
   FACTOR_LABEL,
@@ -30,6 +29,7 @@ import {
 } from "@/lib/return-attribution";
 import { defectLabel } from "@/lib/defect-cost";
 import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // US-2823: "What actually predicts your returns", under the grade bands.
 //
@@ -45,7 +45,7 @@ export function ReturnAttributionSection({
 }: {
   periodStart: string | null;
 }) {
-  const user = useAuthStore((s) => s.user);
+  const tenantKey = useTenantKey();
   const {
     data = EMPTY_ATTRIBUTION,
     isError,
@@ -56,10 +56,10 @@ export function ReturnAttributionSection({
       "items_full",
       "analytics",
       "return-attribution",
-      user?.id,
+      tenantKey,
       periodStart,
     ],
-    enabled: !!user,
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { fetchReturnAttribution } = await import("@/lib/return-attribution");

@@ -28,7 +28,6 @@ import {
 } from "@/components/ui/table";
 import { ChartSkeleton, LoadingRegion } from "@/components/ui/skeletons";
 import { downloadCsv } from "@/lib/csv-export";
-import { useAuthStore } from "@/stores/auth-store";
 import { fetchSellThrough } from "@/lib/flipdesk-analytics-server";
 import { splitPlaceholderBrandRows } from "@/lib/placeholder-brand";
 import {
@@ -43,6 +42,7 @@ import {
 } from "@/lib/condition-price-curve";
 import type { CurveDatum } from "@/components/flipdesk/condition-curve-chart";
 import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // US-2819: the Condition Price Curve tab.
 //
@@ -101,7 +101,7 @@ export function PriceCurveReport({
 }: {
   periodStart: string | null;
 }) {
-  const user = useAuthStore((s) => s.user);
+  const tenantKey = useTenantKey();
   const { brand, category, setBrand, setCategory } = useCurveFilters();
 
   // The picker options are the seller's OWN brands and categories, read from
@@ -109,8 +109,8 @@ export function PriceCurveReport({
   // "distinct brands" endpoint would be a second round trip for a list this
   // page can have for free.
   const { data: allBrandRows = [] } = useQuery({
-    queryKey: ["items_full", "analytics", "sell-through", user?.id, "brand", "all"],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "sell-through", tenantKey, "brand", "all"],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchSellThrough("brand", null),
   });
@@ -121,8 +121,8 @@ export function PriceCurveReport({
     [allBrandRows],
   );
   const { data: categoryRows = [] } = useQuery({
-    queryKey: ["items_full", "analytics", "sell-through", user?.id, "category", "all"],
-    enabled: !!user,
+    queryKey: ["items_full", "analytics", "sell-through", tenantKey, "category", "all"],
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchSellThrough("category", null),
   });
@@ -138,12 +138,12 @@ export function PriceCurveReport({
       "items_full",
       "analytics",
       "price-curve",
-      user?.id,
+      tenantKey,
       brand,
       category,
       periodStart,
     ],
-    enabled: !!user,
+    enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchConditionPriceCurve({ brand, category, periodStart }),
   });

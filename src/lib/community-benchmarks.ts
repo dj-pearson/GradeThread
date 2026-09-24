@@ -235,3 +235,23 @@ export async function fetchCommunityBenchmarks(
   if (!data) throw new Error("No benchmark data returned");
   return data;
 }
+
+/**
+ * A8: the one query key for community_benchmarks. The Overview widget and the
+ * Community tab both build it here, so the same window and filters are one
+ * cache entry and one RPC rather than two. The tenant is in the key because
+ * the payload carries the caller's own "You" figures. Filters are normalised
+ * so "Nike" and " nike " do not split the cache.
+ */
+export function communityBenchmarksKey(
+  tenant: string | undefined,
+  periodStart: string | null,
+  filters?: CommunityBenchmarkFilters,
+): readonly unknown[] {
+  return [
+    "community-benchmarks",
+    tenant,
+    periodStart,
+    normalizeBenchmarkFilters(filters),
+  ] as const;
+}

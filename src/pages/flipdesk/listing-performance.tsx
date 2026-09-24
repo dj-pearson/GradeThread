@@ -28,11 +28,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { supabase } from "@/lib/supabase";
-import { useAuthStore } from "@/stores/auth-store";
 import { useEbayConnection } from "@/hooks/use-ebay";
 import { usePerformanceSuggestions } from "@/hooks/use-repricing";
 import { cn } from "@/lib/utils";
 import { CHART_PALETTE } from "@/lib/constants";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // US-2826: photo count / quality score / grade against first-14-day traffic.
 const ListingQualityLiftSection = lazy(() =>
@@ -116,7 +116,7 @@ function relativeTime(iso: string | null | undefined): string {
 export function FlipdeskListingPerformancePage(
   { embedded = false }: { embedded?: boolean } = {},
 ) {
-  const user = useAuthStore((s) => s.user);
+  const tenantKey = useTenantKey();
   const { data: connection } = useEbayConnection();
   const { data: suggestions = [] } = usePerformanceSuggestions();
   const confirm = useConfirm();
@@ -166,14 +166,14 @@ export function FlipdeskListingPerformancePage(
   const { data: pageData, isLoading } = useQuery({
     queryKey: [
       "listing_performance",
-      user?.id,
+      tenantKey,
       search.trim(),
       noViewDays,
       sortKey,
       sortDir,
       page,
     ],
-    enabled: !!user,
+    enabled: !!tenantKey,
     staleTime: 60_000,
     // Keeps the previous page on screen while the next one loads, instead of
     // flashing the empty state between pages.
@@ -340,8 +340,8 @@ export function FlipdeskListingPerformancePage(
   // search/sort/page: these figures are about the whole catalog and must not
   // change when the seller narrows the table.
   const { data: summary } = useQuery({
-    queryKey: ["listing_performance_summary", user?.id],
-    enabled: !!user,
+    queryKey: ["listing_performance_summary", tenantKey],
+    enabled: !!tenantKey,
     staleTime: 60_000,
     queryFn: async () => {
       const { data, error } = await supabase.rpc(
