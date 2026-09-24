@@ -57,6 +57,11 @@ export interface ShipQueueRow {
   gradeLabel: string | null;
   certificateUrl: string | null;
   quantity: number | null;
+  /**
+   * PS-09: the marketplace the sale came from, from its listing (or Depop's
+   * order ref). Null when nothing says, which ships the old way.
+   */
+  platform: string | null;
 }
 
 interface SaleQueryRow {
@@ -69,6 +74,8 @@ interface SaleQueryRow {
   sale_price: number | null;
   quantity: number | null;
   inventory_item_id: string;
+  listing_id: string | null;
+  platform_order_ref: { platform?: string | null } | null;
 }
 
 interface ItemQueryRow {
@@ -90,6 +97,8 @@ interface PnlQueryRow {
 }
 
 interface ListingQueryRow {
+  id: string;
+  platform: string | null;
   inventory_item_id: string;
   listing_url: string | null;
   platform_listing_id: string | null;
@@ -146,7 +155,7 @@ export function useShipQueue(enabled = true) {
       const { data, error } = await supabase
         .from("sales")
         .select(
-          "id, platform_order_id, ship_by, sold_at, sale_date, buyer_username, sale_price, quantity, inventory_item_id",
+          "id, platform_order_id, ship_by, sold_at, sale_date, buyer_username, sale_price, quantity, inventory_item_id, listing_id, platform_order_ref",
         )
         .eq("status", "completed")
         .is("shipped_at", null)
@@ -199,17 +208,19 @@ export function useShipQueue(enabled = true) {
       // The listing the buyer actually bought from. Most recent first, so an
       // item relisted after a cancellation links to the live one.
       const linkByItem = new Map<string, string>();
+      const platformByListing = new Map<string, string | null>();
       try {
         const listingData = await inChunks(itemIds, async (slice) => {
           const { data, error: listingErr } = await supabase
             .from("listings")
-            .select("inventory_item_id, listing_url, platform_listing_id")
+            .select("id, platform, inventory_item_id, listing_url, platform_listing_id")
             .in("inventory_item_id", slice)
             .order("listed_at", { ascending: false, nullsFirst: false });
           if (listingErr) throw listingErr;
           return ((data ?? []) as unknown) as ListingQueryRow[];
         });
         for (const r of listingData) {
+          if (r.id) platformByListing.set(r.id, r.platform ?? null);
           if (!r.inventory_item_id || linkByItem.has(r.inventory_item_id)) continue;
           const url = (r.listing_url ?? "").trim() ||
             (r.platform_listing_id
@@ -243,6 +254,8 @@ export function useShipQueue(enabled = true) {
           gradeLabel: item?.grade_label ?? null,
           certificateUrl: item?.certificate_url ?? null,
           quantity: s.quantity,
+          platform: (s.listing_id ? platformByListing.get(s.listing_id) : null) ??
+            s.platform_order_ref?.platform ?? null,
         };
       });
     },

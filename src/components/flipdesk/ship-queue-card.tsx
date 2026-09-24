@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -21,14 +21,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
-import { toastError } from "@/lib/toast-error";
+import { InlineRetry } from "@/components/flipdesk/inline-retry";
+import { toastError, toastWarning } from "@/lib/toast-error";
 import { useShipQueue, type ShipQueueRow } from "@/hooks/use-ship-queue";
 import {
+  detectCarrier,
+  SHIP_CARRIERS,
+  shipButtonLabel,
   shipCountdown,
   shipOneOrder,
+  stripUspsZipPrefix,
+  type ShipCarrier,
   type ShipUrgency,
 } from "@/pages/flipdesk/ship-queue";
-import { supabase } from "@/lib/supabase";
+import { markItemShipped, pushMarketplaceShip, shipSale } from "@/lib/ship-sale";
 import { useEbayShipOrder } from "@/hooks/use-ebay";
 import { Checkbox } from "@/components/ui/checkbox";
 import { packingSlipDocument } from "@/pages/flipdesk/packing-slip";
@@ -72,9 +78,12 @@ function money(value: number): string {
 // credentials at all. This queue holds EVERY completed unshipped sale and
 // renders in post-sale.tsx's not-connected branch, so both refusals land on
 // real sellers with real tracking numbers. shipOneOrder picks the path (see
-// pages/flipdesk/ship-queue.ts); the local write mirrors what the route writes
-// server-side — shipped_at, tracking_number, carrier — and nothing else, so the
-// two paths cannot leave a sale in different shapes.
+// pages/flipdesk/ship-queue.ts), by marketplace since PS-09. PS-08: the local
+// write is lib/ship-sale.ts, shared with the ship-order dialog. It writes
+// shipped_at, tracking_number and carrier on the sale, refuses loudly when no
+// row changed, and moves the item to 'shipped'. Every other path also moves
+// the item once its route has answered, so a garment shipped from here lands
+// in the same state as one shipped from the dialog.
 
 const URGENCY_STYLE: Record<ShipUrgency, string> = {
   overdue: "border-destructive/40 bg-destructive/10 text-destructive",
@@ -88,59 +97,98 @@ function ShipRow({
   row,
   selected,
   onSelect,
+  onShipped,
 }: {
   row: ShipQueueRow;
   selected: boolean;
   onSelect: (id: string, next: boolean) => void;
+  /** Called after a successful ship, so the card can move focus on. */
+  onShipped: (id: string) => void;
 }) {
   const [tracking, setTracking] = useState("");
-  const [carrier, setCarrier] = useState("");
+  const [carrier, setCarrier] = useState<ShipCarrier | "">("");
+  // Once the seller picks a carrier, a later edit of the number stops
+  // overwriting it with a guess.
+  const [carrierPicked, setCarrierPicked] = useState(false);
   const [busy, setBusy] = useState(false);
   const ship = useEbayShipOrder();
   const qc = useQueryClient();
   const countdown = shipCountdown(row.shipBy);
-  const isEbayOrder = (row.orderRef ?? "").trim() !== "";
+  const name = row.title ?? row.orderRef ?? "this order";
 
-  async function submit() {
-    const value = tracking.trim();
+  function onTrackingChange(value: string) {
+    setTracking(value);
+    if (!carrierPicked) setCarrier(detectCarrier(value) ?? "");
+  }
+
+  async function submit(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (busy) return;
+    // PS-10: scanners and hand entry both add spaces, and a label barcode
+    // carries the 420+ZIP routing prefix in front of the USPS number.
+    const value = stripUspsZipPrefix(tracking);
     if (!value) {
       toast.error("Enter the tracking number first.");
       return;
     }
+    const chosen = carrier || null;
     // `busy` rather than ship.isPending: the local path never touches that
     // mutation, so the button would stay live through the whole write.
     setBusy(true);
     try {
-      const path = await shipOneOrder(row.orderRef, {
-        pushToEbay: async () => {
-          await ship.mutateAsync({
-            saleId: row.id,
-            trackingNumber: value,
-            carrier: carrier.trim() || null,
-          });
+      let itemError: unknown = null;
+      const pushedThen = async (push: () => Promise<void>) => {
+        await push();
+        itemError = await markItemShipped(row.inventoryItemId);
+      };
+      const path = await shipOneOrder(
+        row.orderRef,
+        {
+          pushToEbay: () =>
+            pushedThen(async () => {
+              await ship.mutateAsync({ saleId: row.id, trackingNumber: value, carrier: chosen });
+            }),
+          pushToDepop: () =>
+            pushedThen(() => pushMarketplaceShip("depop", row.id, value, chosen)),
+          pushToShopify: () =>
+            pushedThen(() => pushMarketplaceShip("shopify", row.id, value, chosen)),
+          writeLocal: async () => {
+            const res = await shipSale({
+              saleId: row.id,
+              itemId: row.inventoryItemId,
+              tracking: value,
+              carrier: chosen,
+            });
+            itemError = res.itemError;
+          },
         },
-        writeLocal: async () => {
-          const { error } = await supabase
-            .from("sales")
-            .update({
-              shipped_at: new Date().toISOString(),
-              tracking_number: value,
-              // Keep an existing carrier when the seller left the box empty,
-              // the same way the ship route does.
-              ...(carrier.trim() ? { carrier: carrier.trim() } : {}),
-            } as never)
-            .eq("id", row.id);
-          if (error) throw error;
-        },
-      });
-      toast.success(
-        path === "ebay"
-          ? "Marked shipped, and the tracking is on eBay."
-          : "Marked shipped.",
+        row.platform,
       );
       // The row leaves this queue because shipped_at is now set; the needs-you
       // merge reads the same query, so both surfaces update from one refetch.
-      await qc.invalidateQueries({ queryKey: ["ship_queue"] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["ship_queue"] }),
+        qc.invalidateQueries({ queryKey: ["inventory"] }),
+        qc.invalidateQueries({ queryKey: ["items_full"] }),
+      ]);
+      if (itemError) {
+        // The shipment happened. Say which half did not land.
+        toastWarning(itemError, "Marked shipped, but the item is not in the Shipped tab yet.", {
+          action: "mark item shipped",
+          nextStep: "Open the item and set it to Shipped.",
+        });
+      } else {
+        toast.success(
+          path === "ebay"
+            ? "Marked shipped, and the tracking is on eBay."
+            : path === "depop"
+              ? "Marked shipped, and the tracking is on Depop."
+              : path === "shopify"
+                ? "Marked shipped, and the tracking is on Shopify."
+                : "Marked shipped.",
+        );
+      }
+      onShipped(row.id);
     } catch (err) {
       toastError(err, "Could not mark it shipped.");
     } finally {
@@ -154,7 +202,7 @@ function ShipRow({
         <Checkbox
           checked={selected}
           onCheckedChange={(v) => onSelect(row.id, v === true)}
-          aria-label={`Select ${row.title ?? row.orderRef ?? "this order"} for a packing slip`}
+          aria-label={`Select ${name} for a packing slip`}
         />
       </TableCell>
 
@@ -246,54 +294,87 @@ function ShipRow({
       </TableCell>
 
       <TableCell className="align-top">
-        <div className="flex items-center gap-1.5">
+        {/* PS-10: a form, so Enter submits. A barcode scanner types the
+            number and presses Enter, and until now that did nothing. */}
+        <form className="flex items-center gap-1.5" onSubmit={submit}>
           <Input
-            aria-label={`Tracking number for ${row.title ?? row.orderRef ?? "this order"}`}
+            aria-label={`Tracking number for ${name}`}
+            data-ship-tracking={row.id}
             value={tracking}
-            onChange={(e) => setTracking(e.target.value)}
+            onChange={(e) => onTrackingChange(e.target.value)}
             placeholder="Tracking number"
             autoComplete="off"
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="characters"
+            enterKeyHint="send"
             className="h-8 min-w-[11rem] text-xs"
           />
-          <Input
-            aria-label={`Carrier for ${row.title ?? row.orderRef ?? "this order"}`}
+          <select
+            aria-label={`Carrier for ${name}`}
             value={carrier}
-            onChange={(e) => setCarrier(e.target.value)}
-            placeholder="USPS"
-            autoComplete="off"
-            className="h-8 w-20 text-xs"
-          />
+            onChange={(e) => {
+              setCarrier(e.target.value as ShipCarrier | "");
+              setCarrierPicked(true);
+            }}
+            className="h-8 w-24 rounded-md border border-input bg-background px-2 text-xs"
+          >
+            <option value="">Carrier</option>
+            {SHIP_CARRIERS.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
           <Button
-            type="button"
+            type="submit"
             size="sm"
-            onClick={submit}
             disabled={busy}
             className="h-8 gap-1 whitespace-nowrap"
-            // US-3209: name what the button DOES, because it does two things and
-            // the seller can only see one of them. It writes the tracking here
-            // AND uploads the fulfillment to eBay in the same call \u2014 except on
-            // a sale eBay never had, where saying so would be a lie.
-            title={
-              isEbayOrder
-                ? "Saves the tracking here and uploads it to eBay in one step."
-                : "Saves the tracking here. This order has no eBay reference, so there is nothing to upload."
-            }
           >
             <Truck aria-hidden="true" className="h-3.5 w-3.5" />
-            {busy ? "Saving\u2026" : "Ship"}
+            {/* PS-09: the label says what the button does for THIS order. */}
+            {busy ? "Saving\u2026" : shipButtonLabel(row.platform, row.orderRef)}
           </Button>
-        </div>
+        </form>
       </TableCell>
     </TableRow>
   );
 }
 
 export function ShipQueueCard() {
-  const { rows, isLoading, isError } = useShipQueue();
+  const { rows, data, isLoading, isError, isFetching, refetch } = useShipQueue();
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // PS-10: after a row ships, the next row's tracking box takes focus, so a
+  // scanner session is scan, scan, scan with no mouse in between.
+  const [focusNext, setFocusNext] = useState<string | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const overdue = rows.filter(
     (r) => shipCountdown(r.shipBy).urgency === "overdue",
   ).length;
+  // Only rows still in the queue count. A shipped row leaves `rows` on the
+  // refetch, and a tick left behind on it must not print a slip.
+  const liveSelected = rows.filter((r) => selected.has(r.id));
+  const allSelected = rows.length > 0 && liveSelected.length === rows.length;
+  const someSelected = liveSelected.length > 0 && !allSelected;
+  const hasData = data !== undefined;
+
+  useEffect(() => {
+    if (!focusNext) return;
+    const el = [
+      ...(cardRef.current?.querySelectorAll<HTMLInputElement>("[data-ship-tracking]") ?? []),
+    ].find((input) => input.dataset.shipTracking === focusNext);
+    if (el) {
+      el.focus();
+      setFocusNext(null);
+    }
+  }, [focusNext, rows]);
+
+  function onShipped(id: string) {
+    const i = rows.findIndex((r) => r.id === id);
+    const next = i >= 0 ? rows[i + 1] ?? null : null;
+    setFocusNext(next?.id ?? null);
+  }
 
   function toggle(id: string, next: boolean) {
     setSelected((prev) => {
@@ -304,8 +385,12 @@ export function ShipQueueCard() {
     });
   }
 
+  function toggleAll(next: boolean) {
+    setSelected(next ? new Set(rows.map((r) => r.id)) : new Set());
+  }
+
   function printSlips() {
-    const chosen = rows.filter((r) => selected.has(r.id));
+    const chosen = liveSelected;
     if (chosen.length === 0) {
       toast.error("Tick the orders you are packing first.");
       return;
@@ -323,7 +408,7 @@ export function ShipQueueCard() {
   }
 
   return (
-    <Card id="ship-queue" className="scroll-mt-20">
+    <Card id="ship-queue" className="scroll-mt-20" ref={cardRef}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Package aria-hidden="true" className="h-4 w-4" />
@@ -347,7 +432,7 @@ export function ShipQueueCard() {
             >
               <Printer aria-hidden="true" className="h-4 w-4" />
               Print packing slips
-              {selected.size > 0 ? ` (${selected.size})` : ""}
+              {liveSelected.length > 0 ? ` (${liveSelected.length})` : ""}
             </Button>
           </div>
         ) : null}
@@ -358,16 +443,24 @@ export function ShipQueueCard() {
             <Skeleton className="h-20 w-full" />
             <Skeleton className="h-20 w-full" />
           </div>
-        ) : isError ? (
-          <p className="text-sm text-muted-foreground">
-            Could not load the ship queue. Reload the page to try again.
-          </p>
-        ) : rows.length === 0 ? (
-          <EmptyState
-            icon={Package}
-            title="Nothing waiting to ship"
-            description="Every completed sale has a tracking number on it."
+        ) : isError && !hasData ? (
+          <InlineRetry
+            message="Couldn't load the ship queue."
+            onRetry={() => void refetch()}
           />
+        ) : rows.length === 0 ? (
+          isError ? (
+            <InlineRetry
+              message="Couldn't refresh the ship queue."
+              onRetry={() => void refetch()}
+            />
+          ) : (
+            <EmptyState
+              icon={Package}
+              title="Nothing waiting to ship"
+              description="Every completed sale has a tracking number on it."
+            />
+          )
         ) : (
           /* A table, because this is a list a seller SCANS. The card stack
              made every row a paragraph, so comparing two deadlines or spotting
@@ -376,30 +469,49 @@ export function ShipQueueCard() {
 
              Its own horizontal scroller: six columns and two inputs do not fit
              a phone, and the page body must never scroll sideways. */
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8" />
-                  <TableHead>Item</TableHead>
-                  <TableHead>Where</TableHead>
-                  <TableHead className="text-right">Sold / net</TableHead>
-                  <TableHead>Ship by</TableHead>
-                  <TableHead>Tracking</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => (
-                  <ShipRow
-                    key={row.id}
-                    row={row}
-                    selected={selected.has(row.id)}
-                    onSelect={toggle}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <>
+            {/* PS-10: a failed background refresh keeps the rows. They were
+                real a minute ago, and hiding them would hide the work. */}
+            {isError && !isFetching ? (
+              <div className="mb-3">
+                <InlineRetry
+                  message="Couldn't refresh the ship queue. These rows may be out of date."
+                  onRetry={() => void refetch()}
+                />
+              </div>
+            ) : null}
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-8">
+                      <Checkbox
+                        checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                        onCheckedChange={(v) => toggleAll(v === true)}
+                        aria-label="Select all orders"
+                      />
+                    </TableHead>
+                    <TableHead>Item</TableHead>
+                    <TableHead>Where</TableHead>
+                    <TableHead className="text-right">Sold / net</TableHead>
+                    <TableHead>Ship by</TableHead>
+                    <TableHead>Tracking</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((row) => (
+                    <ShipRow
+                      key={row.id}
+                      row={row}
+                      selected={selected.has(row.id)}
+                      onSelect={toggle}
+                      onShipped={onShipped}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>

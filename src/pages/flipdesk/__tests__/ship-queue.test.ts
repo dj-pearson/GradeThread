@@ -3,6 +3,7 @@ import {
   rankShipQueue,
   shipCountdown,
   shipFallsBackToLocal,
+  shipButtonLabel,
   shipOneOrder,
 } from "@/pages/flipdesk/ship-queue";
 
@@ -226,5 +227,73 @@ describe("shipOneOrder", () => {
         },
       }),
     ).rejects.toThrow("row level security");
+  });
+});
+
+// PS-09: a sale's marketplace picks its ship route.
+describe("shipOneOrder by platform (PS-09)", () => {
+  function spies() {
+    const calls: string[] = [];
+    return {
+      calls,
+      deps: {
+        pushToEbay: async () => {
+          calls.push("ebay");
+        },
+        pushToDepop: async () => {
+          calls.push("depop");
+        },
+        pushToShopify: async () => {
+          calls.push("shopify");
+        },
+        writeLocal: async () => {
+          calls.push("local");
+        },
+      },
+    };
+  }
+
+  it("a Shopify row never calls pushToEbay, even with an order ref", async () => {
+    const s = spies();
+    await expect(shipOneOrder("5550001112223", s.deps, "shopify")).resolves.toBe("shopify");
+    expect(s.calls).toEqual(["shopify"]);
+  });
+
+  it("a Shopify row with no Shopify push takes the local path", async () => {
+    const s = spies();
+    const deps = { ...s.deps, pushToShopify: undefined };
+    await expect(shipOneOrder("5550001112223", deps, "shopify")).resolves.toBe("local");
+    expect(s.calls).toEqual(["local"]);
+  });
+
+  it("a Depop row goes to the Depop route and falls back on a 409", async () => {
+    const s = spies();
+    await expect(shipOneOrder("P-1", s.deps, "depop")).resolves.toBe("depop");
+    const refused = spies();
+    refused.deps.pushToDepop = async () => {
+      throw Object.assign(new Error("no parcel"), { status: 409 });
+    };
+    await expect(shipOneOrder("P-1", refused.deps, "depop")).resolves.toBe("local");
+    expect(refused.calls).toEqual(["local"]);
+  });
+
+  it("any other marketplace records locally", async () => {
+    const s = spies();
+    await expect(shipOneOrder("M-1", s.deps, "mercari")).resolves.toBe("local");
+    expect(s.calls).toEqual(["local"]);
+  });
+
+  it("an eBay row, or an unknown one with an order ref, still goes to eBay", async () => {
+    const s = spies();
+    await expect(shipOneOrder("12-34567-89012", s.deps, "ebay")).resolves.toBe("ebay");
+    await expect(shipOneOrder("12-34567-89012", s.deps, null)).resolves.toBe("ebay");
+    expect(s.calls).toEqual(["ebay", "ebay"]);
+  });
+
+  it("labels the button by what it does", () => {
+    expect(shipButtonLabel("ebay", "12-1")).toBe("Ship + send to eBay");
+    expect(shipButtonLabel("shopify", "555")).toBe("Mark shipped");
+    expect(shipButtonLabel(null, null)).toBe("Mark shipped");
+    expect(shipButtonLabel(null, "12-1")).toBe("Ship + send to eBay");
   });
 });
