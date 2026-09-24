@@ -7,6 +7,18 @@ import { addEvidenceFiles, MAX_DISPUTE_EVIDENCE } from "@/lib/dispute-evidence";
 // keyboard user can take one back out. The old chips were mouse-only spans
 // showing names like IMG_4821.JPG.
 
+const PREVIEW_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+// A thumbnail src built from the picked file. Only an image type the picker
+// accepts gets one, and only a same-origin blob: URL is ever handed to <img>,
+// so nothing taken from the file input can reach the DOM as markup or a
+// script URL (CodeQL js/xss-through-dom on PR 357).
+function previewUrl(file: File): string {
+  if (!PREVIEW_TYPES.has(file.type)) return "";
+  const url = URL.createObjectURL(file);
+  return url.startsWith("blob:") ? url : "";
+}
+
 export function DisputeEvidencePicker({
   photos,
   onChange,
@@ -21,8 +33,8 @@ export function DisputeEvidencePicker({
   const full = photos.length >= MAX_DISPUTE_EVIDENCE;
 
   // One object URL per file, revoked when the file leaves the selection.
-  const urls = useMemo(() => photos.map((p) => URL.createObjectURL(p)), [photos]);
-  useEffect(() => () => urls.forEach((u) => URL.revokeObjectURL(u)), [urls]);
+  const urls = useMemo(() => photos.map(previewUrl), [photos]);
+  useEffect(() => () => urls.forEach((u) => u && URL.revokeObjectURL(u)), [urls]);
 
   function add(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -75,11 +87,17 @@ export function DisputeEvidencePicker({
         <ul className="flex flex-wrap gap-2" aria-label="Selected evidence photos">
           {photos.map((photo, i) => (
             <li key={`${photo.name}-${i}`} className="relative h-16 w-16">
-              <img
-                src={urls[i]}
-                alt={`Evidence photo ${i + 1}`}
-                className="h-16 w-16 rounded-md border object-cover"
-              />
+              {urls[i] ? (
+                <img
+                  src={urls[i]}
+                  alt={`Evidence photo ${i + 1}`}
+                  className="h-16 w-16 rounded-md border object-cover"
+                />
+              ) : (
+                <span className="flex h-16 w-16 items-center justify-center rounded-md border text-xs text-muted-foreground">
+                  Photo {i + 1}
+                </span>
+              )}
               <button
                 type="button"
                 aria-label={`Remove photo ${i + 1}`}
