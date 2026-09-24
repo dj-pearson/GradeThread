@@ -867,13 +867,14 @@ const OUTCOME_SALE_COLUMNS =
 flipdeskPlannerRoutes.get("/outcomes", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
 
-  // Only tasks that carry an estimate snapshot: a task with none was never a
-  // prediction and there is nothing to score it against.
+  // EVERY task, with or without an estimate snapshot (WMT-10). One with none
+  // was never a prediction, and the pure layer already leaves it out of the
+  // comparison; it is still work the seller did, and filtering it here meant
+  // the scorecard never counted it as a job finished or a minute confirmed.
   const { data: taskData, error: taskErr } = await supabaseAdmin
     .from("flipdesk_work_session_tasks")
     .select(OUTCOME_TASK_COLUMNS)
     .eq("user_id", ownerId) // US-268
-    .not("estimate_value_cents", "is", null)
     .order("estimate_taken_at", { ascending: false })
     .limit(MAX_OUTCOME_ITEMS);
   if (taskErr) {

@@ -67,6 +67,7 @@ export const UNAVAILABLE_REASONS = [
   "no_completed_sales",
   "costs_not_recorded",
   "nothing_in_range",
+  "nothing_unsold",
 ] as const;
 export type UnavailableReason = (typeof UNAVAILABLE_REASONS)[number];
 
@@ -118,10 +119,17 @@ export interface Scorecard {
   work: WorkDone;
   counts: Record<OutcomeState, number>;
   /**
-   * What the planner GUESSED these garments might net. A projection against
-   * sales that have not happened, kept apart from every recorded figure.
+   * What the planner GUESSED the UNSOLD garments might net (WMT-10). A
+   * projection against sales that have not happened, so a sold item is never
+   * in it: its real result is under `realized`. Unavailable, not $0, when
+   * nothing unsold in the range carries an estimate.
    */
-  projectedNetCents: number;
+  projected: Stat;
+  /**
+   * Jobs whose item has since been deleted. They cannot be matched to a sale,
+   * so they sit outside every figure and are counted once, here (WMT-10).
+   */
+  unmatchableJobs: number;
   /** The books' own net for the sales that completed. Never a projection. */
   realized: Stat;
   /** Realized net over confirmed minutes. NOT an hourly wage (AC2). */
@@ -165,6 +173,13 @@ const DONE_STATES = new Set(["done", "completed"]);
  * work left to carry.
  */
 const OPEN_STATES = new Set(["pending", "active", "skipped"]);
+
+/**
+ * Session states where leftover work was really CARRIED somewhere (WMT-10).
+ * An abandoned plan was thrown away, not carried, and a live session's
+ * pending jobs are simply still on tonight's list.
+ */
+const CARRYING_SESSION_STATES = new Set(["completed"]);
 
 function withinRange(iso: string | null, range: ScorecardRange): boolean {
   // NO DATE means it is not in any range. A task with no estimate timestamp
@@ -221,10 +236,18 @@ export function buildScorecard(input: ScorecardInput): Scorecard {
       (sum, t) => sum + (t.correctionMinutes ?? t.confirmedMinutes ?? 0),
       0,
     ),
-    sessions: new Set(rangedTasks.map((t) => t.sessionId)).size,
+    // An abandoned plan is not a session the seller worked (WMT-10). Its
+    // confirmed minutes are still real and still counted above.
+    sessions: new Set(
+      rangedTasks.filter((t) => t.sessionState !== "abandoned").map((t) => t.sessionId),
+    ).size,
     carriedForwardItems: new Set(
       rangedTasks
-        .filter((t) => OPEN_STATES.has(t.taskState) && t.inventoryItemId !== null)
+        .filter((t) =>
+          OPEN_STATES.has(t.taskState) &&
+          CARRYING_SESSION_STATES.has(t.sessionState) &&
+          t.inventoryItemId !== null
+        )
         .map((t) => t.inventoryItemId),
     ).size,
   };
@@ -237,6 +260,8 @@ export function buildScorecard(input: ScorecardInput): Scorecard {
   ) as Record<EstimateSource, number>;
 
   let projectedNetCents = 0;
+  let projectedItems = 0;
+  let unmatchableJobs = 0;
   let realizedTotal = 0;
   let realizedMinutes = 0;
   let settledItems = 0;
@@ -249,8 +274,14 @@ export function buildScorecard(input: ScorecardInput): Scorecard {
 
   for (const o of inRange) {
     counts[o.state] += 1;
+    if (o.state === "unmatchable") {
+      // One per JOB, because the item that would have grouped them is gone.
+      // Kept out of the projection and the source tally (WMT-10): there is
+      // no garment left for either to be about.
+      unmatchableJobs += 1;
+      continue;
+    }
     bySource[o.estimateSource] += 1;
-    if (o.estimatedNetCents != null) projectedNetCents += o.estimatedNetCents;
 
     if (o.state === "incomplete_costs") {
       // The garment DID sell and we still cannot say what it made. It is not
@@ -263,6 +294,12 @@ export function buildScorecard(input: ScorecardInput): Scorecard {
       // AC3: the unsold half, with the hours it already cost.
       pending.items += 1;
       pending.trackedMinutes += o.confirmedMinutes;
+      // WMT-10: ONLY the unsold half is projected. Adding a sold item's guess
+      // here printed it under "sales that haven't happened".
+      if (o.estimatedNetCents != null) {
+        projectedNetCents += o.estimatedNetCents;
+        projectedItems += 1;
+      }
       continue;
     }
 
@@ -311,7 +348,10 @@ export function buildScorecard(input: ScorecardInput): Scorecard {
     range,
     work,
     counts,
-    projectedNetCents,
+    projected: projectedItems > 0
+      ? { available: true, cents: projectedNetCents }
+      : { available: false, reason: inRange.length === 0 ? "nothing_in_range" : "nothing_unsold" },
+    unmatchableJobs,
     realized,
     profitPerTrackedHour,
     excludedForIncompleteCosts,

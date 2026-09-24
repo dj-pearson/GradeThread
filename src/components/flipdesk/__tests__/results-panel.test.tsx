@@ -20,10 +20,19 @@ let bookState: {
   isLoading: boolean;
   isError: boolean;
 } = { data: undefined, isLoading: true, isError: false };
+/** Every `enabled` the panel asked the outcomes read with (WMT-10). */
+const enabledCalls: boolean[] = [];
+const refetch = vi.fn();
 
 vi.mock("@/hooks/use-planner", async () => {
   const actual = await vi.importActual<Record<string, unknown>>("@/hooks/use-planner");
-  return { ...actual, useWorkOutcomes: () => bookState };
+  return {
+    ...actual,
+    useWorkOutcomes: (enabled: boolean) => {
+      enabledCalls.push(enabled);
+      return { ...bookState, isFetching: false, refetch };
+    },
+  };
 });
 
 const { ResultsPanel } = await import("@/components/flipdesk/results-panel");
@@ -72,7 +81,7 @@ function loaded(outcomes: Outcome[], tasks: PlannedTask[]) {
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
-function render(): void {
+function render(opts: { open?: boolean } = {}): void {
   container = document.createElement("div");
   document.body.appendChild(container);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -80,9 +89,13 @@ function render(): void {
     root = createRoot(container!);
     root.render(h(QueryClientProvider, { client: qc }, h(ResultsPanel)));
   });
+  if (opts.open === false) return;
   const d = container.querySelector("details");
   act(() => {
-    if (d) d.open = true;
+    if (d) {
+      d.open = true;
+      d.dispatchEvent(new Event("toggle"));
+    }
   });
 }
 
@@ -104,6 +117,8 @@ async function click(text: string | RegExp): Promise<void> {
 
 beforeEach(() => {
   bookState = { data: undefined, isLoading: true, isError: false };
+  enabledCalls.length = 0;
+  refetch.mockReset();
 });
 
 afterEach(() => {
@@ -205,9 +220,12 @@ describe("forecast versus actual (AC4)", () => {
     );
     render();
     expect(body()).toContain("On 2 items");
-    expect(body()).toContain("-$30.00");
-    expect(body()).toContain("1 sold comp");
-    expect(body()).toContain("1 active asking");
+    // WMT-10: the gap in words, not a signed dollar figure.
+    expect(body()).toContain("$30.00 under");
+    expect(body()).toContain("$10.00 over");
+    expect(body()).not.toContain("-$30.00");
+    expect(body()).toContain("1 from sold listings like it");
+    expect(body()).toContain("1 from asking prices on live listings");
     expect(body()).toContain("30-day selling window");
   });
 
@@ -266,5 +284,63 @@ describe("keyboard and shape (AC7)", () => {
     const btn = Array.from(document.querySelectorAll("button"))
       .find((b) => /Compare with/.test(b.textContent ?? ""))!;
     expect(btn.getAttribute("aria-pressed")).toBe("false");
+  });
+});
+
+describe("the scorecard tells the truth (WMT-10)", () => {
+  it("reads nothing until the panel is opened", () => {
+    loaded([outcome()], [task()]);
+    render({ open: false });
+    expect(enabledCalls.length).toBeGreaterThan(0);
+    expect(enabledCalls.every((e) => e === false)).toBe(true);
+    const d = container!.querySelector("details")!;
+    act(() => {
+      d.open = true;
+      d.dispatchEvent(new Event("toggle"));
+    });
+    expect(enabledCalls[enabledCalls.length - 1]).toBe(true);
+  });
+
+  it("projects only the unsold item, not the sold one", () => {
+    loaded(
+      [
+        outcome({ estimatedNetCents: 3000 }),
+        outcome({ inventoryItemId: "i2", state: "pending", estimatedNetCents: 2500, recordedNetCents: null, saleId: null }),
+      ],
+      [task()],
+    );
+    render();
+    const box = Array.from(container!.querySelectorAll("h4"))
+      .find((el) => el.textContent === "What the planner guessed")!.parentElement!;
+    expect(box.textContent).toContain("$25.00");
+    expect(box.textContent).not.toContain("$55.00");
+  });
+
+  it("an empty range gives a reason for the guess, never $0.00", () => {
+    loaded([], []);
+    render();
+    expect(body()).not.toContain("$0.00");
+  });
+
+  it("the period before says '1 job' and has no double period", async () => {
+    loaded([outcome()], [task({ estimateTakenAt: "2026-01-01T12:00:00.000Z" }), task({ taskId: "t2", estimateTakenAt: "2025-12-01T12:00:00.000Z" })]);
+    render();
+    await click(/Compare with the period before/);
+    expect(body()).not.toMatch(/\b1 jobs\b/);
+    expect(body()).not.toContain("..");
+  });
+
+  it("a failed read offers Try again, which refetches", async () => {
+    bookState = { data: undefined, isLoading: false, isError: true };
+    render();
+    await click("Try again");
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("jobs for deleted items are one count line, outside the figures", () => {
+    const gone = outcome({ inventoryItemId: "", state: "unmatchable", recordedNetCents: null, saleId: null });
+    loaded([outcome(), gone, gone], [task()]);
+    render();
+    expect(body()).toContain("2 jobs were for items you've since deleted");
   });
 });
