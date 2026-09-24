@@ -64,6 +64,6 @@ Deno.test("P5: no engine message carries an em dash", () => {
   ];
   for (const c of cases) {
     const s = computeSuggestion(input(c));
-    assert(!s.message.includes("—"), `em dash in: ${s.message}`);
+    assert(!s.message.includes("\u2014"), `em dash in: ${s.message}`);
   }
 });

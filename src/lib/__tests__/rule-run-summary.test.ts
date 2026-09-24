@@ -24,7 +24,7 @@ describe("ruleRunToast", () => {
 
   it("never uses an em dash", () => {
     for (const r of [{ applied: 2 }, { applied: 0, errors: 1 }, { reason: "already_running" }]) {
-      expect(ruleRunToast(r).text).not.toContain("—");
+      expect(ruleRunToast(r).text).not.toContain("\u2014");
     }
   });
 });

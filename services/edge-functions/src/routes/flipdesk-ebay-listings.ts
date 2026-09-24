@@ -409,7 +409,8 @@ type BulkPriceQtyResult = {
 export async function applyBulkPriceQuantity(
   userId: string,
   rawUpdates: Array<Record<string, unknown>>,
-  push: typeof bulkUpdatePriceQuantity = bulkUpdatePriceQuantity,
+  push: typeof bulkUpdatePriceQuantity = (user, requests) =>
+    bulkUpdatePriceQuantity(user, requests),
 ): Promise<
   | { ok: false; error: string }
   | { ok: true; results: BulkPriceQtyResult[]; listingIds: string[]; succeeded: number }
