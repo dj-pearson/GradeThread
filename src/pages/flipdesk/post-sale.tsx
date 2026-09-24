@@ -613,7 +613,7 @@ function DisputesCard() {
           if (!open && !busy) setContestFor(null);
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Contest payment dispute</DialogTitle>
             <DialogDescription>
@@ -2012,7 +2012,7 @@ function CasesCard() {
         }}
       />
       <Dialog open={!!appealFor} onOpenChange={(v) => !v && !busy && closeAppeal()}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Appeal this case</DialogTitle>
             <DialogDescription>
