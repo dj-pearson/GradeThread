@@ -110,4 +110,26 @@ describe("Scout deal filter", () => {
     await act(async () => host.querySelector("form")!.requestSubmit());
     expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ minMarginPct: 0.4 }));
   });
+
+  it("the stored target in force shows beside a closed panel, with no Clear", async () => {
+    mocks.settings = { data: 40, isLoading: false, isError: false };
+    await render("/x?q=fleece");
+    expect(document.getElementById("scout-max-total")).toBeNull();
+    expect(host.querySelector('[data-testid="scout-filter-summary"]')?.textContent).toBe(
+      "40%+ return (your target)",
+    );
+    expect(button("Clear")).toBeUndefined();
+  });
+
+  it("a failed target read is visible with the panel closed", async () => {
+    mocks.settings = { data: undefined, isLoading: false, isError: true };
+    await render("/x?q=fleece");
+    expect(document.getElementById("scout-max-total")).toBeNull();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't load your target, using 30%",
+    );
+    expect(host.querySelector('[data-testid="scout-filter-summary"]')?.textContent).toBe(
+      "30%+ return (default)",
+    );
+  });
 });

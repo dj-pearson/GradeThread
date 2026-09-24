@@ -359,7 +359,16 @@ export function FlipdeskScoutPage() {
     ? "your workspace target"
     : targetLoading
     ? "your target"
+    : targetError
+    ? `the default ${DEFAULT_SOURCING_TARGET_PCT}%`
     : `your ${targetPct}% target`;
+  // SRC-9: a blank Min return still filters, by the stored target, so the
+  // summary beside a closed panel says so. Not clearable: it is the account
+  // setting, not part of this search.
+  const targetInForce =
+    !minMarginPctText.trim() && targetKnown
+      ? `${targetPct}%+ return (${targetError ? "default" : "your target"})`
+      : null;
 
   // SRC-8: the key is read from the URL at the moment the scan succeeds, which
   // is after submit wrote it.
@@ -367,9 +376,36 @@ export function FlipdeskScoutPage() {
   const scan = useScoutScan({ urlKey: () => urlKeyRef.current });
   const lastScan = useScoutLastScan();
   // A scan parked by an earlier visit shows again only on the URL it answered.
-  const [mountUrlKey] = useState(() => scoutUrlKey(searchParams));
+  // viewKey is the search the fields and results currently describe.
+  const [viewKey, setViewKey] = useState(() => scoutUrlKey(searchParams));
   const restored =
-    lastScan && lastScan.urlKey === mountUrlKey ? lastScan.result : undefined;
+    lastScan && lastScan.urlKey === viewKey ? lastScan.result : undefined;
+
+  // SRC-8: submit PUSHES a history entry, so Back and Forward change the URL
+  // while this page stays mounted. The fields used to be seeded on mount only,
+  // so Back moved the address bar and left the newer search on screen. When
+  // the URL moves to a search this page did not write, show that search: its
+  // words and filters, and its parked result if it is the last one run.
+  const currentUrlKey = scoutUrlKey(searchParams);
+  useEffect(() => {
+    if (currentUrlKey === viewKey) return;
+    setKeyword(searchParams.get("q") ?? "");
+    setBrand(searchParams.get("brand") ?? "");
+    setCategoryId(searchParams.get("cat") ?? DEFAULT_CATEGORY_ID);
+    setSortKey(pick(searchParams.get("order"), SORT_KEYS, "margin"));
+    setActionableOnly(searchParams.get("actionable") === "1");
+    setMaxTotal(searchParams.get("maxTotal") ?? "");
+    setMinMarginPctText(searchParams.get("minMarginPct") ?? "");
+    setMinMarginDollars(searchParams.get("minMargin") ?? "");
+    setBrowseSort(pick(searchParams.get("sort"), SCOUT_SORTS, "bestMatch"));
+    setBuyItNowOnly(searchParams.get("bin") === "1");
+    setFreeShippingOnly(searchParams.get("freeShip") === "1");
+    if (FILTER_URL_KEYS.some((k) => searchParams.get(k))) setShowFilters(true);
+    setViewKey(currentUrlKey);
+    scan.reset();
+    // Keyed on the URL only: the fields are what this effect writes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUrlKey]);
   const result = scan.data ?? restored;
   // SRC-3: what a scan costs, said before the click rather than after the cap.
   const { aiActions } = usePlanUsage();
@@ -427,6 +463,7 @@ export function FlipdeskScoutPage() {
     // SRC-8: a pushed entry, so Back returns to the previous search.
     setSearchParams(next);
     urlKeyRef.current = scoutUrlKey(next);
+    setViewKey(urlKeyRef.current);
 
     // minMarginPct is a FRACTION on the wire (0.3 = 30%); the field is typed in
     // whole percent because that is how a seller says it.
@@ -471,6 +508,8 @@ export function FlipdeskScoutPage() {
     const next = new URLSearchParams(searchParams);
     for (const key of FILTER_URL_KEYS) next.delete(key);
     setSearchParams(next, { replace: true });
+    // The page wrote this URL itself; the results on screen stay.
+    setViewKey(scoutUrlKey(next));
   }
 
   return (
@@ -523,17 +562,38 @@ export function FlipdeskScoutPage() {
               >
                 {showFilters ? "Hide deal filter" : "Deal filter"}
               </button>
-              {filterSummary.length > 0 ? (
+              {filterSummary.length > 0 || targetInForce ? (
                 <span className="ml-3 inline-flex items-center gap-2 text-xs text-muted-foreground">
-                  <span data-testid="scout-filter-summary">{filterSummary.join(", ")}</span>
+                  <span data-testid="scout-filter-summary">
+                    {[...filterSummary, targetInForce].filter(Boolean).join(", ")}
+                  </span>
+                  {filterSummary.length > 0 ? (
+                    <button
+                      type="button"
+                      className="font-medium text-primary hover:underline"
+                      onClick={clearFilters}
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </span>
+              ) : null}
+              {/* Outside the panel on purpose: a closed panel must not hide
+                  that the scan is using the default rather than the seller's
+                  own target. */}
+              {targetError ? (
+                <div role="alert" className="mt-1 flex items-center gap-2 text-xs text-destructive">
+                  <span>
+                    Couldn't load your target, using {DEFAULT_SOURCING_TARGET_PCT}%.
+                  </span>
                   <button
                     type="button"
-                    className="font-medium text-primary hover:underline"
-                    onClick={clearFilters}
+                    className="font-medium underline"
+                    onClick={() => void reloadTarget()}
                   >
-                    Clear
+                    Retry
                   </button>
-                </span>
+                </div>
               ) : null}
             </div>
 
@@ -565,20 +625,6 @@ export function FlipdeskScoutPage() {
                     Percent after fees.{" "}
                     {minMarginPctText.trim() ? `Blank uses ${targetHint}.` : `Using ${targetHint}.`}
                   </p>
-                  {targetError ? (
-                    <div role="alert" className="flex items-center gap-2 text-[11px] text-destructive">
-                      <span>
-                        Couldn't load your target, using {DEFAULT_SOURCING_TARGET_PCT}%.
-                      </span>
-                      <button
-                        type="button"
-                        className="font-medium underline"
-                        onClick={() => void reloadTarget()}
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  ) : null}
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="scout-min-margin">Min profit</Label>

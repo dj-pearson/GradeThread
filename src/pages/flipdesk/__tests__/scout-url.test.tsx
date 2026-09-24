@@ -4,7 +4,7 @@
 //  - Demand's facets link to a URL Scout actually reads.
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -28,10 +28,13 @@ let host: HTMLDivElement;
 let root: Root;
 let client: QueryClient;
 let location = "";
+let go: (delta: number) => void = () => {};
 
 function Where() {
   const loc = useLocation();
+  const navigate = useNavigate();
   location = `${loc.pathname}${loc.search}`;
+  go = (delta) => void navigate(delta);
   return null;
 }
 
@@ -145,6 +148,36 @@ describe("Scout search in the URL", () => {
     root = createRoot(host);
     await render("/x?q=denim");
     expect(host.textContent).not.toContain("Patagonia Synchilla fleece");
+  });
+
+  it("Back after a second search shows the first search's words, not the second's rows", async () => {
+    // A fresh Response per call: a body can be read only once.
+    mocks.edgeFetch.mockReset().mockImplementation(async () =>
+      new Response(JSON.stringify({ scanned: 1, considered: 10, graded: 1, candidates: [ROW] }), {
+        status: 200,
+      })
+    );
+    await render("/x?q=fleece");
+    await act(async () => host.querySelector("form")!.requestSubmit());
+    await flush();
+    const input = document.getElementById("scout-keyword") as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, "denim");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => host.querySelector("form")!.requestSubmit());
+    await flush();
+    expect(new URLSearchParams(location.split("?")[1]).get("q")).toBe("denim");
+    expect(host.textContent).toContain("Patagonia Synchilla fleece");
+
+    await act(async () => go(-1));
+    await flush();
+    expect(new URLSearchParams(location.split("?")[1]).get("q")).toBe("fleece");
+    expect(value("scout-keyword")).toBe("fleece");
+    // The rows on screen answered "denim"; they must not sit under "fleece".
+    expect(host.textContent).not.toContain("Patagonia Synchilla fleece");
+    expect(mocks.edgeFetch).toHaveBeenCalledTimes(2);
   });
 });
 
