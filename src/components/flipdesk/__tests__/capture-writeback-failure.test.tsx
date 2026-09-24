@@ -338,7 +338,7 @@ describe("US-3409 AC3: the rest of the bare `if (!res.ok) return` family", () =>
     });
   });
 
-  it("TIER 2 — a read that silently becomes empty: 19 of them", () => {
+  it("TIER 2 — a read that silently becomes empty: 18 of them", () => {
     const tier2 = bareOkReturns().tier2;
     expect(tier2).toEqual({
       "src/components/flipdesk/inventory-equity-card.tsx": 1,
@@ -347,7 +347,8 @@ describe("US-3409 AC3: the rest of the bare `if (!res.ok) return` family", () =>
       "src/components/flipdesk/listing-kit.tsx": 1,
       "src/hooks/use-condition-index.ts": 1,
       "src/hooks/use-description-blocks.ts": 2,
-      "src/hooks/use-ebay.ts": 5,
+      // AL-04 fixed the bulk aspect-coverage read: it throws now.
+      "src/hooks/use-ebay.ts": 4,
       "src/hooks/use-grade-ranges.ts": 1,
       "src/hooks/use-grade-turnaround.ts": 1,
       "src/hooks/use-title-conflicts.ts": 1,
@@ -358,7 +359,7 @@ describe("US-3409 AC3: the rest of the bare `if (!res.ok) return` family", () =>
       "src/lib/web-push-client.ts": 1,
       "src/pages/admin/audit-log.tsx": 1,
     });
-    expect(Object.values(tier2).reduce((a, b) => a + b, 0)).toBe(19);
+    expect(Object.values(tier2).reduce((a, b) => a + b, 0)).toBe(18);
   });
 
   it("the scanner finds the shape it is looking for", () => {
