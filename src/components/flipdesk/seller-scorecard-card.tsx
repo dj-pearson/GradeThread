@@ -146,7 +146,7 @@ export function SellerScorecardCard({
             report that explains it. */}
         {worst && line && (
           <Button asChild size="sm" variant="outline">
-            <Link to={fixThisHref(worst.metric, worst, location.search)}>
+            <Link to={fixThisHref(worst.metric, location.search)}>
               Fix this: {FIX_LABEL[worst.metric]}
               <ArrowRight className="ml-2 h-4 w-4" />
             </Link>

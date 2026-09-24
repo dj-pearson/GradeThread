@@ -284,8 +284,15 @@ const INVENTORY = "/dashboard/flipdesk/inventory";
 /** Unsold stock, for the queues below. */
 const UNSOLD = "sold,shipped,completed,archived";
 
-function inventoryQueue(rules: FilterQuery["rules"]): string {
-  return `${INVENTORY}?filter=${encodeURIComponent(encodeQuery({ combinator: "and", rules }))}`;
+// The inventory table opens on the tab the seller was last on unless `tab=` is
+// given, so every queue names its tab: a filter for live stock landing on a
+// remembered Sold tab would show nothing.
+function inventoryQueue(tab: string, rules?: FilterQuery["rules"]): string {
+  const q = new URLSearchParams({ tab });
+  if (rules && rules.length > 0) {
+    q.set("filter", encodeQuery({ combinator: "and", rules }));
+  }
+  return `${INVENTORY}?${q.toString()}`;
 }
 
 export const FIX_LABEL: Record<ScorecardMetric, string> = {
@@ -303,30 +310,18 @@ export const FIX_LABEL: Record<ScorecardMetric, string> = {
  */
 export function fixThisHref(
   metric: ScorecardMetric,
-  row: Pick<ScorecardRow, "cohortMedian"> | null,
   search: string,
 ): string {
   switch (metric) {
     case "price_realization":
       return "/dashboard/flipdesk/pricing";
     case "sell_through":
-      // Live listings that have sat 30+ days: the ones dragging the rate.
-      return inventoryQueue([
-        { id: "fix-status", field: "status", op: "eq", value: "listed" },
-        { id: "fix-age", field: "days_listed", op: "gte", value: "30" },
-      ]);
-    case "days_to_sell": {
-      // Older than the peer median, where one exists, else 30 days.
-      const median = row?.cohortMedian;
-      const days =
-        median != null && Number.isFinite(median) && median > 0
-          ? Math.round(median)
-          : 30;
-      return inventoryQueue([
-        { id: "fix-status", field: "status", op: "eq", value: "listed" },
-        { id: "fix-age", field: "days_listed", op: "gte", value: String(days) },
-      ]);
-    }
+    case "days_to_sell":
+      // The Aged tab: live listings past the seller's own aged threshold,
+      // oldest first. A `days_listed` filter rule would read better, but the
+      // server-side filter (flipdesk_filter_matches) does not know that field
+      // and matches nothing on it, so that queue always opened empty.
+      return inventoryQueue("aged");
     case "return_rate":
       return `${tabPath("returns")}${search}#return-attribution`;
     case "grade_yield":
@@ -336,7 +331,7 @@ export function fixThisHref(
 
 /** A14: unsold, ungraded stock: the queue behind "grade these items". */
 export function ungradedStockHref(): string {
-  return inventoryQueue([
+  return inventoryQueue("all", [
     { id: "grade-none", field: "grade", op: "isnull", value: "" },
     { id: "grade-unsold", field: "status", op: "nin", value: UNSOLD },
   ]);

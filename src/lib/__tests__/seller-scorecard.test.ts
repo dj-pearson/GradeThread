@@ -285,38 +285,58 @@ const filterOf = (href: string) => {
 
 describe("fixThisHref (A14)", () => {
   it.each(METRIC_ORDER.map((m) => [m]))("%s goes to a registered route", (metric) => {
-    const href = fixThisHref(metric, row(metric, 10), "?preset=30d");
+    const href = fixThisHref(metric, "?preset=30d");
     expect(registered(href)).toBe(true);
     expect(FIX_LABEL[metric].length).toBeGreaterThan(0);
   });
 
-  it("sell-through opens live listings 30+ days old", () => {
-    const q = filterOf(fixThisHref("sell_through", null, ""));
-    expect(q?.rules.map((r) => [r.field, r.op, r.value])).toEqual([
-      ["status", "eq", "listed"],
-      ["days_listed", "gte", "30"],
-    ]);
-  });
+  // The server-side filter (flipdesk_filter_matches) has no `days_listed`
+  // field, so a rule on it matched nothing and the queue always opened empty.
+  // The Aged tab is the server's own "live and old" predicate.
+  it.each([["sell_through"], ["days_to_sell"]] as const)(
+    "%s opens the Aged tab with no filter the server cannot evaluate",
+    (metric) => {
+      const href = fixThisHref(metric, "?preset=30d");
+      const url = new URL(href, "https://x.test");
+      expect(url.pathname).toBe("/dashboard/flipdesk/inventory");
+      expect(url.searchParams.get("tab")).toBe("aged");
+      expect(url.searchParams.get("filter")).toBeNull();
+    },
+  );
 
-  it("days-to-sell uses the peer median as the age cut", () => {
-    const q = filterOf(fixThisHref("days_to_sell", { cohortMedian: 41.6 }, ""));
-    expect(q?.rules.find((r) => r.field === "days_listed")?.value).toBe("42");
+  it("no inventory queue uses a filter field the server-side matcher ignores", () => {
+    const sql = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/00728_filter_by_sourcer.sql"),
+      "utf8",
+    );
+    const hrefs = [
+      ...METRIC_ORDER.map((m) => fixThisHref(m, "")),
+      ungradedStockHref(),
+    ];
+    for (const href of hrefs) {
+      for (const r of filterOf(href)?.rules ?? []) {
+        expect(sql).toContain(`when '${r.field}' then`);
+      }
+    }
   });
 
   it("return rate stays in Analytics, keeps the range and lands on the attribution card", () => {
-    expect(fixThisHref("return_rate", null, "?preset=30d")).toBe(
+    expect(fixThisHref("return_rate", "?preset=30d")).toBe(
       "/dashboard/flipdesk/analytics/returns?preset=30d#return-attribution",
     );
   });
 
   it("price realization and grade yield go to pricing and sources", () => {
-    expect(fixThisHref("price_realization", null, "")).toBe("/dashboard/flipdesk/pricing");
-    expect(fixThisHref("grade_yield", null, "")).toBe("/dashboard/flipdesk/sourcing?tab=sources");
+    expect(fixThisHref("price_realization", "")).toBe("/dashboard/flipdesk/pricing");
+    expect(fixThisHref("grade_yield", "")).toBe("/dashboard/flipdesk/sourcing?tab=sources");
   });
 
   it("the grade-ungraded queue is unsold stock with no grade", () => {
     const href = ungradedStockHref();
     expect(registered(href)).toBe(true);
+    // Named tab: without it the table opens on the remembered tab, and a
+    // remembered Sold tab would show none of this unsold stock.
+    expect(new URL(href, "https://x.test").searchParams.get("tab")).toBe("all");
     const q = filterOf(href);
     expect(q?.rules.map((r) => [r.field, r.op])).toEqual([
       ["grade", "isnull"],
