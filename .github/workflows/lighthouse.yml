@@ -79,6 +79,11 @@ jobs:
           configPath: ./lighthouserc.mobile.json
           temporaryPublicStorage: true
           uploadArtifacts: true
+          # Each profile needs its own artifact name. Both used the action's
+          # default, lighthouse-results, so the desktop upload hit a 409
+          # Conflict after its assertions passed, the step failed without
+          # setting its outputs, and the gate below went red on a non-defect.
+          artifactName: lighthouse-results-mobile
 
       - name: Run Lighthouse CI (desktop)
         id: lhci_desktop
@@ -88,6 +93,7 @@ jobs:
           configPath: ./lighthouserc.json
           temporaryPublicStorage: true
           uploadArtifacts: true
+          artifactName: lighthouse-results-desktop
 
       - name: Report results (job summary + PR comment)
         if: always()
