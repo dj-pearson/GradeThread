@@ -111,10 +111,14 @@ const REPORT = {
   confidence_label: "high",
 };
 
-function backend(status: string, garmentId: string | null = null) {
+function backend(
+  status: string,
+  garmentId: string | null = null,
+  report: Record<string, unknown> = {},
+) {
   const ok: Record<string, unknown> = {
     submissions: { ...SUBMISSION, status },
-    grade_reports: { ...REPORT, garment_id: garmentId },
+    grade_reports: { ...REPORT, garment_id: garmentId, ...report },
     inventory_items: null,
     submission_images: [],
     disputes: null,
@@ -199,5 +203,33 @@ describe("SUB-14: owner-only controls", () => {
     backend("completed");
     await mount();
     expect(container.querySelector('[role="switch"]')).not.toBeNull();
+  });
+});
+
+describe("SUB-15: honest review ETA and the condition note", () => {
+  it("a pending_review report past its due time shows the late copy", async () => {
+    backend("pending_review", null, {
+      review_due_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    });
+    const text = await mount();
+    expect(text).toContain("Running late. It is now at the front of the review queue.");
+    expect(text).not.toContain("Expected to be official by");
+  });
+
+  it("before its due time it gives the expected time", async () => {
+    backend("pending_review", null, {
+      review_due_at: new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString(),
+    });
+    const text = await mount();
+    expect(text).toContain("Expected to be official by");
+  });
+
+  it("a certified grade offers the condition text", async () => {
+    backend("completed");
+    const text = await mount();
+    expect(text).toContain("Condition text for your listing");
+    expect(container.querySelector("textarea")?.value).toContain(
+      "/cert/55555555-5555-5555-5555-555555555555",
+    );
   });
 });

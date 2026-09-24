@@ -158,11 +158,13 @@ describe("the post-submit screen answers all four questions (US-2870 AC1)", () =
     // (checkout clearing). A seller waiting on either has the same questions.
     // US-3328 adds a third waiting branch: the grade is finished and held for
     // the turnaround the seller paid for (US-3326), shown as "Ready by".
+    // SUB-15 adds a fourth: the "Grade Report Pending" fallback, which used to
+    // be a dead end with no next step.
     const mounts = (page.match(/<WhatHappensNext/g) ?? []).length;
     expect(
       mounts,
-      "the reassurance panel should render on all three waiting branches",
-    ).toBe(3);
+      "the reassurance panel should render on all four waiting branches",
+    ).toBe(4);
   });
 
   it("it lists what you receive, all four things", () => {

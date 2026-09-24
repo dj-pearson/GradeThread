@@ -95,6 +95,8 @@ import { ShowcaseConsentPanel } from "@/components/showcase/showcase-consent-pan
 import { RepairTriagePanel } from "@/components/grade/repair-triage-panel";
 import { DetectedIssues } from "@/components/grade/detected-issues";
 import { DISPUTE_KIND_LABEL } from "@/lib/dispute-kind";
+import { ConditionNoteCard } from "@/components/grade/condition-note-card";
+import { formatCountdown } from "@/lib/countdown";
 import { formatLabel } from "@/lib/format-label";
 import { SubmissionStatusBadge } from "@/components/submission/submission-status-badge";
 import {
@@ -641,7 +643,13 @@ export function SubmissionDetailPage() {
       const t = setInterval(() => setNowMs(Date.now()), 15_000);
       return () => clearInterval(t);
     }
-  }, [submissionStatus]);
+    // SUB-15: a minute tick for the held-grade countdown and the review ETA.
+    if (readyBy || submissionStatus === "pending_review") {
+      setNowMs(Date.now());
+      const t = setInterval(() => setNowMs(Date.now()), 60_000);
+      return () => clearInterval(t);
+    }
+  }, [submissionStatus, readyBy]);
 
   function applyLinkedItem(result: LinkedItemRead) {
     if (!result.ok) {
@@ -1386,6 +1394,15 @@ export function SubmissionDetailPage() {
                     {HUMAN_REVIEW.certificate} {HUMAN_REVIEW.cost}{" "}
                     {WHERE_IT_APPEARS}
                   </p>
+                  {/* SUB-15: the review's own due time, honestly. An overdue
+                      review goes to the front of the reviewers' queue. */}
+                  {gradeReport.review_due_at && (
+                    <p className="mt-1 text-sm font-medium text-violet-900 dark:text-violet-200">
+                      {Date.parse(gradeReport.review_due_at) > nowMs
+                        ? `Expected to be official by ${formatReadyBy(gradeReport.review_due_at)}.`
+                        : "Running late. It is now at the front of the review queue."}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1903,9 +1920,13 @@ export function SubmissionDetailPage() {
               // for (US-3326). The report is hidden until then, by design.
               <>
                 <Clock className="h-12 w-12 text-muted-foreground/50" />
-                <h3 className="mt-4 text-lg font-medium">
-                  Ready by {formatReadyBy(readyBy)}
-                </h3>
+                {/* SUB-15: the grade exists; it is held for the turnaround the
+                    seller paid for. Say that, and count down to it. */}
+                <h3 className="mt-4 text-lg font-medium">Your grade is done</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  It will be released {formatCountdown(Date.parse(readyBy) - nowMs)}, at{" "}
+                  {formatReadyBy(readyBy)}.
+                </p>
                 <WhatHappensNext
                   status={submission.status}
                   tier={submission.service_tier ?? null}
@@ -1922,6 +1943,21 @@ export function SubmissionDetailPage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   The grade report will appear here once processing is complete.
                 </p>
+                {/* SUB-15: not a dead end. Say what happens next, and let the
+                    seller ask again rather than reload the page. */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4"
+                  onClick={() => void refetchData()}
+                >
+                  Check again
+                </Button>
+                <WhatHappensNext
+                  status={submission.status}
+                  tier={submission.service_tier ?? null}
+                  live={turnaround.live}
+                />
               </>
             )}
           </CardContent>
@@ -2018,6 +2054,12 @@ export function SubmissionDetailPage() {
               />
             </CardContent>
           </Card>
+
+        {/* SUB-15: the condition wording, ready to paste into any listing. */}
+        <ConditionNoteCard
+          report={gradeReport}
+          certificateId={gradeReport.certificate_id}
+        />
 
         {/* US-1120: turn a fresh grade into a Garment Passport conversion surface —
             a prominent "View / Create a Garment Passport" path (no longer gated
