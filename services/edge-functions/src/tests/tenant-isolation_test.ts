@@ -2386,6 +2386,106 @@ Deno.test({
   },
 });
 
+// OM-16: the rest of the negotiation surface. Each one reads or writes the
+// caller's own offers (marketplace_offers) or eBay account, so an anonymous
+// caller must be turned away before any of it runs.
+for (
+  const [method, path, body] of [
+    ["POST", "/api/flipdesk/ebay/negotiation/send-offer", { listing_ids: ["1"], discount_percentage: 10 }],
+    ["GET", "/api/flipdesk/ebay/negotiation/eligible", null],
+    ["GET", "/api/flipdesk/ebay/negotiation/send-offer-today", null],
+    ["GET", "/api/flipdesk/ebay/negotiation/analytics", null],
+    ["POST", "/api/flipdesk/ebay/negotiation/rule-dry-run", { accept_at_pct: 90 }],
+    ["GET", "/api/flipdesk/ebay/negotiation/threshold-conflicts", null],
+  ] as const
+) {
+  Deno.test({
+    name: `${method} ${path.replace("/api/flipdesk/ebay", "")} requires authentication`,
+    ignore: !BASE,
+    fn: async () => {
+      const res = await fetch(`${BASE}${path}`, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const status = res.status;
+      await res.body?.cancel();
+      assert(status === 401, `unauthenticated ${method} ${path} should 401, got ${status}`);
+    },
+  });
+}
+
+// OM-16: send-offer takes listing ids from the REQUEST BODY and writes
+// marketplace_offers rows for what it sends. B naming A's listing must never
+// come back as a successful send: B's token cannot reach A's eBay account, and
+// every row the route writes is keyed on B.
+Deno.test({
+  name: "B cannot send a watcher offer on A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/negotiation/send-offer`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ listing_ids: [listingId], discount_percentage: 10 }),
+    });
+    const json = await res.json().catch(() => ({}));
+    assert(
+      !(res.status === 200 && Array.isArray(json.sent) && json.sent.includes(listingId)),
+      "send-offer reported a send on another tenant's listing",
+    );
+  },
+});
+
+// OM-16: B's analytics and dry-run are computed from B's stored offers. A
+// response naming A's listing would mean the owner filter on marketplace_offers
+// is gone.
+for (
+  const [method, path, body] of [
+    ["GET", "/api/flipdesk/ebay/negotiation/analytics", null],
+    ["POST", "/api/flipdesk/ebay/negotiation/rule-dry-run", { accept_at_pct: 90, days: 180 }],
+  ] as const
+) {
+  Deno.test({
+    name: `B's ${path.replace("/api/flipdesk/ebay", "")} carries none of A's offers`,
+    ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+    fn: async () => {
+      const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+      const res = await fetch(`${BASE}${path}`, {
+        method,
+        headers: authHeaders(B_JWT!),
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const text = await res.text();
+      assert(
+        res.status !== 200 || !text.includes(listingId),
+        `${path} for B contains A's listing id`,
+      );
+    },
+  });
+}
+
+// OM-16: B answering an offer on A's listing. B's token is B's eBay account, so
+// eBay cannot apply it to A's listing; the property is that the edge never
+// reports it as done.
+Deno.test({
+  name: "B cannot respond to a best offer on A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/negotiation/offers/abc123/respond`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ item_id: listingId, action: "Decline" }),
+      },
+    );
+    const json = await res.json().catch(() => ({}));
+    assert(json.ok !== true, `cross-tenant respond reported ok (status ${res.status})`);
+  },
+});
+
 // US-2503: GET /api/buyer/entitlements — the resolved buyer plan payload both
 // the web app and iOS read, so neither reimplements the gating matrix.
 //
