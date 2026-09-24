@@ -16,6 +16,8 @@ import {
   useSetEbayProgram,
   type EbayProgramSlug,
 } from "@/hooks/use-ebay";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { MARKETPLACE_ADMIN_ONLY } from "@/lib/workspace-permissions";
 
 // US-2157: eBay seller-program enrollment. The GET/POST/DELETE /programs routes
 // shipped with US-1979 and were fully tenant-scoped, but nothing in the product
@@ -31,6 +33,10 @@ export function EbayProgramsCard() {
   const connected = !!connection;
   const { data, isLoading, isError } = useEbayPrograms(connected);
   const setProgram = useSetEbayProgram();
+  // MP-01: these change the owner's whole eBay account; the edge refuses them
+  // below admin, so the switches do too.
+  const { can } = useWorkspace();
+  const canManage = can("manage_marketplaces");
 
   // Self-gates like the other eBay cards — a disconnected seller sees nothing
   // rather than a card full of controls that would 502 on touch.
@@ -68,6 +74,9 @@ export function EbayProgramsCard() {
           </p>
         ) : (
           <ul className="space-y-4">
+            {!canManage && (
+              <li className="text-xs text-muted-foreground">{MARKETPLACE_ADMIN_ONLY}</li>
+            )}
             {EBAY_PROGRAMS.map((program) => {
               const checked = optedIn.has(program.apiName);
               const busy = pendingSlug === program.slug;
@@ -77,7 +86,7 @@ export function EbayProgramsCard() {
                   <Switch
                     id={inputId}
                     checked={checked}
-                    disabled={busy}
+                    disabled={busy || !canManage}
                     onCheckedChange={(next) =>
                       setProgram.mutate({ slug: program.slug, optIn: next })
                     }

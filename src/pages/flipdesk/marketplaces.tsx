@@ -125,6 +125,8 @@ import {
   usePollState,
 } from "@/hooks/use-sold-sync";
 import { HelpLink } from "@/components/help/help-link";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { MARKETPLACE_ADMIN_ONLY } from "@/lib/workspace-permissions";
 
 // US-718: the non-API channels, grouped by their REAL tier (read from the
 // MARKETPLACE_TIER single source of truth). eBay + Shopify are tier "api" and
@@ -676,6 +678,10 @@ function EbaySetup({
   // button, which re-runs OAuth against a link that was working.
   const connected = !connError && !!connection;
   const disconnect = useDisconnectEbay();
+  // MP-01: connecting, disconnecting and editing the location or policies all
+  // change the owner's live eBay setup, and the edge refuses them below admin.
+  const { can } = useWorkspace();
+  const canManage = can("manage_marketplaces");
   const { data: policyData, isLoading: polLoading } = useEbayPolicies(connected);
   const defaults = policyData?.defaults;
   const hasLocation = !!defaults?.merchant_location_key;
@@ -765,7 +771,7 @@ function EbaySetup({
                       : "A direct OAuth connection syncs listings, pushes drafts, and streams payouts."
                 }
                 action={
-                  connected ? (
+                  !canManage ? undefined : connected ? (
                     <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
@@ -830,7 +836,7 @@ function EbaySetup({
                         : "eBay needs a ship-from location to publish"
                 }
                 action={
-                  polReady ? (
+                  polReady && canManage ? (
                     <Button
                       size="sm"
                       variant={hasLocation ? "ghost" : "default"}
@@ -864,7 +870,7 @@ function EbaySetup({
                         : "Pick a shipping, payment & return default"
                 }
                 action={
-                  polReady ? (
+                  polReady && canManage ? (
                     <Button
                       size="sm"
                       variant={hasPolicies ? "ghost" : "default"}
@@ -876,6 +882,10 @@ function EbaySetup({
                 }
               />
             </div>
+
+            {!canManage && (
+              <p className="text-xs text-muted-foreground">{MARKETPLACE_ADMIN_ONLY}</p>
+            )}
 
             {allReady && manageOpen && (
               <div className="flex justify-end">
@@ -966,6 +976,8 @@ function ShopifySetup() {
   const startOauth = useStartShopifyOauth();
   const disconnect = useDisconnectShopify();
   const sync = useSyncShopify();
+  const { can } = useWorkspace();
+  const canManage = can("manage_marketplaces");
   const [shop, setShop] = useState("");
   // US-3248: see the eBay card. A failed read is not a missing connection.
   const connected = !connError && !!connection;
@@ -1022,6 +1034,8 @@ function ShopifySetup() {
               Check again
             </Button>
           </div>
+        ) : !connected && !canManage ? (
+          <p className="text-xs text-muted-foreground">{MARKETPLACE_ADMIN_ONLY}</p>
         ) : !connected ? (
           <div className="space-y-2">
             <Label htmlFor="shopify-domain" className="text-xs">
@@ -1057,18 +1071,20 @@ function ShopifySetup() {
               )}
               {sync.isPending ? "Syncing…" : "Sync from Shopify"}
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={() => disconnect.mutate()}
-              disabled={disconnect.isPending}
-            >
-              {disconnect.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              Disconnect
-            </Button>
+            {canManage && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() => disconnect.mutate()}
+                disabled={disconnect.isPending}
+              >
+                {disconnect.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Disconnect
+              </Button>
+            )}
             <span className="ml-auto text-[11px] text-muted-foreground">
               {connection?.last_synced_at
                 ? `Last synced ${formatAgo(connection.last_synced_at)}.`
@@ -1902,6 +1918,8 @@ export function FlipdeskMarketplacesPage() {
   const { data: connIssue } = useEbayConnectionIssue();
   const startOauth = useStartEbayOauth();
   const syncListings = useSyncEbayListings();
+  const { can } = useWorkspace();
+  const canManage = can("manage_marketplaces");
 
   // Detect completion: last_synced_at changed from the pre-sync baseline.
   useEffect(() => {
@@ -2097,19 +2115,23 @@ export function FlipdeskMarketplacesPage() {
             <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-destructive" />
             <span className="text-foreground">{connIssue.refresh_error}</span>
           </div>
-          <Button
-            size="sm"
-            onClick={() => startOauth.mutate()}
-            disabled={startOauth.isPending}
-            className="shrink-0"
-          >
-            {startOauth.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            Reconnect eBay
-          </Button>
+          {canManage ? (
+            <Button
+              size="sm"
+              onClick={() => startOauth.mutate()}
+              disabled={startOauth.isPending}
+              className="shrink-0"
+            >
+              {startOauth.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Reconnect eBay
+            </Button>
+          ) : (
+            <span className="text-xs text-muted-foreground">{MARKETPLACE_ADMIN_ONLY}</span>
+          )}
         </div>
       )}
 

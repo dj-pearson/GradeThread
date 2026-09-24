@@ -34,6 +34,11 @@ const CAPABILITY_MIN_ROLE: Record<WorkspaceCapability, WorkspaceRole> = {
   delete_workspace: "owner",
 };
 
+// MP-01: the one line shown wherever a marketplace control is withheld from a
+// role below admin. The edge returns the same sentence with its 403.
+export const MARKETPLACE_ADMIN_ONLY =
+  "Only a workspace admin can change marketplace connections.";
+
 export function roleAtLeast(role: WorkspaceRole, min: WorkspaceRole): boolean {
   return ROLE_RANK[role] >= ROLE_RANK[min];
 }

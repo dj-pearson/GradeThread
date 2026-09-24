@@ -29,7 +29,19 @@ const state = {
   polLoading: false,
   queue: undefined as unknown,
   queueLoading: false,
+  role: "owner" as string,
 };
+
+vi.mock("@/hooks/use-workspace", async () => {
+  const perms = await import("@/lib/workspace-permissions");
+  return {
+    useWorkspace: () => ({
+      role: state.role,
+      can: (cap: Parameters<typeof perms.canDo>[1]) =>
+        perms.canDo(state.role as Parameters<typeof perms.canDo>[0], cap),
+    }),
+  };
+});
 
 vi.mock("@/hooks/use-ebay", () => ({
   useEbayConnection: () => ({
@@ -173,6 +185,7 @@ beforeEach(() => {
     polLoading: false,
     queue: { pending: [], needsAttention: [], finishedNeedsReview: [], lastDrainedAt: null },
     queueLoading: false,
+    role: "owner",
   });
 });
 
@@ -246,6 +259,44 @@ describe("Marketplaces page: eBay setup", () => {
     render();
     expect(document.body.textContent).toContain("Ready to publish on eBay");
     expect(document.body.textContent).not.toContain("of 3 complete");
+  });
+});
+
+describe("Marketplaces page: roles (MP-01)", () => {
+  it("a member sees the admin-only line and no Disconnect or Set up", () => {
+    state.role = "member";
+    state.connection = CONNECTED;
+    state.policies = {
+      policies: [],
+      defaults: {
+        merchant_location_key: null,
+        fulfillment_policy_id: null,
+        payment_policy_id: null,
+        return_policy_id: null,
+      },
+    };
+    render();
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Only a workspace admin can change marketplace connections.");
+    const buttons = [...document.querySelectorAll("button")].map((b) => b.textContent?.trim());
+    expect(buttons).not.toContain("Disconnect");
+    expect(buttons).not.toContain("Reconnect");
+    expect(buttons).not.toContain("Set up");
+  });
+
+  it("a member who is not connected is not offered Connect eBay or Connect Shopify", () => {
+    state.role = "member";
+    render();
+    const buttons = [...document.querySelectorAll("button")].map((b) => b.textContent?.trim());
+    expect(buttons).not.toContain("Connect eBay");
+    expect(buttons).not.toContain("Connect Shopify");
+  });
+
+  it("an admin still gets Disconnect", () => {
+    state.role = "admin";
+    state.connection = CONNECTED;
+    render();
+    expect(buttonIn(stepRow("Connect your eBay account"), "Disconnect")).toBeTruthy();
   });
 });
 

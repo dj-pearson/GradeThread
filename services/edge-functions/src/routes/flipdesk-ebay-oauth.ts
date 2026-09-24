@@ -28,6 +28,7 @@ import { requireJobSecret } from "../lib/job-auth.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { pushTokenExpiring } from "../lib/transactional-push.ts";
 import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
+import { refuseMarketplaceChange } from "../lib/marketplace-admin-guard.ts";
 import { EBAY_CONNECTION_SCAN_CAP, type EbayEnv } from "./flipdesk-ebay-shared.ts";
 import { triggerEbaySyncForUser } from "./flipdesk-ebay-sync.ts";
 
@@ -51,6 +52,10 @@ flipdeskEbayRoutes.get("/oauth/start", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
+  // MP-01: a GET skips blockViewerWrites, so without this a viewer could attach
+  // their own eBay account to the owner's tenant.
+  const refused = await refuseMarketplaceChange(c, c.get("workspaceRole"), "Connecting a marketplace");
+  if (refused) return refused;
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const redirectTo = sanitizeRelativePath(c.req.query("redirect_to"));
 

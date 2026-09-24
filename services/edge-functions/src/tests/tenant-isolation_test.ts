@@ -3890,6 +3890,39 @@ Deno.test({
   },
 });
 
+// MP-01: attaching or reshaping the owner's marketplace connection is
+// admin-only. The OAuth start route skips blockViewerWrites (it is a GET), so this is
+// the only thing stopping a viewer attaching their own eBay account to the
+// owner's tenant. The member/listing_manager/admin half is driven in
+// marketplace-admin-guard_test.ts.
+Deno.test({
+  name: "MP-01: viewer cannot start marketplace OAuth or change eBay policies/programs",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const cases: Array<[string, string]> = [
+      ["GET", "/api/flipdesk/ebay/oauth/start"],
+      ["GET", "/api/flipdesk/shopify/oauth/start?shop=my-store.myshopify.com"],
+      ["PUT", "/api/flipdesk/ebay/policies/default"],
+      ["POST", "/api/flipdesk/ebay/policies/sync"],
+      ["POST", "/api/flipdesk/ebay/policies/create"],
+      ["POST", "/api/flipdesk/ebay/policies/location"],
+      ["POST", "/api/flipdesk/ebay/programs/out-of-stock"],
+      ["DELETE", "/api/flipdesk/ebay/programs/out-of-stock"],
+    ];
+    for (const [method, path] of cases) {
+      const res = await fetch(`${BASE}${path}`, {
+        method,
+        headers: viewerHeaders(),
+        body: method === "GET" || method === "DELETE"
+          ? undefined
+          : JSON.stringify({ postal_code: "10001", handling_days: 1 }),
+      });
+      await res.body?.cancel();
+      assertDenied(res.status, `${method} ${path} as viewer`);
+    }
+  },
+});
+
 // DASH-2: the extension queue now runs workspaceMiddleware. Before it did, a
 // member's X-Workspace-Owner was ignored (they saw their own queue on the
 // owner's board) and the viewer floor could not see the role at all.

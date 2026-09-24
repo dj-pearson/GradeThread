@@ -21,6 +21,7 @@ import {
 } from "../lib/shopify-client.ts";
 import { registerShopifyWebhooks } from "../lib/shopify-graphql.ts";
 import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
+import { refuseMarketplaceChange } from "../lib/marketplace-admin-guard.ts";
 
 // Shopify integration endpoints (US-599). Mounted at /api/flipdesk/shopify.
 //
@@ -73,6 +74,9 @@ flipdeskShopifyRoutes.get("/oauth/start", async (c) => {
   if (!isShopifyConfigured()) {
     return c.json({ error: "Shopify is not configured on this server." }, 503);
   }
+  // MP-01: admin only, same as disconnect.
+  const refused = await refuseMarketplaceChange(c, c.get("workspaceRole"), "Connecting a marketplace");
+  if (refused) return refused;
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   const shop = normalizeShopDomain(c.req.query("shop"));
