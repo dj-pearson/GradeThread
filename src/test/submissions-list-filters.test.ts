@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { sanitizeSearch, endOfDayIso } from "@/lib/search-filter";
+import { sanitizeSearch } from "@/lib/search-filter";
 
 // US-2544. The Submissions list wore a magnifying glass over two dropdowns and
 // no search box, sorted without saying which way, showed an empty disputes
@@ -33,11 +33,7 @@ describe("search term sanitizing (US-2544)", () => {
     expect(sanitizeSearch("size 32x34")).toBe("size 32x34");
   });
 
-  it("ends a date range at the end of that day", () => {
-    // .lte against a bare date compares to midnight, which drops everything
-    // filed on the day the seller picked as the end of the range.
-    expect(endOfDayIso("2026-08-14")).toBe("2026-08-14T23:59:59.999Z");
-  });
+  // SUB-08: the date bounds moved to local days; see search-filter-local-days.test.ts.
 });
 
 describe("the list can be searched and dated (US-2544 AC2)", () => {

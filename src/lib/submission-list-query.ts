@@ -1,4 +1,4 @@
-import { sanitizeSearch, endOfDayIso } from "@/lib/search-filter";
+import { sanitizeSearch, localDayRangeIso } from "@/lib/search-filter";
 
 // The Submissions list filters, in one place. The list's two sort branches
 // and the CSV export all apply them, so a filter honoured by one and not the
@@ -35,7 +35,7 @@ interface FilterBuilder<T> {
   eq: (column: string, value: string) => T;
   or: (filter: string) => T;
   gte: (column: string, value: string) => T;
-  lte: (column: string, value: string) => T;
+  lt: (column: string, value: string) => T;
 }
 
 /**
@@ -53,7 +53,9 @@ export function applySubmissionFilters<T extends FilterBuilder<T>>(
   if (f.garmentType !== "all") next = next.eq("garment_type", f.garmentType);
   const term = sanitizeSearch(f.search);
   if (term) next = next.or(`title.ilike.%${term}%,brand.ilike.%${term}%`);
-  if (f.dateFrom) next = next.gte("created_at", f.dateFrom);
-  if (f.dateTo) next = next.lte("created_at", endOfDayIso(f.dateTo));
+  // SUB-08: the seller's local calendar days, matching the dates the rows show.
+  const range = localDayRangeIso(f.dateFrom, f.dateTo);
+  if (range.gte) next = next.gte("created_at", range.gte);
+  if (range.lt) next = next.lt("created_at", range.lt);
   return next;
 }

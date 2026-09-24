@@ -555,8 +555,8 @@ export function SubmissionsPage() {
               </Select>
             </div>
 
-            {/* US-2544 AC2: date range. Both bounds are inclusive — see
-                endOfDayIso for why the end needs saying out loud. */}
+            {/* US-2544 AC2: date range. Both bounds are inclusive local days;
+                see localDayRangeIso (SUB-08). */}
             <div className="flex items-center gap-2">
               <Label htmlFor="date-from" className="text-xs text-muted-foreground">
                 From
