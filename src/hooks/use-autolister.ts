@@ -59,6 +59,27 @@ interface StartBatchResponse {
 }
 
 /** POST /api/flipdesk/autolister/batch — enqueue items for generation. */
+/** AL-07: the edge's per-batch cap on POST /autolister/batch (MAX_BATCH_ITEMS). */
+export const MAX_GENERATE_BATCH_ITEMS = 300;
+
+/**
+ * AL-07: a refused Generate, carrying the HTTP status and the edge's body so
+ * the page can answer INSUFFICIENT_AI_ACTIONS with "Generate the first N".
+ */
+export class StartBatchError extends Error {
+  readonly status: number;
+  readonly body: Record<string, unknown>;
+  constructor(status: number, body: Record<string, unknown>) {
+    super(typeof body.error === "string" ? body.error : "Could not start generation.");
+    this.name = "StartBatchError";
+    this.status = status;
+    this.body = body;
+  }
+  get code(): string | null {
+    return typeof this.body.code === "string" ? this.body.code : null;
+  }
+}
+
 export function useStartAutolisterBatch() {
   return useMutation<StartBatchResponse, Error, StartBatchInput>({
     mutationFn: async (input) => {
@@ -67,9 +88,7 @@ export function useStartAutolisterBatch() {
         json: input,
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json.error || "Could not start generation.");
-      }
+      if (!res.ok) throw new StartBatchError(res.status, json as Record<string, unknown>);
       return json as StartBatchResponse;
     },
     // AL-06: no onError here. Callers already toast a failed Generate, and a

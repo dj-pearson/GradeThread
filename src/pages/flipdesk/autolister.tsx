@@ -122,6 +122,8 @@ import {
   useDiscardAutolisterHandoff,
   useRunCoverQa,
   useStartAutolisterBatch,
+  StartBatchError,
+  MAX_GENERATE_BATCH_ITEMS,
 } from "@/hooks/use-autolister";
 import {
   dedupeSuggestions,
@@ -141,7 +143,11 @@ import {
   COVER_QA_REVIEW_THRESHOLD,
   type GroupWarning,
 } from "@/pages/flipdesk/autolister/group-warnings";
-import { persistGroupsAsItems } from "./autolister/persist-groups-as-items";
+import {
+  findProtectedSkuMatches,
+  persistGroupsAsItems,
+  type ProtectedSkuMatch,
+} from "./autolister/persist-groups-as-items";
 import { discardStagedObjects } from "./autolister/discard-staged-objects";
 import {
   GenerateConfirmDialog,
@@ -232,6 +238,8 @@ interface Group {
   // creating a duplicate) so the AI draft can be reconciled against the
   // sheet-imported record field-by-field. Optional → round-trips older sessions.
   sku?: string;
+  // AL-07: the item a refused Generate already created; a retry reuses it.
+  itemId?: string;
   photoIds: string[];
   coverId: string;
   // photoId -> role. Optional so sessions persisted before US-533 (and freshly
@@ -502,6 +510,10 @@ function AutolisterWorkbench() {
   /** US-2621: which groups the pending Generate covers. null = all of them. */
   const [generateTarget, setGenerateTarget] = useState<string[] | null>(null);
   const [ackUngrouped, setAckUngrouped] = useState(false);
+  // AL-07: SKU matches on listed/sold/shipped/archived items, read when the
+  // Generate confirm opens; skipped unless the seller ticks the box.
+  const [protectedSkus, setProtectedSkus] = useState<ProtectedSkuMatch[]>([]);
+  const [attachProtected, setAttachProtected] = useState(false);
   // US-535: studio background. Mode for the one-tap clean, photos currently
   // being segmented, a batch-busy flag, and one-time model-download progress.
   const [bgMode, setBgMode] = useState<BgMode>("white");
@@ -1599,7 +1611,15 @@ function AutolisterWorkbench() {
   function openGenerateConfirm(only?: string[]) {
     setGenerateTarget(only && only.length > 0 ? only : null);
     setAckUngrouped(false);
+    setProtectedSkus([]);
+    setAttachProtected(false);
     setConfirmGenerateOpen(true);
+    const wanted = only && only.length > 0 ? new Set(only) : null;
+    if (ownerId) {
+      findProtectedSkuMatches(ownerId, wanted ? groups.filter((g) => wanted.has(g.id)) : groups)
+        .then(setProtectedSkus)
+        .catch((err) => toastError(err, "Couldn't check your SKUs against existing items."));
+    }
   }
 
   /**
@@ -2088,7 +2108,7 @@ function AutolisterWorkbench() {
    * keeps the seller on this page, so finishing one item early no longer means
    * either sending the whole batch or waiting for it.
    */
-  async function generate(only?: string[] | null) {
+  async function generate(only?: string[] | null, allowProtected?: ReadonlySet<string>) {
     if (!ownerId) return;
     if (groups.length === 0) {
       toast.error("Create at least one group first.");
@@ -2124,7 +2144,27 @@ function AutolisterWorkbench() {
       // US-3381: the group -> items + photos write moved to
       // autolister/persist-groups-as-items.ts so the SKU lookup inside it
       // could gain its error check; this file is at its ceiling exactly.
-      const itemIds = await persistGroupsAsItems({ ownerId, targets, stagedById });
+      // AL-07: record each created item on its group and persist it BEFORE the
+      // batch is started, so a refused batch retried later reuses the items.
+      const created = new Map<string, string>();
+      let itemIds: string[];
+      try {
+        itemIds = await persistGroupsAsItems({
+          ownerId, targets, stagedById, allowProtectedGroupIds: allowProtected,
+          onItemReady: (gid, iid) => created.set(gid, iid),
+        });
+      } finally {
+        if (created.size > 0) {
+          const stamped = groups.map((g) => (created.has(g.id) ? { ...g, itemId: created.get(g.id) } : g));
+          setGroups(stamped);
+          if (idbAvailable()) {
+            await saveSession(sessionId.current, {
+              staged, groups: stamped, undo: undoGroupsRef.current,
+              sort: { ungroupedSort, groupEvery }, updatedAt: Date.now(), ownerId: ownerId ?? undefined,
+            });
+          }
+        }
+      }
 
       if (itemIds.length === 0) {
         toast.error("Add photos to at least one group.");
@@ -2142,13 +2182,15 @@ function AutolisterWorkbench() {
         item_ids: itemIds,
         auto_publish_green: autoPublishGreen,
       });
-      if (partial) {
+      // AL-07: a group skipped for a protected SKU match stays in the session.
+      const sent = targets.filter((g) => created.has(g.id));
+      if (partial || sent.length < targets.length) {
         // The generated groups and their photos now belong to real items, so
         // they leave the staging session; everything else is untouched and the
         // seller stays on this page to keep working. The batch id goes into the
         // URL so BatchNav appears and the run is one click away.
-        const takenPhotoIds = new Set(targets.flatMap((g) => g.photoIds));
-        const remainingGroups = groups.filter((g) => !targets.includes(g));
+        const takenPhotoIds = new Set(sent.flatMap((g) => g.photoIds));
+        const remainingGroups = groups.filter((g) => !created.has(g.id));
         const remainingStaged = staged.filter((p) => !takenPhotoIds.has(p.id));
         // The undo snapshot describes groups that no longer exist here.
         undoGroupsRef.current = null;
@@ -2194,7 +2236,18 @@ function AutolisterWorkbench() {
       clearStoredSession();
       navigate(`/dashboard/flipdesk/autolister/queue?batch=${res.batch_id}`);
     } catch (err) {
-      toastError(err, "Could not start generation.");
+      // AL-07: a batch that won't fit the allowance offers the part that does.
+      const remaining = err instanceof StartBatchError && err.code === "INSUFFICIENT_AI_ACTIONS"
+        ? Number(err.body.remaining ?? 0) : 0;
+      if (remaining > 0) {
+        const firstIds = targets.filter((g) => g.photoIds.length > 0).slice(0, remaining).map((g) => g.id);
+        toastError(err, "Not enough AI actions for this batch.", {
+          action: "generate listings",
+          toastAction: { label: `Generate first ${remaining}`, onClick: () => void generate(firstIds, allowProtected) },
+        });
+      } else {
+        toastError(err, "Could not start generation.");
+      }
     } finally {
       setBusy(false);
     }
@@ -2270,7 +2323,7 @@ function AutolisterWorkbench() {
             // first parameter is the group subset, and a bare handler would hand
             // it the click event as one.
             onClick={() => openGenerateConfirm()}
-            disabled={busy || groups.length === 0 || uploading > 0 || !entitled}
+            disabled={busy || listableCount === 0 || uploading > 0 || !entitled}
             size="lg"
           >
             {busy ? (
@@ -2278,25 +2331,26 @@ function AutolisterWorkbench() {
             ) : (
               <Sparkles className="mr-2 h-4 w-4" />
             )}
-            Generate {groups.length > 0 ? `${groups.length} listing${groups.length === 1 ? "" : "s"}` : ""}
+            {/* AL-07: count what Generate sends, not empty groups. */}
+            Generate {listableCount > 0 ? `${listableCount} listing${listableCount === 1 ? "" : "s"}` : ""}
           </Button>
           {/* US-2872: the button was disabled with no reason given, which is
               the hidden-feature problem wearing a grey coat. Say what it does
               and which plan has it, right where the seller is standing. */}
           {/* US-1545: projected AI spend vs the month's remainder, so a big
               session never dead-ends at Generate with an invisible quota wall. */}
-          {entitled && groups.length > 0 && aiActionsRemaining != null && (
+          {entitled && listableCount > 0 && aiActionsRemaining != null && (
             <p
               className={cn(
                 "text-xs",
-                groups.length > aiActionsRemaining
+                listableCount > aiActionsRemaining
                   ? "font-medium text-brand-red-text"
                   : "text-muted-foreground",
               )}
             >
-              {groups.length > aiActionsRemaining
-                ? `Needs ~${groups.length} AI actions but only ${aiActionsRemaining} remain — remove some groups or upgrade.`
-                : `Uses ~${groups.length} of your ${aiActionsRemaining} remaining AI actions this month.`}
+              {listableCount > aiActionsRemaining
+                ? `Needs ~${listableCount} AI actions but only ${aiActionsRemaining} remain — remove some groups or upgrade.`
+                : `Uses ~${listableCount} of your ${aiActionsRemaining} remaining AI actions this month.`}
             </p>
           )}
           {/* US-955: fire-and-forget auto-publish of the green, clean drafts. */}
@@ -3049,9 +3103,20 @@ function AutolisterWorkbench() {
             }
             : null
         }
-        onGenerate={() => {
+        maxItems={Math.min(MAX_GENERATE_BATCH_ITEMS, aiActionsRemaining ?? Infinity)}
+        protectedSkus={protectedSkus.map((m) => ({
+          ...m, name: groups.find((g) => g.id === m.groupId)?.name || m.sku,
+        }))}
+        attachProtected={attachProtected}
+        onAttachProtectedChange={setAttachProtected}
+        onGenerate={(firstN) => {
           setConfirmGenerateOpen(false);
-          void generate(generateTarget);
+          const allow = attachProtected ? new Set(protectedSkus.map((m) => m.groupId)) : undefined;
+          if (firstN == null) return void generate(generateTarget, allow);
+          const wanted = generateTarget ? new Set(generateTarget) : null;
+          const ids = groups.filter((g) => (!wanted || wanted.has(g.id)) && g.photoIds.length > 0)
+            .slice(0, firstN).map((g) => g.id);
+          void generate(ids, allow);
         }}
       />
 

@@ -20,6 +20,8 @@ let skuReadError: unknown = null;
 let existingRow: Row | null = null;
 let insertError: unknown = null;
 let statusUpdateError: unknown = null;
+let existingPhotos: Row[] = [];
+const statusGuards: string[][] = [];
 const calls: string[] = [];
 const inserted: Row[][] = [];
 
@@ -42,7 +44,10 @@ function selectChain(table: string) {
     });
   };
   self["then"] = (onFulfilled: (v: unknown) => unknown) =>
-    Promise.resolve({ data: [], error: null }).then(onFulfilled);
+    Promise.resolve({
+      data: table === "item_photos" ? existingPhotos : [],
+      error: null,
+    }).then(onFulfilled);
   return self;
 }
 
@@ -51,10 +56,13 @@ vi.mock("@/lib/supabase", () => ({
     from: (table: string) => ({
       select: () => selectChain(table),
       update: () => ({
-        eq: () => {
-          calls.push(`${table}.update`);
-          return Promise.resolve({ data: null, error: statusUpdateError });
-        },
+        eq: () => ({
+          in: (_col: string, allowed: string[]) => {
+            calls.push(`${table}.update`);
+            statusGuards.push(allowed);
+            return Promise.resolve({ data: null, error: statusUpdateError });
+          },
+        }),
       }),
       insert: (rows: Row | Row[]) => {
         calls.push(`${table}.insert`);
@@ -107,6 +115,8 @@ beforeEach(() => {
   existingRow = null;
   insertError = null;
   statusUpdateError = null;
+  existingPhotos = [];
+  statusGuards.length = 0;
   calls.length = 0;
   inserted.length = 0;
   warnings.length = 0;
@@ -162,5 +172,62 @@ describe("the SKU lookup that used to drop its error", () => {
     existingRow = { id: "existing-item" };
     await run("SKU-1");
     expect(warnings).toEqual([]);
+  });
+});
+
+// AL-07: binding a SKU must never drag a listed or sold item backwards, a
+// retry must reuse the item a refused batch created, and photos added to an
+// item that already has some go after them instead of colliding at 0..n.
+describe("safe SKU binding and retries (AL-07)", () => {
+  it("only advances a SKU-bound item that is still in intake", async () => {
+    existingRow = { id: "existing-item", status: "measured" };
+    await run("SKU-1");
+    expect(statusGuards).toEqual([["sourced", "cataloged", "measured"]]);
+  });
+
+  it("skips a sold match unless the seller confirmed it, and never touches its status", async () => {
+    existingRow = { id: "sold-item", status: "sold" };
+    expect(await run("SKU-1")).toEqual([]);
+    expect(calls).not.toContain("inventory_items.update");
+    expect(inserted).toEqual([]);
+
+    const ids = await persistGroupsAsItems({
+      ownerId: "11111111-1111-4111-8111-111111111111",
+      targets: [{ id: "g1", name: "Jacket", sku: "SKU-1", photoIds: ["p1"], coverId: "p1" }],
+      stagedById: new Map([["p1", PHOTO as never]]),
+      allowProtectedGroupIds: new Set(["g1"]),
+    });
+    expect(ids).toEqual(["sold-item"]);
+    // The update is status-guarded, so a sold row is left alone by the DB too.
+    expect(statusGuards[statusGuards.length - 1]).not.toContain("sold");
+  });
+
+  it("offsets sort_order past an existing item's photos and skips paths it already has", async () => {
+    existingRow = { id: "existing-item", status: "cataloged" };
+    existingPhotos = [
+      { storage_path: "u/old.jpg", sort_order: 0 },
+      { storage_path: "u/old2.jpg", sort_order: 3 },
+    ];
+    await run("SKU-1");
+    expect(inserted[inserted.length - 1]![0]).toMatchObject({ storage_path: "u/p1.jpg", sort_order: 4 });
+
+    inserted.length = 0;
+    existingPhotos = [{ storage_path: "u/p1.jpg", sort_order: 0 }];
+    await run("SKU-1");
+    expect(inserted).toEqual([]);
+  });
+
+  it("a retry reuses the item the refused batch created and inserts no new item", async () => {
+    existingRow = { id: "made-last-time" };
+    const ready: string[] = [];
+    const ids = await persistGroupsAsItems({
+      ownerId: "11111111-1111-4111-8111-111111111111",
+      targets: [{ id: "g1", name: "Jacket", itemId: "made-last-time", photoIds: ["p1"], coverId: "p1" }],
+      stagedById: new Map([["p1", PHOTO as never]]),
+      onItemReady: (_g, id) => ready.push(id),
+    });
+    expect(ids).toEqual(["made-last-time"]);
+    expect(ready).toEqual(["made-last-time"]);
+    expect(calls).not.toContain("inventory_items.insert");
   });
 });

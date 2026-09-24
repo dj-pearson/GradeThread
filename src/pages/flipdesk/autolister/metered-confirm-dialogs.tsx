@@ -52,6 +52,10 @@ export function GenerateConfirmDialog({
   ackUngrouped,
   onAckUngroupedChange,
   partial = null,
+  maxItems = Infinity,
+  protectedSkus = [],
+  attachProtected = false,
+  onAttachProtectedChange,
   onGenerate,
 }: {
   open: boolean;
@@ -70,9 +74,22 @@ export function GenerateConfirmDialog({
    * end the session, so the counts above describe the chosen items alone.
    */
   partial?: { remainingGroups: number; remainingPhotos: number } | null;
-  onGenerate: () => void;
+  /**
+   * AL-07: the most this run can send, min(the edge's 300 cap, AI actions
+   * left). Over it, the full Generate is disabled and "Generate the first N"
+   * is offered instead of a batch the server will refuse.
+   */
+  maxItems?: number;
+  /** AL-07: SKU matches on items already listed, sold, shipped or archived. */
+  protectedSkus?: { groupId: string; name: string; sku: string; status: string }[];
+  attachProtected?: boolean;
+  onAttachProtectedChange?: (next: boolean) => void;
+  /** No argument: everything in scope. A number: only the first N items. */
+  onGenerate: (firstN?: number) => void;
 }) {
   const plural = listableCount === 1 ? "" : "s";
+  const tooMany = listableCount > maxItems;
+  const firstN = Number.isFinite(maxItems) ? Math.max(0, Math.floor(maxItems)) : 0;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
@@ -131,6 +148,32 @@ export function GenerateConfirmDialog({
           </p>
         )}
 
+        {protectedSkus.length > 0 && (
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-sm">
+            <input
+              type="checkbox"
+              checked={attachProtected}
+              onChange={(e) => onAttachProtectedChange?.(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+            />
+            <span>
+              <span className="font-medium">
+                {protectedSkus.length} SKU{protectedSkus.length === 1 ? " matches an item" : "s match items"} you already moved on:
+              </span>{" "}
+              {protectedSkus.map((m) => `${m.name} (${m.sku}, ${m.status})`).join(", ")}.
+              {" "}They are skipped unless you tick this. Their status won't change either way.
+            </span>
+          </label>
+        )}
+
+        {tooMany && (
+          <p className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm">
+            {firstN > 0
+              ? `This run can send at most ${firstN} item${firstN === 1 ? "" : "s"}. Send the first ${firstN} now; the rest stay here.`
+              : "No AI actions are left this month. Trim the batch or upgrade."}
+          </p>
+        )}
+
         {ungroupedCount > 0 && (
           <label className="flex cursor-pointer items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm">
             <input
@@ -153,9 +196,15 @@ export function GenerateConfirmDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Keep editing
           </Button>
+          {tooMany && firstN > 0 && (
+            <Button onClick={() => onGenerate(firstN)}>
+              <Sparkles className="mr-2 h-4 w-4" />
+              Generate the first {firstN}
+            </Button>
+          )}
           <Button
-            onClick={onGenerate}
-            disabled={ungroupedCount > 0 && !ackUngrouped}
+            onClick={() => onGenerate()}
+            disabled={tooMany || (ungroupedCount > 0 && !ackUngrouped)}
           >
             <Sparkles className="mr-2 h-4 w-4" />
             Generate {listableCount} listing{plural}
