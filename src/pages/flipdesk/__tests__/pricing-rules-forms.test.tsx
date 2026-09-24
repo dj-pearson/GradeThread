@@ -141,7 +141,7 @@ describe("the Automations scope picker", () => {
     );
     const block = /const SCOPE_FIELDS: ReadonlySet<string> = new Set\(\[([\s\S]*?)\]\)/.exec(src);
     expect(block, "SCOPE_FIELDS in automation-rules.ts").toBeTruthy();
-    const server = [...block![1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
+    const server = [...block![1]!.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]!).sort();
     expect([...AUTOMATION_SCOPE_FIELDS].sort()).toEqual(server);
   });
 
