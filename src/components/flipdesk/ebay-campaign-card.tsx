@@ -40,6 +40,9 @@ interface SuggestionItem {
 
 interface SuggestionsResponse {
   supported: boolean;
+  /** MP-03: null when the seller has no cost-per-click campaign. The read never
+   *  creates one; Start one does. */
+  campaign?: { campaignId: string } | null;
   detail?: string;
   ordering?: string;
   items: SuggestionItem[];
@@ -69,7 +72,7 @@ export function EbayCampaignCard() {
     },
   });
 
-  const act = useMutation<unknown, Error, { action: "pause" | "resume" | "end" }>({
+  const act = useMutation<unknown, Error, { action: "start" | "pause" | "resume" | "end" }>({
     mutationFn: async ({ action }) => {
       const res = await edgeFetch(`/api/flipdesk/ebay/marketing/campaign/${action}`, {
         method: "POST",
@@ -81,16 +84,22 @@ export function EbayCampaignCard() {
     },
     onSuccess: (_res, { action }) => {
       toast.success(
-        action === "pause"
-          ? "Campaign paused. Nothing more will be spent until you resume it."
-          : action === "resume"
-            ? "Campaign running again."
-            : "Campaign ended.",
+        action === "start"
+          ? "Campaign started. Add keywords or promote listings to put it to work."
+          : action === "pause"
+            ? "Campaign paused. Nothing more will be spent until you resume it."
+            : action === "resume"
+              ? "Campaign running again."
+              : "Campaign ended.",
       );
       void qc.invalidateQueries({ queryKey: ["ebay_marketing_suggestions"] });
+      void qc.invalidateQueries({ queryKey: ["ebay_keywords"] });
     },
     onError: (err) => toastError(err, "eBay rejected the campaign change."),
   });
+
+  // MP-03: older responses carry no `campaign` field; treat those as present.
+  const hasCampaign = !!data && data.supported && data.campaign !== null;
 
   async function end() {
     const ok = await confirm({
@@ -117,6 +126,7 @@ export function EbayCampaignCard() {
             <Megaphone className="h-4 w-4" />
             Worth promoting
           </span>
+          {hasCampaign && (
           <span className="flex gap-1">
             <Button
               size="sm"
@@ -152,6 +162,7 @@ export function EbayCampaignCard() {
               End
             </Button>
           </span>
+          )}
         </CardTitle>
         <CardDescription>
           What eBay thinks is worth promoting, ranked by what you keep afterwards.
@@ -164,6 +175,22 @@ export function EbayCampaignCard() {
           <p className="text-sm text-muted-foreground">
             No campaign to read yet.
           </p>
+        ) : data.supported && data.campaign === null ? (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              No cost-per-click campaign yet. FlipDesk will not start one on its
+              own.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={act.isPending || !canCampaign}
+              title={campaignTitle}
+              onClick={() => act.mutate({ action: "start" })}
+            >
+              Start one
+            </Button>
+          </div>
         ) : !data.supported ? (
           // Specific, not generic: this marketplace has no suggestion API, which
           // is a different thing from having nothing worth promoting.

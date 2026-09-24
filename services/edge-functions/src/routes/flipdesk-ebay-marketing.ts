@@ -17,7 +17,11 @@ import {
   suggestKeywords,
   updateKeyword,
 } from "../lib/ebay-keywords.ts";
-import { ensureCpcCampaign, recommendationApiSupported } from "../lib/ebay-marketing.ts";
+import {
+  ensureCpcCampaign,
+  findCpcCampaign,
+  recommendationApiSupported,
+} from "../lib/ebay-marketing.ts";
 import { loadSearchTerms } from "../lib/ebay-ad-reports.ts";
 import { computeLift, loadPromotions, recordPromotions } from "../lib/promotion-store.ts";
 import { describeStack, evaluateStack } from "../lib/discount-stack.ts";
@@ -711,7 +715,8 @@ flipdeskEbayRoutes.get("/promotions/:promotionId", async (c) => {
 // campaign here had to finish it in Seller Hub.
 //
 // The campaign id is always resolved from the seller's own connection through
-// ensureCpcCampaign; it is never taken from the request (US-268).
+// findCpcCampaign (reads) or ensureCpcCampaign (explicit writes); it is never
+// taken from the request (US-268).
 
 // GET /marketing/suggestions — eBay's view, joined to ours.
 //
@@ -733,17 +738,36 @@ flipdeskEbayRoutes.get("/marketing/suggestions", async (c) => {
     });
   }
   try {
-    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
+    // MP-03: find, never create. A GET must not start a campaign on eBay.
+    const found = await findCpcCampaign(ownerId);
+    if (!found) {
+      return c.json({
+        supported: true,
+        campaign: null,
+        ordering: "margin_after_ad_fee",
+        items: [],
+      });
+    }
+    const { campaignId, adGroupId } = found;
     const [items, budget, bids] = await Promise.all([
       suggestItems(ownerId, campaignId),
       suggestBudget(ownerId, campaignId).catch(() => ({
         dailyBudgetCents: null,
         currency: null,
       })),
-      suggestBids(ownerId, campaignId, adGroupId).catch(() => []),
+      adGroupId
+        ? suggestBids(ownerId, campaignId, adGroupId).catch(() => [])
+        : Promise.resolve([]),
     ]);
     if (items.length === 0) {
-      return c.json({ supported: true, ordering: "margin_after_ad_fee", items: [], budget, bids });
+      return c.json({
+        supported: true,
+        campaign: { campaignId },
+        ordering: "margin_after_ad_fee",
+        items: [],
+        budget,
+        bids,
+      });
     }
 
     // The local economics. Scoped through the owner-verified parent item, the
@@ -815,7 +839,14 @@ flipdeskEbayRoutes.get("/marketing/suggestions", async (c) => {
       return bm - am;
     });
 
-    return c.json({ supported: true, ordering: "margin_after_ad_fee", items: enriched, budget, bids });
+    return c.json({
+      supported: true,
+      campaign: { campaignId },
+      ordering: "margin_after_ad_fee",
+      items: enriched,
+      budget,
+      bids,
+    });
   } catch (err) {
     return failSafe(
       c,
@@ -827,7 +858,11 @@ flipdeskEbayRoutes.get("/marketing/suggestions", async (c) => {
   }
 });
 
-// POST /marketing/campaign/:action — pause | resume | end | clone.
+// POST /marketing/campaign/:action — start | pause | resume | end | clone.
+//
+// MP-03: `start` is the only action that creates a campaign. The others act on
+// the campaign that already exists and answer 404 when there is none, rather
+// than creating one just to pause or end it.
 //
 // An already-in-that-state answer is success: a seller pressing Pause on a
 // paused campaign should see it paused, not a 502.
@@ -840,8 +875,11 @@ flipdeskEbayRoutes.post("/marketing/campaign/:action", async (c) => {
   }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const action = c.req.param("action");
-  if (action !== "pause" && action !== "resume" && action !== "end" && action !== "clone") {
-    return c.json({ error: "action must be pause, resume, end or clone." }, 400);
+  if (
+    action !== "start" && action !== "pause" && action !== "resume" &&
+    action !== "end" && action !== "clone"
+  ) {
+    return c.json({ error: "action must be start, pause, resume, end or clone." }, 400);
   }
   let body: { name?: unknown } = {};
   try {
@@ -850,7 +888,21 @@ flipdeskEbayRoutes.post("/marketing/campaign/:action", async (c) => {
     body = {};
   }
   try {
-    const { campaignId } = await ensureCpcCampaign(ownerId);
+    if (action === "start") {
+      const { campaignId } = await ensureCpcCampaign(ownerId);
+      await writeAuditLog(c, {
+        action: "ebay.marketing.campaign.start",
+        targetType: "ebay_ad_campaign",
+        targetId: campaignId,
+        details: {},
+      });
+      return c.json({ ok: true, campaign_id: campaignId });
+    }
+    const found = await findCpcCampaign(ownerId);
+    if (!found) {
+      return c.json({ error: "There is no cost-per-click campaign to change." }, 404);
+    }
+    const { campaignId } = found;
     let clonedId: string | null = null;
     try {
       if (action === "pause") await pauseCampaign(ownerId, campaignId);
@@ -993,8 +1045,9 @@ flipdeskEbayRoutes.post("/marketing/ads/bulk", async (c) => {
 // put a keyword in either. A bid you cannot aim is a bid you cannot control,
 // and that aim is the only difference between Advanced and Standard.
 //
-// Every route resolves the seller's own campaign through ensureCpcCampaign, so
-// a campaign id is never taken from the request (US-268).
+// Every route resolves the seller's own campaign from the connection (the reads
+// and PATCH through findCpcCampaign, which never creates; the adds through
+// ensureCpcCampaign), so a campaign id is never taken from the request (US-268).
 
 // GET /marketing/keywords — the seller's keywords, plus the negative-keyword
 // candidates their own reported search terms already prove.
@@ -1004,13 +1057,26 @@ flipdeskEbayRoutes.get("/marketing/keywords", async (c) => {
   }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   try {
-    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
+    // MP-03: find, never create.
+    const found = await findCpcCampaign(ownerId);
+    if (!found) {
+      return c.json({
+        campaign: null,
+        campaignId: null,
+        adGroupId: null,
+        keywords: [],
+        negatives: [],
+        negativeCandidates: [],
+      });
+    }
+    const { campaignId, adGroupId } = found;
     const [keywords, negatives, terms] = await Promise.all([
-      listKeywords(ownerId, campaignId, adGroupId),
+      adGroupId ? listKeywords(ownerId, campaignId, adGroupId) : Promise.resolve([]),
       listNegativeKeywords(ownerId, campaignId),
       loadSearchTerms(ownerId, { limit: 500 }),
     ]);
     return c.json({
+      campaign: { campaignId },
       campaignId,
       adGroupId,
       keywords,
@@ -1040,8 +1106,13 @@ flipdeskEbayRoutes.get("/marketing/keywords/suggestions", async (c) => {
   }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   try {
-    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
-    return c.json({ suggestions: await suggestKeywords(ownerId, campaignId, adGroupId) });
+    // MP-03: find, never create.
+    const found = await findCpcCampaign(ownerId);
+    if (!found?.adGroupId) return c.json({ campaign: null, suggestions: [] });
+    return c.json({
+      campaign: { campaignId: found.campaignId },
+      suggestions: await suggestKeywords(ownerId, found.campaignId, found.adGroupId),
+    });
   } catch (err) {
     // A marketplace or account without suggestions is a normal state, not an
     // outage: report none rather than an error the seller cannot act on.
@@ -1117,7 +1188,10 @@ flipdeskEbayRoutes.patch("/marketing/keywords/:keywordId", async (c) => {
     return c.json({ error: "Nothing to change — send bid_cents or status." }, 400);
   }
   try {
-    const { campaignId } = await ensureCpcCampaign(ownerId);
+    // MP-03: a keyword belongs to an existing campaign; never create one here.
+    const found = await findCpcCampaign(ownerId);
+    if (!found) return c.json({ error: "There is no cost-per-click campaign." }, 404);
+    const { campaignId } = found;
     await updateKeyword(ownerId, campaignId, keywordId, { bidCents, status });
     await writeAuditLog(c, {
       action: "ebay.marketing.keyword.update",

@@ -54,8 +54,10 @@ interface NegativeCandidate {
 }
 
 interface KeywordsResponse {
-  campaignId: string;
-  adGroupId: string;
+  /** MP-03: null when there is no cost-per-click campaign yet. */
+  campaign?: { campaignId: string } | null;
+  campaignId: string | null;
+  adGroupId: string | null;
   keywords: Keyword[];
   negatives: NegativeKeyword[];
   negativeCandidates: NegativeCandidate[];
@@ -111,6 +113,26 @@ export function EbayKeywordsCard() {
     onError: (err) => toastError(err, "eBay rejected the keyword."),
   });
 
+  // MP-03: the read never creates a campaign; this button is the only way here.
+  const start = useMutation<unknown, Error, void>({
+    mutationFn: async () => {
+      const res = await edgeFetch("/api/flipdesk/ebay/marketing/campaign/start", {
+        method: "POST",
+        body: "{}",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "eBay would not start the campaign.");
+      return json;
+    },
+    onSuccess: () => {
+      toast.success("Campaign started.");
+      void qc.invalidateQueries({ queryKey: ["ebay_keywords"] });
+      void qc.invalidateQueries({ queryKey: ["ebay_marketing_suggestions"] });
+    },
+    onError: (err) => toastError(err, "eBay would not start the campaign."),
+  });
+  const canStart = can("manage_campaign");
+
   const block = useMutation<unknown, Error, { text: string }>({
     mutationFn: async ({ text }) => {
       const res = await edgeFetch("/api/flipdesk/ebay/marketing/negative-keywords", {
@@ -151,6 +173,34 @@ export function EbayKeywordsCard() {
             No cost-per-click campaign to read yet. Keywords apply to Promoted
             Listings Advanced only.
           </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (data.campaign === null) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Search className="h-4 w-4" />
+            Ad keywords
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            No cost-per-click campaign yet. Keywords apply to Promoted Listings
+            Advanced only.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={start.isPending || !canStart}
+            title={canStart ? undefined : roleNeededTitle("manage_campaign")}
+            onClick={() => start.mutate()}
+          >
+            Start one
+          </Button>
         </CardContent>
       </Card>
     );

@@ -160,3 +160,55 @@ describe("MP-02: role floors on the Ads cards", () => {
     expect(button("Send")?.disabled).toBe(false);
   });
 });
+
+describe("MP-03: no campaign means Start one, never a silent create", () => {
+  it("the campaign card offers Start one and hides Pause/End when there is no campaign", async () => {
+    state.routes["/api/flipdesk/ebay/marketing/suggestions"] = {
+      status: 200,
+      body: { supported: true, campaign: null, items: [] },
+    };
+    await render(<EbayCampaignCard />);
+    expect(document.body.textContent).toContain("No cost-per-click campaign yet");
+    expect(button("End")).toBeUndefined();
+    expect(button("Start one")).toBeTruthy();
+    // Nothing was POSTed just by rendering.
+    expect(state.calls.filter((c) => c.method === "POST")).toEqual([]);
+  });
+
+  it("Start one posts to campaign/start", async () => {
+    state.routes["/api/flipdesk/ebay/marketing/suggestions"] = {
+      status: 200,
+      body: { supported: true, campaign: null, items: [] },
+    };
+    state.routes["/api/flipdesk/ebay/marketing/campaign/start"] = {
+      status: 200,
+      body: { ok: true },
+    };
+    await render(<EbayCampaignCard />);
+    await act(async () => {
+      button("Start one")!.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(state.calls).toContainEqual({
+      path: "/api/flipdesk/ebay/marketing/campaign/start",
+      method: "POST",
+    });
+  });
+
+  it("the keywords card says there is no campaign yet", async () => {
+    state.routes["/api/flipdesk/ebay/marketing/keywords"] = {
+      status: 200,
+      body: {
+        campaign: null,
+        campaignId: null,
+        adGroupId: null,
+        keywords: [],
+        negatives: [],
+        negativeCandidates: [],
+      },
+    };
+    await render(<EbayKeywordsCard />);
+    expect(document.body.textContent).toContain("No cost-per-click campaign yet");
+    expect(button("Start one")).toBeTruthy();
+  });
+});
