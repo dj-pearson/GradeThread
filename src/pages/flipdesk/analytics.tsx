@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -72,6 +72,7 @@ import { ScorecardSkeleton } from "@/components/flipdesk/scorecard-skeleton";
 import { pctTick, SERIES, usdTick } from "@/lib/chart-theme";
 import { useTenantKey } from "@/hooks/use-tenant-key";
 import { isPreset, presetStart, RANGE_LABEL, type Preset } from "@/lib/analytics-range";
+import { ANALYTICS_TABS, RANGE_TABS, tabFromPath, tabHref, type AnalyticsTabId } from "@/lib/analytics-tabs";
 
 // Lazy-load the Recharts bar chart at the chart boundary so the route-entry
 // chunk stays light and the page shell + table paint before Recharts streams
@@ -218,16 +219,8 @@ const csvDate = (): string => new Date().toISOString().slice(0, 10);
 // with a different aria-label (the Grading ROI copy was labelled "Sell-through
 // date range"). What actually broke the carry-across was the tab navigation:
 // it pushed a bare pathname and dropped the whole query string, so the range a
-// seller had just set vanished on the next tab.
-const RANGE_TABS = new Set([
-  "sell-through",
-  "grading-roi",
-  "price-curve",
-  "returns",
-  // US-3019: the Team tab windows on the same preset as everything else, so it
-  // reads the shared control rather than drawing a sixth copy of it.
-  "team",
-]);
+// seller had just set vanished on the next tab. Which tabs show the control is
+// RANGE_TABS, derived from ANALYTICS_TABS in lib/analytics-tabs.ts (A9).
 
 function RangeSelect() {
   const [preset, setPreset] = usePresetParam();
@@ -252,19 +245,15 @@ export function FlipdeskAnalyticsPage() {
   // US-2161: Listing Performance and Community Insights were their own sidebar
   // entries; they are analytics, so they fold into this tab set. Path-based like
   // the existing tabs (not ?tab=) so every deep link stays a real URL.
-  const tab = location.pathname.endsWith("/grading-roi")
-    ? "grading-roi"
-    : location.pathname.endsWith("/price-curve")
-      ? "price-curve"
-      : location.pathname.endsWith("/returns")
-        ? "returns"
-        : location.pathname.endsWith("/performance")
-          ? "performance"
-          : location.pathname.endsWith("/community")
-            ? "community"
-            : location.pathname.endsWith("/team")
-              ? "team"
-              : "sell-through";
+  const tab = tabFromPath(location.pathname);
+  // A9: on a phone the active tab can sit past the right edge of the strip.
+  const tabListRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = tabListRef.current?.querySelector<HTMLElement>(
+      `[data-tab="${tab}"]`,
+    );
+    el?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [tab]);
 
   return (
     <div className="space-y-6">
@@ -282,35 +271,34 @@ export function FlipdeskAnalyticsPage() {
 
       <Tabs
         value={tab}
+        // A9: manual activation. Arrow keys move focus along the strip without
+        // navigating, so passing over Community or Team does not mount them and
+        // fire their cross-seller reads; Enter or Space opens a tab.
+        activationMode="manual"
         onValueChange={(v) =>
           // location.search rides along: the range, the grouping and any other
           // deep-link state live in the query string, and a bare pathname would
           // throw all of it away on every tab click.
-          navigate(
-            (v === "grading-roi"
-              ? "/dashboard/flipdesk/analytics/grading-roi"
-              : v === "price-curve"
-                ? "/dashboard/flipdesk/analytics/price-curve"
-                : v === "returns"
-                  ? "/dashboard/flipdesk/analytics/returns"
-                  : v === "performance"
-                    ? "/dashboard/flipdesk/analytics/performance"
-                    : v === "community"
-                      ? "/dashboard/flipdesk/analytics/community"
-                      : v === "team"
-                        ? "/dashboard/flipdesk/analytics/team"
-                        : "/dashboard/flipdesk/analytics") + location.search,
-          )
+          navigate(tabHref(v as AnalyticsTabId, location.search))
         }
       >
-        <TabsList>
-          <TabsTrigger value="sell-through">Sell-through</TabsTrigger>
-          <TabsTrigger value="grading-roi">Grading ROI</TabsTrigger>
-          <TabsTrigger value="price-curve">Price curve</TabsTrigger>
-          <TabsTrigger value="returns">Return reduction</TabsTrigger>
-          <TabsTrigger value="performance">Listing performance</TabsTrigger>
-          <TabsTrigger value="community">Community</TabsTrigger>
-          <TabsTrigger value="team">Team</TabsTrigger>
+        {/* A9: seven labels do not fit 375px. The strip scrolls sideways
+            instead of widening the page, and phones get the short labels. */}
+        <TabsList
+          ref={tabListRef}
+          className="max-w-full justify-start overflow-x-auto"
+        >
+          {ANALYTICS_TABS.map((t) => (
+            <TabsTrigger
+              key={t.id}
+              value={t.id}
+              data-tab={t.id}
+              className="shrink-0"
+            >
+              <span className="sm:hidden">{t.shortLabel}</span>
+              <span className="hidden sm:inline">{t.label}</span>
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         <TabsContent value="sell-through" className="mt-6">

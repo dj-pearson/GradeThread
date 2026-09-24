@@ -14,6 +14,7 @@
 import { supabase } from "@/lib/supabase";
 import { normaliseAgainst } from "@/lib/rpc-shape";
 import { ordinal } from "@/lib/utils";
+import { tabPath } from "@/lib/analytics-tabs";
 
 export type ScorecardMetric =
   | "sell_through"
@@ -106,11 +107,11 @@ export function returnSplitLine(side: ReturnSplitSide, label: string): ReturnSpl
  * the query string (A5), so a seller on ?preset=30d lands on the same range.
  */
 export const SCORECARD_TAB_FOR: Record<ScorecardMetric, string> = {
-  sell_through: "/dashboard/flipdesk/analytics",
-  price_realization: "/dashboard/flipdesk/analytics/price-curve",
-  days_to_sell: "/dashboard/flipdesk/analytics",
-  return_rate: "/dashboard/flipdesk/analytics/returns",
-  grade_yield: "/dashboard/flipdesk/analytics/grading-roi",
+  sell_through: tabPath("sell-through"),
+  price_realization: tabPath("price-curve"),
+  days_to_sell: tabPath("sell-through"),
+  return_rate: tabPath("returns"),
+  grade_yield: tabPath("grading-roi"),
 };
 
 export function scorecardTileHref(
