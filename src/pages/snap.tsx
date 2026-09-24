@@ -16,8 +16,8 @@ import { toast } from "sonner";
 import { compressImage } from "@/lib/image-utils";
 import { useSnap, type SnapBridgeState } from "@/hooks/use-snap";
 import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
+import { SnapErrorCard } from "@/components/snap/snap-error-card";
 import {
-  appendSnapHistory,
   clearSnapHistory,
   readSnapHistory,
   removeSnapHistoryEntry,
@@ -52,7 +52,6 @@ export function SnapToValuePage() {
   const [brand, setBrand] = useState("");
   const [keyword, setKeyword] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
-  const snap = useSnap();
   // US-2554: a snap survives a reload now. `revisited` is an entry the seller
   // opened from the list; it takes precedence so the result card shows what
   // they asked to see rather than the last thing they graded.
@@ -71,6 +70,11 @@ export function SnapToValuePage() {
   }
   const historyRef = useRef(history);
   historyRef.current = history;
+  // SNAP-07: the history write lives in the hook's own onSuccess.
+  const snap = useSnap({
+    getHistory: () => historyRef.current,
+    onHistory: (w) => commitHistory(w),
+  });
   useEffect(() => {
     if (!userId) return;
     const key = snapHistoryKey(userId);
@@ -134,18 +138,13 @@ export function SnapToValuePage() {
     if (!dataUri) return;
     setRevisited(null);
     setLastSnapInput({ dataUri, brand, keyword });
-    snap.mutate(
-      { imageDataUri: dataUri, brand: brand.trim() || undefined, keyword: keyword.trim() || undefined },
-      {
-        // Recorded on SUCCESS only: a failed snap has nothing to revisit, and
-        // a rate-limit refusal is not an estimate.
-        onSuccess: (data) =>
-          commitHistory(appendSnapHistory(userId, historyRef.current, data, { brand, keyword })),
-      },
-    );
+    snap.mutate({
+      imageDataUri: dataUri,
+      brand: brand.trim() || undefined,
+      keyword: keyword.trim() || undefined,
+    });
   }
 
-  const limitReached = snap.error?.code === "SNAP_LIMIT_REACHED";
   const bridge = result && source ? buildSnapBridge(result, source) : null;
 
   return (
@@ -220,16 +219,7 @@ export function SnapToValuePage() {
       </Card>
 
       {snap.isError && (
-        <Card className={cn(limitReached ? "border-amber-300 dark:border-amber-800" : "border-destructive/40")}>
-          <CardContent className="space-y-3 p-4 text-sm">
-            <p className={limitReached ? "text-amber-800 dark:text-amber-300" : "text-destructive"}>{snap.error.message}</p>
-            {limitReached && (
-              <Button asChild size="sm">
-                <Link to="/dashboard/account?tab=billing">Upgrade for more snaps</Link>
-              </Button>
-            )}
-          </CardContent>
-        </Card>
+        <SnapErrorCard error={snap.error} onRetry={valueIt} canRetry={!!dataUri && !snap.isPending} />
       )}
 
       {result && source && bridge && (
