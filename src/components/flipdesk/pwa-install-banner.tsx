@@ -83,7 +83,7 @@ export function PwaInstallBanner({
       <div className="flex items-center justify-between gap-3 rounded-lg border border-brand-navy/30 bg-brand-navy/5 p-3">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-brand-navy/10">
-            <Smartphone className="h-5 w-5 text-brand-navy dark:text-foreground" />
+            <Smartphone className="h-5 w-5 text-brand-navy dark:text-foreground" aria-hidden="true" />
           </div>
           <div>
             <p className="text-sm font-medium">{copy.title}</p>
@@ -96,7 +96,7 @@ export function PwaInstallBanner({
           onClick={dismiss}
           aria-label="Dismiss install prompt"
         >
-          <X className="h-4 w-4" />
+          <X className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>
     );

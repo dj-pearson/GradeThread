@@ -57,6 +57,7 @@ import {
   type SnapHistoryWrite,
 } from "@/lib/snap-history";
 import { useAuth } from "@/hooks/use-auth";
+import { useAuthStore } from "@/stores/auth-store";
 import { PageHelp } from "@/components/help/page-help";
 import {
   buildIntakeBridge,
@@ -188,7 +189,13 @@ export function SnapToValuePage() {
     toast(message, {
       action: {
         label: "Undo",
-        onClick: () => commitHistory(writeSnapHistory(userId, previous)),
+        // Never after a sign-out or an account switch: the toast outlives
+        // both, and the undo would write this user's list back to a browser
+        // the sign-out just wiped (SNAP-01).
+        onClick: () => {
+          if (useAuthStore.getState().user?.id !== userId) return;
+          commitHistory(writeSnapHistory(userId, previous));
+        },
       },
     });
   }
@@ -320,9 +327,15 @@ export function SnapToValuePage() {
 
   // SNAP-13: a "yes" becomes a sourced FlipDesk item with the photo, brand,
   // grade note and target price carried over.
-  function addToInventory(r: SnapResult, from: SnapResultSource) {
+  //
+  // The tag price belongs to the result on screen. A history row's "Bought it"
+  // carries it only when that row IS the result on screen; otherwise the price
+  // typed for one garment would be saved as the cost of another.
+  function addToInventory(r: SnapResult, from: SnapResultSource, withTagPrice: boolean) {
     navigate("/dashboard/flipdesk/intake", {
-      state: { snap: buildIntakeBridge(r, from, parsePriceToCents(tagPrice)) },
+      state: {
+        snap: buildIntakeBridge(r, from, withTagPrice ? parsePriceToCents(tagPrice) : null),
+      },
     });
   }
   const value = result ? valueDisplay(result.value) : null;
@@ -587,7 +600,7 @@ export function SnapToValuePage() {
 
             {inputsChanged && (
               <p className="text-xs text-muted-foreground">
-                Brand changed: tap Get my value to re-price.
+                Brand or item changed: tap Get my value to re-price.
               </p>
             )}
 
@@ -665,7 +678,7 @@ export function SnapToValuePage() {
                   {bridge.imageDataUri ? "Upgrade to certified grade" : "Start a certified grade"}
                 </Link>
               </Button>
-              <Button variant="outline" onClick={() => addToInventory(result, source)}>
+              <Button variant="outline" onClick={() => addToInventory(result, source, true)}>
                 <Store className="mr-2 h-4 w-4" aria-hidden="true" /> Add to inventory
               </Button>
             </div>
@@ -732,7 +745,8 @@ export function SnapToValuePage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => addToInventory(entry.result, { kind: "revisit", entry })}
+                      aria-label={`Bought it: add ${label} to inventory`}
+                      onClick={() => addToInventory(entry.result, { kind: "revisit", entry }, open)}
                     >
                       Bought it
                     </Button>

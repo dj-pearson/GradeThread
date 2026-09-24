@@ -11,7 +11,9 @@ import type { SnapError } from "@/hooks/use-snap";
 // switch and the budget pause all rendered as the same red dead end.
 
 function useCountdown(seconds: number | undefined, active: boolean): number {
-  const [left, setLeft] = useState(seconds ?? 0);
+  // Starts at the full wait, or the first paint says "You can snap again now"
+  // with the button enabled before the effect below has run.
+  const [left, setLeft] = useState(active ? (seconds ?? 60) : 0);
   useEffect(() => {
     if (!active) return;
     setLeft(seconds ?? 60);

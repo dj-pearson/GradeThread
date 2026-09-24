@@ -18,6 +18,13 @@ vi.mock("@/hooks/use-snap", async (original) => ({
   }),
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: "u1" } }) }));
+const nav = vi.hoisted(() => ({ calls: [] as Array<[string, unknown]> }));
+vi.mock("react-router", async (original) => ({
+  ...(await original<typeof import("react-router")>()),
+  useNavigate: () => (to: string, opts?: unknown) => {
+    nav.calls.push([to, opts]);
+  },
+}));
 vi.mock("@/components/help/page-help", () => ({ PageHelp: () => null }));
 vi.mock("@/components/flipdesk/pwa-install-banner", () => ({ PwaInstallBanner: () => null }));
 
@@ -150,6 +157,35 @@ describe("buy or pass at the tag price (SNAP-14)", () => {
   });
 });
 
+describe("Bought it on a history row (SNAP-13 with SNAP-14)", () => {
+  function entry(id: string, brand: string) {
+    return { id, at: new Date().toISOString(), brand, keyword: null, grade: 7.4, gradeTier: "very_good", valueCents: 3200, result: result(0.9) };
+  }
+
+  it("carries the tag price only for the row that is on screen", async () => {
+    nav.calls.length = 0;
+    localStorage.setItem("gt.snap-history.v2:u1", JSON.stringify([entry("e1", "Patagonia"), entry("e2", "Arcteryx")]));
+    const m = mount(<SnapToValuePage />);
+    await settle();
+    await openFirstHistoryRow(m.container);
+    const input = m.container.querySelector<HTMLInputElement>("#snap-tag-price")!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, "8");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const bought = (name: string) =>
+      m.container.querySelector<HTMLButtonElement>(`button[aria-label="Bought it: add ${name} to inventory"]`)!;
+    // The other row: the $8 was typed for Patagonia, not for this one.
+    await act(async () => bought("Arcteryx").click());
+    // The open row: the $8 is its cost.
+    await act(async () => bought("Patagonia").click());
+    const paid = nav.calls.map(([, o]) => (o as { state: { snap: { paidCents?: number } } }).state.snap.paidCents);
+    expect(paid).toEqual([undefined, 800]);
+    m.unmount();
+  });
+});
+
 describe("snap page source (SNAP-10, SNAP-12)", () => {
   const src = readFileSync(resolve(process.cwd(), "src/pages/snap.tsx"), "utf8");
 
@@ -179,7 +215,7 @@ describe("snap page source (SNAP-10, SNAP-12)", () => {
   });
 
   it("turns a yes into a FlipDesk intake with the snap carried over (SNAP-13)", () => {
-    expect(src).toMatch(/navigate\("\/dashboard\/flipdesk\/intake", \{\s*state: \{ snap: buildIntakeBridge\(/);
+    expect(src).toMatch(/navigate\("\/dashboard\/flipdesk\/intake", \{\s*state: \{\s*snap: buildIntakeBridge\(/);
     expect(src).toContain("Add to inventory");
     expect(src).toContain("Bought it");
     expect(src).not.toContain('<Link to="/dashboard/flipdesk">');
