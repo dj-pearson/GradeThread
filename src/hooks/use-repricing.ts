@@ -347,6 +347,9 @@ export function useRepriceRules() {
 
 export interface RunRulesResult {
   applied: number;
+  errors: number;
+  /** "already_running" when another run for this seller held the lock. */
+  reason?: string;
 }
 
 export function useRunRepriceRules() {
@@ -361,7 +364,7 @@ export function useRunRepriceRules() {
         & Partial<RunRulesResult>
         & { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Couldn't run the rules.");
-      return { applied: data.applied ?? 0 };
+      return { applied: data.applied ?? 0, errors: data.errors ?? 0, reason: data.reason };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });

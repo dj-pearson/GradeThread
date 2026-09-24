@@ -64,6 +64,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Term } from "@/components/help/term";
 import { undoPriors } from "./reprice-plan";
+import { ruleRunToast } from "@/lib/rule-run-summary";
 
 // US-2171: the queue can carry dozens of nudges. Paginate the client-side list
 // so the page renders a bounded slice, and let the reseller filter/sort/bulk-act
@@ -468,10 +469,10 @@ function RepriceRulesCard() {
             disabled={run.isPending}
             onClick={() =>
               run.mutate(undefined, {
-                onSuccess: (res) =>
-                  toast.success(
-                    `Rules run — ${res.applied} price${res.applied === 1 ? "" : "s"} changed.`,
-                  ),
+                onSuccess: (res) => {
+                  const t = ruleRunToast(res);
+                  toast[t.kind](t.text);
+                },
               })
             }
           >

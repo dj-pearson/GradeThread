@@ -260,3 +260,39 @@ Deno.test("P8: override_manual survives normalization only when it is on", async
   assert(off.ok);
   assertEquals("override_manual" in off.value.action_json, false);
 });
+
+// ── P9 ──────────────────────────────────────────────────────────────
+
+Deno.test("P9: two concurrent repricing runs for one owner apply once", async () => {
+  db.reset({
+    inventory_items: [item()],
+    listings: [listing()],
+    repricing_rules: [REPRICE_RULE],
+  });
+  const [a, b] = await Promise.all([runRulesForOwner(OWNER), runRulesForOwner(OWNER)]);
+  const ran = [a, b].filter((r) => r.reason !== "already_running");
+  assertEquals(ran.length, 1);
+  assertEquals([a, b].filter((r) => r.reason === "already_running").length, 1);
+  assertEquals(db.tables.repricing_actions.length, 1);
+  assertEquals(db.tables.listings[0].listing_price, 90);
+  // The lock is released afterwards, so the next run is not refused.
+  assertEquals(db.locks.size, 0);
+});
+
+Deno.test("P9: two concurrent Automations runs for one owner apply once", async () => {
+  const { runRulesForOwner: runAutomations } = await import("../routes/flipdesk-automations.ts");
+  db.reset({
+    inventory_items: [item()],
+    listings: [listing()],
+    flipdesk_automation_rules: [{ ...automationRule(), user_id: OWNER }],
+  });
+  const [a, b] = await Promise.all([runAutomations(OWNER), runAutomations(OWNER)]);
+  assertEquals([a, b].filter((r) => r.reason === "already_running").length, 1);
+  assertEquals(
+    (db.tables.flipdesk_automation_actions ?? []).filter((r) => r.action_type === "price_drop_pct")
+      .length,
+    1,
+  );
+  assertEquals(db.tables.listings[0].listing_price, 90);
+  assertEquals(db.tables.listings[0].price_set_by, "rule");
+});

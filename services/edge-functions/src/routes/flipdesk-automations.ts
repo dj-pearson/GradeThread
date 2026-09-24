@@ -784,6 +784,9 @@ export interface AutomationRunResult {
   listings_scanned: number;
   applied: number;
   errors: number;
+  /** Set when another run for this owner held the lock; nothing was done. */
+  skipped?: boolean;
+  reason?: "already_running";
 }
 
 /**
@@ -1271,7 +1274,32 @@ async function applyMatch(
   return true;
 }
 
-async function runRulesForOwner(ownerId: string): Promise<AutomationRunResult> {
+/**
+ * One owner's run, under a per-owner lock. Run now and the hourly cron used to
+ * reach the runner by different doors and only the cron took a lock, so the two
+ * could overlap and cut one listing twice. Both go through here now; the second
+ * caller gets `already_running` and does nothing.
+ */
+export async function runRulesForOwner(ownerId: string): Promise<AutomationRunResult> {
+  const lock = await acquireJobLock(`automation-rules:${ownerId}`, 600);
+  if (!lock.acquired) {
+    return {
+      rules_evaluated: 0,
+      listings_scanned: 0,
+      applied: 0,
+      errors: 0,
+      skipped: true,
+      reason: "already_running",
+    };
+  }
+  try {
+    return await runRulesForOwnerUnlocked(ownerId);
+  } finally {
+    await lock.release();
+  }
+}
+
+async function runRulesForOwnerUnlocked(ownerId: string): Promise<AutomationRunResult> {
   const { data: ruleRows } = await supabaseAdmin
     .from("flipdesk_automation_rules")
     .select(RULE_COLUMNS)

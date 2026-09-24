@@ -7,6 +7,7 @@ import {
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { ruleRunToast } from "@/lib/rule-run-summary";
 import type { FilterField, FilterOp } from "@/lib/item-filter";
 
 // Price-drop and promo scheduler (US-150) — rule CRUD, per-rule dry-run,
@@ -345,19 +346,19 @@ export function useRunAutomations() {
         applied?: number;
         listings_scanned?: number;
         errors?: number;
+        reason?: string;
         error?: string;
       };
       if (!res.ok) throw new Error(data.error ?? "Run failed");
       return data;
     },
     onSuccess: (r) => {
-      if (r.skipped) {
+      if (r.skipped && r.reason !== "already_running") {
         toast.info("Automations are temporarily disabled.");
         return;
       }
-      toast.success(
-        `Scanned ${r.listings_scanned ?? 0} listing${r.listings_scanned === 1 ? "" : "s"} — applied ${r.applied ?? 0} action${r.applied === 1 ? "" : "s"}.`,
-      );
+      const t = ruleRunToast(r, "action");
+      toast[t.kind](t.text);
       queryClient.invalidateQueries({ queryKey: RULES_KEY });
       queryClient.invalidateQueries({ queryKey: ["automation_rule_actions"] });
       queryClient.invalidateQueries({ queryKey: ["items_full"] });

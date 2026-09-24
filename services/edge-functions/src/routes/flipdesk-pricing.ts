@@ -896,6 +896,8 @@ interface RuleListingRow {
 }
 
 export interface RuleRunResult {
+  /** Set when another run for this owner held the lock; nothing was done. */
+  reason?: "already_running";
   rules_evaluated: number;
   listings_scanned: number;
   applied: number;
@@ -926,7 +928,31 @@ async function touchRules(ids: string[]): Promise<void> {
  * rule wins per listing (≤ 1 action/listing/run). Every change is logged to
  * repricing_actions.
  */
+/**
+ * One owner's run, under a per-owner lock, so Run now beside the cron cannot
+ * apply the same markdown twice. The second caller gets `already_running`.
+ */
 export async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
+  const lock = await acquireJobLock(`reprice-rules:${ownerId}`, 600);
+  if (!lock.acquired) {
+    return {
+      reason: "already_running",
+      rules_evaluated: 0,
+      listings_scanned: 0,
+      applied: 0,
+      skipped: 0,
+      errors: 0,
+      actions: [],
+    };
+  }
+  try {
+    return await runRulesForOwnerUnlocked(ownerId);
+  } finally {
+    await lock.release();
+  }
+}
+
+async function runRulesForOwnerUnlocked(ownerId: string): Promise<RuleRunResult> {
   const result: RuleRunResult = {
     rules_evaluated: 0,
     listings_scanned: 0,
