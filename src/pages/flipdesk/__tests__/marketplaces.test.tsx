@@ -34,6 +34,12 @@ const state = {
   settingsError: false,
   polError: false,
   policyCalls: [] as boolean[],
+  queueError: false,
+  syncStatusError: false,
+  syncChannels: [] as unknown[],
+  syncReviews: [] as unknown[],
+  candidatesError: false,
+  claim: vi.fn(),
 };
 
 vi.mock("@/hooks/use-workspace", async () => {
@@ -90,17 +96,35 @@ vi.mock("@/hooks/use-shopify", () => ({
 // groupQueue and QUEUED_NOTICE stay real: the counts are what is under test.
 vi.mock("@/hooks/use-extension-queue", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-extension-queue")>()),
-  useExtensionQueue: () => ({ data: state.queue, isLoading: state.queueLoading }),
+  useExtensionQueue: () => ({
+    data: state.queueError ? undefined : state.queue,
+    isLoading: state.queueLoading,
+    isError: state.queueError,
+    isSuccess: !state.queueError && !state.queueLoading,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
   useCancelExtensionWork: mutation,
 }));
 
 vi.mock("@/hooks/use-sold-sync", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-sold-sync")>()),
-  useSyncStatus: () => ({ data: [], isLoading: false }),
-  useSyncReviews: () => ({ data: [] }),
+  useSyncStatus: () => ({
+    data: state.syncStatusError ? undefined : state.syncChannels,
+    isLoading: false,
+    isError: state.syncStatusError,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
+  useSyncReviews: () => ({ data: state.syncReviews, isError: false, refetch: vi.fn() }),
   useDismissSyncReview: mutation,
-  useClaimSyncReview: mutation,
-  useClaimCandidates: () => ({ data: [], isLoading: false }),
+  useClaimSyncReview: () => ({ ...mutation(), mutate: state.claim }),
+  useClaimCandidates: () => ({
+    data: [],
+    isLoading: false,
+    isError: state.candidatesError,
+    refetch: vi.fn(),
+  }),
   usePollState: () => ({ data: undefined, isLoading: false }),
   useStopPoll: mutation,
   useSetPollInterval: mutation,
@@ -206,6 +230,12 @@ beforeEach(() => {
     settingsError: false,
     polError: false,
     policyCalls: [],
+    queueError: false,
+    syncStatusError: false,
+    syncChannels: [],
+    syncReviews: [],
+    candidatesError: false,
+    claim: vi.fn(),
   });
 });
 
@@ -483,5 +513,75 @@ describe("Marketplaces page: extension queue", () => {
   it("still renders when the queue is empty, so a stalled extension is visible", () => {
     render();
     expect(document.body.textContent).toContain("Nothing waiting for your desktop");
+  });
+});
+
+describe("Marketplaces page: extension section errors (MP-08)", () => {
+  it("a failed queue read shows Retry, never 'Nothing waiting'", () => {
+    state.queueError = true;
+    render();
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain("Nothing waiting for your desktop");
+    expect(text).toContain("Couldn't load your queued work");
+    expect(document.getElementById("extension-queue")).toBeTruthy();
+    expect(
+      [...document.querySelectorAll("button")].some((b) => b.textContent?.includes("Try again")),
+    ).toBe(true);
+  });
+
+  it("the queue anchor exists while loading", () => {
+    state.queueLoading = true;
+    render();
+    expect(document.getElementById("extension-queue")).toBeTruthy();
+  });
+
+  it("a failed sold-sync status read keeps the heading with a retry", () => {
+    state.syncStatusError = true;
+    render();
+    const headings = [...document.querySelectorAll("h3")].map((h) => h.textContent);
+    expect(headings).toContain("Sold-sync");
+    expect(document.body.textContent).toContain("Couldn't check sold-sync");
+  });
+
+  it("a failed claim-candidate read says so instead of an empty picker", () => {
+    state.syncChannels = [
+      {
+        platform: "poshmark",
+        status: "ok",
+        failure_reason: null,
+        listings_seen: 3,
+        last_ok_at: null,
+        last_read_at: null,
+        open_reviews: 1,
+        live_listings: 3,
+      },
+    ];
+    state.syncReviews = [
+      {
+        id: "r1",
+        platform: "poshmark",
+        reason: "probable_match",
+        status: "open",
+        listing_id: null,
+        inventory_item_id: null,
+        listing_url: "https://poshmark.com/listing/x",
+        title: "Blue coat",
+        sold_price_cents: null,
+        sold_at: null,
+        dedupe_key: null,
+        unexplained: null,
+        claimed: null,
+        cap: null,
+        created_at: new Date().toISOString(),
+      },
+    ];
+    state.candidatesError = true;
+    render();
+    const link = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Link to an item",
+    );
+    expect(link).toBeTruthy();
+    act(() => link!.click());
+    expect(document.body.textContent).toContain("Couldn't load your listings.");
   });
 });

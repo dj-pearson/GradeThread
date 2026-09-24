@@ -129,6 +129,7 @@ import { useWorkspace } from "@/hooks/use-workspace";
 import { MARKETPLACE_ADMIN_ONLY, SETTINGS_OWNER_ONLY } from "@/lib/workspace-permissions";
 import { useOwnsActiveWorkspace } from "@/hooks/use-tenant-key";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 
 // US-718: the non-API channels, grouped by their REAL tier (read from the
 // MARKETPLACE_TIER single source of truth). eBay + Shopify are tier "api" and
@@ -1431,13 +1432,30 @@ function ChannelRisk({ platform }: { platform: keyof typeof MARKETPLACE_TIER }) 
 function ClaimControl({ review }: { review: SyncReview }) {
   const [open, setOpen] = useState(false);
   const claim = useClaimSyncReview();
-  const { data: candidates, isLoading } = useClaimCandidates(open ? review.platform : null);
+  const {
+    data: candidates,
+    isLoading,
+    isError,
+    refetch,
+  } = useClaimCandidates(open ? review.platform : null);
 
   if (!open) {
     return (
       <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
         Link to an item
       </Button>
+    );
+  }
+
+  if (isError) {
+    // MP-08: an empty picker read as "no listings to link to".
+    return (
+      <span role="alert" className="flex items-center gap-1 text-xs">
+        Couldn&apos;t load your listings.
+        <Button variant="ghost" size="sm" onClick={() => void refetch()}>
+          Retry
+        </Button>
+      </span>
     );
   }
 
@@ -1567,11 +1585,38 @@ function SoldSyncSchedule() {
 }
 
 function SoldSyncSection() {
-  const { data: channels, isLoading } = useSyncStatus();
-  const { data: reviews } = useSyncReviews();
+  const {
+    data: channels,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useSyncStatus();
+  const {
+    data: reviews,
+    isError: reviewsError,
+    refetch: refetchReviews,
+  } = useSyncReviews();
   const dismiss = useDismissSyncReview();
 
   const rows = channels ?? [];
+  // MP-08: this is the double-sale guard. A failed status read used to hide
+  // the whole section, which reads exactly like "no channel to guard".
+  if (isError) {
+    return (
+      <div>
+        <h3 className="mb-1 text-sm font-semibold text-foreground">Sold-sync</h3>
+        <ErrorState
+          className="rounded-lg border py-6"
+          title="Couldn't check sold-sync"
+          description="We could not read whether your channels are being watched for sales. This is a loading problem, not a stopped sync."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+          hideSupport
+        />
+      </div>
+    );
+  }
   if (isLoading || rows.length === 0) return null;
 
   const queue = reviews ?? [];
@@ -1633,6 +1678,15 @@ function SoldSyncSection() {
       </div>
 
       <SoldSyncSchedule />
+
+      {reviewsError && (
+        <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span>Couldn&apos;t load the sales waiting for your review.</span>
+          <Button variant="outline" size="sm" onClick={() => void refetchReviews()}>
+            Retry
+          </Button>
+        </div>
+      )}
 
       {queue.length > 0 && (
         <div className="mt-3 space-y-3">
@@ -1764,7 +1818,7 @@ function QueueSummary({
 }
 
 function ExtensionQueueSection() {
-  const { data, isLoading } = useExtensionQueue();
+  const { data, isLoading, isError, isFetching, refetch } = useExtensionQueue();
   const cancel = useCancelExtensionWork();
 
   const pending = data?.pending ?? [];
@@ -1772,9 +1826,32 @@ function ExtensionQueueSection() {
   // US-3425: runs that FINISHED and still want a human. The edge has answered
   // with this since US-3370 and no web surface read it.
   const finished = data?.finishedNeedsReview ?? [];
-  // US-3198: the loading guard stays; the empty guard is gone. QueueSummary is
-  // the thing a seller with an empty queue needs to see.
-  if (isLoading) return null;
+  // US-3198: the empty guard is gone. QueueSummary is the thing a seller with
+  // an empty queue needs to see.
+  // MP-08: loading and error keep the heading and the #extension-queue anchor,
+  // so the attention rail's link lands somewhere, and a failed read is never
+  // "Nothing waiting for your desktop".
+  if (isLoading || isError) {
+    return (
+      <div id="extension-queue" className="scroll-mt-20">
+        <h3 className="mb-3 text-sm font-semibold text-foreground">
+          Queued for your desktop
+        </h3>
+        {isError ? (
+          <ErrorState
+            className="rounded-lg border py-6"
+            title="Couldn't load your queued work"
+            description="This is a loading problem. Anything you queued is still queued."
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+            hideSupport
+          />
+        ) : (
+          <Skeleton className="h-16 w-full" />
+        )}
+      </div>
+    );
+  }
 
   const describe = (kind: string, platform: string) => {
     const label = MARKETPLACE_LABELS[platform as keyof typeof MARKETPLACE_LABELS] ?? platform;

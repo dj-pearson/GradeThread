@@ -3,6 +3,7 @@ import { Link2, Loader2, Scissors, Check } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ErrorState } from "@/components/ui/error-state";
 import { toastError } from "@/lib/toast-error";
 import {
   type LinkScanSummary,
@@ -158,9 +159,21 @@ export function LinkDuplicatesCard() {
           </div>
         )}
 
+        {/* MP-08: a failed read is not "nothing waiting on you". */}
+        {reviews.isError && (
+          <ErrorState
+            className="py-6"
+            title="Couldn't load the matches waiting for you"
+            description="This is a loading problem, not an empty list."
+            onRetry={() => void reviews.refetch()}
+            retrying={reviews.isFetching}
+            hideSupport
+          />
+        )}
+
         {/* Said out loud rather than left blank: an empty queue and a queue
             that has never been built look identical on screen. */}
-        {pending.length === 0 && !reviews.isLoading && (
+        {pending.length === 0 && reviews.isSuccess && (
           <p className="mt-3 text-xs text-muted-foreground">
             {summary
               ? "Nothing waiting on you."
