@@ -135,6 +135,14 @@ export const FINISHED_REVIEW_WINDOW_MS = 48 * 60 * 60 * 1000;
 export const FINISHED_REVIEW_LIMIT = 25;
 
 /**
+ * MP-10: how long an expired or failed row stays under "Didn't run", and how
+ * many. Long enough that a seller back from a week away still sees what never
+ * happened; short enough that the list cannot grow forever.
+ */
+export const NEEDS_ATTENTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+export const NEEDS_ATTENTION_LIMIT = 25;
+
+/**
  * Did this finished run leave the seller something to do?
  *
  * Only rows this answers true for are returned. A clean cross-post is not queue
@@ -235,20 +243,40 @@ flipdeskExtensionQueueRoutes.get("/", async (c) => {
   // saying a browser has it once nothing is running it.
   await reclaimStaleClaims(ownerId, now);
 
-  const { data, error } = await supabaseAdmin
-    .from("extension_work_queue")
-    .select(QUEUE_SELECT_COLS)
-    .eq("user_id", ownerId) // US-268
-    .in("status", ["queued", "claimed", "expired", "failed"])
-    .order("created_at", { ascending: true })
-    .limit(200);
+  // MP-10: two reads, not one. A single oldest-first limit(200) over live AND
+  // dead rows let 200 old failures push a new delist off the list, and a
+  // failed row never left. Pending is oldest first (the order it will run);
+  // needsAttention is the newest few from the last fortnight. All four reads
+  // are independent, so they run together.
+  const attentionSince = new Date(now - NEEDS_ATTENTION_WINDOW_MS).toISOString();
+  const [pendingRes, attentionRes, finished, drainedAt] = await Promise.all([
+    supabaseAdmin
+      .from("extension_work_queue")
+      .select(QUEUE_SELECT_COLS)
+      .eq("user_id", ownerId) // US-268
+      .in("status", ["queued", "claimed"])
+      .order("created_at", { ascending: true })
+      .limit(200),
+    supabaseAdmin
+      .from("extension_work_queue")
+      .select(QUEUE_SELECT_COLS)
+      .eq("user_id", ownerId) // US-268
+      .in("status", ["expired", "failed"])
+      .gte("completed_at", attentionSince)
+      .order("completed_at", { ascending: false })
+      .limit(NEEDS_ATTENTION_LIMIT),
+    finishedNeedingReview(ownerId, now),
+    lastDrainedAt(ownerId),
+  ]);
 
+  const error = pendingRes.error ?? attentionRes.error;
   if (error) {
     return failSafe(c, 500, "Could not load the queue.", error, "flipdesk.queue.list");
   }
 
-  const live = (data ?? []) as unknown as QueueRow[];
-  const finished = await finishedNeedingReview(ownerId, now);
+  const live = ((pendingRes.data ?? []) as unknown as QueueRow[]).concat(
+    (attentionRes.data ?? []) as unknown as QueueRow[],
+  );
   // One title lookup for both lists. withItemTitles runs two queries of its
   // own, and running them twice to name two halves of one screen is a cost with
   // nothing behind it.
@@ -266,7 +294,7 @@ flipdeskExtensionQueueRoutes.get("/", async (c) => {
     // "didn't run". finishedNeedsReview says what qualifies and what does not;
     // FINISHED_REVIEW_WINDOW_MS says how long it stays.
     finishedNeedsReview: rows.filter((r) => finishedIds.has(r.id)),
-    lastDrainedAt: await lastDrainedAt(ownerId),
+    lastDrainedAt: drainedAt,
   });
 });
 
@@ -332,26 +360,28 @@ async function withItemTitles(
 
   const titles = new Map<string, string>();
 
-  if (itemIds.length > 0) {
-    const { data } = await supabaseAdmin
-      .from("inventory_items")
-      .select("id, title")
-      .eq("user_id", ownerId) // US-268
-      .in("id", itemIds);
-    for (const r of (data ?? []) as { id: string; title: string | null }[]) {
-      if (r.title) titles.set("i:" + r.id, r.title);
-    }
+  // MP-10: the two lookups are independent, so they run together.
+  const [itemRes, listingRes] = await Promise.all([
+    itemIds.length > 0
+      ? supabaseAdmin
+        .from("inventory_items")
+        .select("id, title")
+        .eq("user_id", ownerId) // US-268
+        .in("id", itemIds)
+      : Promise.resolve({ data: [] }),
+    listingIds.length > 0
+      ? supabaseAdmin
+        .from("listings")
+        .select("id, listing_title")
+        .eq("user_id", ownerId) // US-268
+        .in("id", listingIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+  for (const r of (itemRes.data ?? []) as { id: string; title: string | null }[]) {
+    if (r.title) titles.set("i:" + r.id, r.title);
   }
-
-  if (listingIds.length > 0) {
-    const { data } = await supabaseAdmin
-      .from("listings")
-      .select("id, listing_title")
-      .eq("user_id", ownerId) // US-268
-      .in("id", listingIds);
-    for (const r of (data ?? []) as { id: string; listing_title: string | null }[]) {
-      if (r.listing_title) titles.set("l:" + r.id, r.listing_title);
-    }
+  for (const r of (listingRes.data ?? []) as { id: string; listing_title: string | null }[]) {
+    if (r.listing_title) titles.set("l:" + r.id, r.listing_title);
   }
 
   return rows.map((r) => ({
@@ -964,22 +994,53 @@ flipdeskExtensionQueueRoutes.post("/:id/complete", async (c) => {
   return c.json({ updated: { id: done.id, status: done.status } });
 });
 
-// DELETE /:id — the seller cancels a job they no longer want run.
+// DELETE /:id — the seller cancels a job they no longer want run, or clears
+// one that expired or failed.
+//
+// MP-10: never a CLAIMED row. A claimed row is a job with a marketplace tab
+// open on it right now; deleting it leaves a half-filled form and nothing
+// server-side that remembers it was asked for. The delete is conditional on
+// the status, and when it matches nothing the row is re-read so a running job
+// answers 409 rather than a misleading 404.
+const DELETABLE_STATUSES = ["queued", "expired", "failed"];
+
 flipdeskExtensionQueueRoutes.delete("/:id", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const id = c.req.param("id");
   const { data, error } = await supabaseAdmin
     .from("extension_work_queue")
     .delete()
-    .eq("id", c.req.param("id"))
+    .eq("id", id)
     .eq("user_id", ownerId) // US-268
+    .in("status", DELETABLE_STATUSES)
     .select("id")
     .maybeSingle();
 
   if (error) {
     return failSafe(c, 500, "Could not cancel that job.", error, "flipdesk.queue.cancel");
   }
-  if (!data) return c.json({ error: "Not found." }, 404);
-  return c.json({ cancelled: data.id });
+  if (data) return c.json({ cancelled: data.id });
+
+  const { data: row, error: readErr } = await supabaseAdmin
+    .from("extension_work_queue")
+    .select("status")
+    .eq("id", id)
+    .eq("user_id", ownerId) // US-268
+    .maybeSingle();
+  if (readErr) {
+    return failSafe(c, 500, "Could not cancel that job.", readErr, "flipdesk.queue.cancel");
+  }
+  if (!row) return c.json({ error: "Not found." }, 404);
+  const status = (row as { status: string }).status;
+  return c.json(
+    {
+      error: status === "claimed"
+        ? "Your desktop is running this one now, so it can't be cancelled."
+        : "That job has already finished.",
+      status,
+    },
+    409,
+  );
 });
 
 // Re-exported so the tests can assert the refused keys without reaching into

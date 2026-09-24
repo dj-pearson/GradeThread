@@ -138,14 +138,15 @@ export async function sellerQueueGate(
  * (US-1552).
  */
 export async function expireStaleQueueRows(ownerId: string, nowIso: string): Promise<void> {
-  for (const status of ["queued", "claimed"] as const) {
-    await supabaseAdmin
-      .from("extension_work_queue")
-      .update({ status: "expired" })
-      .eq("user_id", ownerId) // US-268
-      .eq("status", status)
-      .lt("expires_at", nowIso);
-  }
+  // MP-10: one UPDATE, not one per status (`.in` is a plain filter, not the
+  // `.or()` US-1552 forbids on a mutation). completed_at is stamped so the
+  // "Didn't run" list can age an expired row out like a failed one.
+  await supabaseAdmin
+    .from("extension_work_queue")
+    .update({ status: "expired", completed_at: nowIso })
+    .eq("user_id", ownerId) // US-268
+    .in("status", ["queued", "claimed"])
+    .lt("expires_at", nowIso);
 }
 
 /**

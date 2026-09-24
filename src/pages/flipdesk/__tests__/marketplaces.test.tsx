@@ -105,6 +105,7 @@ vi.mock("@/hooks/use-extension-queue", async (importOriginal) => ({
     refetch: vi.fn(),
   }),
   useCancelExtensionWork: mutation,
+  useRequeueExtensionWork: mutation,
 }));
 
 vi.mock("@/hooks/use-sold-sync", async (importOriginal) => ({
@@ -508,6 +509,33 @@ describe("Marketplaces page: extension queue", () => {
     expect(text).toContain("Poshmark 1 to end, 1 to list");
     expect(text).toContain("Mercari 1 to list");
     expect(text).toContain("Garment 2");
+  });
+
+  it("a failed row offers Queue again and Dismiss (MP-10)", () => {
+    state.queue = {
+      pending: [],
+      needsAttention: [{ ...job("9", "delist", "mercari"), status: "failed" }],
+      finishedNeedsReview: [],
+      lastDrainedAt: null,
+    };
+    render();
+    const buttons = [...document.querySelectorAll("button")].map((b) => b.textContent?.trim());
+    expect(buttons).toContain("Queue again");
+    expect(buttons).toContain("Dismiss");
+  });
+
+  it("Cancel names the item it cancels (MP-10)", () => {
+    state.queue = {
+      pending: [job("1", "list", "poshmark")],
+      needsAttention: [],
+      finishedNeedsReview: [],
+      lastDrainedAt: null,
+    };
+    render();
+    const cancel = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Cancel",
+    );
+    expect(cancel?.getAttribute("aria-label")).toContain("Garment 1");
   });
 
   it("still renders when the queue is empty, so a stalled extension is visible", () => {

@@ -227,3 +227,38 @@ export function useCancelExtensionWork() {
     },
   });
 }
+
+/**
+ * MP-10: "Queue again" on a row that expired or failed. Enqueues the same
+ * instruction (kind, platform, item, listing, payload) and then clears the dead
+ * row, so the "Didn't run" list does not keep showing work that is queued
+ * again. The clear is best-effort: the new row is what matters.
+ */
+export function useRequeueExtensionWork() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, ExtensionQueueItem>({
+    mutationFn: async (job) => {
+      const res = await edgeFetch("/api/flipdesk/extension-queue", {
+        method: "POST",
+        json: {
+          kind: job.kind,
+          platform: job.platform,
+          inventory_item_id: job.inventory_item_id ?? null,
+          listing_id: job.listing_id ?? null,
+          payload: job.payload ?? {},
+          source: "web",
+        },
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? "Could not queue that again.");
+      }
+      await edgeFetch(`/api/flipdesk/extension-queue/${job.id}`, { method: "DELETE" }).catch(
+        () => undefined,
+      );
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["extension_queue"] });
+    },
+  });
+}

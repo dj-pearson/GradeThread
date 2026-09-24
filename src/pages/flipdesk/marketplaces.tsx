@@ -99,6 +99,7 @@ import {
   QUEUED_NOTICE,
   useCancelExtensionWork,
   useExtensionQueue,
+  useRequeueExtensionWork,
   type ExtensionQueueItem,
 } from "@/hooks/use-extension-queue";
 import { CrossPostSetup } from "@/components/flipdesk/cross-post-setup";
@@ -1882,6 +1883,11 @@ function QueueSummary({
 function ExtensionQueueSection() {
   const { data, isLoading, isError, isFetching, refetch } = useExtensionQueue();
   const cancel = useCancelExtensionWork();
+  const requeue = useRequeueExtensionWork();
+  // MP-10: only the row being acted on is busy, not every row on the list.
+  const busyId =
+    (cancel.isPending ? cancel.variables : undefined) ??
+    (requeue.isPending ? requeue.variables?.id : undefined);
 
   const pending = data?.pending ?? [];
   const needsAttention = data?.needsAttention ?? [];
@@ -1977,11 +1983,13 @@ function ExtensionQueueSection() {
                   </span>
                 ) : (
                   <Button
-                    aria-label={`Cancel ${describe(job.kind, job.platform)}`}
+                    aria-label={`Cancel ${describe(job.kind, job.platform)}${
+                      job.item_title ? ` for ${job.item_title}` : ""
+                    }`}
                     variant="ghost"
                     size="sm"
                     className="shrink-0"
-                    disabled={cancel.isPending}
+                    disabled={busyId === job.id}
                     onClick={() => {
                       cancel.mutate(job.id, {
                         onSuccess: () => toast.success("Removed from the queue."),
@@ -2010,16 +2018,54 @@ function ExtensionQueueSection() {
             or queue it again.
           </p>
           <ul className="mt-2 space-y-1.5">
-            {needsAttention.map((job) => (
-              <li key={job.id} className="text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {job.item_title
-                    ? `${job.item_title} — ${describe(job.kind, job.platform)}`
-                    : describe(job.kind, job.platform)}
-                </span>
-                {job.result?.error ? ` — ${job.result.error}` : ""}
-              </li>
-            ))}
+            {needsAttention.map((job) => {
+              const name = job.item_title
+                ? `${job.item_title}: ${describe(job.kind, job.platform)}`
+                : describe(job.kind, job.platform);
+              return (
+                <li
+                  key={job.id}
+                  className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"
+                >
+                  <span>
+                    <span className="font-medium text-foreground">{name}</span>
+                    {job.result?.error ? `. ${job.result.error}` : ""}
+                  </span>
+                  {/* MP-10: these rows used to stay forever with no way to act
+                      on them from here. */}
+                  <span className="flex shrink-0 items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label={`Queue again: ${name}`}
+                      disabled={busyId === job.id}
+                      onClick={() =>
+                        requeue.mutate(job, {
+                          onSuccess: () => toast.success("Queued again."),
+                          onError: (e) => toastError(e),
+                        })
+                      }
+                    >
+                      Queue again
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`Dismiss: ${name}`}
+                      disabled={busyId === job.id}
+                      onClick={() =>
+                        cancel.mutate(job.id, {
+                          onSuccess: () => toast.success("Cleared."),
+                          onError: (e) => toastError(e),
+                        })
+                      }
+                    >
+                      Dismiss
+                    </Button>
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
