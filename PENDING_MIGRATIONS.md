@@ -71,7 +71,7 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
-## HELD: 00834_overview_metrics_owner_scope.sql (INV-D1 - FlipDesk Overview on /dashboard mixed two workspaces)
+## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00834_overview_metrics_owner_scope.sql (INV-D1 - FlipDesk Overview on /dashboard mixed two workspaces)
 
 **What it does.** Replaces `flipdesk_overview_metrics` (5 args, 00594 body as
 guarded by 00611) with a version that takes one more argument,
@@ -135,7 +135,7 @@ deploy order above.
 guard expects 00834; the edge does not call this function). 3) THEN push to
 main so Pages builds the client that sends `p_owner_id`.
 
-## HELD: 00833_inventory_table_owner_scope.sql (INV-D1 - Inventory table and tab counts mixed two workspaces)
+## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00833_inventory_table_owner_scope.sql (INV-D1 - Inventory table and tab counts mixed two workspaces)
 
 **What it does.** Replaces `flipdesk_listing_page` (12 args, 00771) and
 `inventory_status_counts()` (00144) with versions that take one more argument,
@@ -197,7 +197,7 @@ inventory instead of the workspace's.
 (boot guard expects 00833; the edge does not call either function). 3) THEN
 push to main so Pages builds the client that sends `p_owner_id`.
 
-## HELD: 00832_one_ebay_draft_per_item.sql (marketplaces plan action 3 - one AutoLister eBay draft per item)
+## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00832_one_ebay_draft_per_item.sql (marketplaces plan action 3 - one AutoLister eBay draft per item)
 
 **What it does.** Demotes duplicate eBay drafts, then adds
 `uq_listings_one_ebay_draft_per_item`, a partial unique index on
@@ -267,7 +267,7 @@ deploy that lands first does not break. Then `NOTIFY pgrst, 'reload schema';`
 (migrate:prod sends it). Apply 00831 first; the two are independent, but
 the boot guard reads the highest version.
 
-## HELD: 00831_source_item_counts.sql (flipdesk-inventory plan action 7 - Sources page counts items in SQL)
+## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00831_source_item_counts.sql (flipdesk-inventory plan action 7 - Sources page counts items in SQL)
 
 **What it does.** Adds one function, `public.source_item_counts(p_user_id uuid)`,
 returning `(source_id, item_count)` for one workspace. SECURITY INVOKER, so
@@ -301,7 +301,7 @@ SECURITY DEFINER turns the stranger and anon cases red.
 00831) and before the frontend deploy. Then `NOTIFY pgrst, 'reload schema';`
 (migrate:prod sends it).
 
-## HELD: 00830_account_webhooks.sql (extensions-api plan actions 2+3 - customer webhook secret, one delivery per account, durable retries)
+## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00830_account_webhooks.sql (extensions-api plan actions 2+3 - customer webhook secret, one delivery per account, durable retries)
 
 **What it does.** Creates three deny-all tables (RLS on, no policies, revoked
 from anon/authenticated): `api_webhook_endpoints` (one row per account: url +
@@ -330,7 +330,7 @@ it). No client-side (browser) code reads the new tables.
 (it is in the generated COOLIFY.md table). Without it, the first attempt still
 happens but no retry ever does. Uses the existing `EDGE_ENCRYPTION_KEY`.
 
-## HELD: 00829_close_period_figures_caller_only.sql (security - closing figures covered every seller)
+## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00829_close_period_figures_caller_only.sql (security - closing figures covered every seller)
 
 **What it does.** `CREATE OR REPLACE` of `close_period`, same signature. The
 `closing_figures` ledger and COGS blocks are computed inline with
@@ -362,7 +362,7 @@ record the seller reads). A read to count them:
 00828, before the edge redeploy (boot guard expects 00829). Then
 `NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
 
-## HELD: 00828_ledger_rebuild_skips_closed_periods.sql (money plan action 3 - a rebuild must not move a closed period)
+## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00828_ledger_rebuild_skips_closed_periods.sql (money plan action 3 - a rebuild must not move a closed period)
 
 **What it does.** `CREATE OR REPLACE` of `rebuild_ledger_for_user`, same
 signature. The DELETE keeps ledger rows dated inside a closed period
@@ -385,7 +385,7 @@ picks up the change. Applied twice in a row with no error.
 sees no change. **Order.** Apply before the edge redeploy (boot guard expects
 00828). Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
 
-## HELD: 00827_listings_publish_attempts.sql (marketplaces - cap scheduled-publish retries)
+## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00827_listings_publish_attempts.sql (marketplaces - cap scheduled-publish retries)
 
 **What it does.** `ALTER TABLE public.listings ADD COLUMN IF NOT EXISTS
 publish_attempts integer NOT NULL DEFAULT 0`, plus a column comment. Column
@@ -409,7 +409,7 @@ so `listing-row-schema-parity.test.ts` stays green; no client code reads it.
 (the boot guard expects 00827). Then `NOTIFY pgrst, 'reload schema';`
 (migrate:prod sends it).
 
-## HELD: 00826_close_period_rebuilds_ledger.sql (money - closing a period froze stale ledger figures)
+## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00826_close_period_rebuilds_ledger.sql (money - closing a period froze stale ledger figures)
 
 **What it does.** `CREATE OR REPLACE` of `public.close_period`, same signature,
 same body as 00702 plus one line: `PERFORM public.rebuild_ledger_for_user(v_uid)`
@@ -435,7 +435,7 @@ action 3).
 **Order.** Apply any time, BEFORE the edge redeploy (the boot guard expects
 00826). Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
 
-## HELD: 00825_api_keys_no_client_writes.sql (security - a key owner could raise their own API tier and clear their quota)
+## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00825_api_keys_no_client_writes.sql (security - a key owner could raise their own API tier and clear their quota)
 
 **What it does.** Drops three RLS policies on `public.api_keys`: "Users can
 update own API keys" (00005/00322), "Users can create API keys" (00001) and
@@ -468,7 +468,7 @@ A local cluster cannot answer that.
 **Order.** Apply any time, BEFORE the edge redeploy (the boot guard expects
 00825). Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
 
-## HELD: 00824_get_or_create_source_tenant_scope.sql (security - a signed-in user could write another seller's sources)
+## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00824_get_or_create_source_tenant_scope.sql (security - a signed-in user could write another seller's sources)
 
 **What it does.** `CREATE OR REPLACE` of `public.get_or_create_source`, same
 signature, same body as 00640, plus one check after the role guard: the caller
@@ -495,7 +495,7 @@ sources INSERT policy on the direct path.
 **Order.** Apply any time, BEFORE the edge redeploy (the boot guard expects
 00824). Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
 
-## HELD: 00823_imported_sales_shipped.sql (US-3465 - old imported sales out of the Ship queue)
+## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00823_imported_sales_shipped.sql (US-3465 - old imported sales out of the Ship queue)
 
 **What it does.** One UPDATE on `public.sales`: sets `shipped_at` to the sale
 date for rows that are `completed`, have no `shipped_at`, have no

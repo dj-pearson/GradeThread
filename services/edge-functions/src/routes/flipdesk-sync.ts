@@ -21,6 +21,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
+import { rankClaimCandidates, type ClaimCandidateRow } from "../lib/claim-candidates.ts";
 import { resolveSellerEntitlement } from "../lib/buyer-entitlements.ts";
 import { autoEndCrossListings } from "../lib/cross-listings.ts";
 import { EXTENSION_DELIST_PLATFORMS } from "../lib/cross-listing-sale.ts";
@@ -712,6 +713,81 @@ flipdeskSyncRoutes.get("/reviews", async (c) => {
   return c.json({ reviews: data ?? [] });
 });
 
+// GET /reviews/:id/candidates — the listings this sale could have been.
+//
+// MP-09: the picker called GET /api/flipdesk/listings?platform=..., which has
+// no handler, so "Link to an item" always offered nothing. This answers the
+// real question: same marketplace, still active, not yet carrying an address,
+// ranked by how much the title and price look like the sale.
+//
+// TENANCY (US-268): the review is loaded by id AND owner first; a foreign id is
+// a 404. Listings are scoped through the owner-verified parent item, and photos
+// hang off those already-verified items.
+flipdeskSyncRoutes.get("/reviews/:id/candidates", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data: reviewRow, error: reviewErr } = await supabaseAdmin
+    .from("marketplace_sync_reviews")
+    .select("id, platform, title, sold_price_cents")
+    .eq("id", c.req.param("id"))
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (reviewErr) {
+    return failSafe(c, 500, "Couldn't load that sale.", reviewErr, "flipdesk.sync.candidates");
+  }
+  const review = reviewRow as
+    | { id: string; platform: string; title: string | null; sold_price_cents: number | null }
+    | null;
+  if (!review) return c.json({ error: "Not found." }, 404);
+
+  const { data: rows, error } = await supabaseAdmin
+    .from("listings")
+    .select("id, listing_title, listing_price, inventory_item_id, inventory_items!inner(user_id)")
+    .eq("inventory_items.user_id", ownerId)
+    .eq("platform", review.platform)
+    .eq("listing_status", "active")
+    .is("listing_url", null)
+    .limit(500);
+  if (error) {
+    return failSafe(c, 500, "Couldn't load your listings.", error, "flipdesk.sync.candidates");
+  }
+  const listings = (rows ?? []) as unknown as Array<{
+    id: string;
+    listing_title: string | null;
+    listing_price: number | null;
+    inventory_item_id: string | null;
+  }>;
+
+  const itemIds = [...new Set(listings.map((l) => l.inventory_item_id).filter(Boolean))] as string[];
+  const firstPhoto = new Map<string, string>();
+  if (itemIds.length > 0) {
+    const { data: photos } = await supabaseAdmin
+      .from("item_photos")
+      .select("inventory_item_id, photo_url, thumbnail_url, sort_order")
+      .in("inventory_item_id", itemIds)
+      .order("sort_order", { ascending: true });
+    for (const p of (photos ?? []) as Array<{
+      inventory_item_id: string;
+      photo_url: string | null;
+      thumbnail_url: string | null;
+    }>) {
+      const url = p.thumbnail_url ?? p.photo_url;
+      if (url && !firstPhoto.has(p.inventory_item_id)) firstPhoto.set(p.inventory_item_id, url);
+    }
+  }
+
+  const ranked = rankClaimCandidates(
+    review.title,
+    review.sold_price_cents,
+    listings.map((l): ClaimCandidateRow => ({
+      id: l.id,
+      listing_title: l.listing_title,
+      listing_price: l.listing_price,
+      photo_url: l.inventory_item_id ? firstPhoto.get(l.inventory_item_id) ?? null : null,
+    })),
+  );
+  return c.json({ candidates: ranked });
+});
+
 // POST /reviews/:id/claim — link an unmatched sold row to one of my listings.
 //
 // THE POINT OF THIS ENDPOINT IS THAT IT MAKES THE NEXT TIME AUTOMATIC. Writing
@@ -780,12 +856,26 @@ flipdeskSyncRoutes.post("/reviews/:id/claim", async (c) => {
     );
   }
 
-  const { error: updErr } = await supabaseAdmin
-    .from("listings")
-    .update({ listing_url: review.listing_url })
-    .eq("id", listing.id);
-  if (updErr) {
-    return failSafe(c, 500, "Couldn't link that listing.", updErr, "flipdesk.sync.claim");
+  // MP-09: a listing that already carries this exact address is the confirm
+  // case (the sold row was matched to it); nothing to write. Otherwise write
+  // only while the address is still empty, so two claims racing for one
+  // listing cannot both land, and say so when this one lost.
+  if (listing.listing_url !== review.listing_url) {
+    const { data: updated, error: updErr } = await supabaseAdmin
+      .from("listings")
+      .update({ listing_url: review.listing_url })
+      .eq("id", listing.id)
+      .is("listing_url", null)
+      .select("id");
+    if (updErr) {
+      return failSafe(c, 500, "Couldn't link that listing.", updErr, "flipdesk.sync.claim");
+    }
+    if (!updated || updated.length === 0) {
+      return c.json(
+        { error: "That listing was linked to another address a moment ago." },
+        409,
+      );
+    }
   }
 
   // The link above is the part that matters and it has already happened, so a

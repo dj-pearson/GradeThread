@@ -374,6 +374,67 @@ function marketplaceCurrency(): string {
 }
 
 /**
+ * MP-03: FIND the seller's Cost-Per-Click campaign and ad group, never create
+ * either. The read routes (suggestions, keywords) used ensureCpcCampaign, so
+ * opening the Ads tab POSTed a new campaign to eBay whenever none was cached,
+ * even for a viewer, and ending one was undone seconds later by the card's own
+ * refetch. Returns null when there is no live campaign. A failed lookup throws:
+ * "couldn't ask eBay" is not "you have no campaign".
+ */
+export async function findCpcCampaign(
+  userId: string,
+): Promise<{ campaignId: string; adGroupId: string | null } | null> {
+  const { data: conn, error } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("ebay_cpc_campaign_id, ebay_cpc_ad_group_id")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true)
+    .order("is_primary", { ascending: false })
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`CPC campaign cache read failed: ${error.message}`);
+  const row = conn as
+    | { ebay_cpc_campaign_id: string | null; ebay_cpc_ad_group_id: string | null }
+    | null;
+  if (row?.ebay_cpc_campaign_id && row.ebay_cpc_ad_group_id) {
+    return { campaignId: row.ebay_cpc_campaign_id, adGroupId: row.ebay_cpc_ad_group_id };
+  }
+
+  let campaignId: string | null = row?.ebay_cpc_campaign_id ?? null;
+  if (!campaignId) {
+    const { body } = await marketingFetch<{ campaigns?: CampaignSummary[] }>(
+      userId,
+      `/sell/marketing/v1/ad_campaign?campaign_name=${encodeURIComponent(CPC_CAMPAIGN_NAME)}`,
+    );
+    const match = (body.campaigns ?? []).find(
+      (cmp) =>
+        cmp.campaignName === CPC_CAMPAIGN_NAME &&
+        cmp.campaignStatus !== "ENDED" &&
+        !!cmp.campaignId,
+    );
+    campaignId = match?.campaignId ?? null;
+  }
+  if (!campaignId) return null;
+
+  let adGroupId: string | null = row?.ebay_cpc_ad_group_id ?? null;
+  if (!adGroupId) {
+    try {
+      const { body } = await marketingFetch<{
+        adGroups?: Array<{ adGroupId?: string; adGroupStatus?: string }>;
+      }>(userId, `/sell/marketing/v1/ad_campaign/${encodeURIComponent(campaignId)}/ad_group`);
+      adGroupId = (body.adGroups ?? []).find(
+        (g) => g.adGroupStatus !== "ENDED" && !!g.adGroupId,
+      )?.adGroupId ?? null;
+    } catch {
+      adGroupId = null;
+    }
+  }
+  return { campaignId, adGroupId };
+}
+
+/**
  * Find-or-create the seller's single Cost-Per-Click (Priority) campaign + its
  * default ad group, returning both ids (cached on the connection). Mirrors
  * ensureAdCampaign; tenant-safe (keyed on the workspace owner `userId`).
@@ -971,7 +1032,7 @@ export async function syncPromotedListingsForOwner(
   userId: string,
   limit = 200,
 ): Promise<PromotedSyncResult> {
-  const { data: rows } = await supabaseAdmin
+  const { data: rows, error: readErr } = await supabaseAdmin
     .from("listings")
     .select("id, platform_listing_id, promo_campaign_id")
     .eq("user_id", userId)
@@ -979,6 +1040,8 @@ export async function syncPromotedListingsForOwner(
     .not("promo_ad_id", "is", null)
     .order("promo_synced_at", { ascending: true, nullsFirst: true })
     .limit(limit);
+  // MP-11: "refreshed 0 of 0" after a failed read is a false all-clear.
+  if (readErr) throw new Error(`promoted sync read failed: ${readErr.message}`);
 
   const promoted = (rows ?? []) as Array<{
     id: string;
@@ -1005,8 +1068,16 @@ export async function syncPromotedListingsForOwner(
         // The ad disappeared on eBay (deleted/ended) — reflect that locally.
         patch.promo_status = "ended";
       }
-      await supabaseAdmin.from("listings").update(patch).eq("id", row.id);
-      updated++;
+      const { error: writeErr } = await supabaseAdmin
+        .from("listings")
+        .update(patch)
+        .eq("id", row.id);
+      // MP-11: count a row only when its write landed.
+      if (writeErr) {
+        console.warn(`[ebay-marketing] promoted sync write for ${row.id} failed:`, writeErr.message);
+      } else {
+        updated++;
+      }
     } catch (err) {
       console.warn(
         `[ebay-marketing] promoted sync for listing ${row.id} failed:`,

@@ -23,6 +23,8 @@ import {
 import { PageHelp } from "@/components/help/page-help";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { useMoneyFiscalYear } from "@/hooks/use-money-fiscal-year";
 import { fetchReviewCount } from "@/lib/books-review";
 
 // US-2161: Finances, Expenses and Reconcile were three sidebar entries
@@ -85,17 +87,31 @@ export function FlipdeskMoneyPage() {
   const activeView = resolveMoneyView(searchParams.get("view"));
   const user = useAuthStore((s) => s.user);
 
+  const { workspaceOwnerId } = useWorkspace();
+
   // US-2992 AC5: the count is on the tab strip, so it is seen on arrival rather
-  // than found. Scoped to the CURRENT calendar year -- a badge counting every
-  // issue since the account opened is a number nobody can ever clear, and a
-  // badge that never reaches zero stops being read.
-  const year = new Date().getFullYear();
-  const { data: reviewCount = 0 } = useQuery({
-    queryKey: ["books-review-count", user?.id, year],
-    enabled: !!user,
-    queryFn: () => fetchReviewCount(`${year}-01-01`, `${year + 1}-01-01`),
+  // than found. Scoped to the CURRENT fiscal year, the same range the P&L lists
+  // (it used to count the calendar year, so a July-start seller's badge and
+  // list disagreed) -- a badge counting every issue since the account opened
+  // is a number nobody can ever clear, and a badge that never reaches zero
+  // stops being read. The count is owner-only, so a member acting in another
+  // workspace gets no badge rather than a count of their own books.
+  const { profileQuery, fiscal } = useMoneyFiscalYear();
+  const actingForOwner =
+    !!user && !!workspaceOwnerId && workspaceOwnerId !== user.id;
+  const reviewCountQuery = useQuery({
+    queryKey: ["books-review-count", user?.id, fiscal.from, fiscal.to],
+    enabled: !!user && !actingForOwner && profileQuery.isSuccess,
+    queryFn: () => fetchReviewCount(fiscal.from, fiscal.to),
     staleTime: 5 * 60 * 1000,
   });
+  const reviewCount = reviewCountQuery.data ?? 0;
+  // An error is not zero. It shows a neutral "?" that says the check failed.
+  const reviewFailed =
+    !actingForOwner && (reviewCountQuery.isError || profileQuery.isError);
+  const badgeText = reviewFailed
+    ? "Couldn't check your books"
+    : `${reviewCount} thing${reviewCount === 1 ? "" : "s"} in your books need${reviewCount === 1 ? "s" : ""} a look`;
 
   function setActiveView(value: string) {
     setSearchParams(
@@ -152,7 +168,11 @@ export function FlipdeskMoneyPage() {
                     {group.views.map((v) => (
                       <SelectItem key={v} value={v}>
                         {MONEY_VIEW_LABELS[v]}
-                        {v === "pnl" && reviewCount > 0 ? ` (${reviewCount})` : ""}
+                        {v === "pnl" && reviewFailed
+                          ? " (?)"
+                          : v === "pnl" && reviewCount > 0
+                            ? ` (${reviewCount})`
+                            : ""}
                       </SelectItem>
                     ))}
                   </SelectGroup>
@@ -162,30 +182,47 @@ export function FlipdeskMoneyPage() {
           </div>
 
           <div className="hidden flex-wrap items-center gap-x-5 gap-y-2 sm:flex">
-            {MONEY_VIEW_GROUPS.map((group) => (
-              <div key={group.label ?? "top"} className="flex items-center gap-2">
-                {group.label && (
-                  <span className="text-[13px] text-muted-foreground">
-                    {group.label}
-                  </span>
-                )}
-                <TabsList>
-                  {group.views.map((v) => (
-                    <TabsTrigger key={v} value={v}>
-                      {MONEY_VIEW_LABELS[v]}
-                      {v === "pnl" && reviewCount > 0 && (
-                        <span
-                          className="ml-1.5 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300"
-                          aria-label={`${reviewCount} thing${reviewCount === 1 ? "" : "s"} in your books need a look`}
-                        >
-                          {reviewCount}
-                        </span>
-                      )}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </div>
-            ))}
+            {MONEY_VIEW_GROUPS.map((group, gi) => {
+              const labelId = `money-tabs-group-${gi}`;
+              return (
+                <div key={group.label ?? "top"} className="flex items-center gap-2">
+                  {group.label ? (
+                    <span id={labelId} className="text-[13px] text-muted-foreground">
+                      {group.label}
+                    </span>
+                  ) : (
+                    <span id={labelId} className="sr-only">
+                      Money
+                    </span>
+                  )}
+                  <TabsList aria-labelledby={labelId}>
+                    {group.views.map((v) => (
+                      <TabsTrigger key={v} value={v}>
+                        {MONEY_VIEW_LABELS[v]}
+                        {v === "pnl" && (reviewFailed || reviewCount > 0) && (
+                          <>
+                            {/* The visible badge is decoration; the sentence
+                                is in sr-only text, because aria-label on a
+                                span is not read by most screen readers. */}
+                            <span
+                              aria-hidden
+                              className={
+                                reviewFailed
+                                  ? "ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+                                  : "ml-1.5 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300"
+                              }
+                            >
+                              {reviewFailed ? "?" : reviewCount}
+                            </span>
+                            <span className="sr-only">. {badgeText}</span>
+                          </>
+                        )}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
+              );
+            })}
           </div>
 
           {/* Only the active view mounts — each page runs its own queries, and
@@ -221,7 +258,9 @@ export function FlipdeskMoneyPage() {
           <TabsContent value="reconcile" className="mt-6">
             {activeView === "reconcile" && (
               <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
-                <ReconcilePage />
+                {/* Keyed by workspace: a switch must not carry the old
+                    owner's photo board into the new owner's items. */}
+                <ReconcilePage key={workspaceOwnerId ?? "none"} />
               </Suspense>
             )}
           </TabsContent>

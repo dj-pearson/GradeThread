@@ -119,9 +119,10 @@ export async function loadPromotions(
     .eq("platform", "ebay")
     .order("starts_at", { ascending: false, nullsFirst: false })
     .limit(limit);
+  // MP-11: throw, not []. Both callers turn an empty list into an answer ("no
+  // promotions", "no discount breaches"), and a failed read is neither.
   if (error) {
-    console.error("[promotion-store] loadPromotions:", error.message);
-    return [];
+    throw new Error(`[promotion-store] loadPromotions: ${error.message}`);
   }
   return ((data ?? []) as unknown as Array<{
     id: string;

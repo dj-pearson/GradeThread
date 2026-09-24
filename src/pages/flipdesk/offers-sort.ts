@@ -250,3 +250,38 @@ export function filterMessages(
     matches([m.senderUsername, m.subject, m.body, m.itemId], query),
   );
 }
+
+// ── OM-10: how long a buyer has been waiting ────────────────────────────────
+
+export type WaitingTone = "neutral" | "amber" | "red";
+
+export interface WaitingReading {
+  hours: number;
+  label: string;
+  tone: WaitingTone;
+}
+
+/**
+ * How long an unanswered message has sat, and how worried to be about it.
+ *
+ * Under 12 hours is ordinary. 12 to 24 is a buyer starting to look elsewhere.
+ * Over a day is a sale most likely already lost to the next listing, which is
+ * the one the seller should answer first. Null for a missing or unreadable
+ * date, rather than inventing urgency.
+ */
+export function waitingLabel(
+  creationDate: string | null | undefined,
+  now: number = Date.now(),
+): WaitingReading | null {
+  if (!creationDate) return null;
+  const at = Date.parse(creationDate);
+  if (!Number.isFinite(at)) return null;
+  const hours = Math.max(0, Math.floor((now - at) / 3_600_000));
+  const tone: WaitingTone = hours > 24 ? "red" : hours >= 12 ? "amber" : "neutral";
+  const label = hours < 1
+    ? "Waiting under an hour"
+    : hours < 48
+      ? `Waiting ${hours}h`
+      : `Waiting ${Math.floor(hours / 24)}d`;
+  return { hours, label, tone };
+}

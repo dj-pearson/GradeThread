@@ -5,6 +5,15 @@
 
 export const RULE_NAME_MAX = 80;
 export const MAX_DROP_PCT = 90;
+/**
+ * The lowest comp confidence that may auto-accept a price. Below this a rule
+ * would take nearly every comp suggestion, including the ones built on three
+ * listings; 0 used to be accepted and meant exactly that.
+ */
+export const MIN_AUTO_ACCEPT_CONFIDENCE = 0.5;
+export const MIN_INTERVAL_DAYS = 1;
+export const MAX_INTERVAL_DAYS = 90;
+export const MAX_MIN_AGE_DAYS = 365;
 
 export interface NormalizedRule {
   name: string;
@@ -31,11 +40,6 @@ function trimOrNull(v: unknown): string | null {
   return t.length === 0 ? null : t;
 }
 
-function intOrDefault(v: unknown, fallback: number, min: number): number {
-  if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
-  return Math.max(min, Math.trunc(v));
-}
-
 function nonNegIntOrNull(v: unknown): number | null {
   if (typeof v !== "number" || !Number.isFinite(v)) return null;
   return Math.max(0, Math.trunc(v));
@@ -53,12 +57,38 @@ export function normalizeRuleInput(body: unknown): NormalizeResult {
     return { ok: false, error: `Rule name must be ${RULE_NAME_MAX} characters or fewer` };
   }
 
+  // Out-of-range numbers are REFUSED, not clamped. A seller who typed 150%
+  // and got a rule that cuts 90% was never told their number was changed.
   const dropRaw = typeof b.drop_pct === "number" && Number.isFinite(b.drop_pct) ? b.drop_pct : 0;
-  const drop_pct = Math.min(Math.max(dropRaw, 0), MAX_DROP_PCT);
+  if (dropRaw < 0 || dropRaw > MAX_DROP_PCT) {
+    return { ok: false, error: `Drop % must be between 1 and ${MAX_DROP_PCT}` };
+  }
+  const drop_pct = dropRaw;
 
   let auto: number | null = null;
   if (typeof b.auto_accept_confidence === "number" && Number.isFinite(b.auto_accept_confidence)) {
-    auto = Math.min(Math.max(b.auto_accept_confidence, 0), 1);
+    if (b.auto_accept_confidence < MIN_AUTO_ACCEPT_CONFIDENCE || b.auto_accept_confidence > 1) {
+      return {
+        ok: false,
+        error: `Auto-accept confidence must be between ${MIN_AUTO_ACCEPT_CONFIDENCE} and 1`,
+      };
+    }
+    auto = b.auto_accept_confidence;
+  }
+
+  const interval = b.interval_days == null ? 7 : Number(b.interval_days);
+  if (!Number.isInteger(interval) || interval < MIN_INTERVAL_DAYS || interval > MAX_INTERVAL_DAYS) {
+    return {
+      ok: false,
+      error: `Interval must be a whole number of days from ${MIN_INTERVAL_DAYS} to ${MAX_INTERVAL_DAYS}`,
+    };
+  }
+  const minAge = b.min_age_days == null ? 0 : Number(b.min_age_days);
+  if (!Number.isInteger(minAge) || minAge < 0 || minAge > MAX_MIN_AGE_DAYS) {
+    return {
+      ok: false,
+      error: `Minimum age must be a whole number of days from 0 to ${MAX_MIN_AGE_DAYS}`,
+    };
   }
 
   // A rule must actually DO something.
@@ -74,9 +104,9 @@ export function normalizeRuleInput(body: unknown): NormalizeResult {
       inventory_item_id: trimOrNull(b.inventory_item_id),
       filter_brand: trimOrNull(b.filter_brand),
       filter_category_id: trimOrNull(b.filter_category_id),
-      min_age_days: intOrDefault(b.min_age_days, 0, 0),
+      min_age_days: minAge,
       drop_pct,
-      interval_days: intOrDefault(b.interval_days, 7, 1),
+      interval_days: interval,
       floor_price_cents: nonNegIntOrNull(b.floor_price_cents),
       auto_accept_confidence: auto,
       override_manual: b.override_manual === true,

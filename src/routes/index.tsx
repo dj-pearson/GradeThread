@@ -4,6 +4,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { lazy, SuspenseWrapper } from "./lazy";
 import { createBrowserRouter, Navigate, useLocation } from "react-router";
+import { viewRedirectSearch } from "@/pages/flipdesk/nav-tabs";
 import { RootLayout } from "@/layouts/root-layout";
 import { RouteErrorFallback } from "@/components/error-boundary";
 import {
@@ -271,11 +272,19 @@ function InventoryModeRedirect({ mode }: { mode?: string }) {
 // rather than replacing the query is not optional here — a bare <Navigate> with
 // a literal query string drops every parameter already on the URL, which is the
 // bug the first pass of this story found on /scout?brand=Nike.
-function ViewRedirect({ to, view }: { to: string; view: string }) {
+function ViewRedirect({
+  to,
+  view,
+  defaultTab,
+}: {
+  to: string;
+  view: string;
+  defaultTab?: string;
+}) {
   const { search } = useLocation();
-  const params = new URLSearchParams(search);
-  params.set("view", view);
-  return <Navigate to={`${to}?${params.toString()}`} replace />;
+  return (
+    <Navigate to={`${to}?${viewRedirectSearch(search, view, defaultTab)}`} replace />
+  );
 }
 
 function TabRedirect({ to, tab }: { to: string; tab: string }) {
@@ -599,14 +608,14 @@ export const router = createBrowserRouter([
               { path: "/dashboard/submissions/:id", element: <SuspenseWrapper><SubmissionDetailPage /></SuspenseWrapper> },
               // US-740: consolidated into the FlipDesk inventory (the canonical
               // multi-view surface). Legacy routes redirect so all inbound links
-              // (sidebar, finances, price-suggestions, dashboard) keep working.
+              // (sidebar, finances, price suggestions, dashboard) keep working.
               { path: "/dashboard/inventory", element: <Navigate to="/dashboard/flipdesk/inventory" replace /> },
               { path: "/dashboard/inventory/new", element: <Navigate to="/dashboard/flipdesk/intake" replace /> },
               { path: "/dashboard/inventory/:id", element: <InventoryItemRedirect /> },
               { path: "/dashboard/finances", element: <ViewRedirect to="/dashboard/flipdesk/money" view="finances" /> },
               // US-1777: buyer body-profile store (measurements for fit checks).
               { path: "/dashboard/measurements", element: <SuspenseWrapper><BodyProfilesPage /></SuspenseWrapper> },
-              { path: "/dashboard/analytics/suggestions", element: <TabRedirect to="/dashboard/flipdesk/pricing" tab="suggestions" /> },
+              { path: "/dashboard/analytics/suggestions", element: <TabRedirect to="/dashboard/flipdesk/pricing" tab="repricing" /> },
               // US-3469: the two overviews are one page. Both old FlipDesk
               // overview URLs are kept alive as redirects rather than deleted —
               // they are in bookmarks, in cross-surface nudge CTAs, in the
@@ -670,7 +679,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/marketplaces/google", element: <SuspenseWrapper><FlipdeskMarketplacesGooglePage /></SuspenseWrapper> },
               // US-963: the standalone Reconciliation page is now the "eBay SKU
               // match" / "Payouts & fees" tabs of the unified Reconcile area.
-              { path: "/dashboard/flipdesk/reconciliation", element: <Navigate to="/dashboard/flipdesk/money?view=reconcile&tab=ebay" replace /> },
+              { path: "/dashboard/flipdesk/reconciliation", element: <ViewRedirect to="/dashboard/flipdesk/money" view="reconcile" defaultTab="ebay" /> },
               { path: "/dashboard/flipdesk/money", element: <SuspenseWrapper><FlipdeskMoneyPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/reconcile", element: <ViewRedirect to="/dashboard/flipdesk/money" view="reconcile" /> },
               { path: "/dashboard/flipdesk/repricing", element: <TabRedirect to="/dashboard/flipdesk/pricing" tab="repricing" /> },

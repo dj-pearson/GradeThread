@@ -19,9 +19,12 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
+import { usePageHost } from "@/hooks/use-page-host";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -64,8 +67,17 @@ import {
   useDeleteAutomationRule,
   useDryRunAutomationRule,
   useRunAutomations,
+  useToggleAutomationRule,
   useUpdateAutomationRule,
+  AUTOMATION_SCOPE_FIELDS,
 } from "@/hooks/use-automations";
+import { ErrorState } from "@/components/ui/error-state";
+import { platformLabel, statusLabel } from "./automation-labels";
+import { describeLadder, priceLadder } from "@/lib/price-ladder";
+import {
+  automationFormError,
+  SELF_ACTING_TRIGGERS,
+} from "./rule-form-validation";
 import { useEbayNegotiationCapability } from "@/hooks/use-ebay";
 import {
   ITEM_STATUS_LABELS,
@@ -102,7 +114,7 @@ function describeTrigger(t: AutomationTrigger): string {
         ? `graded within ${t.days} days`
         : `graded ${t.max_grade} or lower within ${t.days} days`;
     case "item_status_changed":
-      return `moved to ${t.status} within ${t.days} days`;
+      return `moved to ${statusLabel(t.status)} within ${t.days} days`;
     case "comp_price_moved":
       return t.direction === "above"
         ? `priced more than ${t.pct}% above comps`
@@ -139,7 +151,9 @@ function describeTrigger(t: AutomationTrigger): string {
 function describeAction(a: AutomationAction): string {
   switch (a.type) {
     case "price_drop_pct":
-      return `drop price ${a.pct}% (floor: cost +${a.margin_floor_pct}%)`;
+      return `drop price ${a.pct}% (floor: cost +${a.margin_floor_pct}%)${
+        a.override_manual ? ", may move hand-set prices" : ", skips hand-set prices"
+      }`;
     case "set_promo_rate_pct":
       return `set promo rate to ${a.pct}%`;
     case "create_coded_coupon":
@@ -149,11 +163,11 @@ function describeAction(a: AutomationAction): string {
     case "relist":
       return "end it and send the item back to Drafts to relist";
     case "crosslist_to":
-      return `cross-list it to ${a.platform}`;
+      return `cross-list it to ${platformLabel(a.platform)}`;
     case "send_offer_to_watchers":
       return `offer watchers ${a.discount_pct}% off`;
     case "advance_status":
-      return `move the item to ${a.status}`;
+      return `move the item to ${statusLabel(a.status)}`;
     case "notify":
       return `notify me: “${a.message}”`;
   }
@@ -165,6 +179,13 @@ function describeScope(rule: AutomationRule): string {
   const parts = s.rules.map((r) => describeRule({ ...r, id: r.id ?? "" }));
   return `listings where ${parts.join(s.combinator === "and" ? " and " : " or ")}`;
 }
+
+/** The badge for a rule whose trigger is its own action. */
+const SELF_ACTING_LABELS: Record<string, string> = {
+  offer_threshold: "Answers offers",
+  return_threshold: "Answers returns",
+  markdown_schedule: "Markdown sale",
+};
 
 const ACTION_LABELS: Record<AutomationAction["type"], string> = {
   price_drop_pct: "Price drop",
@@ -372,6 +393,12 @@ function RuleDialog({
         : 10,
     ),
   );
+  // Off by default, like the repricing rules (US-9205): a price the seller
+  // typed is theirs.
+  const [overrideManual, setOverrideManual] = useState(
+    initial?.action_json.type === "price_drop_pct" &&
+      initial.action_json.override_manual === true,
+  );
   // ── US-2156 per-shape inputs ──────────────────────────────────
   const [minViolations, setMinViolations] = useState(
     String(
@@ -489,9 +516,13 @@ function RuleDialog({
         const grade = mdMinGrade.trim() ? Number(mdMinGrade) : null;
         return {
           type: triggerType,
-          min_days_listed: Math.max(1, Math.trunc(Number(mdDays) || 45)),
-          markdown_pct: Math.max(1, Math.trunc(Number(mdPct) || 20)),
-          margin_floor_pct: Math.max(0, Math.trunc(Number(mdFloorPct) || 0)),
+          min_days_listed: Math.trunc(Number(mdDays)),
+          markdown_pct: Math.trunc(Number(mdPct)),
+          // Blank means the default floor; a typed 0 means no margin, and the
+          // server keeps it as 0.
+          margin_floor_pct: mdFloorPct.trim() === ""
+            ? 10
+            : Math.max(0, Math.trunc(Number(mdFloorPct) || 0)),
           min_grade: grade != null && Number.isFinite(grade) ? grade : null,
           cooldown_days: cooldown,
         };
@@ -526,6 +557,7 @@ function RuleDialog({
           type: actionType,
           pct,
           margin_floor_pct: Math.max(0, Math.trunc(Number(marginFloorPct) || 0)),
+          override_manual: overrideManual,
         };
       case "set_promo_rate_pct":
         return { type: actionType, pct };
@@ -545,18 +577,23 @@ function RuleDialog({
   }
 
   function buildInput(): AutomationRuleInput {
-    const days = Math.max(1, Math.trunc(Number(triggerDays) || 1));
-    const cooldown = Math.max(1, Math.trunc(Number(cooldownDays) || 7));
+    // Validated by automationFormError before Save is enabled, so these are
+    // read as typed. A blank used to become 1 day, which cut nearly everything.
+    const days = Math.trunc(Number(triggerDays));
+    const cooldown = selfActing ? Math.trunc(Number(cooldownDays)) || 7 : Math.trunc(Number(cooldownDays));
     const trigger = buildTrigger(days, cooldown);
-    const pct = Number(actionPct) || 0;
-    const action = buildAction(pct);
+    // A trigger that is its own action ignores this, so it is not asked for;
+    // an existing rule keeps what it had.
+    const action = selfActing
+      ? initial?.action_json ?? { type: "notify" as const, message: "Automation ran" }
+      : buildAction(Number(actionPct));
     return {
       name: name.trim(),
       is_active: isActive,
       trigger_json: trigger,
       action_json: action,
       scope_json:
-        scopeMode === "filter" && scopeQuery.rules.length > 0
+        !selfActing && scopeMode === "filter" && scopeQuery.rules.length > 0
           ? {
               type: "filter",
               combinator: scopeQuery.combinator,
@@ -577,6 +614,19 @@ function RuleDialog({
     TRIGGER_OPTIONS.find((o) => o.value === triggerType)?.days ?? true;
   const actionPctMax =
     ACTION_OPTIONS.find((o) => o.value === actionType)?.pctMax ?? null;
+  const selfActing = SELF_ACTING_TRIGGERS.has(triggerType);
+  const formError = automationFormError({
+    name,
+    triggerType,
+    triggerNeedsDays,
+    triggerDays,
+    cooldownDays,
+    actionType,
+    actionPctMax,
+    actionPct,
+    mdDays,
+    mdPct,
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -827,40 +877,43 @@ function RuleDialog({
             )}
             {triggerType === "offer_threshold" && (
               <p className="text-xs text-muted-foreground">
-                Answers eBay Best Offers hourly. This rule's action below is
-                ignored — accepting or declining IS the action. You are told
-                every time it answers one.
+                Answers eBay Best Offers hourly. Accepting, countering or
+                declining is the action, so there is nothing else to pick. You
+                are told every time it answers one.
               </p>
             )}
             {triggerType === "markdown_schedule" && (
               <p className="text-xs text-muted-foreground">
                 Runs hourly and keeps ONE eBay sale up to date rather than
-                creating a new one each time. This rule's action below is ignored
-                — the markdown IS the action.
+                creating a new one each time. The markdown is the action, so
+                there is nothing else to pick.
               </p>
             )}
             {triggerType === "return_threshold" && (
               <p className="text-xs text-muted-foreground">
-                Answers eBay returns hourly. This rule's action below is ignored
-                — approving or refunding IS the action. A return filed as "not
+                Answers eBay returns hourly. Approving or refunding is the
+                action, so there is nothing else to pick. A return filed as "not
                 as described" is never answered automatically, whatever you set
                 here.
               </p>
             )}
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              Re-apply at most every
-              <Input
-                type="number"
-                min={1}
-                value={cooldownDays}
-                onChange={(e) => setCooldownDays(e.target.value)}
-                className="w-20"
-                aria-label="Cooldown days"
-              />
-              days per listing
-            </div>
+            {!selfActing && (
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                Re-apply at most every
+                <Input
+                  type="number"
+                  min={1}
+                  value={cooldownDays}
+                  onChange={(e) => setCooldownDays(e.target.value)}
+                  className="w-20"
+                  aria-label="Cooldown days"
+                />
+                days per listing
+              </div>
+            )}
           </div>
 
+          {!selfActing && (
           <div className="space-y-1.5">
             <Label htmlFor={actionTypeId}>Then</Label>
             <div className="flex flex-wrap items-center gap-2">
@@ -959,6 +1012,29 @@ function RuleDialog({
                 % margin
               </div>
             )}
+            {actionType === "price_drop_pct" && (
+              <div className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  id="automation-override-manual"
+                  checked={overrideManual}
+                  onCheckedChange={(v) => setOverrideManual(v === true)}
+                />
+                <div>
+                  <Label htmlFor="automation-override-manual">May move prices I set by hand</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Off means the rule skips any listing whose price you typed over the graded price.
+                  </p>
+                </div>
+              </div>
+            )}
+            {actionType === "price_drop_pct" && triggerNeedsDays && formError == null && (
+              <LadderPreview
+                dropPct={Number(actionPct)}
+                marginFloorPct={Math.max(0, Math.trunc(Number(marginFloorPct) || 0))}
+                firstDay={Math.trunc(Number(triggerDays))}
+                cooldownDays={Math.trunc(Number(cooldownDays))}
+              />
+            )}
             {actionType === "set_promo_rate_pct" && (
               <p className="text-xs text-muted-foreground">
                 Sets the listing's eBay Promoted Listings ad rate. A listing that
@@ -975,6 +1051,9 @@ function RuleDialog({
             )}
           </div>
 
+          )}
+
+          {!selfActing && (
           <div className="space-y-1.5">
             <Label htmlFor={scopeModeId}>Applies to</Label>
             <div className="flex items-center gap-2">
@@ -991,7 +1070,11 @@ function RuleDialog({
                 </SelectContent>
               </Select>
               {scopeMode === "filter" && (
-                <FilterBuilder query={scopeQuery} onChange={setScopeQuery} />
+                <FilterBuilder
+                  query={scopeQuery}
+                  onChange={setScopeQuery}
+                  fields={AUTOMATION_SCOPE_FIELDS}
+                />
               )}
             </div>
             {scopeMode === "filter" && scopeQuery.rules.length > 0 && (
@@ -1002,6 +1085,7 @@ function RuleDialog({
               </p>
             )}
           </div>
+          )}
 
           <div className="flex items-center gap-2">
             <Switch
@@ -1013,17 +1097,82 @@ function RuleDialog({
           </div>
         </div>
 
+        {formError && (
+          <p className="text-sm text-destructive" role="status">
+            {formError}
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={saving || !name.trim()}>
+          <Button onClick={submit} disabled={saving || formError != null}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {initial ? "Save changes" : "Create rule"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Price ladder ────────────────────────────────────────────────
+
+/**
+ * Where a recurring drop ends, before the rule is saved: "Day 30 $60.00, day 37
+ * $54.00, day 44 $48.60, stops at $30.80 (cost +10%)". The arithmetic is the
+ * planner's own (src/lib/price-ladder.ts, tested against planAction). The
+ * example price and cost are the seller's to change.
+ */
+function LadderPreview({
+  dropPct,
+  marginFloorPct,
+  firstDay,
+  cooldownDays,
+}: {
+  dropPct: number;
+  marginFloorPct: number;
+  firstDay: number;
+  cooldownDays: number;
+}) {
+  const [price, setPrice] = useState("60");
+  const [cost, setCost] = useState("28");
+  const startCents = Math.round(Number(price) * 100);
+  const costCents = cost.trim() === "" ? null : Math.round(Number(cost) * 100);
+  const valid = Number.isFinite(startCents) && startCents > 0 &&
+    (costCents == null || Number.isFinite(costCents));
+  const ladder = valid
+    ? priceLadder({ startCents, dropPct, marginFloorPct, costCents, firstDay, cooldownDays })
+    : null;
+  return (
+    <div className="space-y-1.5 rounded-md border bg-muted/30 p-2 text-sm">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+        For a $
+        <Input
+          type="number"
+          min={0.01}
+          step="0.01"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          className="h-7 w-20"
+          aria-label="Example listing price"
+        />
+        listing that cost $
+        <Input
+          type="number"
+          min={0}
+          step="0.01"
+          value={cost}
+          onChange={(e) => setCost(e.target.value)}
+          className="h-7 w-20"
+          placeholder="unknown"
+          aria-label="Example purchase price"
+        />
+      </div>
+      <p role="status">
+        {ladder ? describeLadder(ladder, marginFloorPct) : "Enter an example price to see the steps."}
+      </p>
+    </div>
   );
 }
 
@@ -1092,8 +1241,20 @@ function DryRunResults({
 // ── Activity log ────────────────────────────────────────────────
 
 function RuleActivity({ ruleId }: { ruleId: string }) {
-  const { data: actions = [], isLoading } = useAutomationRuleActions(ruleId, true);
+  const { data: actions = [], isLoading, isError, refetch, isFetching } =
+    useAutomationRuleActions(ruleId, true);
   if (isLoading) return <Skeleton className="h-12 w-full" />;
+  if (isError) {
+    return (
+      <ErrorState
+        className="py-6"
+        title="Couldn't load this rule's activity"
+        description="The rule still runs on schedule."
+        onRetry={() => refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
   if (actions.length === 0) {
     return (
       <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
@@ -1140,7 +1301,7 @@ function RuleActivity({ ruleId }: { ruleId: string }) {
               Array.isArray(a.after_json?.queued_revises) &&
               (a.after_json.queued_revises as string[]).length > 0 && (
                 <span className="text-amber-600 dark:text-amber-400">
-                  queued on {(a.after_json.queued_revises as string[]).join(", ")}
+                  queued on {(a.after_json.queued_revises as string[]).map(platformLabel).join(", ")}
                 </span>
               )}
             {a.action_type === "end_listing" && (
@@ -1152,7 +1313,7 @@ function RuleActivity({ ruleId }: { ruleId: string }) {
                 live, so the log must not read it as done. */}
             {a.action_type === "relist" && a.after_json?.queued === true && (
               <span className="text-amber-600 dark:text-amber-400">
-                queued on {String(a.after_json?.platform ?? "the marketplace")}
+                queued on {a.after_json?.platform ? platformLabel(a.after_json.platform) : "the marketplace"}
               </span>
             )}
             {a.action_type === "relist" && a.after_json?.queued !== true && (
@@ -1160,7 +1321,8 @@ function RuleActivity({ ruleId }: { ruleId: string }) {
             )}
             {a.action_type === "crosslist_to" && (
               <span className="text-muted-foreground">
-                cross-listed to {String(a.after_json?.platform ?? "another marketplace")}
+                cross-listed to{" "}
+                {a.after_json?.platform ? platformLabel(a.after_json.platform) : "another marketplace"}
               </span>
             )}
             {a.action_type === "send_offer_to_watchers" && (
@@ -1170,8 +1332,8 @@ function RuleActivity({ ruleId }: { ruleId: string }) {
             )}
             {a.action_type === "advance_status" && (
               <span className="text-muted-foreground">
-                {String(a.before_json?.status ?? "?")} →{" "}
-                {String(a.after_json?.status ?? "?")}
+                {a.before_json?.status ? statusLabel(a.before_json.status) : "?"} →{" "}
+                {a.after_json?.status ? statusLabel(a.after_json.status) : "?"}
               </span>
             )}
             {a.action_type === "notify" && (
@@ -1201,22 +1363,14 @@ function RuleCard({
   onEdit: (rule: AutomationRule) => void;
 }) {
   const confirm = useConfirm();
-  const update = useUpdateAutomationRule();
+  const toggle = useToggleAutomationRule();
   const del = useDeleteAutomationRule();
   const dryRun = useDryRunAutomationRule();
   const [showActivity, setShowActivity] = useState(false);
+  const selfActing = SELF_ACTING_TRIGGERS.has(rule.trigger_json.type);
 
   function toggleActive(next: boolean) {
-    update.mutate({
-      id: rule.id,
-      input: {
-        name: rule.name,
-        is_active: next,
-        trigger_json: rule.trigger_json,
-        action_json: rule.action_json,
-        scope_json: rule.scope_json,
-      },
-    });
+    toggle.mutate({ id: rule.id, is_active: next });
   }
 
   async function remove() {
@@ -1237,12 +1391,14 @@ function RuleCard({
           <Switch
             checked={rule.is_active}
             onCheckedChange={toggleActive}
-            disabled={update.isPending}
+            disabled={toggle.isPending}
             aria-label={`Toggle ${rule.name}`}
           />
           <span className="font-medium">{rule.name}</span>
           <Badge variant="outline" className="text-xs">
-            {ACTION_LABELS[rule.action_json.type]}
+            {selfActing
+              ? SELF_ACTING_LABELS[rule.trigger_json.type]
+              : ACTION_LABELS[rule.action_json.type]}
           </Badge>
           {!rule.is_active && (
             <Badge variant="outline" className="text-xs text-muted-foreground">
@@ -1277,7 +1433,7 @@ function RuleCard({
               size="sm"
               variant="ghost"
               onClick={() => onEdit(rule)}
-              aria-label="Edit rule"
+              aria-label={`Edit rule: ${rule.name}`}
             >
               <Pencil className="h-3.5 w-3.5" />
             </Button>
@@ -1286,17 +1442,23 @@ function RuleCard({
               variant="ghost"
               onClick={remove}
               disabled={del.isPending}
-              aria-label="Delete rule"
+              aria-label={`Delete rule: ${rule.name}`}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>
         <p className="text-sm text-muted-foreground">
-          When {describeTrigger(rule.trigger_json)}, {describeAction(rule.action_json)}{" "}
-          — {describeScope(rule)}. Re-checks at most every{" "}
-          {rule.trigger_json.cooldown_days} day
-          {rule.trigger_json.cooldown_days === 1 ? "" : "s"} per listing.
+          {selfActing ? (
+            <>When {describeTrigger(rule.trigger_json)}. Checked every hour.</>
+          ) : (
+            <>
+              When {describeTrigger(rule.trigger_json)}, {describeAction(rule.action_json)}{" "}
+              for {describeScope(rule)}. Re-checks at most every{" "}
+              {rule.trigger_json.cooldown_days} day
+              {rule.trigger_json.cooldown_days === 1 ? "" : "s"} per listing.
+            </>
+          )}
           {rule.last_run_at &&
             ` Last run ${new Date(rule.last_run_at).toLocaleString()}.`}
         </p>
@@ -1315,7 +1477,8 @@ function RuleCard({
 // ── Page ────────────────────────────────────────────────────────
 
 export function FlipdeskAutomationsPage() {
-  const { data: rules = [], isLoading } = useAutomationRules();
+  const { data: rules = [], isLoading, isError, refetch, isFetching } = useAutomationRules();
+  const { embedded } = usePageHost();
   const run = useRunAutomations();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<AutomationRule | null>(null);
@@ -1337,10 +1500,10 @@ export function FlipdeskAutomationsPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
+    // Inside the Pricing host the host sets the width and gutter.
+    <div className={cn("space-y-6", !embedded && "mx-auto w-full max-w-4xl p-6")}>
       <PageHeader
         title="Automations"
-        subtitle="Schedule price drops, promo rates, or end-listings for stale inventory — rules run hourly. Prices never drop below cost plus your margin floor."
         actions={
           <>
             <Button
@@ -1362,12 +1525,28 @@ export function FlipdeskAutomationsPage() {
           </>
         }
       />
+      {/* In the body, not the header subtitle, so the floor promise survives
+          when the Pricing host suppresses the header. */}
+      <p className="text-sm text-muted-foreground">
+        Schedule price drops, promo rates or end-listings for stale inventory.
+        Rules run every hour. Prices never drop below cost plus your margin
+        floor, or below the floor you set on an item.
+      </p>
 
       {isLoading ? (
         <div className="space-y-3">
           <Skeleton className="h-28 w-full" />
           <Skeleton className="h-28 w-full" />
         </div>
+      ) : isError ? (
+        // An outage is not "no rules yet". The rules are still on the server
+        // and still run; only this read failed.
+        <ErrorState
+          title="Couldn't load your rules"
+          description="They still run on schedule."
+          onRetry={() => refetch()}
+          retrying={isFetching}
+        />
       ) : rules.length === 0 ? (
         <Card>
           <CardHeader>
@@ -1772,7 +1951,7 @@ function MarkdownRuleFields({
           value={mdMinGrade}
           onChange={(e) => setMdMinGrade(e.target.value)}
           className="w-20"
-          aria-label="Minimum grade to include in the markdown"
+          aria-label="Maximum grade to include in the markdown"
         />
         out
       </div>

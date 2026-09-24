@@ -22,6 +22,7 @@ import {
   resolveMoneyView,
   resolveAutolisterView,
   RETIRED_VIEW_REDIRECTS,
+  viewRedirectSearch,
 } from "@/pages/flipdesk/nav-tabs";
 import { ALL_SURFACES } from "@/lib/surfaces";
 
@@ -206,15 +207,15 @@ describe("the ?view= hosts (US-2161 second pass)", () => {
       expect(MONEY_VIEWS, `retired path targets missing view "${view}"`)
         .toContain(view);
     }
-    // /dashboard/flipdesk/reconciliation is a plain Navigate rather than a
-    // ViewRedirect (it pins Reconcile's inner tab), so it is not in the map and
-    // has to be checked against the file itself.
+    // /dashboard/flipdesk/reconciliation is a ViewRedirect with a DEFAULT
+    // inner tab (Money M13): eBay when the link names none, the link's own tab
+    // otherwise. It used to be a bare Navigate that dropped ?tab=payouts.
     const line = routes
       .split(/\r?\n/)
       .find((l) => l.includes('path: "/dashboard/flipdesk/reconciliation"'));
     expect(line, "the reconciliation redirect is gone").toBeTruthy();
-    expect(line).toContain("view=reconcile");
-    expect(line, "it must keep pinning the eBay inner tab").toContain("tab=ebay");
+    expect(line).toContain('view="reconcile"');
+    expect(line, "it must default to the eBay inner tab").toContain('defaultTab="ebay"');
   });
 
   it("the default view is the first view in the first group", () => {
@@ -263,11 +264,27 @@ describe("the ?view= hosts (US-2161 second pass)", () => {
     // destructured parameter list, so cutting there yields the signature and
     // every assertion below fails on an empty body.
     const body = routes.slice(start, start + 600);
-    expect(body).toContain("new URLSearchParams(search)");
-    expect(body).toContain('params.set("view"');
+    expect(body).toContain("viewRedirectSearch(search, view, defaultTab)");
+    // The merge itself, asserted on behaviour.
+    expect(viewRedirectSearch("?tab=payouts", "reconcile")).toBe(
+      "tab=payouts&view=reconcile",
+    );
+    expect(viewRedirectSearch("?brand=Nike", "finances")).toBe(
+      "brand=Nike&view=finances",
+    );
     // It must NOT clear the inner tab — that is Money's job on a view CHANGE,
     // not the redirect's job on arrival.
-    expect(body).not.toContain('delete("tab")');
+    expect(viewRedirectSearch("?tab=cross-source", "reconcile", "ebay")).toContain(
+      "tab=cross-source",
+    );
+  });
+
+  it("/reconciliation?tab=payouts lands on payouts, and bare /reconciliation on eBay", () => {
+    const params = (q: string) =>
+      new URLSearchParams(viewRedirectSearch(q, "reconcile", "ebay"));
+    expect(params("?tab=payouts").get("tab")).toBe("payouts");
+    expect(params("?tab=payouts").get("view")).toBe("reconcile");
+    expect(params("").get("tab")).toBe("ebay");
   });
 
   it("no retired path still renders its old standalone page", () => {

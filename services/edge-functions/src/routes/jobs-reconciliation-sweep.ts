@@ -54,6 +54,8 @@ export interface ReconcileSweepResult {
   ambiguous: number;
   no_candidates: number;
   scanned: number;
+  /** Payouts that could not be checked plus link RPC failures. */
+  errors: number;
   failed_owners: number;
 }
 
@@ -89,6 +91,7 @@ export async function handleReconciliationSweepCron(c: Context): Promise<Respons
       ambiguous: 0,
       no_candidates: 0,
       scanned: 0,
+      errors: 0,
       failed_owners: 0,
     };
 
@@ -102,6 +105,7 @@ export async function handleReconciliationSweepCron(c: Context): Promise<Respons
         result.ambiguous += counts.ambiguous;
         result.no_candidates += counts.no_candidates;
         result.scanned += counts.scanned;
+        result.errors += counts.errors;
       } catch (err) {
         result.failed_owners++;
         console.warn(

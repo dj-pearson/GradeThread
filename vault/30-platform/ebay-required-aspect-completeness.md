@@ -16,10 +16,17 @@ code_refs:
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
   - scripts/aspect-demand-cut.mjs
-reviewed: 2026-09-23
+reviewed: 2026-09-24
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
+
+> [!note] Re-reviewed 2026-09-24. `ai-listing.ts` drifted for US-3474:
+> an `off_list_value` entry from `reconcileGeneratedAspects` (a FREE_TEXT value
+> kept and sent though it is not on eBay's list) no longer sets `needs_review`
+> on the draft. Required-aspect completeness is a different question and none
+> of the fill paths below moved. The other change is AL-02's owner check on
+> photo signing.
 
 > [!note] Re-reviewed 2026-09-23, no change in behaviour. `flipdesk-ebay.ts`
 > was split into one route file per concern as a pure move (marketplaces

@@ -20,6 +20,7 @@ import {
 } from "../lib/ebay-client.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
+import { refuseMarketplaceChange } from "../lib/marketplace-admin-guard.ts";
 import { type EbayEnv } from "./flipdesk-ebay-shared.ts";
 
 
@@ -103,6 +104,8 @@ flipdeskEbayRoutes.get("/policies", async (c) => {
 
 flipdeskEbayRoutes.post("/policies/sync", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const refused = await refuseMarketplaceChange(c, c.get("workspaceRole"), "Changing eBay policies");
+  if (refused) return refused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
@@ -126,6 +129,8 @@ flipdeskEbayRoutes.post("/policies/sync", async (c) => {
 
 flipdeskEbayRoutes.put("/policies/default", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const refused = await refuseMarketplaceChange(c, c.get("workspaceRole"), "Changing eBay policies");
+  if (refused) return refused;
 
   let body: {
     fulfillment_policy_id?: unknown;
@@ -178,6 +183,12 @@ flipdeskEbayRoutes.put("/policies/default", async (c) => {
   }
 
   await setDefaultPolicies(ownerId, selection);
+  await writeAuditLog(c, {
+    action: "ebay.policies.set_default",
+    targetType: "ebay_policies",
+    targetId: ownerId,
+    after: selection,
+  });
 
   const next = await listCachedPolicies(ownerId);
   const nextLocation = await loadMerchantLocationKey(ownerId);
@@ -208,6 +219,8 @@ flipdeskEbayRoutes.put("/policies/default", async (c) => {
 // policy keeps it, untouched.
 flipdeskEbayRoutes.post("/policies/create", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const refused = await refuseMarketplaceChange(c, c.get("workspaceRole"), "Changing eBay policies");
+  if (refused) return refused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
@@ -364,6 +377,13 @@ flipdeskEbayRoutes.post("/policies/create", async (c) => {
   if (ret) selection.return_policy_id = ret;
   await setDefaultPolicies(ownerId, selection);
 
+  await writeAuditLog(c, {
+    action: "ebay.policies.create",
+    targetType: "ebay_policies",
+    targetId: ownerId,
+    details: { created: result.created, handling_days: handlingDays },
+  });
+
   const final = await listCachedPolicies(ownerId);
 
   // Confirm that the three policies the publish path reads are actually there,
@@ -424,6 +444,8 @@ flipdeskEbayRoutes.post("/policies/create", async (c) => {
 // so this fills the most common publish blocker ("merchant location").
 flipdeskEbayRoutes.post("/policies/location", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const refused = await refuseMarketplaceChange(c, c.get("workspaceRole"), "Changing the eBay ship-from location");
+  if (refused) return refused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
@@ -467,6 +489,12 @@ flipdeskEbayRoutes.post("/policies/location", async (c) => {
         postalCode: postalCode || undefined,
         country,
       },
+    });
+    await writeAuditLog(c, {
+      action: "ebay.location.create",
+      targetType: "ebay_location",
+      targetId: result.merchantLocationKey,
+      details: { country },
     });
     return c.json({ ok: true, merchant_location_key: result.merchantLocationKey });
   } catch (err) {
@@ -522,6 +550,8 @@ flipdeskEbayRoutes.post("/programs/:program", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
+  const refused = await refuseMarketplaceChange(c, c.get("workspaceRole"), "Changing eBay programs");
+  if (refused) return refused;
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const program = SELLER_PROGRAMS[c.req.param("program")];
   if (!program) return c.json({ error: "Unknown eBay program." }, 400);
@@ -546,6 +576,8 @@ flipdeskEbayRoutes.delete("/programs/:program", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
+  const refused = await refuseMarketplaceChange(c, c.get("workspaceRole"), "Changing eBay programs");
+  if (refused) return refused;
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const program = SELLER_PROGRAMS[c.req.param("program")];
   if (!program) return c.json({ error: "Unknown eBay program." }, 400);

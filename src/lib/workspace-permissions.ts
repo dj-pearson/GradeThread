@@ -8,6 +8,8 @@ export type WorkspaceCapability =
   | "manage_inventory"
   | "delete_inventory"
   | "manage_marketplaces"
+  | "manage_ads"
+  | "manage_campaign"
   | "manage_api_keys"
   | "manage_members"
   | "manage_billing"
@@ -28,11 +30,23 @@ const CAPABILITY_MIN_ROLE: Record<WorkspaceCapability, WorkspaceRole> = {
   manage_inventory: "listing_manager",
   delete_inventory: "admin",
   manage_marketplaces: "admin",
+  // MP-02: mirror the edge floors on the eBay marketing routes.
+  manage_ads: "listing_manager",
+  manage_campaign: "admin",
   manage_api_keys: "admin",
   manage_members: "admin",
   manage_billing: "owner",
   delete_workspace: "owner",
 };
+
+// MP-01: the one line shown wherever a marketplace control is withheld from a
+// role below admin. The edge returns the same sentence with its 403.
+export const MARKETPLACE_ADMIN_ONLY =
+  "Only a workspace admin can change marketplace connections.";
+
+// MP-06: shown on a per-user setting while acting in another owner's workspace.
+export const SETTINGS_OWNER_ONLY =
+  "Set by the workspace owner. Switch to your own workspace to change your settings.";
 
 export function roleAtLeast(role: WorkspaceRole, min: WorkspaceRole): boolean {
   return ROLE_RANK[role] >= ROLE_RANK[min];
@@ -41,6 +55,20 @@ export function roleAtLeast(role: WorkspaceRole, min: WorkspaceRole): boolean {
 export function canDo(role: WorkspaceRole | null | undefined, cap: WorkspaceCapability): boolean {
   if (!role) return false;
   return roleAtLeast(role, CAPABILITY_MIN_ROLE[cap]);
+}
+
+/** MP-02: the tooltip on a control withheld from the current role. */
+export function roleNeededTitle(cap: WorkspaceCapability): string {
+  return `Needs ${WORKSPACE_ROLE_LABEL[CAPABILITY_MIN_ROLE[cap]]} access or higher.`;
+}
+
+/**
+ * The visible line beside a withheld control. A disabled shadcn Button has
+ * pointer-events-none, so its `title` never shows; this is what the seller
+ * actually reads.
+ */
+export function roleNeededNote(cap: WorkspaceCapability, action: string): string {
+  return `Only ${WORKSPACE_ROLE_LABEL[CAPABILITY_MIN_ROLE[cap]]} access or higher can ${action}.`;
 }
 
 export const WORKSPACE_ROLE_LABEL: Record<WorkspaceRole, string> = {

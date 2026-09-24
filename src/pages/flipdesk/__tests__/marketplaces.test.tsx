@@ -13,7 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // React 19 requires this flag for act() to flush effects in a test env.
@@ -29,26 +29,101 @@ const state = {
   polLoading: false,
   queue: undefined as unknown,
   queueLoading: false,
+  role: "owner" as string,
+  activeOwner: null as string | null,
+  settingsError: false,
+  polError: false,
+  policyCalls: [] as boolean[],
+  queueError: false,
+  syncStatusError: false,
+  syncChannels: [] as unknown[],
+  syncReviews: [] as unknown[],
+  candidatesError: false,
+  claim: vi.fn(),
+  overviewError: false,
+  issue: null as unknown,
+  disconnect: vi.fn(),
+  toastErrors: [] as string[],
+  entry: "/dashboard/flipdesk/marketplaces",
+  poll: undefined as unknown,
+  toastInfos: [] as string[],
+  listerAvailable: false,
+  drainCalls: 0,
+  drainResult: { drained: true, state: "ok" } as unknown,
 };
 
-vi.mock("@/hooks/use-ebay", () => ({
+vi.mock("@/hooks/use-workspace", async () => {
+  const perms = await import("@/lib/workspace-permissions");
+  return {
+    useWorkspace: () => ({
+      role: state.role,
+      can: (cap: Parameters<typeof perms.canDo>[1]) =>
+        perms.canDo(state.role as Parameters<typeof perms.canDo>[0], cap),
+    }),
+  };
+});
+
+vi.mock("@/lib/lister-extension", async (orig) => ({
+  ...(await orig<typeof import("@/lib/lister-extension")>()),
+  isListerAvailable: () => state.listerAvailable,
+  requestDrainNow: () => {
+    state.drainCalls++;
+    return Promise.resolve(state.drainResult);
+  },
+}));
+
+vi.mock("sonner", () => ({
+  toast: Object.assign(vi.fn(), {
+    success: vi.fn(),
+    info: (msg: string) => state.toastInfos.push(msg),
+    warning: vi.fn(),
+    error: (msg: string) => state.toastErrors.push(msg),
+    loading: vi.fn(),
+    dismiss: vi.fn(),
+  }),
+}));
+
+vi.mock("@/hooks/use-ebay", async (orig) => ({
+  isReauthNeeded: (await orig<typeof import("@/hooks/use-ebay")>()).isReauthNeeded,
+  reauthMessage: (await orig<typeof import("@/hooks/use-ebay")>()).reauthMessage,
   useEbayConnection: () => ({
     data: state.connection,
     isLoading: state.connLoading,
     isError: state.connError,
     refetch: vi.fn(),
   }),
-  useEbayConnectionIssue: () => ({ data: null }),
-  useEbayPolicies: () => ({ data: state.policies, isLoading: state.polLoading }),
+  useEbayConnectionIssue: () => ({ data: state.issue }),
+  useEbayPolicies: (enabled: boolean) => {
+    state.policyCalls.push(enabled);
+    return {
+      data: state.polError ? undefined : state.policies,
+      isLoading: state.polLoading,
+      isError: state.polError,
+      refetch: vi.fn(),
+    };
+  },
   useStartEbayOauth: mutation,
   useSyncEbayListings: mutation,
-  useDisconnectEbay: mutation,
+  useDisconnectEbay: () => ({ ...mutation(), mutate: state.disconnect }),
   useCreateEbayLocation: mutation,
   useCreateEbayPolicies: mutation,
   useSetDefaultPolicies: mutation,
   useSyncEbayPolicies: mutation,
-  useEbayPromotedOverview: () => ({ data: undefined, isLoading: false }),
+  useEbayPromotedOverview: () => ({
+    data: undefined,
+    isLoading: false,
+    isError: state.overviewError,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
   useEbaySyncPromoted: mutation,
+}));
+
+vi.mock("@/lib/shipping-profile", () => ({
+  SHIPPING_PROFILE_QUERY_KEY: ["shipping_profile"],
+  fetchShippingProfile: async () => ({
+    ship_from_address: { postal_code: "90210", city: "Beverly Hills", state: "CA" },
+  }),
 }));
 
 vi.mock("@/hooks/use-shopify", () => ({
@@ -66,18 +141,37 @@ vi.mock("@/hooks/use-shopify", () => ({
 // groupQueue and QUEUED_NOTICE stay real: the counts are what is under test.
 vi.mock("@/hooks/use-extension-queue", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-extension-queue")>()),
-  useExtensionQueue: () => ({ data: state.queue, isLoading: state.queueLoading }),
+  useExtensionQueue: () => ({
+    data: state.queueError ? undefined : state.queue,
+    isLoading: state.queueLoading,
+    isError: state.queueError,
+    isSuccess: !state.queueError && !state.queueLoading,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
   useCancelExtensionWork: mutation,
+  useRequeueExtensionWork: mutation,
 }));
 
 vi.mock("@/hooks/use-sold-sync", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-sold-sync")>()),
-  useSyncStatus: () => ({ data: [], isLoading: false }),
-  useSyncReviews: () => ({ data: [] }),
+  useSyncStatus: () => ({
+    data: state.syncStatusError ? undefined : state.syncChannels,
+    isLoading: false,
+    isError: state.syncStatusError,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
+  useSyncReviews: () => ({ data: state.syncReviews, isError: false, refetch: vi.fn() }),
   useDismissSyncReview: mutation,
-  useClaimSyncReview: mutation,
-  useClaimCandidates: () => ({ data: [], isLoading: false }),
-  usePollState: () => ({ data: undefined, isLoading: false }),
+  useClaimSyncReview: () => ({ ...mutation(), mutate: state.claim }),
+  useClaimCandidates: () => ({
+    data: [],
+    isLoading: false,
+    isError: state.candidatesError,
+    refetch: vi.fn(),
+  }),
+  usePollState: () => ({ data: state.poll, isLoading: false }),
   useStopPoll: mutation,
   useSetPollInterval: mutation,
 }));
@@ -104,7 +198,8 @@ vi.mock("@/components/flipdesk/listing-badge-toggle", () => ({ ListingBadgeToggl
 vi.mock("@/components/help/help-link", () => ({ HelpLink: none }));
 
 vi.mock("@/stores/auth-store", () => ({
-  useAuthStore: (selector: (s: unknown) => unknown) => selector({ user: { id: "owner-1" } }),
+  useAuthStore: (selector: (s: unknown) => unknown) =>
+    selector({ user: { id: "owner-1" }, activeWorkspaceOwnerId: state.activeOwner }),
 }));
 
 // Imported at load time and throws without the env vars. The one direct read
@@ -112,7 +207,10 @@ vi.mock("@/stores/auth-store", () => ({
 vi.mock("@/lib/supabase", () => {
   const chain: Record<string, unknown> = {};
   for (const m of ["select", "eq", "order", "limit"]) chain[m] = () => chain;
-  chain.maybeSingle = async () => ({ data: null, error: null });
+  chain.maybeSingle = async () =>
+    state.settingsError
+      ? { data: null, error: { message: "boom", code: "XX000" } }
+      : { data: null, error: null };
   return {
     supabase: {
       from: () => chain,
@@ -122,6 +220,12 @@ vi.mock("@/lib/supabase", () => {
 });
 
 const { FlipdeskMarketplacesPage } = await import("@/pages/flipdesk/marketplaces");
+
+let lastSearch = "";
+function LocationProbe() {
+  lastSearch = useLocation().search;
+  return null;
+}
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
@@ -134,8 +238,9 @@ function render() {
     root = createRoot(container!);
     root.render(
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={["/dashboard/flipdesk/marketplaces"]}>
+        <MemoryRouter initialEntries={[state.entry]}>
           <FlipdeskMarketplacesPage />
+          <LocationProbe />
         </MemoryRouter>
       </QueryClientProvider>,
     );
@@ -173,6 +278,27 @@ beforeEach(() => {
     polLoading: false,
     queue: { pending: [], needsAttention: [], finishedNeedsReview: [], lastDrainedAt: null },
     queueLoading: false,
+    role: "owner",
+    activeOwner: null,
+    settingsError: false,
+    polError: false,
+    policyCalls: [],
+    queueError: false,
+    syncStatusError: false,
+    syncChannels: [],
+    syncReviews: [],
+    candidatesError: false,
+    claim: vi.fn(),
+    overviewError: false,
+    issue: null,
+    disconnect: vi.fn(),
+    toastErrors: [],
+    entry: "/dashboard/flipdesk/marketplaces",
+    poll: undefined,
+    toastInfos: [],
+    listerAvailable: false,
+    drainCalls: 0,
+    drainResult: { drained: true, state: "ok" },
   });
 });
 
@@ -249,6 +375,173 @@ describe("Marketplaces page: eBay setup", () => {
   });
 });
 
+describe("Marketplaces page: roles (MP-01)", () => {
+  it("a member sees the admin-only line and no Disconnect or Set up", () => {
+    state.role = "member";
+    state.connection = CONNECTED;
+    state.policies = {
+      policies: [],
+      defaults: {
+        merchant_location_key: null,
+        fulfillment_policy_id: null,
+        payment_policy_id: null,
+        return_policy_id: null,
+      },
+    };
+    render();
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Only a workspace admin can change marketplace connections.");
+    const buttons = [...document.querySelectorAll("button")].map((b) => b.textContent?.trim());
+    expect(buttons).not.toContain("Disconnect");
+    expect(buttons).not.toContain("Reconnect");
+    expect(buttons).not.toContain("Set up");
+  });
+
+  it("a member who is not connected is not offered Connect eBay or Connect Shopify", () => {
+    state.role = "member";
+    render();
+    const buttons = [...document.querySelectorAll("button")].map((b) => b.textContent?.trim());
+    expect(buttons).not.toContain("Connect eBay");
+    expect(buttons).not.toContain("Connect Shopify");
+  });
+
+  it("an admin still gets Disconnect", () => {
+    state.role = "admin";
+    state.connection = CONNECTED;
+    render();
+    expect(buttonIn(stepRow("Connect your eBay account"), "Disconnect")).toBeTruthy();
+  });
+});
+
+const TAB_VALUE: Record<string, string> = {
+  Connections: "connections",
+  "Ads & promotions": "ads",
+  Settings: "settings",
+  "How channels work": "how",
+};
+
+async function openTab(name: string) {
+  const value = TAB_VALUE[name] ?? name;
+  const trigger = document.querySelector(
+    `[role=tab][id$="-trigger-${value}"]`,
+  ) as HTMLElement | null;
+  expect(trigger, `tab ${name}`).toBeTruthy();
+  await act(async () => {
+    trigger!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
+async function settle() {
+  for (let i = 0; i < 3; i++) {
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
+}
+
+describe("Marketplaces page: settings (MP-06)", () => {
+  it("inside another owner's workspace, auto-end is disabled and says who sets it", async () => {
+    state.activeOwner = "someone-else";
+    render();
+    await openTab("Settings");
+    await settle();
+    const sw = document.getElementById("auto-end-cross") as HTMLButtonElement | null;
+    expect(sw).toBeTruthy();
+    expect(sw!.disabled).toBe(true);
+    expect(document.body.textContent).toContain("Set by the workspace owner.");
+  });
+
+  it("a failed auto-end read shows Retry and no switch", async () => {
+    state.settingsError = true;
+    render();
+    await openTab("Settings");
+    await settle();
+    expect(document.getElementById("auto-end-cross")).toBeNull();
+    expect(document.body.textContent).toContain("Couldn't load this setting.");
+    const retry = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Retry",
+    );
+    expect(retry).toBeTruthy();
+  });
+
+  it("in the seller's own workspace the switch renders ON by default", async () => {
+    render();
+    await openTab("Settings");
+    await settle();
+    const sw = document.getElementById("auto-end-cross") as HTMLButtonElement | null;
+    expect(sw?.getAttribute("aria-checked")).toBe("true");
+    expect(sw?.disabled).toBe(false);
+  });
+});
+
+describe("Marketplaces page: couldn't check is not missing (MP-07)", () => {
+  const MISSING = {
+    policies: [],
+    defaults: {
+      merchant_location_key: "home",
+      fulfillment_policy_id: null,
+      payment_policy_id: null,
+      return_policy_id: null,
+    },
+  };
+
+  it("a failed policies read in the dialog offers Check again, never Create these for me", async () => {
+    state.connection = CONNECTED;
+    state.policies = MISSING;
+    render();
+    act(() => buttonIn(stepRow("Business policies"), "Set up")!.click());
+    let dialog = document.querySelector("[role=dialog]") as HTMLElement;
+    expect(dialog.textContent).toContain("Create these for me");
+    state.polError = true;
+    // Any local state change re-renders the dialog against the failed read.
+    act(() => buttonIn(dialog, "No returns")!.click());
+    dialog = document.querySelector("[role=dialog]") as HTMLElement;
+    expect(dialog.textContent).not.toContain("Create these for me");
+    expect(buttonIn(dialog, "Check again")).toBeTruthy();
+    expect(dialog.textContent).toContain("not missing policies");
+  });
+
+  it("a failed policies read marks steps 2 and 3 unknown, with Check again", () => {
+    state.connection = CONNECTED;
+    state.polError = true;
+    render();
+    expect(stepRow("Ship-from location").textContent).toContain("Couldn't check");
+    expect(buttonIn(stepRow("Business policies"), "Check again")).toBeTruthy();
+    expect(buttonIn(stepRow("Business policies"), "Set up")).toBeUndefined();
+  });
+
+  it("disconnected with the dialog closed never asks for policies", () => {
+    render();
+    expect(state.policyCalls.length).toBeGreaterThan(0);
+    expect(state.policyCalls.every((c) => c === false)).toBe(true);
+  });
+
+  it("a failed connection read says couldn't check on Ads and Settings, not Connect eBay", async () => {
+    state.connError = true;
+    render();
+    await openTab("Ads & promotions");
+    expect(document.body.textContent).toContain("Couldn't check your eBay connection");
+    expect(document.body.textContent).not.toContain("Connect eBay on the Connections tab");
+    await openTab("Settings");
+    expect(document.body.textContent).toContain("Couldn't check your eBay connection");
+    expect(document.body.textContent).not.toContain("Connect eBay on the Connections tab");
+  });
+
+  it("the disconnected Ads prompt is a button back to Connections", async () => {
+    render();
+    await openTab("Ads & promotions");
+    const go = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Go to Connections",
+    );
+    expect(go).toBeTruthy();
+    await act(async () => {
+      go!.click();
+    });
+    expect(stepRow("Connect your eBay account")).toBeTruthy();
+  });
+});
+
 describe("Marketplaces page: extension queue", () => {
   const job = (id: string, kind: string, platform: string) => ({
     id,
@@ -288,8 +581,469 @@ describe("Marketplaces page: extension queue", () => {
     expect(text).toContain("Garment 2");
   });
 
+  it("a failed row offers Queue again and Dismiss (MP-10)", () => {
+    state.queue = {
+      pending: [],
+      needsAttention: [{ ...job("9", "delist", "mercari"), status: "failed" }],
+      finishedNeedsReview: [],
+      lastDrainedAt: null,
+    };
+    render();
+    const buttons = [...document.querySelectorAll("button")].map((b) => b.textContent?.trim());
+    expect(buttons).toContain("Queue again");
+    expect(buttons).toContain("Dismiss");
+  });
+
+  it("a dead relist offers Dismiss only, since queueing it again mints a second draft", () => {
+    state.queue = {
+      pending: [],
+      needsAttention: [{ ...job("8", "relist", "poshmark"), status: "expired" }],
+      finishedNeedsReview: [],
+      lastDrainedAt: null,
+    };
+    render();
+    const buttons = [...document.querySelectorAll("button")].map((b) => b.textContent?.trim());
+    expect(buttons).not.toContain("Queue again");
+    expect(buttons).toContain("Dismiss");
+  });
+
+  it("Cancel names the item it cancels (MP-10)", () => {
+    state.queue = {
+      pending: [job("1", "list", "poshmark")],
+      needsAttention: [],
+      finishedNeedsReview: [],
+      lastDrainedAt: null,
+    };
+    render();
+    const cancel = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Cancel",
+    );
+    expect(cancel?.getAttribute("aria-label")).toContain("Garment 1");
+  });
+
   it("still renders when the queue is empty, so a stalled extension is visible", () => {
     render();
     expect(document.body.textContent).toContain("Nothing waiting for your desktop");
+  });
+});
+
+describe("Marketplaces page: extension section errors (MP-08)", () => {
+  it("a failed queue read shows Retry, never 'Nothing waiting'", () => {
+    state.queueError = true;
+    render();
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain("Nothing waiting for your desktop");
+    expect(text).toContain("Couldn't load your queued work");
+    expect(document.getElementById("extension-queue")).toBeTruthy();
+    expect(
+      [...document.querySelectorAll("button")].some((b) => b.textContent?.includes("Try again")),
+    ).toBe(true);
+  });
+
+  it("the queue anchor exists while loading", () => {
+    state.queueLoading = true;
+    render();
+    expect(document.getElementById("extension-queue")).toBeTruthy();
+  });
+
+  it("a failed sold-sync status read keeps the heading with a retry", () => {
+    state.syncStatusError = true;
+    render();
+    const headings = [...document.querySelectorAll("h3")].map((h) => h.textContent);
+    expect(headings).toContain("Sold-sync");
+    expect(document.body.textContent).toContain("Couldn't check sold-sync");
+  });
+
+  it("a failed claim-candidate read says so instead of an empty picker", () => {
+    state.syncChannels = [
+      {
+        platform: "poshmark",
+        status: "ok",
+        failure_reason: null,
+        listings_seen: 3,
+        last_ok_at: null,
+        last_read_at: null,
+        open_reviews: 1,
+        live_listings: 3,
+      },
+    ];
+    state.syncReviews = [
+      {
+        id: "r1",
+        platform: "poshmark",
+        reason: "probable_match",
+        status: "open",
+        listing_id: null,
+        inventory_item_id: null,
+        listing_url: "https://poshmark.com/listing/x",
+        title: "Blue coat",
+        sold_price_cents: null,
+        sold_at: null,
+        dedupe_key: null,
+        unexplained: null,
+        claimed: null,
+        cap: null,
+        created_at: new Date().toISOString(),
+      },
+    ];
+    state.candidatesError = true;
+    render();
+    const link = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Link to an item",
+    );
+    expect(link).toBeTruthy();
+    act(() => link!.click());
+    expect(document.body.textContent).toContain("Couldn't load your listings.");
+  });
+});
+
+describe("Marketplaces page: confirm a probable match (MP-09)", () => {
+  const channel = {
+    platform: "poshmark",
+    status: "ok",
+    failure_reason: null,
+    listings_seen: 3,
+    last_ok_at: null,
+    last_read_at: null,
+    open_reviews: 1,
+    live_listings: 3,
+  };
+  const review = (over: Record<string, unknown>) => ({
+    id: "r1",
+    platform: "poshmark",
+    reason: "probable_match",
+    status: "open",
+    listing_id: null,
+    inventory_item_id: null,
+    listing_url: "https://poshmark.com/listing/x",
+    title: "Blue coat",
+    sold_price_cents: 4200,
+    sold_at: "2026-09-01T12:00:00Z",
+    dedupe_key: null,
+    unexplained: null,
+    claimed: null,
+    cap: null,
+    created_at: new Date().toISOString(),
+    ...over,
+  });
+
+  it("a needs-confirming row offers 'Yes, this item' and it claims the matched listing", () => {
+    state.syncChannels = [channel];
+    state.syncReviews = [review({ listing_id: "listing-9" })];
+    render();
+    const yes = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Yes, this item",
+    );
+    expect(yes).toBeTruthy();
+    act(() => yes!.click());
+    expect(state.claim).toHaveBeenCalledWith(
+      { reviewId: "r1", listingId: "listing-9" },
+      expect.anything(),
+    );
+  });
+
+  it("each review row shows the sold price and a link to the channel", () => {
+    state.syncChannels = [channel];
+    state.syncReviews = [review({})];
+    render();
+    expect(document.body.textContent).toContain("sold for $42.00");
+    const open = [...document.querySelectorAll("a")].find((a) =>
+      a.textContent?.includes("Open on Poshmark"),
+    );
+    expect(open?.getAttribute("href")).toBe("https://poshmark.com/listing/x");
+  });
+
+  it("an unmatched row with no address offers no Link to an item", () => {
+    state.syncChannels = [channel];
+    state.syncReviews = [review({ listing_url: null })];
+    render();
+    expect(
+      [...document.querySelectorAll("button")].some((b) => b.textContent?.trim() === "Link to an item"),
+    ).toBe(false);
+  });
+});
+
+describe("Marketplaces page: promoted listings error (MP-11)", () => {
+  it("a failed overview read is an error, not 'No promoted listings yet'", async () => {
+    state.connection = CONNECTED;
+    state.overviewError = true;
+    render();
+    await openTab("Ads & promotions");
+    expect(document.body.textContent).toContain("Couldn't load promoted listings");
+    expect(document.body.textContent).not.toContain("No promoted listings yet");
+  });
+});
+
+describe("Marketplaces page: safe disconnect (MP-12)", () => {
+  it("Disconnect opens a confirm and only disconnects when confirmed", async () => {
+    state.connection = CONNECTED;
+    render();
+    const btn = buttonIn(stepRow("Connect your eBay account"), "Disconnect")!;
+    act(() => btn.click());
+    const dialog = document.querySelector("[role=alertdialog]") as HTMLElement;
+    expect(dialog).toBeTruthy();
+    expect(dialog.textContent).toContain("thrift_seller");
+    expect(dialog.textContent).toContain("stop syncing");
+    expect(state.disconnect).not.toHaveBeenCalled();
+    act(() => buttonIn(dialog, "Disconnect")!.click());
+    expect(state.disconnect).toHaveBeenCalledWith({ connectionId: "conn-1" });
+  });
+
+  it("a disconnect the seller chose does not raise the re-auth banner", () => {
+    state.issue = { is_active: false, refresh_error: "disconnected" };
+    render();
+    expect(document.body.textContent).not.toContain("Reconnect eBay to keep syncing");
+  });
+
+  it("a revoked grant raises the banner in plain words, never the raw string", () => {
+    state.issue = {
+      is_active: false,
+      refresh_error:
+        "eBay disconnected: your authorization was revoked or expired. Please reconnect your eBay account.",
+    };
+    render();
+    const alert = [...document.querySelectorAll("[role=alert]")].find((a) =>
+      a.textContent?.includes("expired or was revoked"),
+    );
+    expect(alert).toBeTruthy();
+    expect(alert!.textContent).not.toContain("eBay disconnected:");
+  });
+
+  it("an unknown eBay callback code still tells the seller something", async () => {
+    state.entry = "/dashboard/flipdesk/marketplaces?ebay=provider_error";
+    render();
+    await settle();
+    expect(state.toastErrors).toContain(
+      "eBay sign-in didn't finish. Try again, and contact support if it keeps happening.",
+    );
+  });
+
+  it("a passed-through OAuth code gets its own line", async () => {
+    state.entry = "/dashboard/flipdesk/marketplaces?ebay=invalid_scope";
+    render();
+    await settle();
+    expect(state.toastErrors).toContain(
+      "eBay turned down the permissions FlipDesk asked for. Please try again.",
+    );
+  });
+});
+
+describe("Marketplaces page: setup dialogs (MP-13)", () => {
+  const NO_LOCATION = {
+    policies: [],
+    defaults: {
+      merchant_location_key: null,
+      fulfillment_policy_id: null,
+      payment_policy_id: null,
+      return_policy_id: null,
+    },
+  };
+
+  async function openLocation() {
+    act(() => buttonIn(stepRow("Ship-from location"), "Set up")!.click());
+    await settle();
+    return document.getElementById("ship-zip") as HTMLInputElement;
+  }
+
+  it("prefills the ZIP from the seller's own profile in their own workspace", async () => {
+    state.connection = CONNECTED;
+    state.policies = NO_LOCATION;
+    render();
+    const zip = await openLocation();
+    expect(zip.value).toBe("90210");
+  });
+
+  it("leaves the location blank inside another owner's workspace", async () => {
+    state.connection = CONNECTED;
+    state.policies = NO_LOCATION;
+    state.activeOwner = "someone-else";
+    render();
+    const zip = await openLocation();
+    expect(zip.value).toBe("");
+    expect(document.body.textContent).toContain("Enter the ZIP this workspace ships from.");
+  });
+
+  function openPolicies() {
+    act(() => buttonIn(stepRow("Business policies"), "Set up")!.click());
+    return document.querySelector("[role=dialog]") as HTMLElement;
+  }
+
+  function setInput(el: HTMLInputElement, value: string) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("a cleared handling field disables Create these for me", () => {
+    state.connection = CONNECTED;
+    state.policies = NO_LOCATION;
+    render();
+    const dialog = openPolicies();
+    expect(buttonIn(dialog, "Create these for me")!.disabled).toBe(false);
+    setInput(document.getElementById("policy-handling") as HTMLInputElement, "");
+    expect(buttonIn(dialog, "Create these for me")!.disabled).toBe(true);
+    expect(dialog.textContent).toContain("Enter a whole number of days from 1 to 30.");
+  });
+
+  it("the returns choice exposes aria-pressed, and a summary names the commitments", () => {
+    state.connection = CONNECTED;
+    state.policies = NO_LOCATION;
+    render();
+    const dialog = openPolicies();
+    expect(buttonIn(dialog, "I accept returns")!.getAttribute("aria-pressed")).toBe("true");
+    expect(buttonIn(dialog, "No returns")!.getAttribute("aria-pressed")).toBe("false");
+    expect(dialog.textContent).toContain("Ships within 1 day");
+  });
+});
+
+describe("Marketplaces page: tabs in the URL and deep links (MP-14)", () => {
+  it("?tab=settings opens on Settings", async () => {
+    state.entry = "/dashboard/flipdesk/marketplaces?tab=settings";
+    render();
+    await settle();
+    expect(document.getElementById("auto-end-cross")).toBeTruthy();
+  });
+
+  it("clicking Ads writes tab=ads into the URL", async () => {
+    render();
+    await openTab("Ads & promotions");
+    const ads = document.querySelector('[role=tab][id$="-trigger-ads"]');
+    expect(ads?.getAttribute("aria-selected")).toBe("true");
+    expect(new URLSearchParams(lastSearch).get("tab")).toBe("ads");
+    // The Connections content is gone, so the URL-driven value took effect.
+    expect(document.body.textContent).not.toContain("Queued for your desktop");
+  });
+
+  it("#extension-queue opens Connections and scrolls the queue into view", async () => {
+    const spy = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = spy;
+    try {
+      state.entry = "/dashboard/flipdesk/marketplaces?tab=settings#extension-queue";
+      render();
+      await settle();
+      expect(document.getElementById("extension-queue")).toBeTruthy();
+      expect(spy).toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("the setup checklist bar is a labelled progressbar", () => {
+    state.connection = CONNECTED;
+    render();
+    const bar = document.querySelector("[role=progressbar]");
+    expect(bar?.getAttribute("aria-valuenow")).toBe("1");
+    expect(bar?.getAttribute("aria-valuemax")).toBe("3");
+  });
+});
+
+describe("Marketplaces page: sold-sync copy (MP-14)", () => {
+  it("with the schedule on, the blurb does not say nothing is read on a schedule", () => {
+    state.syncChannels = [
+      {
+        platform: "poshmark",
+        status: "ok",
+        failure_reason: null,
+        listings_seen: 3,
+        last_ok_at: null,
+        last_read_at: null,
+        open_reviews: 0,
+        live_listings: 3,
+      },
+    ];
+    state.poll = {
+      available: true,
+      accepted: true,
+      enabled: true,
+      intervalMin: 60,
+      stoppedChannels: [],
+    };
+    render();
+    expect(document.body.textContent).toContain("Checking on a schedule");
+    expect(document.body.textContent).not.toContain("Nothing is read on a schedule");
+  });
+});
+
+describe("Marketplaces page: run the queue now (MP-15)", () => {
+  const pendingJob = {
+    id: "p1",
+    kind: "delist",
+    platform: "poshmark",
+    inventory_item_id: "i1",
+    listing_id: null,
+    payload: {},
+    status: "queued",
+    attempts: 0,
+    source: "web",
+    claimed_at: null,
+    completed_at: null,
+    result: null,
+    created_at: new Date().toISOString(),
+    item_title: "Coat",
+  };
+
+  function runNow() {
+    return [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Run now",
+    );
+  }
+
+  it("with pending work and the extension installed, Run now asks the desktop to drain", async () => {
+    state.listerAvailable = true;
+    state.queue = {
+      pending: [pendingJob],
+      needsAttention: [],
+      finishedNeedsReview: [],
+      lastDrainedAt: new Date().toISOString(),
+    };
+    render();
+    expect(runNow()).toBeTruthy();
+    await act(async () => {
+      runNow()!.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(state.drainCalls).toBe(1);
+  });
+
+  it("no Run now without the extension", () => {
+    state.queue = {
+      pending: [pendingJob],
+      needsAttention: [],
+      finishedNeedsReview: [],
+      lastDrainedAt: null,
+    };
+    render();
+    expect(runNow()).toBeUndefined();
+  });
+
+  it("needs-consent says what to do", async () => {
+    state.listerAvailable = true;
+    state.drainResult = { drained: false, state: "needs-consent" };
+    state.queue = {
+      pending: [pendingJob],
+      needsAttention: [],
+      finishedNeedsReview: [],
+      lastDrainedAt: new Date().toISOString(),
+    };
+    render();
+    await act(async () => {
+      runNow()!.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(state.toastInfos.join(" ")).toContain("accept what it will do");
+  });
+
+  it("pending work and a desktop silent for 3 days is called out as stalled", () => {
+    state.queue = {
+      pending: [pendingJob],
+      needsAttention: [],
+      finishedNeedsReview: [],
+      lastDrainedAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+    };
+    render();
+    expect(document.body.textContent).toContain("Your desktop has not picked up work since 3 days ago");
   });
 });

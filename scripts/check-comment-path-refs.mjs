@@ -72,6 +72,10 @@ const ALLOWED = {
   "src/pages/inventory.tsx":
     "the comment opens \"src/pages/inventory.tsx was DELETED\" (US-2362). It is " +
     "describing an absence.",
+  "src/pages/flipdesk/overview.tsx":
+    "flipdesk-overview-board.test.tsx says it \"is gone\": US-3469 folded the " +
+    "FlipDesk overview into src/pages/dashboard.tsx, and the comment names the " +
+    "old file to explain why the test reads the new one.",
   "scripts/_placeholder-db-env.ts":
     "cron-render-scripts.test.mjs records what the case USED to assert before " +
     "US-2661 removed the shim.",

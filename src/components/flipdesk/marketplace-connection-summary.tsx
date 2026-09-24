@@ -1,8 +1,13 @@
 import { Link } from "react-router";
-import { AlertTriangle, Check, Circle, Loader2, Minus } from "lucide-react";
+import { AlertCircle, AlertTriangle, Check, Circle, Loader2, Minus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useEbayConnection, useEbayConnectionIssue } from "@/hooks/use-ebay";
+import {
+  isReauthNeeded,
+  useEbayConnection,
+  useEbayConnectionIssue,
+  useEbayPolicies,
+} from "@/hooks/use-ebay";
 import { useShopifyConnection } from "@/hooks/use-shopify";
 import { useGoogleConnection } from "@/hooks/use-google-sheets";
 
@@ -15,7 +20,9 @@ import { useGoogleConnection } from "@/hooks/use-google-sheets";
 // page), so this adds no extra requests: react-query serves them from the same
 // cache keys.
 
-type Status = "connected" | "attention" | "off" | "loading";
+// MP-07: "unknown" is a read that failed, which is not the same as "off", and
+// "setup" is connected but not yet able to publish.
+type Status = "connected" | "attention" | "off" | "loading" | "unknown" | "setup";
 
 interface Row {
   name: string;
@@ -36,6 +43,12 @@ function StatusMark({ status }: { status: Status }) {
   if (status === "attention") {
     return <AlertTriangle className="h-4 w-4 text-destructive" />;
   }
+  if (status === "unknown") {
+    return <AlertCircle className="h-4 w-4 text-muted-foreground" />;
+  }
+  if (status === "setup") {
+    return <AlertCircle className="h-4 w-4 text-amber-500" />;
+  }
   return <Minus className="h-4 w-4 text-muted-foreground" />;
 }
 
@@ -44,38 +57,74 @@ export function MarketplaceConnectionSummary({
 }: {
   extensionChannelCount: number;
 }) {
-  const { data: ebay, isLoading: ebayLoading } = useEbayConnection();
+  const { data: ebay, isLoading: ebayLoading, isError: ebayError } = useEbayConnection();
   const { data: ebayIssue } = useEbayConnectionIssue();
-  const { data: shopify, isLoading: shopifyLoading } = useShopifyConnection();
+  const {
+    data: shopify,
+    isLoading: shopifyLoading,
+    isError: shopifyError,
+  } = useShopifyConnection();
+  // MP-07: the same cached read the eBay setup card makes, so "connected" can
+  // say whether the account can actually publish yet.
+  const { data: ebayPolicies } = useEbayPolicies(!!ebay && !ebayError);
+  const ebayDefaults = ebayPolicies?.defaults;
+  const ebaySteps = ebayDefaults
+    ? 1 +
+      (ebayDefaults.merchant_location_key ? 1 : 0) +
+      (ebayDefaults.fulfillment_policy_id &&
+      ebayDefaults.payment_policy_id &&
+      ebayDefaults.return_policy_id
+        ? 1
+        : 0)
+    : null;
   const { data: google, isLoading: googleLoading } = useGoogleConnection();
 
   // A connection deactivated by a permanent refresh failure is NOT the same as
   // one that was never made, and rolling the two together is how a seller sits
   // for a week wondering why nothing syncs.
-  const ebayNeedsReauth = !!ebayIssue && !ebayIssue.is_active && !!ebayIssue.refresh_error;
+  // MP-12: a disconnect the seller chose is not a problem to flag.
+  const ebayNeedsReauth = isReauthNeeded(ebayIssue);
 
   const rows: Row[] = [
     {
       name: "eBay",
       status: ebayLoading
         ? "loading"
+        : ebayError
+          ? "unknown"
+          : ebayNeedsReauth
+            ? "attention"
+            : ebay && ebaySteps != null && ebaySteps < 3
+              ? "setup"
+              : ebay
+                ? "connected"
+                : "off",
+      detail: ebayError
+        ? "Couldn't check"
         : ebayNeedsReauth
-          ? "attention"
-          : ebay
-            ? "connected"
-            : "off",
-      detail: ebayNeedsReauth
-        ? "Sign in again to restore it"
-        : ebay
-          ? (ebay.account_handle ?? "Connected")
-          : "Not connected",
+          ? "Sign in again to restore it"
+          : ebay && ebaySteps != null && ebaySteps < 3
+            ? `${ebaySteps} of 3 steps`
+            : ebay
+              ? (ebay.account_handle ?? "Connected")
+              : "Not connected",
+      to: "/dashboard/flipdesk/marketplaces?tab=connections#ebay-setup",
     },
     {
       name: "Shopify",
-      status: shopifyLoading ? "loading" : shopify ? "connected" : "off",
-      detail: shopify
-        ? (shopify.account_handle ?? "Connected")
-        : "Not connected",
+      status: shopifyLoading
+        ? "loading"
+        : shopifyError
+          ? "unknown"
+          : shopify
+            ? "connected"
+            : "off",
+      detail: shopifyError
+        ? "Couldn't check"
+        : shopify
+          ? (shopify.account_handle ?? "Connected")
+          : "Not connected",
+      to: "/dashboard/flipdesk/marketplaces?tab=connections#shopify-setup",
     },
     {
       name: "Google Sheets",

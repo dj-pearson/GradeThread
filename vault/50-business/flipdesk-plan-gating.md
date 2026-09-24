@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/routes/flipdesk-closet-import.ts
   - services/edge-functions/src/lib/ebay-orphan-adopt.ts
   - src/lib/constants.ts
-reviewed: 2026-09-23
+reviewed: 2026-09-24
 tags: [flipdesk, plans, billing, contract]
 summary: Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 ---

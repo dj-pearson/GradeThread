@@ -158,28 +158,30 @@ const PRICING_ROUTE = await Deno.readTextFile(
   new URL("../routes/flipdesk-pricing.ts", import.meta.url),
 );
 
-Deno.test("US-3192: the bulk reprice PREVIEW composes the item floor", () => {
+// Since the Pricing plan's P1 the composition lives in ONE helper,
+// floorForListing, and the preview, the bulk apply and the single-row apply all
+// call it. The behaviour is driven end to end in reprice-apply-guards_test.ts;
+// these pins keep the helper composing both floors and every site using it.
+Deno.test("US-3192: floorForListing composes the item floor", () => {
   const site = PRICING_ROUTE.match(
-    /const floorCents = effectiveFloorCents\(\s*computeFloorCents\([^)]*\),\s*itemFloorCents\(item\.floor_price\),\s*\)/,
+    /export function floorForListing\([\s\S]*?return effectiveFloorCents\(\s*computeFloorCents\([^)]*\),\s*itemFloorCents\(listing\.inventory_items\.floor_price\),\s*\);/,
   );
   assertEquals(
     site !== null,
     true,
-    "buildPreviewRow no longer composes itemFloorCents into its margin floor - " +
-      "the preview would show a suggested price below the seller's hard floor",
+    "floorForListing no longer composes itemFloorCents into its margin floor - " +
+      "a client could write a price below the seller's hard floor",
   );
 });
 
-Deno.test("US-3192: the bulk reprice APPLY composes the item floor", () => {
-  const site = PRICING_ROUTE.match(
-    /const floor = effectiveFloorCents\(\s*computeFloorCents\([\s\S]{0,120}?\),\s*itemFloorCents\(listing\.inventory_items\.floor_price\),\s*\)/,
-  );
-  assertEquals(
-    site !== null,
-    true,
-    "applyRepriceFor no longer composes itemFloorCents into its margin floor - " +
-      "a client could write a price below the seller's hard floor",
-  );
+Deno.test("US-3192: the preview, the bulk apply and the single apply all use floorForListing", () => {
+  for (const [fn, pattern] of [
+    ["buildPreviewRow", /const floorCents = floorForListing\(listing\)/],
+    ["applyRepriceFor", /const floor = floorForListing\(listing\)/],
+    ["applyPriceSuggestion", /const floorCents = floorForListing\(row\)/],
+  ] as const) {
+    assertEquals(pattern.test(PRICING_ROUTE), true, `${fn} no longer reads floorForListing`);
+  }
 });
 
 Deno.test("US-3192: itemFloorCents keeps null as null, never zero", () => {

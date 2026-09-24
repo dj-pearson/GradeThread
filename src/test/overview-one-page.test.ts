@@ -13,6 +13,7 @@ import {
   OVERVIEW_VIEW_DEFS,
 } from "@/lib/overview-view";
 import { widgetsForSurface, DASHBOARD_SURFACES } from "@/lib/dashboard-widgets";
+import { viewRedirectSearch } from "@/pages/flipdesk/nav-tabs";
 
 // US-3469. The product had two overviews and they were the same page twice:
 // /dashboard was the grading board, /dashboard/flipdesk was the FlipDesk board,
@@ -153,7 +154,10 @@ describe("there is one Overview page, and the old URLs still land (AC4)", () => 
     const at = routes.indexOf("function ViewRedirect(");
     expect(at).toBeGreaterThan(-1);
     const body = routes.slice(at, at + 400);
-    expect(body).toContain("new URLSearchParams(search)");
+    // The merge moved into viewRedirectSearch (Money M13) so it can be tested
+    // on behaviour rather than on source text.
+    expect(body).toContain("viewRedirectSearch(search");
+    expect(viewRedirectSearch("?range=30d", "flipdesk")).toBe("range=30d&view=flipdesk");
   });
 });
 

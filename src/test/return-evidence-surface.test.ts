@@ -148,8 +148,11 @@ describe("US-2706: the return-evidence surface", () => {
     const page = copy(PAGE);
     expect(page).toMatch(/packFor === d\.paymentDisputeId && !showClosed/);
     expect(page).toMatch(/evidenceFor === kase\.caseId && !showClosed/);
+    // PS-13: the Contest and Appeal dialogs mount the pack too, so a kind can
+    // appear more than once. Every kind still appears, and every mount is
+    // still this one panel.
     const kinds = (page.match(/kind="(return|dispute|case)"/g) ?? []).sort();
-    expect(kinds).toEqual(['kind="case"', 'kind="dispute"', 'kind="return"']);
+    expect([...new Set(kinds)]).toEqual(['kind="case"', 'kind="dispute"', 'kind="return"']);
     const mounts = page.match(/<ReturnEvidencePanel/g) ?? [];
     expect(
       mounts.length,

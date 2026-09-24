@@ -25,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { ErrorState } from "@/components/ui/error-state";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
@@ -45,6 +46,17 @@ import type { EbayListingRow, EbayListingInsert, EbayMatchStatus } from "@/types
 import type { ItemListRow } from "@/lib/item-list-columns";
 
 const UPSERT_CHUNK = 200;
+
+/**
+ * RLS filters a write the caller's role may not make down to zero rows and
+ * reports success. `.select("id")` on the write returns what actually changed,
+ * and zero rows is refused here rather than toasted as done.
+ */
+function requireRows(data: unknown): void {
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new Error("You don't have permission to change this.");
+  }
+}
 
 // US-465 AC1: when an orphan eBay listing is linked to an EXISTING FlipDesk
 // item, mirror the live listing into the `listings` table so the item carries
@@ -77,11 +89,13 @@ async function upsertEbayListingRowForItem(
     .maybeSingle();
   if (selErr) throw new Error(selErr.message);
   if (existing) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("listings")
       .update(row as never)
-      .eq("id", (existing as { id: string }).id);
+      .eq("id", (existing as { id: string }).id)
+      .select("id");
     if (error) throw new Error(error.message);
+    requireRows(data);
   } else {
     const { error } = await supabase
       .from("listings")
@@ -134,13 +148,18 @@ async function insertRemotePhotosForItem(
 
 function useEbayListings() {
   const user = useAuthStore((s) => s.user);
+  // The workspace on screen: RLS admits a member to every workspace they
+  // belong to, and matching one business's listings against another's
+  // catalog creates items in the wrong place.
+  const { workspaceOwnerId: ownerId } = useWorkspace();
   return useQuery({
-    queryKey: ["ebay_listings", user?.id],
-    enabled: !!user,
+    queryKey: ["ebay_listings", ownerId],
+    enabled: !!user && !!ownerId,
     queryFn: async (): Promise<EbayListingRow[]> => {
       const { data, error } = await supabase
         .from("flipdesk_ebay_listings")
         .select("*")
+        .eq("user_id", ownerId ?? "")
         .order("imported_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as EbayListingRow[];
@@ -178,7 +197,10 @@ function StatTile({
 export function EbaySkuMatch() {
   const user = useAuthStore((s) => s.user);
   const confirm = useConfirm();
-  const { workspaceOwnerId } = useWorkspace();
+  const { workspaceOwnerId, can, isOwner } = useWorkspace();
+  // A viewer sees the check but none of the buttons that write; only the
+  // owner can wipe the whole import.
+  const canManage = can("manage_inventory");
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -189,8 +211,16 @@ export function EbaySkuMatch() {
   const [bulkCreating, setBulkCreating] = useState(false);
   const [quickLinkBusyId, setQuickLinkBusyId] = useState<string | null>(null);
 
-  const { data: listings = [], isLoading: listingsLoading } = useEbayListings();
-  const { data: items = [], isLoading: itemsLoading } = useItemsList();
+  const listingsQuery = useEbayListings();
+  const itemsQuery = useItemsList();
+  const { data: listings = [], isLoading: listingsLoading } = listingsQuery;
+  const { data: items = [], isLoading: itemsLoading } = itemsQuery;
+  // A failed items read leaves `items` empty, which turns every listing into a
+  // "mismatch" and arms Create all to duplicate the whole catalog. A failed
+  // listings read says "nothing imported". Neither may render as a result.
+  const readFailed = listingsQuery.isError || itemsQuery.isError;
+  const readBusy = listingsQuery.isFetching || itemsQuery.isFetching;
+  const writesLocked = readFailed || readBusy;
 
   const buckets = useMemo(
     () => reconcile(listings, items),
@@ -296,11 +326,13 @@ export function EbaySkuMatch() {
     )
       return;
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("flipdesk_ebay_listings")
         .delete()
-        .eq("user_id", workspaceOwnerId ?? user.id);
+        .eq("user_id", workspaceOwnerId ?? user.id)
+        .select("id");
       if (error) throw error;
+      requireRows(data);
       await qc.invalidateQueries({ queryKey: ["ebay_listings"] });
       toast.success("Cleared imported eBay listings.");
     } catch (err) {
@@ -394,14 +426,16 @@ export function EbaySkuMatch() {
     }
 
     // 4. Mark the orphan as matched.
-    const { error: matchErr } = await supabase
+    const { data: matchedRows, error: matchErr } = await supabase
       .from("flipdesk_ebay_listings")
       .update({
         match_status: "matched",
         matched_item_id: itemId,
       } as never)
-      .eq("id", listing.id);
+      .eq("id", listing.id)
+      .select("id");
     if (matchErr) throw new Error(matchErr.message);
+    requireRows(matchedRows);
 
     return itemId;
   }
@@ -409,9 +443,18 @@ export function EbaySkuMatch() {
   // Bulk: create FlipDesk items for every orphan in one go. Errors per-row
   // are aggregated so one bad row doesn't sink the rest.
   async function createAllUnmatched() {
-    if (bulkCreating) return;
+    if (bulkCreating || writesLocked) return;
     const orphans = buckets.unmatched.map((u) => u.listing);
     if (orphans.length === 0) return;
+    if (
+      !(await confirm({
+        title: `Create ${orphans.length} new FlipDesk item${orphans.length === 1 ? "" : "s"}?`,
+        description:
+          "Each eBay listing with no matching SKU becomes a new item. If some of these are already in FlipDesk under a different SKU, link them instead, or you will have duplicates.",
+        confirmLabel: `Create ${orphans.length}`,
+      }))
+    )
+      return;
     setBulkCreating(true);
     let created = 0;
     const errors: string[] = [];
@@ -449,20 +492,22 @@ export function EbaySkuMatch() {
   // does NOT touch the FlipDesk item's SKU — use the regular "Link" dialog
   // when you also want to copy the eBay Custom Label across.
   async function quickLink(listing: EbayListingRow, suggestionId: string) {
-    if (quickLinkBusyId) return;
+    if (quickLinkBusyId || writesLocked) return;
     setQuickLinkBusyId(listing.id);
     try {
       // US-465 AC1: mirror the live eBay listing into the listings table so the
       // linked item carries its eBay URL/id, then flip the orphan to matched.
       await upsertEbayListingRowForItem(suggestionId, listing);
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("flipdesk_ebay_listings")
         .update({
           matched_item_id: suggestionId,
           match_status: "matched",
         } as never)
-        .eq("id", listing.id);
+        .eq("id", listing.id)
+        .select("id");
       if (error) throw error;
+      requireRows(data);
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["ebay_listings"] }),
         qc.invalidateQueries({ queryKey: ["items_full"] }),
@@ -477,11 +522,13 @@ export function EbaySkuMatch() {
 
   async function ignore(listing: EbayListingRow) {
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("flipdesk_ebay_listings")
         .update({ match_status: "ignored", matched_item_id: null } as never)
-        .eq("id", listing.id);
+        .eq("id", listing.id)
+        .select("id");
       if (error) throw error;
+      requireRows(data);
       await qc.invalidateQueries({ queryKey: ["ebay_listings"] });
     } catch (err) {
       toastError(err, "Failed.");
@@ -497,11 +544,13 @@ export function EbaySkuMatch() {
         if (sku) itemsBySku.set(sku, it.id);
       }
       const am = autoMatch(listing.custom_label, itemsBySku);
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("flipdesk_ebay_listings")
         .update(am as never)
-        .eq("id", listing.id);
+        .eq("id", listing.id)
+        .select("id");
       if (error) throw error;
+      requireRows(data);
       await qc.invalidateQueries({ queryKey: ["ebay_listings"] });
     } catch (err) {
       toastError(err, "Failed.");
@@ -535,18 +584,20 @@ export function EbaySkuMatch() {
               if (f) void handleFile(f);
             }}
           />
-          <Button
-            onClick={() => fileRef.current?.click()}
-            disabled={importing}
-          >
-            {importing ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Upload className="mr-2 h-4 w-4" />
-            )}
-            Upload eBay CSV
-          </Button>
-          {listings.length > 0 && (
+          {canManage && (
+            <Button
+              onClick={() => fileRef.current?.click()}
+              disabled={importing || writesLocked}
+            >
+              {importing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="mr-2 h-4 w-4" />
+              )}
+              Upload eBay CSV
+            </Button>
+          )}
+          {isOwner && listings.length > 0 && (
             <Button variant="ghost" onClick={clearAll} disabled={importing}>
               <Trash2 className="mr-2 h-4 w-4" />
               Clear imported data
@@ -555,7 +606,26 @@ export function EbaySkuMatch() {
         </CardContent>
       </Card>
 
-      {loading ? (
+      {readFailed ? (
+        <Card>
+          <CardContent className="pt-6">
+            <ErrorState
+              title="Couldn't load the SKU check"
+              description={
+                itemsQuery.isError
+                  ? "Your FlipDesk items didn't load, so every eBay listing would look unmatched. Nothing is shown until both lists load."
+                  : "Your imported eBay listings didn't load, so this can't say what matches."
+              }
+              onRetry={() => {
+                if (listingsQuery.isError) void listingsQuery.refetch();
+                if (itemsQuery.isError) void itemsQuery.refetch();
+              }}
+              retrying={readBusy}
+              hideSupport
+            />
+          </CardContent>
+        </Card>
+      ) : loading ? (
         <LoadingRegion label="Loading listings">
           <SkeletonRows rows={5} />
         </LoadingRegion>
@@ -602,11 +672,11 @@ export function EbaySkuMatch() {
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {buckets.unmatched.length > 0 && (
+                  {canManage && buckets.unmatched.length > 0 && (
                     <Button
                       size="sm"
                       onClick={() => void createAllUnmatched()}
-                      disabled={bulkCreating}
+                      disabled={bulkCreating || writesLocked}
                     >
                       {bulkCreating ? (
                         <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -682,53 +752,59 @@ export function EbaySkuMatch() {
                                 </span>{" "}
                                 (SKU {suggestion.item_number ?? "—"})
                               </span>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-6 px-2 text-[10px]"
-                                onClick={() =>
-                                  void quickLink(listing, suggestion.id)
-                                }
-                                disabled={quickLinkBusyId === listing.id}
-                              >
-                                {quickLinkBusyId === listing.id ? (
-                                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Link2 className="mr-1 h-3 w-3" />
-                                )}
-                                Link to this
-                              </Button>
+                              {canManage && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 px-2 text-[10px]"
+                                  onClick={() =>
+                                    void quickLink(listing, suggestion.id)
+                                  }
+                                  disabled={quickLinkBusyId === listing.id || writesLocked}
+                                >
+                                  {quickLinkBusyId === listing.id ? (
+                                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Link2 className="mr-1 h-3 w-3" />
+                                  )}
+                                  Link to this
+                                </Button>
+                              )}
                             </div>
                           )}
                         </div>
-                        <div className="flex flex-shrink-0 flex-wrap gap-2">
-                          <Button
-                            size="sm"
-                            onClick={() => setCreateTarget(listing)}
-                            aria-label={`Create an item for ${listing.title || "untitled listing"}`}
-                          >
-                            <Plus className="mr-1.5 h-3.5 w-3.5" />
-                            Create
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setLinkTarget(listing)}
-                            aria-label={`Link ${listing.title || "untitled listing"} to an item`}
-                          >
-                            <Link2 className="mr-1.5 h-3.5 w-3.5" />
-                            Link
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => void ignore(listing)}
-                            aria-label={`Ignore ${listing.title || "untitled listing"}`}
-                          >
-                            <EyeOff className="mr-1.5 h-3.5 w-3.5" />
-                            Ignore
-                          </Button>
-                        </div>
+                        {canManage && (
+                          <div className="flex flex-shrink-0 flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => setCreateTarget(listing)}
+                              disabled={writesLocked}
+                              aria-label={`Create an item for ${listing.title || "untitled listing"}`}
+                            >
+                              <Plus className="mr-1.5 h-3.5 w-3.5" />
+                              Create
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setLinkTarget(listing)}
+                              disabled={writesLocked}
+                              aria-label={`Link ${listing.title || "untitled listing"} to an item`}
+                            >
+                              <Link2 className="mr-1.5 h-3.5 w-3.5" />
+                              Link
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => void ignore(listing)}
+                              aria-label={`Ignore ${listing.title || "untitled listing"}`}
+                            >
+                              <EyeOff className="mr-1.5 h-3.5 w-3.5" />
+                              Ignore
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </li>
                   ))}
@@ -825,15 +901,17 @@ export function EbaySkuMatch() {
                       <span className="truncate text-muted-foreground">
                         {listing.title || listing.ebay_item_id}
                       </span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => void unignore(listing)}
-                        aria-label={`Restore ${listing.title || listing.ebay_item_id}`}
-                      >
-                        <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                        Restore
-                      </Button>
+                      {canManage && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void unignore(listing)}
+                          aria-label={`Restore ${listing.title || listing.ebay_item_id}`}
+                        >
+                          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                          Restore
+                        </Button>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -1022,10 +1100,11 @@ function LinkItemDialog({
       // Optionally copy the eBay Custom Label into the FlipDesk item's SKU so
       // the two systems agree and future imports auto-match.
       if (syncSku && customLabel && skuDiffers) {
-        const { error: itemErr } = await supabase
+        const { data: skuRows, error: itemErr } = await supabase
           .from("inventory_items")
           .update({ sku: customLabel } as never)
-          .eq("id", selected.id);
+          .eq("id", selected.id)
+          .select("id");
         if (itemErr) {
           throw new Error(
             itemErr.message.includes("duplicate") ||
@@ -1034,18 +1113,21 @@ function LinkItemDialog({
               : itemErr.message,
           );
         }
+        requireRows(skuRows);
       }
       // US-465 AC1: create/update the listings row mirroring the live eBay
       // listing so the linked item carries its eBay URL + platform id.
       await upsertEbayListingRowForItem(selected.id, listing);
-      const { error } = await supabase
+      const { data: linkedRows, error } = await supabase
         .from("flipdesk_ebay_listings")
         .update({
           matched_item_id: selected.id,
           match_status: "matched",
         } as never)
-        .eq("id", listing.id);
+        .eq("id", listing.id)
+        .select("id");
       if (error) throw error;
+      requireRows(linkedRows);
 
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["ebay_listings"] }),

@@ -17,7 +17,11 @@ import {
   suggestKeywords,
   updateKeyword,
 } from "../lib/ebay-keywords.ts";
-import { ensureCpcCampaign, recommendationApiSupported } from "../lib/ebay-marketing.ts";
+import {
+  ensureCpcCampaign,
+  findCpcCampaign,
+  recommendationApiSupported,
+} from "../lib/ebay-marketing.ts";
 import { loadSearchTerms } from "../lib/ebay-ad-reports.ts";
 import { computeLift, loadPromotions, recordPromotions } from "../lib/promotion-store.ts";
 import { describeStack, evaluateStack } from "../lib/discount-stack.ts";
@@ -53,6 +57,7 @@ import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
+import { refuseBelowRole } from "../lib/marketplace-admin-guard.ts";
 import {
   createAdForListing,
   ensureAdCampaign,
@@ -70,6 +75,7 @@ import {
   fetchTrendingAdRates,
   summarizePromotedListings,
   syncPromotedListingsForOwner,
+  isPromoActive,
   updateAdRateForListing,
 } from "../lib/ebay-marketing.ts";
 import { type EbayEnv } from "./flipdesk-ebay-shared.ts";
@@ -155,6 +161,9 @@ function parseItemPromotionInput(raw: unknown): ItemPromotionInput | { error: st
 }
 
 flipdeskEbayRoutes.post("/promotions", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "listing_manager");
+  if (roleRefused) return roleRefused;
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -183,6 +192,9 @@ flipdeskEbayRoutes.post("/promotions", async (c) => {
 });
 
 flipdeskEbayRoutes.put("/promotions/:promotionId", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "listing_manager");
+  if (roleRefused) return roleRefused;
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -213,6 +225,9 @@ flipdeskEbayRoutes.put("/promotions/:promotionId", async (c) => {
 });
 
 flipdeskEbayRoutes.delete("/promotions/:promotionId", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "listing_manager");
+  if (roleRefused) return roleRefused;
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -354,6 +369,9 @@ flipdeskEbayRoutes.post("/marketing/email-campaigns", async (c) => {
 
 // POST /marketing/email-campaigns/:id/send — the explicit human action.
 flipdeskEbayRoutes.post("/marketing/email-campaigns/:id/send", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "admin");
+  if (roleRefused) return roleRefused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
@@ -488,12 +506,14 @@ flipdeskEbayRoutes.get("/promotions/performance", async (c) => {
     const sinceMs = Number.isFinite(earliest)
       ? earliest - 90 * 86_400_000
       : Date.now() - 180 * 86_400_000;
-    const { data: salesRows } = await supabaseAdmin
+    const { data: salesRows, error: salesErr } = await supabaseAdmin
       .from("sales")
       .select("sale_date, sale_price")
       .eq("user_id", ownerId)
       .gte("sale_date", new Date(sinceMs).toISOString())
       .limit(5000);
+    // MP-11: an unread sales table would report every promotion as -100%.
+    if (salesErr) throw salesErr;
     const sales = ((salesRows ?? []) as unknown as Array<{
       sale_date: string | null;
       sale_price: number | null;
@@ -591,10 +611,11 @@ flipdeskEbayRoutes.get("/promotions/stack-check", async (c) => {
       .map((p) => p.discountPct ?? 0)
       .reduce((a, b) => Math.max(a, b), 0) || null;
 
-    const { data: rows } = await supabaseAdmin
+    const { data: rows, error: rowsErr } = await supabaseAdmin
       .from("listings")
       .select(
         "id, listing_title, listing_price, best_offer_auto_accept_cents, " +
+          "promo_rate_pct, promo_status, " +
           "inventory_items!inner(user_id, acquired_price)",
       )
       .eq("user_id", ownerId)
@@ -602,12 +623,16 @@ flipdeskEbayRoutes.get("/promotions/stack-check", async (c) => {
       .eq("listing_status", "active")
       .eq("inventory_items.user_id", ownerId)
       .limit(1000);
+    // MP-11: an unread listings table is not "no discount breaches".
+    if (rowsErr) throw rowsErr;
 
     const results = ((rows ?? []) as unknown as Array<{
       id: string;
       listing_title: string | null;
       listing_price: number | null;
       best_offer_auto_accept_cents: number | null;
+      promo_rate_pct: number | null;
+      promo_status: string | null;
       inventory_items:
         | { acquired_price: number | null }
         | { acquired_price: number | null }[]
@@ -629,6 +654,10 @@ flipdeskEbayRoutes.get("/promotions/stack-check", async (c) => {
         markdownPct,
         couponPct,
         autoAcceptCents: row.best_offer_auto_accept_cents,
+        // MP-16: only a LIVE ad costs anything; a paused or ended one does not.
+        adFeePct: isPromoActive(row.promo_status) && row.promo_rate_pct != null
+          ? Number(row.promo_rate_pct)
+          : null,
         marginFloorPct,
       });
       return {
@@ -698,7 +727,8 @@ flipdeskEbayRoutes.get("/promotions/:promotionId", async (c) => {
 // campaign here had to finish it in Seller Hub.
 //
 // The campaign id is always resolved from the seller's own connection through
-// ensureCpcCampaign; it is never taken from the request (US-268).
+// findCpcCampaign (reads) or ensureCpcCampaign (explicit writes); it is never
+// taken from the request (US-268).
 
 // GET /marketing/suggestions — eBay's view, joined to ours.
 //
@@ -720,17 +750,36 @@ flipdeskEbayRoutes.get("/marketing/suggestions", async (c) => {
     });
   }
   try {
-    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
+    // MP-03: find, never create. A GET must not start a campaign on eBay.
+    const found = await findCpcCampaign(ownerId);
+    if (!found) {
+      return c.json({
+        supported: true,
+        campaign: null,
+        ordering: "margin_after_ad_fee",
+        items: [],
+      });
+    }
+    const { campaignId, adGroupId } = found;
     const [items, budget, bids] = await Promise.all([
       suggestItems(ownerId, campaignId),
       suggestBudget(ownerId, campaignId).catch(() => ({
         dailyBudgetCents: null,
         currency: null,
       })),
-      suggestBids(ownerId, campaignId, adGroupId).catch(() => []),
+      adGroupId
+        ? suggestBids(ownerId, campaignId, adGroupId).catch(() => [])
+        : Promise.resolve([]),
     ]);
     if (items.length === 0) {
-      return c.json({ supported: true, ordering: "margin_after_ad_fee", items: [], budget, bids });
+      return c.json({
+        supported: true,
+        campaign: { campaignId },
+        ordering: "margin_after_ad_fee",
+        items: [],
+        budget,
+        bids,
+      });
     }
 
     // The local economics. Scoped through the owner-verified parent item, the
@@ -802,7 +851,14 @@ flipdeskEbayRoutes.get("/marketing/suggestions", async (c) => {
       return bm - am;
     });
 
-    return c.json({ supported: true, ordering: "margin_after_ad_fee", items: enriched, budget, bids });
+    return c.json({
+      supported: true,
+      campaign: { campaignId },
+      ordering: "margin_after_ad_fee",
+      items: enriched,
+      budget,
+      bids,
+    });
   } catch (err) {
     return failSafe(
       c,
@@ -814,18 +870,28 @@ flipdeskEbayRoutes.get("/marketing/suggestions", async (c) => {
   }
 });
 
-// POST /marketing/campaign/:action — pause | resume | end | clone.
+// POST /marketing/campaign/:action — start | pause | resume | end | clone.
+//
+// MP-03: `start` is the only action that creates a campaign. The others act on
+// the campaign that already exists and answer 404 when there is none, rather
+// than creating one just to pause or end it.
 //
 // An already-in-that-state answer is success: a seller pressing Pause on a
 // paused campaign should see it paused, not a 502.
 flipdeskEbayRoutes.post("/marketing/campaign/:action", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "admin");
+  if (roleRefused) return roleRefused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const action = c.req.param("action");
-  if (action !== "pause" && action !== "resume" && action !== "end" && action !== "clone") {
-    return c.json({ error: "action must be pause, resume, end or clone." }, 400);
+  if (
+    action !== "start" && action !== "pause" && action !== "resume" &&
+    action !== "end" && action !== "clone"
+  ) {
+    return c.json({ error: "action must be start, pause, resume, end or clone." }, 400);
   }
   let body: { name?: unknown } = {};
   try {
@@ -834,7 +900,21 @@ flipdeskEbayRoutes.post("/marketing/campaign/:action", async (c) => {
     body = {};
   }
   try {
-    const { campaignId } = await ensureCpcCampaign(ownerId);
+    if (action === "start") {
+      const { campaignId } = await ensureCpcCampaign(ownerId);
+      await writeAuditLog(c, {
+        action: "ebay.marketing.campaign.start",
+        targetType: "ebay_ad_campaign",
+        targetId: campaignId,
+        details: {},
+      });
+      return c.json({ ok: true, campaign_id: campaignId });
+    }
+    const found = await findCpcCampaign(ownerId);
+    if (!found) {
+      return c.json({ error: "There is no cost-per-click campaign to change." }, 404);
+    }
+    const { campaignId } = found;
     let clonedId: string | null = null;
     try {
       if (action === "pause") await pauseCampaign(ownerId, campaignId);
@@ -889,6 +969,9 @@ flipdeskEbayRoutes.post("/marketing/campaign/:action", async (c) => {
 // while rejecting half the batch, and reporting that as success is how a seller
 // comes to believe a hundred items are promoted when forty are not.
 flipdeskEbayRoutes.post("/marketing/ads/bulk", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "listing_manager");
+  if (roleRefused) return roleRefused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
@@ -974,8 +1057,10 @@ flipdeskEbayRoutes.post("/marketing/ads/bulk", async (c) => {
 // put a keyword in either. A bid you cannot aim is a bid you cannot control,
 // and that aim is the only difference between Advanced and Standard.
 //
-// Every route resolves the seller's own campaign through ensureCpcCampaign, so
-// a campaign id is never taken from the request (US-268).
+// Every route resolves the seller's own campaign from the connection through
+// findCpcCampaign, which never creates one (the adds fall back to
+// ensureCpcCampaign only to fill a missing ad group inside an existing
+// campaign), so a campaign id is never taken from the request (US-268).
 
 // GET /marketing/keywords — the seller's keywords, plus the negative-keyword
 // candidates their own reported search terms already prove.
@@ -985,13 +1070,26 @@ flipdeskEbayRoutes.get("/marketing/keywords", async (c) => {
   }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   try {
-    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
+    // MP-03: find, never create.
+    const found = await findCpcCampaign(ownerId);
+    if (!found) {
+      return c.json({
+        campaign: null,
+        campaignId: null,
+        adGroupId: null,
+        keywords: [],
+        negatives: [],
+        negativeCandidates: [],
+      });
+    }
+    const { campaignId, adGroupId } = found;
     const [keywords, negatives, terms] = await Promise.all([
-      listKeywords(ownerId, campaignId, adGroupId),
+      adGroupId ? listKeywords(ownerId, campaignId, adGroupId) : Promise.resolve([]),
       listNegativeKeywords(ownerId, campaignId),
       loadSearchTerms(ownerId, { limit: 500 }),
     ]);
     return c.json({
+      campaign: { campaignId },
       campaignId,
       adGroupId,
       keywords,
@@ -1021,8 +1119,13 @@ flipdeskEbayRoutes.get("/marketing/keywords/suggestions", async (c) => {
   }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   try {
-    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
-    return c.json({ suggestions: await suggestKeywords(ownerId, campaignId, adGroupId) });
+    // MP-03: find, never create.
+    const found = await findCpcCampaign(ownerId);
+    if (!found?.adGroupId) return c.json({ campaign: null, suggestions: [] });
+    return c.json({
+      campaign: { campaignId: found.campaignId },
+      suggestions: await suggestKeywords(ownerId, found.campaignId, found.adGroupId),
+    });
   } catch (err) {
     // A marketplace or account without suggestions is a normal state, not an
     // outage: report none rather than an error the seller cannot act on.
@@ -1036,6 +1139,9 @@ flipdeskEbayRoutes.get("/marketing/keywords/suggestions", async (c) => {
 
 // POST /marketing/keywords — body { text, match_type?, bid_cents? }
 flipdeskEbayRoutes.post("/marketing/keywords", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "listing_manager");
+  if (roleRefused) return roleRefused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
@@ -1053,7 +1159,15 @@ flipdeskEbayRoutes.post("/marketing/keywords", async (c) => {
     ? Math.round(Number(body.bid_cents))
     : null;
   try {
-    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
+    // A keyword belongs to a campaign that already exists. Starting one is
+    // admin-only (POST /marketing/campaign/start); this route must not be a
+    // listing_manager's way round that floor. With the campaign present,
+    // ensureCpcCampaign only fills in a missing ad group inside it.
+    const found = await findCpcCampaign(ownerId);
+    if (!found) return c.json({ error: "There is no cost-per-click campaign." }, 404);
+    const { campaignId, adGroupId } = found.adGroupId
+      ? { campaignId: found.campaignId, adGroupId: found.adGroupId }
+      : await ensureCpcCampaign(ownerId);
     const keywordId = await createKeyword(ownerId, campaignId, adGroupId, {
       text,
       matchType,
@@ -1073,6 +1187,9 @@ flipdeskEbayRoutes.post("/marketing/keywords", async (c) => {
 
 // PATCH /marketing/keywords/:keywordId — body { bid_cents?, status? }
 flipdeskEbayRoutes.patch("/marketing/keywords/:keywordId", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "listing_manager");
+  if (roleRefused) return roleRefused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
@@ -1092,7 +1209,10 @@ flipdeskEbayRoutes.patch("/marketing/keywords/:keywordId", async (c) => {
     return c.json({ error: "Nothing to change — send bid_cents or status." }, 400);
   }
   try {
-    const { campaignId } = await ensureCpcCampaign(ownerId);
+    // MP-03: a keyword belongs to an existing campaign; never create one here.
+    const found = await findCpcCampaign(ownerId);
+    if (!found) return c.json({ error: "There is no cost-per-click campaign." }, 404);
+    const { campaignId } = found;
     await updateKeyword(ownerId, campaignId, keywordId, { bidCents, status });
     await writeAuditLog(c, {
       action: "ebay.marketing.keyword.update",
@@ -1108,6 +1228,9 @@ flipdeskEbayRoutes.patch("/marketing/keywords/:keywordId", async (c) => {
 
 // POST /marketing/negative-keywords — body { text, match_type? }
 flipdeskEbayRoutes.post("/marketing/negative-keywords", async (c) => {
+  // MP-02: spends or ends something on the owner's eBay account.
+  const roleRefused = refuseBelowRole(c, c.get("workspaceRole"), "listing_manager");
+  if (roleRefused) return roleRefused;
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
@@ -1121,7 +1244,12 @@ flipdeskEbayRoutes.post("/marketing/negative-keywords", async (c) => {
   const text = typeof body.text === "string" ? body.text.trim() : "";
   if (!text) return c.json({ error: "text is required." }, 400);
   try {
-    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
+    // Same rule as POST /marketing/keywords: never start a campaign here.
+    const found = await findCpcCampaign(ownerId);
+    if (!found) return c.json({ error: "There is no cost-per-click campaign." }, 404);
+    const { campaignId, adGroupId } = found.adGroupId
+      ? { campaignId: found.campaignId, adGroupId: found.adGroupId }
+      : await ensureCpcCampaign(ownerId);
     const id = await createNegativeKeyword(
       ownerId,
       campaignId,
@@ -1380,9 +1508,18 @@ flipdeskEbayRoutes.get("/marketing/ad-rate-suggestion", (c) => {
 // workspace's promoted listings (user-triggered "Refresh" on the promotions
 // surface). Tenant-scoped to the workspace owner inside the lib helper.
 flipdeskEbayRoutes.post("/marketing/promoted/sync", async (c) => {
+  // MP-11: the same guard and failSafe every other eBay route has. Before,
+  // an unconfigured server or a thrown read escaped as a bare 500.
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const result = await syncPromotedListingsForOwner(userId);
-  return c.json({ ok: true, ...result });
+  try {
+    const result = await syncPromotedListingsForOwner(userId);
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return failSafe(c, 502, "Couldn't refresh your promoted listings.", err, "ebay.promoted.sync");
+  }
 });
 
 // US-1044: read-only promotions overview — the seller's promoted listings plus
@@ -1393,7 +1530,7 @@ flipdeskEbayRoutes.post("/marketing/promoted/sync", async (c) => {
 // surfaced synchronously here.
 flipdeskEbayRoutes.get("/marketing/promoted/overview", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("listings")
     .select(
       "id, listing_title, listing_url, listing_price, listing_status, promo_status, promo_rate_pct, promo_ad_fees_cents, promo_synced_at",
@@ -1403,6 +1540,10 @@ flipdeskEbayRoutes.get("/marketing/promoted/overview", async (c) => {
     .not("promo_ad_id", "is", null)
     .order("promo_synced_at", { ascending: false, nullsFirst: false })
     .limit(200);
+  // MP-11: a failed read is not "no promoted listings yet".
+  if (error) {
+    return failSafe(c, 500, "Couldn't load promoted listings.", error, "ebay.promoted.overview");
+  }
   const listings = (data ?? []) as unknown as PromotedListingRow[];
   return c.json({ listings, summary: summarizePromotedListings(listings) });
 });

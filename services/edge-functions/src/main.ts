@@ -723,6 +723,14 @@ app.use("/api/flipdesk/ebay/comps", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/aspect-coverage", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/policies", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/policies/*", workspaceMiddleware);
+// MP-01/MP-02: programs and marketing act on the OWNER's eBay account and are
+// role-gated, and a role can only be read once this middleware has run. Before
+// it, a member's call resolved to their own account and every role check saw
+// no role at all.
+app.use("/api/flipdesk/ebay/programs", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/programs/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/marketing", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/marketing/*", workspaceMiddleware);
 // US-1623: workspace scope for the newly-authed eBay sub-paths (they resolve
 // the tenant via workspaceOwnerId ?? userId), matching the other eBay routes.
 app.use("/api/flipdesk/ebay/analytics/*", workspaceMiddleware);

@@ -241,12 +241,13 @@ export async function recordPostSaleCases(
   ownerId: string,
   inputs: PostSaleCaseInput[],
   nowIso: string = new Date().toISOString(),
+  db: Pick<typeof supabaseAdmin, "from"> = supabaseAdmin,
 ): Promise<number> {
   const rows = inputs
     .filter((i) => i.externalId)
     .map((i) => toCaseRow(ownerId, i, nowIso));
   if (rows.length === 0) return 0;
-  const { error } = await supabaseAdmin
+  const { error } = await db
     .from("marketplace_post_sale_cases")
     .upsert(rows, { onConflict: "user_id,platform,case_type,external_id" });
   if (error) {
@@ -275,11 +276,18 @@ export interface CachedSummaries<T> {
 export async function loadCachedSummaries<T>(
   ownerId: string,
   caseType: PostSaleCaseType,
-  opts: { limit?: number; nowMs?: number; windowMs?: number } = {},
+  opts: {
+    limit?: number;
+    nowMs?: number;
+    windowMs?: number;
+    /** Test seam. Defaults to the service-role client. */
+    db?: Pick<typeof supabaseAdmin, "from">;
+  } = {},
 ): Promise<CachedSummaries<T>> {
-  const { data, error } = await supabaseAdmin
+  const db = opts.db ?? supabaseAdmin;
+  const { data, error } = await db
     .from("marketplace_post_sale_cases")
-    .select("raw, last_seen_at")
+    .select("raw, last_seen_at, state, closed_at, outcome")
     .eq("user_id", ownerId)
     .eq("platform", "ebay")
     .eq("case_type", caseType)
@@ -289,12 +297,58 @@ export async function loadCachedSummaries<T>(
     console.error("[post-sale-store] loadCachedSummaries:", error.message);
     return { items: [], fresh: false };
   }
-  const rows = (data ?? []) as unknown as Array<{ raw: unknown; last_seen_at: string | null }>;
+  const rows = (data ?? []) as unknown as Array<CachedCaseRow>;
   const nowMs = opts.nowMs ?? Date.now();
   return {
-    items: rows.map((r) => r.raw as T).filter((x) => x != null),
+    items: rows
+      .filter((r) => r.raw != null)
+      .map((r) => overlayServedItem(r.raw, caseType, r) as T),
     fresh: isSummarySetFresh(rows, nowMs, opts.windowMs),
   };
+}
+
+interface CachedCaseRow {
+  raw: unknown;
+  last_seen_at: string | null;
+  state?: string | null;
+  closed_at?: string | null;
+  outcome?: string | null;
+}
+
+/** The closed marker a served item carries once we have acted on it. */
+export const SERVED_CLOSED_STATE = "CLOSED";
+
+/**
+ * PS-06: lay what we KNOW about a case over the eBay payload we serve.
+ *
+ * The list routes serve `raw` verbatim, and the page decides open or closed
+ * from raw.state. markPostSaleCaseClosed and updatePostSaleCaseState write
+ * only the columns, so after a refund or a mark-received the refetch came back
+ * with the same row still Open, and its Refund button still there. The columns
+ * are the newer answer, so they win: a closed_at closes the item and empties
+ * its seller actions, and a stored state replaces the payload's.
+ *
+ * Pure. Disputes carry their state in `status`, everything else in `state`.
+ */
+export function overlayServedItem(
+  raw: unknown,
+  caseType: PostSaleCaseType,
+  cols: { state?: string | null; closed_at?: string | null; outcome?: string | null },
+): unknown {
+  if (raw == null || typeof raw !== "object") return raw;
+  const key = caseType === "payment_dispute" ? "status" : "state";
+  const out: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+  if (cols.closed_at) {
+    const current = String(out[key] ?? "");
+    if (!isClosedCase(current)) out[key] = SERVED_CLOSED_STATE;
+    // Dispute pages read `state ?? status`, so a closed dispute sets both.
+    if (caseType === "payment_dispute") out.state = out[key];
+    out.sellerActions = [];
+    if (cols.outcome) out.outcome = cols.outcome;
+    return out;
+  }
+  if (cols.state) out[key] = cols.state;
+  return out;
 }
 
 /**
@@ -418,8 +472,9 @@ export async function markPostSaleCaseClosed(
   caseType: PostSaleCaseType,
   externalId: string,
   outcome: string,
+  db: Pick<typeof supabaseAdmin, "from"> = supabaseAdmin,
 ): Promise<void> {
-  const { error } = await supabaseAdmin
+  const { error } = await db
     .from("marketplace_post_sale_cases")
     .update({ closed_at: new Date().toISOString(), outcome })
     .eq("user_id", ownerId)
@@ -597,13 +652,16 @@ export async function updatePostSaleCaseState(
   caseType: PostSaleCaseType,
   externalId: string,
   patch: Partial<Pick<PostSaleCaseInput, "state" | "respondBy" | "outcome">>,
+  db: Pick<typeof supabaseAdmin, "from"> = supabaseAdmin,
 ): Promise<void> {
+  // PS-06: `state` lands in the column, and loadCachedSummaries lays the
+  // column over the served payload, so the page sees it on the next read.
   const row: Record<string, unknown> = {};
   if (patch.state !== undefined) row.state = patch.state;
   if (patch.respondBy !== undefined) row.respond_by = patch.respondBy;
   if (patch.outcome !== undefined) row.outcome = patch.outcome;
   if (Object.keys(row).length === 0) return;
-  const { error } = await supabaseAdmin
+  const { error } = await db
     .from("marketplace_post_sale_cases")
     .update(row)
     .eq("user_id", ownerId)
@@ -613,4 +671,85 @@ export async function updatePostSaleCaseState(
   if (error) {
     console.error("[post-sale-store] updatePostSaleCaseState:", error.message);
   }
+}
+
+// ── PS-04: the order a post-sale action acts on, from our own record ──
+//
+// The outcome routes used to trust `order_id` from the request body. The
+// ownership filter kept that inside the seller's own tenant, but a stale or
+// wrong client could still mark a DIFFERENT one of their sales refunded,
+// restock the wrong garment and reverse the wrong consignor payout. The stored
+// case already knows its order, so that is what the routes use now.
+
+type CaseDb = Pick<typeof supabaseAdmin, "from">;
+
+/** What a stored case says about itself, for an outcome route. Owner-scoped. */
+export interface StoredCaseRef {
+  externalOrderId: string | null;
+  reason: string | null;
+  /** The return or inquiry id this case grew out of (cases only, from raw). */
+  escalatedFrom: string | null;
+}
+
+export async function loadStoredCaseRef(
+  ownerId: string,
+  caseType: PostSaleCaseType,
+  externalId: string,
+  db: CaseDb = supabaseAdmin,
+): Promise<StoredCaseRef | null> {
+  const { data, error } = await db
+    .from("marketplace_post_sale_cases")
+    .select("external_order_id, reason, raw")
+    .eq("user_id", ownerId)
+    .eq("platform", "ebay")
+    .eq("case_type", caseType)
+    .eq("external_id", externalId)
+    .maybeSingle();
+  if (error) {
+    console.error("[post-sale-store] loadStoredCaseRef:", error.message);
+    return null;
+  }
+  if (!data) return null;
+  const row = data as { external_order_id: string | null; reason: string | null; raw: unknown };
+  const raw = (row.raw ?? {}) as { escalatedFrom?: unknown };
+  return {
+    externalOrderId: row.external_order_id ?? null,
+    reason: row.reason ?? null,
+    escalatedFrom: typeof raw.escalatedFrom === "string" ? raw.escalatedFrom : null,
+  };
+}
+
+/** The stored order id for one case, or null when we have no row for it. */
+export async function resolveCaseOrderId(
+  ownerId: string,
+  caseType: PostSaleCaseType,
+  externalId: string,
+  db: CaseDb = supabaseAdmin,
+): Promise<string | null> {
+  return (await loadStoredCaseRef(ownerId, caseType, externalId, db))?.externalOrderId ?? null;
+}
+
+/** Does this owner have an inquiry stored under this id? */
+export async function isStoredInquiry(
+  ownerId: string,
+  externalId: string,
+  db: CaseDb = supabaseAdmin,
+): Promise<boolean> {
+  return (await loadStoredCaseRef(ownerId, "inquiry", externalId, db)) != null;
+}
+
+export interface ChosenOrderId {
+  orderId: string | null;
+  /** stored: our record; client: the body, because we had no record. */
+  source: "stored" | "client" | "none";
+  /** The body named a different order than our record. Logged, then ignored. */
+  mismatch: boolean;
+}
+
+/** Pure: prefer the stored order id; fall back to the body only with none. */
+export function chooseOrderId(stored: string | null, bodyOrderId: unknown): ChosenOrderId {
+  const body = typeof bodyOrderId === "string" && bodyOrderId ? bodyOrderId : null;
+  if (stored) return { orderId: stored, source: "stored", mismatch: body != null && body !== stored };
+  if (body) return { orderId: body, source: "client", mismatch: false };
+  return { orderId: null, source: "none", mismatch: false };
 }

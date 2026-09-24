@@ -15,8 +15,13 @@ import {
 } from "../lib/ebay-postorder.ts";
 import {
   cancellationToCaseInput,
+  chooseOrderId,
   disputeToCaseInput,
+  isStoredInquiry,
   loadCachedSummaries,
+  loadStoredCaseRef,
+  type PostSaleCaseType,
+  type StoredCaseRef,
   markPostSaleCaseClosed,
   mergePostSaleCaseRaw,
   recordPostSaleCases,
@@ -54,7 +59,8 @@ import {
 } from "../lib/return-rules.ts";
 import { compositeReturnEvidenceSheet } from "../lib/defect-annotations.ts";
 import { type EvidenceContext, planEvidence } from "../lib/evidence-plan.ts";
-import { reverseConsignorPayoutsForSales } from "../lib/consignor-payout.ts";
+import { applyOutcomeToSale } from "../lib/post-sale-outcome.ts";
+import { resolveOrderOwnership } from "../lib/order-refund-owner.ts";
 import {
   createShippingFulfillment,
   isEbayConfigured,
@@ -72,8 +78,8 @@ import { getSetting } from "../lib/system-settings.ts";
 import {
   approveCancellation,
   decideReturn,
+  isItemNotReceivedCase,
   issueReturnRefund,
-  outcomeToSaleStatus,
   rejectCancellation,
   searchCancellations,
   searchReturns,
@@ -82,7 +88,6 @@ import {
   acceptPaymentDispute,
   addDisputeEvidence,
   contestPaymentDispute,
-  disputeOutcomeToSaleStatus,
   getPaymentDispute,
   getPaymentDisputeActivity,
   isDisputeActionable,
@@ -115,76 +120,31 @@ const MAX_RETURN_EVIDENCE_FILES = 6;
 // idempotent at the eBay layer (a second decide on a resolved case is treated as
 // success).
 
-// Update the local sale's lifecycle after an eBay outcome (best-effort). Scoped
-// to the owner; needs the eBay order id from the request (the UI has it).
-async function applyOutcomeToSale(
+// PS-04: the order an outcome acts on comes from our stored case, not from the
+// request body. The body is the fallback only when we have no row for the case,
+// and the audit row says so. A body that disagrees with the record is logged
+// and ignored: acting on it could refund, restock and reverse the payout on a
+// different one of this seller's sales.
+async function resolveOutcomeOrder(
   ownerId: string,
-  orderId: unknown,
-  outcome:
-    | "return_refunded"
-    | "return_declined"
-    | "cancel_approved"
-    | "cancel_rejected",
-): Promise<void> {
-  const status = outcomeToSaleStatus(outcome);
-  if (!status || typeof orderId !== "string" || !orderId) return;
-  const { data: updatedSales, error } = await supabaseAdmin
-    .from("sales")
-    .update({ status, cancelled_at: new Date().toISOString() })
-    .eq("user_id", ownerId)
-    .eq("platform_order_id", orderId)
-    .select("id, inventory_item_id, listing_id");
-  if (error) {
-    console.error("[ebay.postorder] local sale update failed:", error.message);
-    return;
+  caseType: PostSaleCaseType,
+  externalId: string,
+  bodyOrderId: unknown,
+  stored?: StoredCaseRef | null,
+): Promise<{ orderId: string | null; audit: Record<string, unknown> }> {
+  const ref = stored !== undefined
+    ? stored
+    : await loadStoredCaseRef(ownerId, caseType, externalId);
+  const chosen = chooseOrderId(ref?.externalOrderId ?? null, bodyOrderId);
+  if (chosen.mismatch) {
+    console.warn(
+      `[ebay.postorder] ${caseType} ${externalId}: body order_id disagrees with the stored case; using the stored one`,
+    );
   }
-
-  // US-1451: a refunded return / approved cancellation means the item came back —
-  // only flipping the sale to refunded/cancelled strands the item as sold/shipped
-  // (outside the relist loop) and still counts it in Sold aggregates. Restore the
-  // item to 'returned' (the relist-loop entry) and end its listing so it's no
-  // longer shown live. Only refunded/cancelled reach here (declines/rejections
-  // returned above), so both outcomes restore. Ids come from the tenant-scoped
-  // sale rows we just updated, so the item/listing writes are provably owned.
-  const rows = (updatedSales ?? []) as Array<{
-    id: string;
-    inventory_item_id: string | null;
-    listing_id: string | null;
-  }>;
-
-  // US-2022: the item coming back means the consignor was paid for a sale that
-  // no longer exists. Reverse (or cancel) their payout — without this the row
-  // stays 'paid' forever and the seller silently eats the consignor's cut.
-  // Best-effort and idempotent, like the item/listing restores below.
-  await reverseConsignorPayoutsForSales(
-    rows.map((r) => r.id),
-    ownerId,
-    { reason: `ebay ${outcome}` },
-  ).catch((err) => {
-    console.error("[ebay.postorder] consignor payout reversal failed:", err);
-  });
-  const itemIds = [...new Set(rows.map((r) => r.inventory_item_id).filter(Boolean))] as string[];
-  const listingIds = [...new Set(rows.map((r) => r.listing_id).filter(Boolean))] as string[];
-
-  if (itemIds.length > 0) {
-    const { error: iErr } = await supabaseAdmin
-      .from("inventory_items")
-      .update({ status: "returned" })
-      .eq("user_id", ownerId)
-      .in("id", itemIds);
-    if (iErr) {
-      console.error("[ebay.postorder] item restore failed:", iErr.message);
-    }
-  }
-  if (listingIds.length > 0) {
-    const { error: lErr } = await supabaseAdmin
-      .from("listings")
-      .update({ listing_status: "ended", is_active: false })
-      .in("id", listingIds);
-    if (lErr) {
-      console.error("[ebay.postorder] listing restore failed:", lErr.message);
-    }
-  }
+  const audit: Record<string, unknown> = { order_id: chosen.orderId };
+  if (chosen.source === "client") audit.order_source = "client";
+  if (chosen.mismatch) audit.order_id_mismatch = true;
+  return { orderId: chosen.orderId, audit };
 }
 
 // A 4xx whose body says the case is already resolved → treat the action as a
@@ -253,8 +213,9 @@ flipdeskEbayRoutes.post("/returns/:returnId/decide", async (c) => {
       return failSafe(c, 502, "eBay rejected the return decision.", err, "ebay.returns.decide");
     }
   }
+  const order = await resolveOutcomeOrder(ownerId, "return", returnId, body.order_id);
   if (decision === "decline") {
-    await applyOutcomeToSale(ownerId, body.order_id, "return_declined");
+    await applyOutcomeToSale(ownerId, order.orderId, "return_declined");
     // US-2927: reflect the decision on the stored case now rather than waiting
     // for the next poll, so the page the seller acted from is not still showing
     // the return as needing them.
@@ -266,7 +227,7 @@ flipdeskEbayRoutes.post("/returns/:returnId/decide", async (c) => {
     action: `ebay.return.${decision}`,
     targetType: "ebay_return",
     targetId: returnId,
-    details: { order_id: body.order_id ?? null },
+    details: order.audit,
   });
   return c.json({ ok: true });
 });
@@ -292,13 +253,14 @@ flipdeskEbayRoutes.post("/returns/:returnId/refund", async (c) => {
       return failSafe(c, 502, "eBay rejected the refund.", err, "ebay.returns.refund");
     }
   }
-  await applyOutcomeToSale(ownerId, body.order_id, "return_refunded");
+  const order = await resolveOutcomeOrder(ownerId, "return", returnId, body.order_id);
+  await applyOutcomeToSale(ownerId, order.orderId, "return_refunded");
   await markPostSaleCaseClosed(ownerId, "return", returnId, "refunded");
   await writeAuditLog(c, {
     action: "ebay.return.refund",
     targetType: "ebay_return",
     targetId: returnId,
-    details: { order_id: body.order_id ?? null },
+    details: order.audit,
   });
   return c.json({ ok: true });
 });
@@ -412,13 +374,16 @@ flipdeskEbayRoutes.post("/inquiries/:inquiryId/refund", async (c) => {
       return failSafe(c, 502, "eBay rejected the refund.", err, "ebay.inquiries.refund");
     }
   }
-  await applyOutcomeToSale(ownerId, body.order_id, "return_refunded");
+  // PS-03: the parcel never arrived, so the refund must not put the garment
+  // back into stock. inr_refunded marks the sale refunded and leaves the item.
+  const order = await resolveOutcomeOrder(ownerId, "inquiry", inquiryId, body.order_id);
+  await applyOutcomeToSale(ownerId, order.orderId, "inr_refunded");
   await markPostSaleCaseClosed(ownerId, "inquiry", inquiryId, "refunded");
   await writeAuditLog(c, {
     action: "ebay.inquiry.refund",
     targetType: "ebay_inquiry",
     targetId: inquiryId,
-    details: { order_id: body.order_id ?? null },
+    details: order.audit,
   });
   return c.json({ ok: true });
 });
@@ -555,13 +520,24 @@ flipdeskEbayRoutes.post("/cases/:caseId/refund", async (c) => {
       return failSafe(c, 502, "eBay rejected the refund.", err, "ebay.cases.refund");
     }
   }
-  await applyOutcomeToSale(ownerId, body.order_id, "return_refunded");
+  // PS-03: a case escalated from an item-not-received inquiry is about a parcel
+  // that never arrived; one escalated from a return is about an item the buyer
+  // has. Only the second restocks.
+  const stored = await loadStoredCaseRef(ownerId, "case", caseId);
+  const escalatedFromInquiry = stored?.escalatedFrom
+    ? await isStoredInquiry(ownerId, stored.escalatedFrom)
+    : false;
+  const outcome = isItemNotReceivedCase({ reason: stored?.reason, escalatedFromInquiry })
+    ? "inr_refunded"
+    : "return_refunded";
+  const order = await resolveOutcomeOrder(ownerId, "case", caseId, body.order_id, stored);
+  await applyOutcomeToSale(ownerId, order.orderId, outcome);
   await markPostSaleCaseClosed(ownerId, "case", caseId, "refunded");
   await writeAuditLog(c, {
     action: "ebay.case.refund",
     targetType: "ebay_case",
     targetId: caseId,
-    details: { order_id: body.order_id ?? null },
+    details: { ...order.audit, outcome },
   });
   return c.json({ ok: true });
 });
@@ -1168,38 +1144,15 @@ flipdeskEbayRoutes.post("/orders/:orderId/refund", async (c) => {
   }
 
   // Ownership FIRST — before any eBay call, and before any parsing that could
-  // leak the order's existence through a differently-shaped error.
-  // PostgREST returns an embed as an object for a to-one relationship and an
-  // array for a to-many, and which one you get depends on how it reads the FK.
-  // Handling both is cheaper than being wrong about it in a route that a seller
-  // only reaches while trying to refund somebody.
-  const saleConnectionId = (row: unknown): string | undefined => {
-    const l = (row as { listings?: unknown } | null)?.listings;
-    const one = Array.isArray(l) ? l[0] : l;
-    const id = (one as { marketplace_connection_id?: string | null } | null)
-      ?.marketplace_connection_id;
-    return id ?? undefined;
-  };
-
-  // US-2804: `sales` has NO marketplace_connection_id column — it lives on
-  // `listings` (00338), and sales reaches it through listing_id. Selecting it
-  // directly answered 42703, so this ownership check errored on every call and
-  // the refund route returned 500 to every seller who tried it.
-  //
-  // It fails CLOSED, which is the one piece of luck here: the check errored
-  // rather than passing, so no foreign order was ever reachable. The route was
-  // dead, not open.
-  const { data: sale, error: saleErr } = await supabaseAdmin
-    .from("sales")
-    .select("id, listings(marketplace_connection_id)")
-    .eq("user_id", ownerId)
-    .eq("platform_order_id", orderId)
-    .maybeSingle();
-  if (saleErr) {
-    console.error("[ebay.orders.refund] sale lookup failed:", saleErr.message);
+  // leak the order's existence through a differently-shaped error. PS-05: a
+  // multi-item order has one sales row per line, so this reads them all
+  // rather than demanding exactly one (see lib/order-refund-owner.ts).
+  const ownership = await resolveOrderOwnership(ownerId, orderId);
+  if (!ownership.ok) {
+    console.error("[ebay.orders.refund] sale lookup failed:", ownership.error);
     return c.json({ error: "Couldn't look up that order." }, 500);
   }
-  if (!sale) {
+  if (!ownership.owned) {
     // Deliberately the same 404 a nonexistent order gets: a foreign order must not
     // be distinguishable from one that isn't there.
     return c.json({ error: "Order not found." }, 404);
@@ -1243,9 +1196,8 @@ flipdeskEbayRoutes.post("/orders/:orderId/refund", async (c) => {
       orderId,
       input,
       // Through the embed, since the column is on `listings`. A sale with no
-      // linked listing yields undefined, which is the same fallback the old
-      // (never-reached) expression had: use the default connection.
-      saleConnectionId(sale),
+      // linked listing yields undefined: use the default connection.
+      ownership.connectionId,
     );
   } catch (err) {
     return failSafe(c, 502, "eBay rejected the refund.", err, "ebay.orders.refund");
@@ -1347,13 +1299,14 @@ flipdeskEbayRoutes.post("/cancellations/:cancelId/approve", async (c) => {
       return failSafe(c, 502, "eBay rejected the cancellation approval.", err, "ebay.cancel.approve");
     }
   }
-  await applyOutcomeToSale(ownerId, body.order_id, "cancel_approved");
+  const order = await resolveOutcomeOrder(ownerId, "cancellation", cancelId, body.order_id);
+  await applyOutcomeToSale(ownerId, order.orderId, "cancel_approved");
   await markPostSaleCaseClosed(ownerId, "cancellation", cancelId, "approved");
   await writeAuditLog(c, {
     action: "ebay.cancellation.approve",
     targetType: "ebay_cancellation",
     targetId: cancelId,
-    details: { order_id: body.order_id ?? null },
+    details: order.audit,
   });
   return c.json({ ok: true });
 });
@@ -1666,21 +1619,17 @@ flipdeskEbayRoutes.post("/payment-disputes/:id/accept", async (c) => {
   } catch (err) {
     return failSafe(c, 502, "eBay rejected accepting the dispute.", err, "ebay.disputes.accept");
   }
-  const status = disputeOutcomeToSaleStatus("accepted");
-  if (status && typeof body.order_id === "string" && body.order_id) {
-    const { error } = await supabaseAdmin
-      .from("sales")
-      .update({ status, cancelled_at: new Date().toISOString() } as never)
-      .eq("user_id", ownerId)
-      .eq("platform_order_id", body.order_id);
-    if (error) console.error("[ebay.disputes.accept] sale update:", error.message);
-  }
+  // PS-03: the same helper as every other outcome, so an accepted dispute also
+  // reverses the consignor payout. The buyer keeps the item, so nothing is
+  // restocked (dispute_accepted has no item or listing write).
+  const order = await resolveOutcomeOrder(ownerId, "payment_dispute", disputeId, body.order_id);
+  await applyOutcomeToSale(ownerId, order.orderId, "dispute_accepted");
   await markPostSaleCaseClosed(ownerId, "payment_dispute", disputeId, "accepted");
   await writeAuditLog(c, {
     action: "ebay.dispute.accept",
     targetType: "ebay_payment_dispute",
     targetId: disputeId,
-    details: { order_id: body.order_id ?? null },
+    details: order.audit,
   });
   return c.json({ ok: true });
 });

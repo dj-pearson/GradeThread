@@ -112,6 +112,9 @@ export const repricePreviewTool: McpToolDefinition = {
         if (r.skip === "no_comps") {
           return `SKIP · ${label} · not enough sold comparables to price it`;
         }
+        if (r.skip === "listing_not_active") {
+          return `SKIP · ${label} · this listing is no longer live`;
+        }
         if (r.skip === "below_margin_floor") {
           return `SKIP · ${label} · ${money(r.suggested_price_cents)} is below your cost floor of ` +
             `${money(r.margin_floor_cents ?? 0)}`;

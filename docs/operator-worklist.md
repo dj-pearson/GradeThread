@@ -1,6 +1,6 @@
 # What the backlog is waiting on you for
 
-Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 172 of 294 open stories carry at least one OPERATOR criterion — a step only you can take.
+Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 172 of 295 open stories carry at least one OPERATOR criterion — a step only you can take.
 
 This is not a list of blocked work. Most of these stories have buildable criteria before the operator step, and several were finished this session right up to it. It is a list of the last mile.
 
@@ -8,24 +8,7 @@ This is not a list of blocked work. Most of these stories have buildable criteri
 
 Computed from supabase/held-migrations.json and the criteria below, so it is right on the day you read it. Everything under this heading is two sittings, and it is the two that move the most stories.
 
-**1. Apply the 12 held migrations, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
-
-- `00823_imported_sales_shipped.sql` — US-3465 — old imported sales out of the Ship queue
-- `00824_get_or_create_source_tenant_scope.sql` — security - a signed-in user could write another seller's sources
-- `00825_api_keys_no_client_writes.sql` — security - a key owner could raise their own API tier and clear their quota
-- `00826_close_period_rebuilds_ledger.sql` — money - closing a period froze stale ledger figures
-- `00827_listings_publish_attempts.sql` — marketplaces - cap scheduled-publish retries
-- `00828_ledger_rebuild_skips_closed_periods.sql` — money plan action 3 - a rebuild must not move a closed period
-- `00829_close_period_figures_caller_only.sql` — security - closing figures covered every seller
-- `00830_account_webhooks.sql` — extensions-api plan actions 2+3 - customer webhook secret, one delivery per account, durable retries
-- `00831_source_item_counts.sql` — flipdesk-inventory plan action 7 - Sources page counts items in SQL
-- `00832_one_ebay_draft_per_item.sql` — marketplaces plan action 3 - one AutoLister eBay draft per item
-- `00833_inventory_table_owner_scope.sql` — INV-D1 - Inventory table and tab counts mixed two workspaces
-- `00834_overview_metrics_owner_scope.sql` — INV-D1 - FlipDesk Overview on /dashboard mixed two workspaces
-
-   Applying them and flipping each heading to `## ✅ APPLIED:` with a date is also what clears `node scripts/held-migration-gate.mjs --ci`, which CI runs first and which fails on any branch carrying a held migration. Until then a pull request from a branch that has one cannot go green, however good the rest of it is.
-
-**2. Redeploy the edge on Coolify.** Its boot guard expects the schema version the migrations above just set, so this follows them rather than leading. That one deploy is the precondition for **7 stories** whose remaining step is a measurement taken afterwards, not separate work: US-3457, US-3146, US-3149, US-3147, US-3148, US-3472, US-3028.
+**1. Redeploy the edge on Coolify.** Its boot guard expects the schema version the migrations above just set, so this follows them rather than leading. That one deploy is the precondition for **7 stories** whose remaining step is a measurement taken afterwards, not separate work: US-3457, US-3146, US-3149, US-3147, US-3148, US-3472, US-3028.
 
 ---
 

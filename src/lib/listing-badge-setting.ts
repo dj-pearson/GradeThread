@@ -57,11 +57,11 @@ export function badgeSettingFrom(
   return { optOut: row?.listing_badge_opt_out === true, writable: true };
 }
 
-export function useListingBadgeSetting() {
+export function useListingBadgeSetting(enabled = true) {
   const user = useAuthStore((s) => s.user);
   return useQuery({
     queryKey: [LISTING_BADGE_QUERY_KEY, user?.id],
-    enabled: !!user,
+    enabled: !!user && enabled,
     staleTime: 30 * 60 * 1000,
     queryFn: async (): Promise<BadgeSetting> => {
       const { data, error } = await supabase
@@ -69,6 +69,10 @@ export function useListingBadgeSetting() {
         .select("listing_badge_opt_out")
         .eq("user_id", user!.id)
         .maybeSingle();
+      // MP-06: a read that failed for any reason OTHER than the missing column
+      // is an error, so the switch can say it could not load instead of
+      // showing a preference nobody read.
+      if (error && !isMissingBadgeColumn(error)) throw error;
       return badgeSettingFrom(
         data as { listing_badge_opt_out?: boolean | null } | null,
         error,

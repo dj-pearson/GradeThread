@@ -29,6 +29,7 @@
 // Pure. The eBay call and the database reads live in the runner.
 
 import { clampMarkdownPct } from "./ebay-marketing.ts";
+import { effectiveFloorCents } from "./repricing-rules.ts";
 
 export interface MarkdownRuleConfig {
   /** Only items listed at least this long. */
@@ -38,8 +39,15 @@ export interface MarkdownRuleConfig {
   /** Minimum margin over acquisition cost the marked-down price must clear. */
   marginFloorPct: number;
   /**
-   * Items graded below this are excluded. Null includes every grade, INCLUDING
-   * ungraded items — see selectMarkdownItems for why that direction is safe.
+   * The HIGHEST grade the sale may include: items graded above it are kept out,
+   * so a clearance does not discount the best-condition pieces. Null includes
+   * every grade, INCLUDING ungraded items — see selectMarkdownItems for why that
+   * direction is safe.
+   *
+   * The name is historical (the wire field is `min_grade`). It was read as a
+   * minimum here while the form said "keep grades above N out" and the summary
+   * said "grade N and under only", so a seller asking to protect their best
+   * stock got a sale of ONLY their best stock.
    */
   minGrade: number | null;
 }
@@ -52,6 +60,12 @@ export interface MarkdownCandidate {
   daysListed: number | null;
   /** The assigned overall grade, or null when the item was never graded here. */
   grade: number | null;
+  /**
+   * The seller's hard floor on the garment, in cents (US-3192). The sale price
+   * must clear it as well as the cost-plus-margin floor. Optional so callers
+   * that predate it keep working; absent or null means none was set.
+   */
+  itemFloorCents?: number | null;
 }
 
 export type MarkdownExclusion =
@@ -103,13 +117,18 @@ export function selectMarkdownItems(
       excluded.push({ item, reason: "too_new" });
       continue;
     }
-    if (cfg.minGrade != null && item.grade != null && item.grade < cfg.minGrade) {
+    if (cfg.minGrade != null && item.grade != null && item.grade > cfg.minGrade) {
       excluded.push({ item, reason: "below_min_grade" });
       continue;
     }
-    if (item.costCents != null && item.costCents > 0) {
+    // The binding floor is the higher of cost-plus-margin and the seller's own
+    // floor on the garment. Either one alone is enough to keep an item out.
+    const costFloor = item.costCents != null && item.costCents > 0
+      ? Math.round(item.costCents * (1 + cfg.marginFloorPct / 100))
+      : null;
+    const floor = effectiveFloorCents(costFloor, item.itemFloorCents ?? null);
+    if (floor != null) {
       const discounted = Math.round(item.priceCents * (1 - pct / 100));
-      const floor = Math.round(item.costCents * (1 + cfg.marginFloorPct / 100));
       if (discounted < floor) {
         excluded.push({ item, reason: "below_margin_floor" });
         continue;

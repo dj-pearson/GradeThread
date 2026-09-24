@@ -2,6 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
+import {
+  applyRefusalMessage,
+  runChunkedApply,
+  scanSummary,
+  type AppliedRow,
+} from "@/pages/flipdesk/reprice-plan";
 
 // Condition-aware dynamic repricing — nudges feed + scan/apply/dismiss.
 
@@ -94,15 +100,16 @@ export function useScanRepricing() {
       const data = (await res.json().catch(() => ({}))) as {
         scanned?: number;
         actionable?: number;
+        errors?: number;
         error?: string;
       };
       if (!res.ok) throw new Error(data.error ?? "Scan failed");
       return data;
     },
     onSuccess: (r) => {
-      toast.success(
-        `Scanned ${r.scanned ?? 0} listing${r.scanned === 1 ? "" : "s"} — ${r.actionable ?? 0} repricing nudge${r.actionable === 1 ? "" : "s"}.`,
-      );
+      const summary = scanSummary(r);
+      if ((r.errors ?? 0) > 0) toast.warning(summary);
+      else toast.success(summary);
       queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
     },
     onError: (err: Error) => toastError(err),
@@ -122,8 +129,11 @@ export function useApplyReprice() {
         new_price?: number;
         ebay_synced?: boolean;
         error?: string;
+        reason?: string;
       };
-      if (!res.ok) throw new Error(data.error ?? "Failed to apply");
+      if (!res.ok) {
+        throw new Error(applyRefusalMessage(data.reason) ?? data.error ?? "Failed to apply");
+      }
       return data;
     },
     onSuccess: (r) => {
@@ -135,16 +145,22 @@ export function useApplyReprice() {
       toast.success(
         `Price changed ${move}${r.ebay_synced ? " and pushed to eBay" : ""}.`,
       );
-      queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
     },
     onError: (err: Error) => toastError(err),
+    // A refusal is news too: the row it came from is dead or stale, so the
+    // queue, the inventory prices and the audit feed all refresh either way.
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
+      queryClient.invalidateQueries({ queryKey: ["items_full"] });
+      queryClient.invalidateQueries({ queryKey: ["repricing_actions"] });
+    },
   });
 }
 
 // US-962: bulk match-to-comp reprice. Preview computes a per-listing suggested
 // price off the repricing engine; apply pushes it (eBay where present + local),
 // respecting the margin floor server-side.
-export type BulkRepriceSkip = "no_comps" | "below_margin_floor";
+export type BulkRepriceSkip = "no_comps" | "below_margin_floor" | "listing_not_active";
 
 export interface BulkRepricePreviewRow {
   listing_id: string;
@@ -170,7 +186,13 @@ export interface BulkRepriceApplyResult {
   ebay_synced: number;
   skipped: Array<{ listing_id: string; reason: BulkRepriceSkip | "not_found" }>;
   errors: Array<{ listing_id: string; message: string }>;
+  /** Each changed row with the price it replaced, for an honest Undo. */
+  applied_rows: AppliedRow[];
+  /** Ids the server did not reach. Empty unless a request went over its cap. */
+  not_processed: string[];
 }
+
+export type BulkRepriceItem = { listing_id: string; price_cents: number };
 
 export function useBulkRepricePreview() {
   return useMutation({
@@ -192,27 +214,42 @@ export function useBulkRepricePreview() {
 export function useBulkRepriceApply() {
   const queryClient = useQueryClient();
   return useMutation({
+    // A bare array applies nudges; `{ items, revert: true }` is an Undo, which
+    // the server logs as such and which does not mark suggestions applied.
     mutationFn: async (
-      items: Array<{ listing_id: string; price_cents: number }>,
+      arg: BulkRepriceItem[] | { items: BulkRepriceItem[]; revert?: boolean },
     ): Promise<BulkRepriceApplyResult> => {
-      const res = await edgeFetch("/api/flipdesk/pricing/reprice/apply", {
-        method: "POST",
-        json: { items },
-      });
-      const data = (await res.json().catch(() => ({}))) as
-        & Partial<BulkRepriceApplyResult>
-        & { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Couldn't apply the new prices.");
-      return {
-        applied: data.applied ?? 0,
-        ebay_synced: data.ebay_synced ?? 0,
-        skipped: data.skipped ?? [],
-        errors: data.errors ?? [],
-      };
+      const items = Array.isArray(arg) ? arg : arg.items;
+      const revert = !Array.isArray(arg) && arg.revert === true;
+      const many = items.length > 50;
+      const toastId = many ? toast.loading(`Applying 0 of ${items.length}`) : undefined;
+      try {
+        const merged = await runChunkedApply(
+          items,
+          async (chunk) => {
+            const res = await edgeFetch("/api/flipdesk/pricing/reprice/apply", {
+              method: "POST",
+              json: revert ? { items: chunk, revert: true } : { items: chunk },
+            });
+            const data = (await res.json().catch(() => ({}))) as
+              & Partial<BulkRepriceApplyResult>
+              & { error?: string };
+            if (!res.ok) throw new Error(data.error ?? "Couldn't apply the new prices.");
+            return data;
+          },
+          (done, total) => {
+            if (toastId !== undefined) toast.loading(`Applying ${done} of ${total}`, { id: toastId });
+          },
+        );
+        return merged as BulkRepriceApplyResult;
+      } finally {
+        if (toastId !== undefined) toast.dismiss(toastId);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["items_full"] });
       queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
+      queryClient.invalidateQueries({ queryKey: ["repricing_actions"] });
     },
     onError: (err: Error) => toastError(err),
   });
@@ -229,6 +266,27 @@ export function useDismissReprice() {
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error ?? "Failed to dismiss");
+      }
+      return true;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
+    },
+    onError: (err: Error) => toastError(err),
+  });
+}
+
+/** Undo a Dismiss: put the nudge back in the queue. Owner-scoped on the server. */
+export function useRestoreReprice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await edgeFetch(`/api/flipdesk/pricing/suggestions/${id}/restore`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? "Couldn't bring the suggestion back.");
       }
       return true;
     },
@@ -277,6 +335,13 @@ export interface RepriceRuleInput {
   override_manual: boolean;
 }
 
+/** The ranges normalizeRuleInput accepts on the server (lib/repricing-rules.ts). */
+export const REPRICE_RULE_BOUNDS = {
+  dropPct: { min: 1, max: 90 },
+  intervalDays: { min: 1, max: 90 },
+  minAgeDays: { min: 0, max: 365 },
+} as const;
+
 export function ruleToInput(r: RepriceRule): RepriceRuleInput {
   return {
     name: r.name,
@@ -310,6 +375,13 @@ export function useRepriceRules() {
 
 export interface RunRulesResult {
   applied: number;
+  errors: number;
+  /**
+   * "already_running" when another run for this seller held the lock,
+   * "lock_unavailable" when the run could not take one, "feature_disabled"
+   * when the repricing kill switch is on.
+   */
+  reason?: string;
 }
 
 export function useRunRepriceRules() {
@@ -324,7 +396,7 @@ export function useRunRepriceRules() {
         & Partial<RunRulesResult>
         & { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Couldn't run the rules.");
-      return { applied: data.applied ?? 0 };
+      return { applied: data.applied ?? 0, errors: data.errors ?? 0, reason: data.reason };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
@@ -377,6 +449,31 @@ export function useUpdateRepriceRule() {
   });
 }
 
+/**
+ * Pause or resume a repricing rule through PATCH, which changes only `enabled`.
+ * The PUT re-validates every field, so a rule saved before the ranges tightened
+ * could not be switched off through it.
+ */
+export function useToggleRepriceRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { id: string; enabled: boolean }): Promise<RepriceRule> => {
+      const res = await edgeFetch(`/api/flipdesk/pricing/rules/${args.id}`, {
+        method: "PATCH",
+        json: { enabled: args.enabled },
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        rule?: RepriceRule;
+        error?: string;
+      };
+      if (!res.ok || !data.rule) throw new Error(data.error ?? "Couldn't update the rule.");
+      return data.rule;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repricing_rules"] }),
+    onError: (err: Error) => toastError(err),
+  });
+}
+
 export function useDeleteRepriceRule() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -396,6 +493,8 @@ export function useDeleteRepriceRule() {
 
 export interface RepriceAction {
   id: string;
+  /** Null for a change a person made (Apply, bulk apply, Undo, a typed price). */
+  rule_id: string | null;
   listing_id: string | null;
   old_price_cents: number | null;
   new_price_cents: number | null;

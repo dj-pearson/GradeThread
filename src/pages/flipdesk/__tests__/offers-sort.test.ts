@@ -12,6 +12,7 @@ import {
   offerEconomics,
   sortMessages,
   sortOffers,
+  waitingLabel,
 } from "@/pages/flipdesk/offers-sort";
 
 const NOW = Date.parse("2026-09-09T12:00:00Z");
@@ -273,5 +274,26 @@ describe("offerEconomics", () => {
       shippingCost: 8.3,
       gradingCost: 6,
     });
+  });
+});
+
+describe("waitingLabel (OM-10)", () => {
+  const now = Date.parse("2026-09-24T12:00:00Z");
+  const ago = (h: number) => new Date(now - h * 3_600_000).toISOString();
+
+  it("is neutral under 12 hours, amber from 12 to 24, red past a day", () => {
+    expect(waitingLabel(ago(5), now)).toEqual({ hours: 5, label: "Waiting 5h", tone: "neutral" });
+    expect(waitingLabel(ago(15), now)).toEqual({ hours: 15, label: "Waiting 15h", tone: "amber" });
+    expect(waitingLabel(ago(30), now)).toEqual({ hours: 30, label: "Waiting 30h", tone: "red" });
+  });
+
+  it("switches to days past 48 hours and says so under an hour", () => {
+    expect(waitingLabel(ago(50), now)?.label).toBe("Waiting 2d");
+    expect(waitingLabel(ago(0.2), now)?.label).toBe("Waiting under an hour");
+  });
+
+  it("is null without a readable date", () => {
+    expect(waitingLabel(null, now)).toBeNull();
+    expect(waitingLabel("soon", now)).toBeNull();
   });
 });

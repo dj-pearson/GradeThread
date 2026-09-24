@@ -24,6 +24,15 @@ export interface CaseItem {
   thumbnailUrl: string | null;
   /** eBay's own item id, when the case carried one — used for the case link. */
   ebayItemId: string | null;
+  /**
+   * PS-14: what the Ship tab already stored on the sale. An item-not-received
+   * answer is usually exactly this tracking, so the dialog starts with it
+   * rather than asking the seller to find and retype it. Null when the sale
+   * has none, or the case resolved through a listing rather than a sale.
+   */
+  trackingNumber: string | null;
+  carrier: string | null;
+  shippedAt: string | null;
 }
 
 export interface CaseKey {
@@ -70,13 +79,16 @@ export function useCaseItems(keys: CaseKey[]) {
         const sales = await chunked(orderIds, 50, async (chunk) => {
           const { data, error } = await supabase
             .from("sales")
-            .select("inventory_item_id, sale_price, platform_order_id")
+            .select("inventory_item_id, sale_price, platform_order_id, tracking_number, carrier, shipped_at")
             .in("platform_order_id", chunk);
           if (error) throw error;
           return ((data ?? []) as unknown) as {
             inventory_item_id: string | null;
             sale_price: number | null;
             platform_order_id: string | null;
+            tracking_number: string | null;
+            carrier: string | null;
+            shipped_at: string | null;
           }[];
         });
         for (const s of sales) {
@@ -89,6 +101,9 @@ export function useCaseItems(keys: CaseKey[]) {
             acquiredPrice: null,
             thumbnailUrl: null,
             ebayItemId: null,
+            trackingNumber: s.tracking_number ?? null,
+            carrier: s.carrier ?? null,
+            shippedAt: s.shipped_at ?? null,
           });
         }
       }
@@ -118,6 +133,9 @@ export function useCaseItems(keys: CaseKey[]) {
             acquiredPrice: null,
             thumbnailUrl: null,
             ebayItemId: l.platform_listing_id,
+            trackingNumber: existing?.trackingNumber ?? null,
+            carrier: existing?.carrier ?? null,
+            shippedAt: existing?.shippedAt ?? null,
           });
         }
       }

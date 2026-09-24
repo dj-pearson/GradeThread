@@ -25,6 +25,9 @@ import {
   useEbayPromotions,
 } from "@/hooks/use-ebay";
 import { EbayPromotionDialog } from "@/components/flipdesk/ebay-promotion-dialog";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { InlineRetry } from "@/components/flipdesk/inline-retry";
+import { roleNeededNote, roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-1448 (chunk 1): surface the seller's eBay Promotions Manager item promotions
 // (order/volume discounts, coupons, sale events). Self-gates on connection.
@@ -59,16 +62,44 @@ function statusVariant(s: string | null): "default" | "secondary" | "outline" {
 export function EbayPromotionsCard() {
   const { data: connection } = useEbayConnection();
   const connected = !!connection;
-  const { data, isLoading } = useEbayPromotions(connected);
+  const { data, isLoading, isError, refetch } = useEbayPromotions(connected);
   const del = useDeleteItemPromotion();
+  // MP-02: create, edit and end need listing_manager on the edge.
+  const { can } = useWorkspace();
+  const canAds = can("manage_ads");
+  const adsTitle = canAds ? undefined : roleNeededTitle("manage_ads");
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmEnd, setConfirmEnd] = useState<{ id: string; name: string } | null>(null);
 
   if (!connected) return null;
-  if (isLoading || !data) return null;
-  if (data.access === false) return null;
+  if (isLoading) return null;
+  // MP-11: an error and a missing grant used to render nothing at all.
+  if (isError || !data || data.access === false) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Tag className="h-4 w-4" />
+            eBay promotions
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data?.access === false ? (
+            <p className="text-sm text-muted-foreground">
+              Reconnect eBay to manage promotions.
+            </p>
+          ) : (
+            <InlineRetry
+              message="Couldn't load your eBay promotions."
+              onRetry={() => void refetch()}
+            />
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   const promotions = data.promotions ?? [];
 
@@ -96,13 +127,18 @@ export function EbayPromotionsCard() {
                 eBay Promotions Manager.
               </CardDescription>
             </div>
-            <Button size="sm" onClick={openCreate}>
+            <Button size="sm" onClick={openCreate} disabled={!canAds} title={adsTitle}>
               <Plus className="mr-1 h-4 w-4" />
               New
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          {!canAds && (
+            <p className="text-xs text-muted-foreground">
+              {roleNeededNote("manage_ads", "create, edit or end promotions")}
+            </p>
+          )}
           {promotions.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No promotions yet. Create an order discount, volume pricing or a coupon
@@ -136,6 +172,8 @@ export function EbayPromotionsCard() {
                           <Button
                             size="sm"
                             variant="ghost"
+                            disabled={!canAds}
+                            title={adsTitle}
                             onClick={() => openEdit(p.promotionId)}
                             aria-label={`Edit ${p.name ?? typeLabel(p.promotionType)}`}
                           >
@@ -146,6 +184,8 @@ export function EbayPromotionsCard() {
                             variant="ghost"
                             className="text-destructive hover:text-destructive"
                             aria-label={`End ${p.name ?? typeLabel(p.promotionType)}`}
+                            disabled={!canAds}
+                            title={adsTitle}
                             onClick={() =>
                               setConfirmEnd({
                                 id: p.promotionId,

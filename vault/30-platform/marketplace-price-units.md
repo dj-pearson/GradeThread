@@ -11,7 +11,7 @@ code_refs:
   - services/edge-functions/src/lib/cross-listing-fields.ts
   - supabase/migrations/00806_repair_whole_dollar_listing_prices.sql
   - scripts/diagnose-whole-dollar-price-drift.mjs
-reviewed: 2026-09-19
+reviewed: 2026-09-24
 tags: [platform, marketplace, money, crosslisting, poshmark, vinted]
 summary: FlipDesk holds money as dollars; Poshmark and Vinted price in whole dollars and their input refuses a decimal point, so one rule (stepPriceCents) converts at the boundary, MarketplaceSpec.priceStep is the only place that knows which marketplace needs it, and 00806 repairs the rows written before either existed.
 ---

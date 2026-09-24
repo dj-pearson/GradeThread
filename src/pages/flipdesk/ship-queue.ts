@@ -144,13 +144,42 @@ export function shipFallsBackToLocal(status: number | null | undefined): boolean
 }
 
 /** Which path actually recorded the shipment, so the toast can say so. */
-export type ShipPath = "ebay" | "local";
+export type ShipPath = "ebay" | "depop" | "shopify" | "local";
 
 export interface ShipOneOrderDeps {
   /** POST the tracking to the eBay ship route. Rejects with `.status` set. */
   pushToEbay: () => Promise<void>;
+  /** PS-09: the Depop and Shopify ship routes. Absent means "record locally". */
+  pushToDepop?: () => Promise<void>;
+  pushToShopify?: () => Promise<void>;
   /** Write shipped_at + tracking straight onto the seller's own sales row. */
   writeLocal: () => Promise<void>;
+  /**
+   * Called when Depop or Shopify refused the push (409/503) and the shipment
+   * was recorded here only. Those refusals are not "this was never theirs"
+   * the way eBay's 409 is: Depop answers 409 when it has not issued a parcel
+   * yet, and Shopify when it is disconnected or the sale has no Shopify order
+   * id. The row still leaves the queue, but the buyer has no tracking, and
+   * the seller has to be told that rather than read a plain "Marked shipped".
+   */
+  onPushRefused?: (path: "depop" | "shopify", err: unknown) => void;
+}
+
+async function pushOrLocal(
+  path: Exclude<ShipPath, "local">,
+  push: () => Promise<void>,
+  deps: ShipOneOrderDeps,
+): Promise<ShipPath> {
+  try {
+    await push();
+    return path;
+  } catch (err) {
+    const status = (err as { status?: number } | null | undefined)?.status;
+    if (!shipFallsBackToLocal(status)) throw err;
+    await deps.writeLocal();
+    if (path === "depop" || path === "shopify") deps.onPushRefused?.(path, err);
+    return "local";
+  }
 }
 
 /**
@@ -158,24 +187,87 @@ export interface ShipOneOrderDeps {
  *
  * Pure of React and of Supabase — both writes are injected — so the branch a
  * seller's data actually takes is testable without a browser.
+ *
+ * PS-09: `platform` is the marketplace the sale came from. A Shopify sale
+ * carries a platform_order_id too, and sending it to the eBay route got a 502
+ * the seller could never get past, so the row never left the queue. With no
+ * platform known the old rule stands: an order ref means eBay.
  */
 export async function shipOneOrder(
   orderRef: string | null | undefined,
   deps: ShipOneOrderDeps,
+  platform?: string | null,
 ): Promise<ShipPath> {
-  if (typeof orderRef !== "string" || orderRef.trim() === "") {
+  const hasRef = typeof orderRef === "string" && orderRef.trim() !== "";
+  const market = (platform ?? "").trim().toLowerCase();
+  if (market && market !== "ebay") {
+    if (market === "depop" && deps.pushToDepop) {
+      return pushOrLocal("depop", deps.pushToDepop, deps);
+    }
+    if (market === "shopify" && deps.pushToShopify) {
+      return pushOrLocal("shopify", deps.pushToShopify, deps);
+    }
+    await deps.writeLocal();
+    return "local";
+  }
+  if (!hasRef) {
     // No marketplace order to push to. Skip the round trip rather than spend it
     // on a call whose only possible answer is 409.
     await deps.writeLocal();
     return "local";
   }
-  try {
-    await deps.pushToEbay();
-    return "ebay";
-  } catch (err) {
-    const status = (err as { status?: number } | null | undefined)?.status;
-    if (!shipFallsBackToLocal(status)) throw err;
-    await deps.writeLocal();
-    return "local";
-  }
+  return pushOrLocal("ebay", deps.pushToEbay, deps);
+}
+
+/** PS-09: what the ship button says, per marketplace. */
+export function shipButtonLabel(platform: string | null | undefined, orderRef: string | null): string {
+  const market = (platform ?? "").trim().toLowerCase();
+  const isEbay = market === "ebay" || (!market && (orderRef ?? "").trim() !== "");
+  if (isEbay) return "Ship + send to eBay";
+  // These two push tracking too (shipOneOrder), so the label says so.
+  if (market === "shopify") return "Ship + send to Shopify";
+  if (market === "depop") return "Ship + send to Depop";
+  return "Mark shipped";
+}
+
+// ── PS-10: fast tracking entry ──────────────────────────────────────────────
+//
+// A free-text carrier box meant a blank or misspelt carrier, and the eBay ship
+// route maps anything it does not recognise to "Other", so the buyer got a
+// tracking number with no carrier link. The carrier is now a pick from the
+// four eBay knows (plus Other), prefilled from the shape of the number.
+
+/** The carriers the edge's EBAY_CARRIER_CODES maps, plus its fallback. */
+export const SHIP_CARRIERS = ["USPS", "UPS", "FedEx", "DHL", "Other"] as const;
+export type ShipCarrier = (typeof SHIP_CARRIERS)[number];
+
+/** Scanners and people both add spaces; eBay wants the bare string. */
+export function normalizeTracking(raw: string): string {
+  return raw.replace(/\s+/g, "").toUpperCase();
+}
+
+/**
+ * The carrier a tracking number belongs to, from its shape. Null when the
+ * shape is not one we recognise, so the seller picks rather than we guess.
+ *
+ * USPS is tested before FedEx because both issue 20-digit numbers; a USPS one
+ * starts 92 to 95.
+ */
+export function detectCarrier(tracking: string): Exclude<ShipCarrier, "Other"> | null {
+  const t = normalizeTracking(tracking);
+  if (/^1Z[0-9A-Z]{16}$/.test(t)) return "UPS";
+  if (/^9[2-5]\d{18,20}$/.test(t)) return "USPS";
+  // Label barcodes prefix the tracking with 420 and the destination ZIP
+  // (5 or 9 digits).
+  if (/^420\d{5}(\d{4})?9[2-5]\d{18,20}$/.test(t)) return "USPS";
+  if (/^(\d{12}|\d{15}|\d{20})$/.test(t)) return "FedEx";
+  if (/^\d{10}$/.test(t)) return "DHL";
+  return null;
+}
+
+/** The tracking number a 420+ZIP barcode carries, or the input unchanged. */
+export function stripUspsZipPrefix(tracking: string): string {
+  const t = normalizeTracking(tracking);
+  const m = /^420\d{5}(?:\d{4})?(9[2-5]\d{18,20})$/.exec(t);
+  return m ? m[1]! : t;
 }

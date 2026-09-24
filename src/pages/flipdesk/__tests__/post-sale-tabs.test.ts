@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_POST_SALE_TAB,
   POST_SALE_TABS,
+  pickOpeningTab,
+  POST_SALE_QUEUES,
   postSaleTabCounts,
+  queuesForTab,
   resolvePostSaleTabId,
   tabForKind,
+  tabLoadState,
 } from "@/pages/flipdesk/post-sale-tabs";
 import type { NeedsYouItem, NeedsYouKind } from "@/pages/flipdesk/needs-you";
 
@@ -110,5 +114,41 @@ describe("post-sale tabs (US-3208)", () => {
     expect(new Set(POST_SALE_TABS.map((t) => t.id)).size).toBe(
       POST_SALE_TABS.length,
     );
+  });
+});
+
+describe("queuesForTab (PS-11)", () => {
+  it("maps each tab to the queues behind its badge", () => {
+    expect(queuesForTab("disputes")).toEqual(["disputes"]);
+    expect(queuesForTab("cases")).toEqual(["cases", "inquiries"]);
+    expect(queuesForTab("returns")).toEqual(["returns"]);
+    expect(queuesForTab("cancellations")).toEqual(["cancellations"]);
+    expect(queuesForTab("ship")).toEqual(["shipments"]);
+    expect(queuesForTab("insights")).toEqual([]);
+  });
+
+  it("the page's queues leave offers out", () => {
+    expect(POST_SALE_QUEUES).not.toContain("offers");
+  });
+
+  it("a tab is loading while any of its queues is, then failed, then ready", () => {
+    const q = (isLoading: boolean, isError: boolean) => ({ isLoading, isError });
+    expect(tabLoadState("cases", { cases: q(false, false), inquiries: q(true, false) })).toBe("loading");
+    expect(tabLoadState("cases", { cases: q(false, true), inquiries: q(false, false) })).toBe("error");
+    expect(tabLoadState("cases", { cases: q(false, false), inquiries: q(false, false) })).toBe("ready");
+    // Another tab's state does not leak in.
+    expect(tabLoadState("returns", { returns: q(false, false), shipments: q(true, false) })).toBe("ready");
+  });
+});
+
+describe("pickOpeningTab (PS-15)", () => {
+  it("opens the tab of the first (most urgent) item this page owns", () => {
+    expect(pickOpeningTab([item("dispute", "d1"), item("shipment", "s1")])).toBe("disputes");
+    expect(pickOpeningTab([item("offer", "o1"), item("inquiry", "i1")])).toBe("cases");
+  });
+
+  it("falls back to Ship with nothing waiting", () => {
+    expect(pickOpeningTab([])).toBe("ship");
+    expect(pickOpeningTab([item("offer", "o1")])).toBe("ship");
   });
 });

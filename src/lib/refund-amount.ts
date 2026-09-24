@@ -21,6 +21,8 @@
 //
 // So the fix is not a new capability, it is connecting one that shipped unwired.
 
+import { isNotAsDescribed } from "@/pages/flipdesk/post-sale-state";
+
 /** Cents, so the comparison never runs on floating-point dollars. */
 export interface RefundValidation {
   ok: boolean;
@@ -96,4 +98,73 @@ export function validateRefundAmount(
 export function isFullRefund(cents: number, orderTotal: number | null): boolean {
   if (orderTotal == null || !Number.isFinite(orderTotal)) return false;
   return cents >= Math.round(orderTotal * 100);
+}
+
+// ── PS-05: multi-item orders, the refund reason and the currency ────────────
+
+/** One sales row of an eBay order, as the total is computed from it. */
+export interface OrderLineRow {
+  sale_price: number | null;
+  currency: string | null;
+}
+
+export interface OrderTotal {
+  /** Dollars across every line of the order, or null when a line has no price. */
+  total: number | null;
+  /**
+   * The order's currency. A NULL column means "not reported; treated as USD"
+   * (00484), so all-null rows are USD. Lines that DISAGREE give null, and a
+   * refund against a null currency is refused rather than guessed.
+   */
+  currency: string | null;
+  lineCount: number;
+}
+
+/**
+ * The total a partial refund is checked against, across every line.
+ *
+ * A two-item eBay order is two sales rows with one platform_order_id. The old
+ * lookup used maybeSingle, which errors on two rows, so the refund box hung on
+ * "Loading order total" for every multi-item order.
+ */
+export function orderTotalFromRows(rows: OrderLineRow[]): OrderTotal {
+  if (rows.length === 0) return { total: null, currency: null, lineCount: 0 };
+  let cents = 0;
+  for (const r of rows) {
+    if (typeof r.sale_price !== "number" || !Number.isFinite(r.sale_price)) {
+      return { total: null, currency: null, lineCount: rows.length };
+    }
+    cents += Math.round(r.sale_price * 100);
+  }
+  const currencies = new Set(rows.map((r) => (r.currency ?? "USD").toUpperCase()));
+  return {
+    total: cents / 100,
+    currency: currencies.size === 1 ? [...currencies][0]! : null,
+    lineCount: rows.length,
+  };
+}
+
+/**
+ * eBay's reasonForRefund for a return's partial refund. A condition complaint
+ * is ITEM_NOT_AS_DESCRIBED; anything else (changed mind, wrong size) is a
+ * BUYER_RETURN. It was hard-coded to the first, which put every keep-it
+ * discount on record as the seller's own misdescription.
+ */
+export function refundReasonFor(
+  returnReason: string | null | undefined,
+): "ITEM_NOT_AS_DESCRIBED" | "BUYER_RETURN" {
+  return isNotAsDescribed(returnReason) ? "ITEM_NOT_AS_DESCRIBED" : "BUYER_RETURN";
+}
+
+/** "of $45.00 for this order (2 items)", beside the refund amount box. */
+export function orderTotalLabel(
+  total: number,
+  currency: string | null,
+  lineCount: number,
+): string {
+  const money = !currency || currency === "USD"
+    ? `$${total.toFixed(2)}`
+    : `${total.toFixed(2)} ${currency}`;
+  const items = lineCount > 1 ? ` (${lineCount} items)` : "";
+  return `of ${money} for this order${items}`;
 }

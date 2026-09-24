@@ -9,7 +9,7 @@ import {
 } from "@/lib/dashboard-widgets";
 import { dropsDueWithin, type ScheduledDropRow } from "@/hooks/use-scheduled-drops";
 import { countActionsSince, type AutomationActionRow } from "@/hooks/use-automations";
-import { NEEDS_YOU_HREF, NEEDS_YOU_QUEUES } from "@/hooks/use-needs-you";
+import { NEEDS_YOU_QUEUES, needsYouHref } from "@/hooks/use-needs-you";
 
 // US-3077: the eight action widgets.
 //
@@ -126,7 +126,10 @@ describe("the needs-you merge moved into a hook (US-3077 AC1)", () => {
     ]);
     // The widget renders on the overview, where a bare "#returns" scrolls to
     // nothing. Every destination has to be a path.
-    for (const href of Object.values(NEEDS_YOU_HREF)) {
+    // PS-15: NEEDS_YOU_HREF (hash anchors, unused since DASH-15) is gone;
+    // needsYouHref is what the widget links with.
+    for (const kind of ["case", "inquiry", "dispute", "return", "cancellation", "offer", "shipment"] as const) {
+      const href = needsYouHref({ kind, id: "x" });
       expect(href.startsWith("/dashboard/flipdesk/"), href).toBe(true);
     }
   });

@@ -22,6 +22,7 @@ import {
   ensureLedgerBuilt,
   fetchLedgerEntries,
   invalidateLedgerQueries,
+  ledgerEntriesKey,
   rebuildMyLedger,
   type LedgerEntryRow,
 } from "@/lib/ledger";
@@ -121,7 +122,7 @@ export function PnlPage() {
     refetch,
     isFetching,
   } = useQuery({
-    queryKey: ["pnl-entries", user?.id, range.from, range.to],
+    queryKey: ledgerEntriesKey(user?.id, range.from, range.to),
     enabled: !!user,
     queryFn: async () => {
       // The ledger is derived, so an account that has never built one shows an
@@ -132,12 +133,21 @@ export function PnlPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: priorRows } = useQuery({
-    queryKey: ["pnl-entries", user?.id, prior.from, prior.to],
-    enabled: !!user && !isLoading,
-    queryFn: () => fetchLedgerEntries(prior.from, prior.to),
+  // Runs alongside the current read rather than after it. ensureLedgerBuilt
+  // shares one check between concurrent callers, so both wait on one build.
+  const priorQuery = useQuery({
+    queryKey: ledgerEntriesKey(user?.id, prior.from, prior.to),
+    enabled: !!user,
+    queryFn: async () => {
+      await ensureLedgerBuilt();
+      return fetchLedgerEntries(prior.from, prior.to);
+    },
     staleTime: 5 * 60 * 1000,
   });
+  const priorRows = priorQuery.data;
+  // Only a successful prior read is a comparison. A pending or failed one used
+  // to compare, and export, against a prior period of $0.
+  const priorOk = priorQuery.isSuccess;
 
   const statement = useMemo(
     () => buildStatement(toStatementEntries(currentRows ?? [])),
@@ -160,13 +170,14 @@ export function PnlPage() {
     return map;
   }, [currentRows]);
 
-  const priorByCode = useMemo(() => {
+  const priorByCode = useMemo((): Map<string, number> | null => {
+    if (!priorOk) return null;
     const map = new Map<string, number>();
     for (const s of priorStatement.sections) {
       for (const l of s.lines) map.set(l.code, l.cents);
     }
     return map;
-  }, [priorStatement]);
+  }, [priorStatement, priorOk]);
 
   async function rebuild() {
     setRebuilding(true);
@@ -198,7 +209,13 @@ export function PnlPage() {
         "Amounts are signed: income positive, costs negative, so a column sums to the total.",
       ),
     );
-    lines.push("Account,Schedule C line,Amount,Prior period");
+    // The Prior column is left out entirely when the prior read did not
+    // succeed; a column of zeros would read as a real prior period.
+    lines.push(
+      priorByCode
+        ? "Account,Schedule C line,Amount,Prior period"
+        : "Account,Schedule C line,Amount",
+    );
     for (const section of statement.sections) {
       lines.push(escapeCsvCell(section.title));
       for (const l of section.lines) {
@@ -207,7 +224,9 @@ export function PnlPage() {
             escapeCsvCell(l.label),
             escapeCsvCell(l.scheduleCLine ?? "none"),
             (l.cents / 100).toFixed(2),
-            ((priorByCode.get(l.code) ?? 0) / 100).toFixed(2),
+            ...(priorByCode
+              ? [((priorByCode.get(l.code) ?? 0) / 100).toFixed(2)]
+              : []),
           ].join(","),
         );
       }
@@ -368,9 +387,24 @@ td{padding:6px 10px;border-bottom:1px solid #e5e5e5;font-size:13px}
         )}
       </div>
 
-      <p className="text-[13px] text-muted-foreground">
-        {range.label}, compared with {prior.label.toLowerCase()}.
-      </p>
+      {priorQuery.isError ? (
+        <p className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
+          {range.label}. The comparison with {prior.label.toLowerCase()} is
+          unavailable because that period didn&apos;t load.
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void priorQuery.refetch()}
+            disabled={priorQuery.isFetching}
+          >
+            Try again
+          </Button>
+        </p>
+      ) : (
+        <p className="text-[13px] text-muted-foreground">
+          {range.label}, compared with {prior.label.toLowerCase()}.
+        </p>
+      )}
 
       {isLoading ? (
         <div className="space-y-3">
@@ -454,7 +488,9 @@ td{padding:6px 10px;border-bottom:1px solid #e5e5e5;font-size:13px}
                       statementTotals(priorStatement).find(
                         (p) => p.key === t.key,
                       )?.cents ?? 0;
-                    const d = statementDelta(t.cents, priorTotal);
+                    const d = priorOk
+                      ? statementDelta(t.cents, priorTotal)
+                      : { cents: 0, percent: null };
                     return (
                       <tr
                         key={t.key}
@@ -475,7 +511,11 @@ td{padding:6px 10px;border-bottom:1px solid #e5e5e5;font-size:13px}
                           {formatCents(t.cents)}
                         </td>
                         <td className="hidden p-3 text-right text-xs tabular-nums text-muted-foreground md:table-cell">
-                          {formatCents(priorTotal)}
+                          {priorOk ? (
+                            formatCents(priorTotal)
+                          ) : (
+                            <ComparisonUnavailable />
+                          )}
                           {d.percent !== null && (
                             <span
                               className={cn(
@@ -511,6 +551,15 @@ td{padding:6px 10px;border-bottom:1px solid #e5e5e5;font-size:13px}
   );
 }
 
+function ComparisonUnavailable() {
+  return (
+    <span title="Comparison unavailable">
+      <span aria-hidden>-</span>
+      <span className="sr-only">Comparison unavailable</span>
+    </span>
+  );
+}
+
 function SectionRows({
   title,
   sectionKey,
@@ -523,7 +572,8 @@ function SectionRows({
   title: string;
   sectionKey: string;
   lines: StatementLine[];
-  priorByCode: Map<string, number>;
+  /** Null when the prior read has not succeeded: no comparison, not $0. */
+  priorByCode: Map<string, number> | null;
   entriesFor: Map<string, LedgerEntryRow[]>;
   openLine: string | null;
   onToggle: (code: string) => void;
@@ -575,10 +625,14 @@ function SectionRows({
                 {formatCents(displayCents(l, sectionKey))}
               </td>
               <td className="hidden p-3 text-right text-xs tabular-nums text-muted-foreground md:table-cell">
-                {formatCents(
-                  sectionKey === "income" || sectionKey === "excluded"
-                    ? (priorByCode.get(l.code) ?? 0)
-                    : Math.abs(priorByCode.get(l.code) ?? 0),
+                {priorByCode ? (
+                  formatCents(
+                    sectionKey === "income" || sectionKey === "excluded"
+                      ? (priorByCode.get(l.code) ?? 0)
+                      : Math.abs(priorByCode.get(l.code) ?? 0),
+                  )
+                ) : (
+                  <ComparisonUnavailable />
                 )}
               </td>
             </tr>

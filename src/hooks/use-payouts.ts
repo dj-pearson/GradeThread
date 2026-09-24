@@ -3,6 +3,7 @@ import { toastError } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 
 import { edgeAuthHeaders } from "@/lib/edge-fetch";
 
@@ -23,15 +24,18 @@ export interface PayoutImportRow {
 // surface we just need to display the freshly-loaded rows.
 export function usePayoutImports() {
   const user = useAuthStore((s) => s.user);
+  // The workspace on screen, not every workspace RLS admits a member to.
+  const { workspaceOwnerId: ownerId } = useWorkspace();
   return useQuery({
-    queryKey: ["payout_imports", user?.id],
-    enabled: !!user,
+    queryKey: ["payout_imports", ownerId],
+    enabled: !!user && !!ownerId,
     queryFn: async (): Promise<PayoutImportRow[]> => {
       const { data, error } = await supabase
         .from("payout_imports")
         .select(
           "id, marketplace, import_method, payout_date, amount, reconciled, sale_id, raw_payload, created_at",
         )
+        .eq("user_id", ownerId ?? "")
         .order("payout_date", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -85,9 +89,12 @@ export interface ReconciliationQueue {
 
 export function useReconciliationQueue() {
   const user = useAuthStore((s) => s.user);
+  // Keyed on the workspace the edge answers for (X-Workspace-Owner), not the
+  // signed-in user, so a switch cannot serve the last workspace's queue.
+  const { workspaceOwnerId: ownerId } = useWorkspace();
   return useQuery({
-    queryKey: ["reconciliation_queue", user?.id],
-    enabled: !!user,
+    queryKey: ["reconciliation_queue", ownerId],
+    enabled: !!user && !!ownerId,
     queryFn: async (): Promise<ReconciliationQueue> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/reconciliation/queue`,
@@ -95,7 +102,12 @@ export function useReconciliationQueue() {
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(json.error || "Failed to load reconciliation queue.");
+        // Carry the status so the card can tell a plan gate (402/403) from a
+        // real failure; neither may read as "all payouts are reconciled".
+        throw Object.assign(
+          new Error(json.error || "Failed to load reconciliation queue."),
+          { status: res.status },
+        );
       }
       const queue = (json.queue ?? []) as QueueEntry[];
       return {
@@ -113,6 +125,10 @@ export interface ReconciliationRunResponse {
   ambiguous: number;
   no_candidates: number;
   scanned: number;
+  /** Unreconciled payouts when the run started. Older servers omit it. */
+  total?: number;
+  /** Payouts that could not be checked, plus link failures. */
+  errors?: number;
 }
 
 // Sweeps all unreconciled payouts server-side, auto-matching only the

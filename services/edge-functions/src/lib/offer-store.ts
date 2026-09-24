@@ -128,7 +128,9 @@ export function incomingOfferToInput(
     direction: "received",
     externalOfferId: offer.bestOfferId,
     itemExternalId: offer.itemId || null,
-    buyerUsername: offer.buyerUsername,
+    // OM-14: eBay usernames are case-insensitive, so one buyer can arrive as
+    // "DenimFan" and "denimfan". Stored lower-cased so their history merges.
+    buyerUsername: buyerKey(offer.buyerUsername),
     amountCents: amount != null && Number.isFinite(amount) ? Math.round(amount * 100) : null,
     currency: offer.currency,
     ...(listPriceCents === undefined ? {} : { listPriceCents }),
@@ -346,46 +348,38 @@ export interface BuyerHistory {
   everAccepted: boolean;
 }
 
+/** One buyer's key: eBay usernames compare case-insensitively. Pure. */
+export function buyerKey(name: string | null | undefined): string | null {
+  const t = name?.trim();
+  return t ? t.toLowerCase() : null;
+}
+
+/** Caps the history read; a buyer page never needs more to count priors. */
+export const BUYER_HISTORY_LIMIT = 2000;
+
 /**
- * What this seller already knows about a set of buyers.
- *
- * One query for every buyer on the page rather than one per row: the offers
- * list is the surface a seller works through at speed, and a per-row lookup
- * makes it as slow as the longest list they have.
+ * Fold stored rows into per-buyer history, keyed by `buyerKey`. Pure; exported
+ * for tests. Rows written before OM-14 kept eBay's casing, so the fold is what
+ * merges "DenimFan" and "denimfan" into one buyer.
  */
-export async function loadBuyerHistory(
-  ownerId: string,
-  buyerUsernames: string[],
+export function foldBuyerHistory(
+  rows: Array<{
+    external_offer_id: string;
+    buyer_username: string | null;
+    amount_cents: number | null;
+    response: string | null;
+  }>,
   excludeOfferIds: string[] = [],
-): Promise<Map<string, BuyerHistory>> {
+): Map<string, BuyerHistory> {
   const out = new Map<string, BuyerHistory>();
-  const names = [...new Set(buyerUsernames.filter(Boolean))];
-  if (names.length === 0) return out;
-  const { data, error } = await supabaseAdmin
-    .from("marketplace_offers")
-    .select("external_offer_id, buyer_username, amount_cents, response")
-    .eq("user_id", ownerId)
-    .eq("platform", "ebay")
-    .eq("direction", "received")
-    .in("buyer_username", names);
-  if (error) {
-    console.error("[offer-store] loadBuyerHistory:", error.message);
-    return out;
-  }
   const exclude = new Set(excludeOfferIds);
-  for (
-    const r of (data ?? []) as unknown as Array<{
-      external_offer_id: string;
-      buyer_username: string | null;
-      amount_cents: number | null;
-      response: string | null;
-    }>
-  ) {
-    if (!r.buyer_username) continue;
+  for (const r of rows) {
+    const key = buyerKey(r.buyer_username);
+    if (!key) continue;
     // The offer on the seller's screen right now is not "prior". Counting it
     // would tell every first-time buyer they had offered before.
     if (exclude.has(r.external_offer_id)) continue;
-    const prev = out.get(r.buyer_username) ??
+    const prev = out.get(key) ??
       { priorOffers: 0, bestPriorCents: null, everAccepted: false };
     prev.priorOffers++;
     if (r.amount_cents != null) {
@@ -394,7 +388,44 @@ export async function loadBuyerHistory(
         : Math.max(prev.bestPriorCents, r.amount_cents);
     }
     if (r.response === "accepted") prev.everAccepted = true;
-    out.set(r.buyer_username, prev);
+    out.set(key, prev);
   }
   return out;
+}
+
+/**
+ * What this seller already knows about a set of buyers.
+ *
+ * One query for every buyer on the page rather than one per row: the offers
+ * list is the surface a seller works through at speed, and a per-row lookup
+ * makes it as slow as the longest list they have.
+ *
+ * The map returned is keyed by `buyerKey(name)`, so look buyers up the same way.
+ */
+export async function loadBuyerHistory(
+  ownerId: string,
+  buyerUsernames: string[],
+  excludeOfferIds: string[] = [],
+): Promise<Map<string, BuyerHistory>> {
+  const lowered = buyerUsernames.map(buyerKey).filter((n): n is string => !!n);
+  if (lowered.length === 0) return new Map();
+  // Both spellings: rows from before OM-14 kept eBay's casing, rows since are
+  // lower-cased. The fold below merges them.
+  const names = [...new Set([...buyerUsernames.filter(Boolean), ...lowered])];
+  const { data, error } = await supabaseAdmin
+    .from("marketplace_offers")
+    .select("external_offer_id, buyer_username, amount_cents, response")
+    .eq("user_id", ownerId)
+    .eq("platform", "ebay")
+    .eq("direction", "received")
+    .in("buyer_username", names)
+    .limit(BUYER_HISTORY_LIMIT);
+  if (error) {
+    console.error("[offer-store] loadBuyerHistory:", error.message);
+    return new Map();
+  }
+  return foldBuyerHistory(
+    (data ?? []) as unknown as Parameters<typeof foldBuyerHistory>[0],
+    excludeOfferIds,
+  );
 }

@@ -36,7 +36,6 @@ const HOSTED = [
   "src/pages/flipdesk/reconcile.tsx",
   "src/pages/flipdesk/repricing.tsx",
   "src/pages/flipdesk/bulk-pricing.tsx",
-  "src/pages/price-suggestions.tsx",
   "src/pages/flipdesk/automations.tsx",
   "src/pages/flipdesk/scout.tsx",
   "src/pages/flipdesk/scout-buy.tsx",

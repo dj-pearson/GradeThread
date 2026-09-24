@@ -20,10 +20,27 @@ code_refs:
   - services/edge-functions/src/lib/ebay-notification-subscriptions.ts
   - services/edge-functions/src/routes/flipdesk-webhooks.ts
   - services/edge-functions/src/routes/jobs-ebay-notification-reconcile.ts
-reviewed: 2026-09-23
+reviewed: 2026-09-24
 tags: [ebay, listings, sync, gotcha]
 summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error - and to keep WHICH of those it was, since ended and removed-by-eBay need opposite actions.
 ---
+
+> [!note] Re-reviewed 2026-09-24, no change to End, Relist or the reconcile.
+> Drift from the Pricing page pass. In `flipdesk-ebay-listings.ts`,
+> `85365f28a` moves `POST /listings/bulk-price-quantity` into
+> `applyBulkPriceQuantity()` (`:409`) and refuses, before any eBay call, a row
+> whose `platform` is not `ebay` or whose `listing_status` is not `active`
+> (`reason: "not_live"`), an eBay-originated row through `originLockResponse`
+> (US-1976), a price under the item floor, and a stale `expected_price`. The
+> not-live refusal reads the local status, so a listing eBay ended that the
+> sync has not yet reconciled still reaches eBay and fails there, as before.
+> `780458594` only wraps the default `push`. In `flipdesk-automations.ts`,
+> `a15da48bf` adds the cross-engine price cooldown
+> (`lib/automated-price-guard.ts`) and `price_set_by`, and `edcb933ba` /
+> `081ba2f50` put `runRulesForOwner` under a per-owner
+> `automation-rules:<owner>` lock (`already_running` or `lock_unavailable`).
+> None of it touches the withdraw path: `classifyWithdrawFailure` is now at
+> `flipdesk-automations.ts:815`, called at `:1189`, unchanged.
 
 > [!note] Re-reviewed 2026-09-23, no change in behaviour. `flipdesk-ebay.ts`
 > was split into one route file per concern as a pure move (marketplaces

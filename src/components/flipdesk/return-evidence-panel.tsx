@@ -70,22 +70,28 @@ export function ReturnEvidencePanel({
   const send = useEbaySendReturnEvidence();
   // Once. `checkedRef` rather than a dependency list, so re-rendering while the
   // seller types in the box cannot fire a second preview.
+  //
+  // PS-13: the mutation object is a new identity on every state change, and it
+  // was in the dependency list, while a failure reset `checkedRef`. So a failed
+  // read re-rendered, re-ran the effect and tried again, forever. The effect now
+  // reads the mutation through a ref and stays checked after a failure; the
+  // seller's own button is the retry.
   const checkedRef = useRef(false);
+  const previewRef = useRef(preview.mutateAsync);
+  previewRef.current = preview.mutateAsync;
   useEffect(() => {
     if (!autoCheck || checkedRef.current || !orderId) return;
     const seed = (initialComplaint ?? "").trim();
     if (!seed) return;
     checkedRef.current = true;
-    preview
-      .mutateAsync({ orderId, complaint: seed })
+    previewRef.current({ orderId, complaint: seed })
       .then(setPlan)
       .catch(() => {
         // Silent. The seller can press the button; a toast on mount for a read
         // they did not ask for is noise on a page they opened to do something
         // else.
-        checkedRef.current = false;
       });
-  }, [autoCheck, orderId, initialComplaint, preview]);
+  }, [autoCheck, orderId, initialComplaint]);
 
   if (!orderId) {
     return (

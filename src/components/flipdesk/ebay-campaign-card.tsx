@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Megaphone, Pause, Play, Square } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -13,6 +13,10 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { useEbayMarketingSuggestions } from "@/hooks/use-ebay";
+import { InlineRetry } from "@/components/flipdesk/inline-retry";
+import { roleNeededNote, roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2946 + US-2947: eBay's own promotion suggestions, and the campaign
 // controls a seller had to go to Seller Hub for.
@@ -38,6 +42,9 @@ interface SuggestionItem {
 
 interface SuggestionsResponse {
   supported: boolean;
+  /** MP-03: null when the seller has no cost-per-click campaign. The read never
+   *  creates one; Start one does. */
+  campaign?: { campaignId: string } | null;
   detail?: string;
   ordering?: string;
   items: SuggestionItem[];
@@ -51,19 +58,15 @@ function money(cents: number | null | undefined): string {
 export function EbayCampaignCard() {
   const qc = useQueryClient();
   const confirm = useConfirm();
+  // MP-02: pause, resume and end are admin-only on the edge.
+  const { can } = useWorkspace();
+  const canCampaign = can("manage_campaign");
+  const campaignTitle = canCampaign ? undefined : roleNeededTitle("manage_campaign");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["ebay_marketing_suggestions"],
-    staleTime: 30 * 60_000,
-    queryFn: async (): Promise<SuggestionsResponse> => {
-      const res = await edgeFetch("/api/flipdesk/ebay/marketing/suggestions");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load eBay's suggestions.");
-      return json as SuggestionsResponse;
-    },
-  });
+  const { data, isLoading, isError, refetch } =
+    useEbayMarketingSuggestions<SuggestionsResponse>();
 
-  const act = useMutation<unknown, Error, { action: "pause" | "resume" | "end" }>({
+  const act = useMutation<unknown, Error, { action: "start" | "pause" | "resume" | "end" }>({
     mutationFn: async ({ action }) => {
       const res = await edgeFetch(`/api/flipdesk/ebay/marketing/campaign/${action}`, {
         method: "POST",
@@ -75,16 +78,22 @@ export function EbayCampaignCard() {
     },
     onSuccess: (_res, { action }) => {
       toast.success(
-        action === "pause"
-          ? "Campaign paused. Nothing more will be spent until you resume it."
-          : action === "resume"
-            ? "Campaign running again."
-            : "Campaign ended.",
+        action === "start"
+          ? "Campaign started. Add keywords or promote listings to put it to work."
+          : action === "pause"
+            ? "Campaign paused. Nothing more will be spent until you resume it."
+            : action === "resume"
+              ? "Campaign running again."
+              : "Campaign ended.",
       );
       void qc.invalidateQueries({ queryKey: ["ebay_marketing_suggestions"] });
+      void qc.invalidateQueries({ queryKey: ["ebay_keywords"] });
     },
     onError: (err) => toastError(err, "eBay rejected the campaign change."),
   });
+
+  // MP-03: older responses carry no `campaign` field; treat those as present.
+  const hasCampaign = !!data && data.supported && data.campaign !== null;
 
   async function end() {
     const ok = await confirm({
@@ -111,12 +120,14 @@ export function EbayCampaignCard() {
             <Megaphone className="h-4 w-4" />
             Worth promoting
           </span>
+          {hasCampaign && (
           <span className="flex gap-1">
             <Button
               size="sm"
               variant="ghost"
               className="h-7 text-xs font-normal"
-              disabled={act.isPending}
+              disabled={act.isPending || !canCampaign}
+              title={campaignTitle}
               onClick={() => act.mutate({ action: "pause" })}
             >
               <Pause className="mr-1 h-3.5 w-3.5" />
@@ -126,7 +137,8 @@ export function EbayCampaignCard() {
               size="sm"
               variant="ghost"
               className="h-7 text-xs font-normal"
-              disabled={act.isPending}
+              disabled={act.isPending || !canCampaign}
+              title={campaignTitle}
               onClick={() => act.mutate({ action: "resume" })}
             >
               <Play className="mr-1 h-3.5 w-3.5" />
@@ -136,25 +148,53 @@ export function EbayCampaignCard() {
               size="sm"
               variant="ghost"
               className="h-7 text-xs font-normal"
-              disabled={act.isPending}
+              disabled={act.isPending || !canCampaign}
+              title={campaignTitle}
               onClick={end}
             >
               <Square className="mr-1 h-3.5 w-3.5" />
               End
             </Button>
           </span>
+          )}
         </CardTitle>
         <CardDescription>
           What eBay thinks is worth promoting, ranked by what you keep afterwards.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {!canCampaign && !!data?.supported && (
+            <p className="text-xs text-muted-foreground">
+              {roleNeededNote("manage_campaign", "start, pause or end the campaign")}
+            </p>
+          )}
         {isLoading ? (
           <Skeleton className="h-32 w-full" />
+        ) : isError ? (
+          <InlineRetry
+            message="Couldn't load eBay's suggestions."
+            onRetry={() => void refetch()}
+          />
         ) : !data ? (
           <p className="text-sm text-muted-foreground">
             No campaign to read yet.
           </p>
+        ) : data.supported && data.campaign === null ? (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              No cost-per-click campaign yet. FlipDesk will not start one on its
+              own.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={act.isPending || !canCampaign}
+              title={campaignTitle}
+              onClick={() => act.mutate({ action: "start" })}
+            >
+              Start one
+            </Button>
+          </div>
         ) : !data.supported ? (
           // Specific, not generic: this marketplace has no suggestion API, which
           // is a different thing from having nothing worth promoting.

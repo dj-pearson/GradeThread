@@ -122,6 +122,20 @@ Deno.test("rotating with no endpoint returns null (the route answers 404)", asyn
   assertMatch(rotated?.signing_secret ?? "", /^whsec_/);
 });
 
+Deno.test("rotating with no endpoint is null even with no encryption key set", async () => {
+  // The tenant-isolation suite runs with no EDGE_ENCRYPTION_KEY. Encrypting
+  // before the existence check turned B's "no webhook" into a 500 there.
+  const saved = Deno.env.get("EDGE_ENCRYPTION_KEY");
+  Deno.env.delete("EDGE_ENCRYPTION_KEY");
+  try {
+    const empty = recordingDb();
+    assertEquals(await rotateWebhookSecret(OWNER, empty.db), null);
+    assertEquals(empty.ops.filter((o) => o.op === "update").length, 0);
+  } finally {
+    if (saved !== undefined) Deno.env.set("EDGE_ENCRYPTION_KEY", saved);
+  }
+});
+
 Deno.test("delivery list limit is clamped to 1..100, default 20", () => {
   assertEquals(deliveryLimit(undefined), 20);
   assertEquals(deliveryLimit("0"), 1);

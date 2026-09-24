@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Mail, Send } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -15,6 +15,10 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { useEbayEmailCampaigns } from "@/hooks/use-ebay";
+import { InlineRetry } from "@/components/flipdesk/inline-retry";
+import { roleNeededNote, roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2953: the audience the seller already owns.
 //
@@ -50,17 +54,11 @@ export function FollowerCampaignCard() {
   const qc = useQueryClient();
   const confirm = useConfirm();
   const [sending, setSending] = useState<string | null>(null);
+  // MP-02: sending emails every follower and cannot be recalled; admin only.
+  const { can } = useWorkspace();
+  const canSend = can("manage_campaign");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["ebay_email_campaigns"],
-    staleTime: 10 * 60_000,
-    queryFn: async (): Promise<CampaignsResponse> => {
-      const res = await edgeFetch("/api/flipdesk/ebay/marketing/email-campaigns");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load your eBay campaigns.");
-      return json as CampaignsResponse;
-    },
-  });
+  const { data, isLoading, isError, refetch } = useEbayEmailCampaigns<CampaignsResponse>();
 
   const send = useMutation<unknown, Error, { campaignId: string }>({
     mutationFn: async ({ campaignId }) => {
@@ -106,7 +104,22 @@ export function FollowerCampaignCard() {
       </Card>
     );
   }
-  if (!data) return null;
+  if (isError || !data) {
+    // MP-11: this returned null on error, so the whole card vanished.
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Email your followers</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <InlineRetry
+            message="Couldn't load your eBay follower campaigns."
+            onRetry={() => void refetch()}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -120,6 +133,11 @@ export function FollowerCampaignCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {!canSend && (
+            <p className="text-xs text-muted-foreground">
+              {roleNeededNote("manage_campaign", "send to your followers")}
+            </p>
+          )}
         {!data.available ? (
           // Read off eBay's answer, not guessed from the account — so a seller
           // who subscribes tomorrow sees this disappear on its own.
@@ -155,7 +173,8 @@ export function FollowerCampaignCard() {
                   <Button
                     aria-label={`Send the campaign ${c.name || c.campaignId} to your followers`}
                     size="sm"
-                    disabled={send.isPending}
+                    disabled={send.isPending || !canSend}
+                    title={canSend ? undefined : roleNeededTitle("manage_campaign")}
                     onClick={() => confirmSend(c)}
                   >
                     {sending === c.campaignId ? (

@@ -81,8 +81,14 @@ describe("every save path queues", () => {
     expect(src).toMatch(/if \(res\.queued\)/);
     expect(src).toMatch(/reads Stale until then/);
   });
-  it("the bulk price page counts queued rows separately", () => {
-    expect(read("src/pages/flipdesk/bulk-pricing.tsx")).toMatch(/wait for your desktop extension/);
+  it("the bulk price page makes no queued claim, because its route is eBay-only", () => {
+    // /ebay/listings/bulk-price-quantity refuses any row that is not an active
+    // eBay listing (reason 'not_live'), so nothing it answers can be queued for
+    // the extension. A queued branch here was dead code that read as a feature.
+    expect(read("src/pages/flipdesk/bulk-pricing.tsx")).not.toMatch(/queued/);
+    expect(read("services/edge-functions/src/routes/flipdesk-ebay-listings.ts")).toMatch(
+      /row\.platform !== "ebay" \|\| row\.listing_status !== "active"/,
+    );
   });
   it("the automation log says queued vs applied", () => {
     expect(read("src/pages/flipdesk/automations.tsx")).toMatch(/queued on \{/);

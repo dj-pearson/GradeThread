@@ -8,13 +8,21 @@ code_refs:
   - src/test/listings-select-star.test.ts
   - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
-reviewed: 2026-09-20
+reviewed: 2026-09-24
 tags: [schema, listings, flipdesk, perf]
 summary: What the listings table's ninety-odd columns are for, why none of them is provably dead, and the rule for reading them.
 ---
 
 
-> [!note] Re-reviewed 2026-09-20. `src/types/database.ts` gained
+> [!note] Re-reviewed 2026-09-24. This time one change IS a listings column:
+> `ListingRow.publish_attempts` (00827), the scheduled-publish try counter the
+> publish-due tick increments and caps. It is declared on the type in the same
+> commit, which is what `listing-row-schema-parity.test.ts` demands, and it is
+> plain lifecycle bookkeeping rather than an eBay-only field. The other two
+> changes are another table (`AiPromptVersionRow` shadow fields) and a widened
+> `AspectReviewEntry.reason` (`off_list_value`, US-3474).
+
+> **Re-reviewed 2026-09-20.** `src/types/database.ts` gained
 > `AiFieldSourceEntry` and widened `AiFieldSource.accepted` to
 > `boolean | null | absent` (US-3444). Checked where those land:
 > `ai_field_sources` is declared on `InventoryItemRow`, `ItemFullRow` and

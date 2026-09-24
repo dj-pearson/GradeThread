@@ -18,6 +18,10 @@ interface Read {
 }
 
 let reads: Read[] = [];
+let ledgerRows: { id: string }[] = [];
+// The server row cap the fake enforces, below the client's page size, so the
+// test proves the loop advances by what arrived rather than by pageSize.
+let pageCap = 1000;
 let ledgerCount = 0;
 let newest: Record<string, string | null> = {};
 const rpc = vi.fn();
@@ -35,7 +39,16 @@ function builder(table: string) {
       read.filters.push(["neq", col, v]);
       return b;
     },
-    order: () => b,
+    gte: () => b,
+    lt: () => b,
+    order: (col: string) => {
+      read.filters.push(["order", col, ""]);
+      return b;
+    },
+    range: async (from: number, to: number) => {
+      read.filters.push(["range", String(from), String(to)]);
+      return { data: ledgerRows.slice(from, Math.min(to + 1, from + pageCap)), error: null };
+    },
     limit: async () => {
       const stamp = newest[table] ?? null;
       const col = table === "ledger_entries" ? "created_at" : "updated_at";
@@ -58,7 +71,13 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 
-const { ensureLedgerBuilt, invalidateLedgerQueries, LEDGER_QUERY_KEYS } =
+const {
+  ensureLedgerBuilt,
+  fetchLedgerEntries,
+  invalidateLedgerQueries,
+  ledgerEntriesKey,
+  LEDGER_QUERY_KEYS,
+} =
   await import("@/lib/ledger");
 
 const BUILT = "2026-09-01T12:00:00Z";
@@ -156,6 +175,39 @@ describe("ensureLedgerBuilt", () => {
   });
 });
 
+describe("fetchLedgerEntries", () => {
+  it("pages past the row cap with an id tiebreaker", async () => {
+    reads = [];
+    ledgerRows = Array.from({ length: 2500 }, (_, i) => ({ id: `e${i}` }));
+    pageCap = 1000;
+    const rows = await fetchLedgerEntries("2026-01-01", "2027-01-01");
+    expect(rows).toHaveLength(2500);
+    expect(new Set(rows.map((r) => r.id)).size).toBe(2500);
+    const ledgerReads = reads.filter((r) => r.table === "ledger_entries");
+    // Three full pages plus the confirming empty one.
+    expect(ledgerReads.length).toBe(4);
+    for (const r of ledgerReads) {
+      const orders = r.filters.filter((f) => f[0] === "order").map((f) => f[1]);
+      expect(orders[orders.length - 1]).toBe("id");
+      expect(r.filters.some((f) => f[0] === "range")).toBe(true);
+    }
+  });
+
+  it("does not stop on a short page below the page size", async () => {
+    ledgerRows = Array.from({ length: 1200 }, (_, i) => ({ id: `e${i}` }));
+    pageCap = 500;
+    const rows = await fetchLedgerEntries(null, null);
+    expect(rows).toHaveLength(1200);
+    pageCap = 1000;
+  });
+
+  it("shares one key per owner and range", () => {
+    expect(ledgerEntriesKey("u", "a", "b")).toEqual(ledgerEntriesKey("u", "a", "b"));
+    expect(ledgerEntriesKey("u", "a", "b")[0]).toBe("ledger-entries");
+    expect(LEDGER_QUERY_KEYS).toContain("ledger-entries");
+  });
+});
+
 describe("invalidateLedgerQueries", () => {
   it("invalidates every ledger-derived key", async () => {
     const invalidateQueries = vi.fn().mockResolvedValue(undefined);
@@ -184,16 +236,19 @@ describe("LEDGER_QUERY_KEYS covers every ledger reader", () => {
       const src = readFileSync(f, "utf8");
       const reads = ["fetchLedgerEntries(", "fetchLedgerReconciliation("];
       if (!reads.some((r) => src.includes(r))) continue;
-      const parts = src.split(/queryKey:\s*\[/).slice(1);
+      const parts = src.split(/queryKey:\s*(?:\[|(?=ledgerEntriesKey\())/).slice(1);
       for (const part of parts) {
-        const key = /^"([^"]+)"/.exec(part)?.[1];
+        const key = part.startsWith("ledgerEntriesKey(")
+          ? ledgerEntriesKey(null, null, null)[0]
+          : /^"([^"]+)"/.exec(part)?.[1];
         const body = part.split(/\n\s*\}\);/)[0] ?? "";
         if (key && reads.some((r) => body.includes(r))) found.add(key);
       }
     }
     // The scan must see the screens it was written against, or it is passing
     // because it stopped reading them.
-    expect(found.size).toBeGreaterThanOrEqual(5);
+    expect(found.size).toBeGreaterThanOrEqual(3);
+    expect(found).toContain("ledger-entries");
     for (const key of found) {
       expect(LEDGER_QUERY_KEYS as readonly string[], key).toContain(key);
     }

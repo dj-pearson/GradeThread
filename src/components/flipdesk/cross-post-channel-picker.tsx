@@ -6,6 +6,10 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useCrossPostChannels } from "@/hooks/use-cross-post-channels";
+import { useOwnsActiveWorkspace } from "@/hooks/use-tenant-key";
+import { SETTINGS_OWNER_ONLY } from "@/lib/workspace-permissions";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   isChannelEnabled,
   isChannelSelectable,
@@ -36,8 +40,14 @@ import {
 export function CrossPostChannelPicker() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
-  const { data: stored, isLoading } = useCrossPostChannels();
+  // MP-06: only the owner's own row is read by anything; see useOwnsActiveWorkspace.
+  const own = useOwnsActiveWorkspace();
+  const { data: stored, isLoading, isError, refetch } = useCrossPostChannels(own);
   const [saving, setSaving] = useState(false);
+  // Never compute a write from a value we could not read: with `stored`
+  // undefined every channel reads as on, so the next click would overwrite the
+  // saved list.
+  const readable = own && !isError && !isLoading && stored !== undefined;
 
   const selectable = useMemo(
     () => CROSS_LISTING_PLATFORMS.filter((p) => isChannelSelectable(p)),
@@ -45,7 +55,7 @@ export function CrossPostChannelPicker() {
   );
 
   async function toggle(platform: string, next: boolean) {
-    if (!user) return;
+    if (!user || !readable) return;
     // Start from what is EFFECTIVE, not from what is stored: with nothing
     // stored every channel is on, so unticking one has to write the other five
     // rather than write a single-entry list that turns five off.
@@ -80,11 +90,25 @@ export function CrossPostChannelPicker() {
         <p className="font-medium">Marketplaces you cross-post to</p>
         <p className="text-xs text-muted-foreground">
           Drafts and the copy kit only offer the channels you pick here. Leave
-          them all ticked to keep every channel — turning them all off does the
+          them all ticked to keep every channel. Turning them all off does the
           same thing, not nothing.
         </p>
       </div>
 
+      {!own ? (
+        <p className="text-xs text-muted-foreground">{SETTINGS_OWNER_ONLY}</p>
+      ) : isError ? (
+        <div role="alert" className="flex flex-wrap items-center gap-2 text-xs">
+          <span>Couldn&apos;t load this setting.</span>
+          <Button size="sm" variant="outline" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
+
+      {own && isLoading ? (
+        <Skeleton className="h-16 w-full" />
+      ) : (
       <ul className="grid gap-2 sm:grid-cols-2">
         {CROSS_LISTING_PLATFORMS.map((p) => {
           const usable = isChannelSelectable(p);
@@ -94,8 +118,8 @@ export function CrossPostChannelPicker() {
               <Checkbox
                 id={`channel-${p}`}
                 className="mt-0.5"
-                checked={usable && isChannelEnabled(p, stored)}
-                disabled={!usable || saving || isLoading}
+                checked={readable && usable && isChannelEnabled(p, stored)}
+                disabled={!usable || saving || !readable}
                 onCheckedChange={(v) => void toggle(p, v === true)}
               />
               <div className="min-w-0">
@@ -110,7 +134,7 @@ export function CrossPostChannelPicker() {
                     {MARKETPLACE_FLOW_LABEL[
                       flow as keyof typeof MARKETPLACE_FLOW_LABEL
                     ] ?? "Not available yet"}
-                    {" — can't be selected until its form check passes."}
+                    {". Can't be selected until its form check passes."}
                   </p>
                 )}
               </div>
@@ -118,6 +142,7 @@ export function CrossPostChannelPicker() {
           );
         })}
       </ul>
+      )}
 
       {/* Turning a channel off changes what is OFFERED next time. It does not
           reach back into items already listed there, and saying so is cheaper
@@ -125,7 +150,7 @@ export function CrossPostChannelPicker() {
           deleted. */}
       <p className="text-xs text-muted-foreground">
         Items already listed on a channel you turn off stay exactly where they
-        are — this only changes what new drafts offer.
+        are. This only changes what new drafts offer.
       </p>
     </div>
   );

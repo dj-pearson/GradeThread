@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useLocation, useSearchParams } from "react-router";
 import { finishedRunNote, marketplaceLabel } from "@/lib/finished-queue-run";
+import {
+  drainNudgeSentence,
+  isListerAvailable,
+  requestDrainNow,
+} from "@/lib/lister-extension";
 import { LinkDuplicatesCard } from "@/components/flipdesk/link-duplicates-card";
 import {
   Plug,
@@ -43,6 +48,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MarketplaceConnectionSummary } from "@/components/flipdesk/marketplace-connection-summary";
 import { EbayPromotionsCard } from "@/components/flipdesk/ebay-promotions-card";
@@ -77,6 +92,8 @@ import {
   useDisconnectEbay,
   useEbayConnection,
   useEbayConnectionIssue,
+  isReauthNeeded,
+  reauthMessage,
   useCreateEbayPolicies,
   useEbayPolicies,
   useSetDefaultPolicies,
@@ -99,6 +116,8 @@ import {
   QUEUED_NOTICE,
   useCancelExtensionWork,
   useExtensionQueue,
+  useRequeueExtensionWork,
+  canRequeue,
   type ExtensionQueueItem,
 } from "@/hooks/use-extension-queue";
 import { CrossPostSetup } from "@/components/flipdesk/cross-post-setup";
@@ -125,6 +144,11 @@ import {
   usePollState,
 } from "@/hooks/use-sold-sync";
 import { HelpLink } from "@/components/help/help-link";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { MARKETPLACE_ADMIN_ONLY, SETTINGS_OWNER_ONLY } from "@/lib/workspace-permissions";
+import { useOwnsActiveWorkspace } from "@/hooks/use-tenant-key";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 
 // US-718: the non-API channels, grouped by their REAL tier (read from the
 // MARKETPLACE_TIER single source of truth). eBay + Shopify are tier "api" and
@@ -148,6 +172,16 @@ const COMING_SOON_CHANNELS = Object.keys(MARKETPLACE_TIER).filter(
     MARKETPLACE_TIER[k as keyof typeof MARKETPLACE_TIER] === "coming_soon" &&
     k !== "other",
 ) as (keyof typeof MARKETPLACE_TIER)[];
+
+// The tab the page opens on. The Tabs are controlled so the Ads and Settings
+// prompts can send a seller back to Connections.
+const DEFAULT_TAB = "connections";
+// MP-14: the tab lives in the URL (?tab=), so a reload, the back button and a
+// link from elsewhere all land on the tab they name.
+const TABS = ["connections", "ads", "settings", "how"] as const;
+// Anchors that live on the Connections tab. A link to one of them opens that
+// tab first, or the element does not exist to scroll to.
+const CONNECTIONS_ANCHORS = new Set(["extension-queue", "ebay-setup", "shopify-setup"]);
 
 // User-facing copy for the Shopify OAuth callback result codes.
 const SHOPIFY_CALLBACK_MESSAGES: Record<
@@ -202,7 +236,87 @@ const CALLBACK_MESSAGES: Record<
     type: "error",
     message: "Could not complete eBay sign-in. Please retry, and contact support if it persists.",
   },
+  // MP-12: standard OAuth codes the edge passes through (iOS words them too).
+  invalid_scope: {
+    type: "error",
+    message: "eBay turned down the permissions FlipDesk asked for. Please try again.",
+  },
+  server_error: {
+    type: "error",
+    message: "eBay is having trouble right now. Try again in a few minutes.",
+  },
+  temporarily_unavailable: {
+    type: "error",
+    message: "eBay is having trouble right now. Try again in a few minutes.",
+  },
 };
+
+// MP-12: any code neither map knows (provider_error, or a code from an older
+// edge) still says something. Before, an unknown code returned the seller to
+// the page with no message at all.
+const CALLBACK_FALLBACK = {
+  type: "error" as const,
+  message: "eBay sign-in didn't finish. Try again, and contact support if it keeps happening.",
+};
+const SHOPIFY_CALLBACK_FALLBACK = {
+  type: "error" as const,
+  message: "Shopify sign-in didn't finish. Try again, and contact support if it keeps happening.",
+};
+
+// MP-12: the confirm in front of Disconnect. It names the account and says
+// what stops, because a one-click ghost button next to Reconnect revoked the
+// grant with no warning.
+function DisconnectConfirm({
+  channel,
+  account,
+  consequence,
+  pending,
+  onConfirm,
+}: {
+  channel: string;
+  account: string | null | undefined;
+  consequence: string;
+  pending: boolean;
+  onConfirm: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-destructive hover:text-destructive"
+        onClick={() => setOpen(true)}
+        disabled={pending}
+      >
+        {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        Disconnect
+      </Button>
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Disconnect {channel}
+              {account ? ` (${account})` : ""}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>{consequence}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it connected</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setOpen(false);
+                onConfirm();
+              }}
+            >
+              Disconnect
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
 
 // Human-friendly relative timestamp for the "Last synced …" label. Falls
 // back to a date string if the value is older than a week.
@@ -243,6 +357,10 @@ function EbayLocationDialog({
   hasLocation: boolean;
 }) {
   const createLocation = useCreateEbayLocation();
+  // MP-13: the saved ship-from profile is the SIGNED-IN user's, and this saves
+  // to the workspace owner's eBay account. Inside someone else's workspace that
+  // prefill sent a member's home address to the owner's account.
+  const ownWorkspace = useOwnsActiveWorkspace();
   const [zip, setZip] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
@@ -253,7 +371,7 @@ function EbayLocationDialog({
   const shippingQuery = useQuery({
     queryKey: SHIPPING_PROFILE_QUERY_KEY,
     queryFn: fetchShippingProfile,
-    enabled: open,
+    enabled: open && ownWorkspace,
     staleTime: 5 * 60_000,
   });
 
@@ -261,13 +379,13 @@ function EbayLocationDialog({
   // re-key their location here. Seeds only empty fields, and only while the
   // dialog is open, so it never clobbers an in-progress edit.
   useEffect(() => {
-    if (!open) return;
+    if (!open || !ownWorkspace) return;
     const addr = shippingQuery.data?.ship_from_address;
     if (!addr) return;
     if (addr.postal_code) setZip((z) => z || addr.postal_code!.trim());
     if (addr.city) setCity((c) => c || addr.city!.trim());
     if (addr.state) setState((s) => s || addr.state!.trim());
-  }, [open, shippingQuery.data]);
+  }, [open, ownWorkspace, shippingQuery.data]);
 
   const save = async () => {
     if (!/^\d{5}(-\d{4})?$/.test(zip.trim())) {
@@ -300,6 +418,7 @@ function EbayLocationDialog({
             no way to add one in Seller Hub. Set it here once — it&apos;s used for
             all your published listings.
             {hasLocation && " Saving a new ZIP replaces the current one."}
+            {!ownWorkspace && " Enter the ZIP this workspace ships from."}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -355,7 +474,9 @@ function EbayPoliciesDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { data, isLoading } = useEbayPolicies(true);
+  // MP-07: only while open. The dialog is always mounted, and reading here on
+  // every page load called GET /policies (and eBay) even when disconnected.
+  const { data, isLoading, isError, refetch } = useEbayPolicies(open);
   const setDefaults = useSetDefaultPolicies();
   const resync = useSyncEbayPolicies();
   // US-3265: the way out of the dead end below. Four answers, and FlipDesk
@@ -366,6 +487,26 @@ function EbayPoliciesDialog({
   const [acceptsReturns, setAcceptsReturns] = useState(true);
   const [returnDays, setReturnDays] = useState<"30" | "60">("30");
   const [returnPaidBy, setReturnPaidBy] = useState<"BUYER" | "SELLER">("BUYER");
+  // MP-13: these become live buyer commitments on eBay. A blank handling field
+  // used to become 0 days and a typo in postage became free shipping.
+  const handlingNum = Number(handlingDays);
+  const handlingValid =
+    handlingDays.trim() !== "" && Number.isInteger(handlingNum) && handlingNum >= 1 &&
+    handlingNum <= 30;
+  const postageNum = Number(shippingCost);
+  const postageValid =
+    shippingCost.trim() !== "" && Number.isFinite(postageNum) && postageNum >= 0;
+  const policySummary = `Ships within ${handlingValid ? handlingNum : "?"} day${
+    handlingNum === 1 ? "" : "s"
+  }, buyer pays ${
+    postageValid ? (postageNum === 0 ? "nothing (free postage)" : `$${postageNum.toFixed(2)}`) : "?"
+  } for postage, ${
+    acceptsReturns
+      ? `${returnDays}-day returns, ${returnPaidBy === "BUYER" ? "buyer" : "you"} pay${
+        returnPaidBy === "BUYER" ? "s" : ""
+      } return postage.`
+      : "no returns."
+  }`;
 
   // Local selection seeded from the saved defaults; re-seed when data changes.
   const [selection, setSelection] = useState<Record<string, string>>({});
@@ -437,7 +578,23 @@ function EbayPoliciesDialog({
           </Button>
         </div>
 
-        {isLoading ? (
+        {isError ? (
+          // MP-07: a 502 used to fall through to "no business policies yet,
+          // Create these for me", which offers to create live policies on an
+          // account that may already have them.
+          <div
+            role="alert"
+            className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
+          >
+            <span>
+              Couldn&apos;t load your eBay policies. This is a loading problem,
+              not missing policies.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => void refetch()}>
+              Check again
+            </Button>
+          </div>
+        ) : isLoading ? (
           <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading your eBay policies…
@@ -467,11 +624,18 @@ function EbayPoliciesDialog({
                     <Input
                       id="policy-handling"
                       type="number"
-                      min={0}
+                      min={1}
                       max={30}
                       value={handlingDays}
+                      aria-invalid={!handlingValid}
+                      aria-describedby={handlingValid ? undefined : "policy-handling-error"}
                       onChange={(e) => setHandlingDays(e.target.value)}
                     />
+                    {!handlingValid && (
+                      <p id="policy-handling-error" className="text-xs text-destructive">
+                        Enter a whole number of days from 1 to 30.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="policy-shipping" className="text-xs">
@@ -483,8 +647,15 @@ function EbayPoliciesDialog({
                       min={0}
                       step="0.01"
                       value={shippingCost}
+                      aria-invalid={!postageValid}
+                      aria-describedby={postageValid ? undefined : "policy-shipping-error"}
                       onChange={(e) => setShippingCost(e.target.value)}
                     />
+                    {!postageValid && (
+                      <p id="policy-shipping-error" className="text-xs text-destructive">
+                        Enter an amount, or 0 for free postage.
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -494,6 +665,7 @@ function EbayPoliciesDialog({
                       type="button"
                       size="sm"
                       variant={acceptsReturns ? "default" : "outline"}
+                      aria-pressed={acceptsReturns}
                       onClick={() => setAcceptsReturns(true)}
                     >
                       I accept returns
@@ -502,6 +674,7 @@ function EbayPoliciesDialog({
                       type="button"
                       size="sm"
                       variant={acceptsReturns ? "outline" : "default"}
+                      aria-pressed={!acceptsReturns}
                       onClick={() => setAcceptsReturns(false)}
                     >
                       No returns
@@ -532,23 +705,18 @@ function EbayPoliciesDialog({
                     </div>
                   )}
                 </div>
+                <p className="text-xs text-muted-foreground">{policySummary}</p>
                 <Button
                   onClick={() =>
                     createPolicies.mutate({
-                      handling_days: Math.max(
-                        0,
-                        Math.min(30, Math.round(Number(handlingDays) || 0)),
-                      ),
-                      shipping_cost_cents: Math.max(
-                        0,
-                        Math.round((Number(shippingCost) || 0) * 100),
-                      ),
+                      handling_days: handlingNum,
+                      shipping_cost_cents: Math.round(postageNum * 100),
                       accepts_returns: acceptsReturns,
                       return_days: returnDays === "60" ? 60 : 30,
                       return_shipping_paid_by: returnPaidBy,
                     })
                   }
-                  disabled={createPolicies.isPending}
+                  disabled={createPolicies.isPending || !handlingValid || !postageValid}
                 >
                   {createPolicies.isPending && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -610,7 +778,7 @@ function EbayPoliciesDialog({
 }
 
 // ── Setup checklist row ──────────────────────────────────────────────────
-type StepState = "done" | "todo" | "blocked" | "loading";
+type StepState = "done" | "todo" | "blocked" | "loading" | "unknown";
 
 function StepRow({
   state,
@@ -632,6 +800,8 @@ function StepRow({
           <Circle className="h-5 w-5 flex-shrink-0 text-muted-foreground/40" />
         ) : state === "loading" ? (
           <Loader2 className="h-5 w-5 flex-shrink-0 animate-spin text-muted-foreground" />
+        ) : state === "unknown" ? (
+          <AlertCircle className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
         ) : (
           <AlertCircle className="h-5 w-5 flex-shrink-0 text-amber-500" />
         )}
@@ -676,7 +846,16 @@ function EbaySetup({
   // button, which re-runs OAuth against a link that was working.
   const connected = !connError && !!connection;
   const disconnect = useDisconnectEbay();
-  const { data: policyData, isLoading: polLoading } = useEbayPolicies(connected);
+  // MP-01: connecting, disconnecting and editing the location or policies all
+  // change the owner's live eBay setup, and the edge refuses them below admin.
+  const { can } = useWorkspace();
+  const canManage = can("manage_marketplaces");
+  const {
+    data: policyData,
+    isLoading: polLoading,
+    isError: polError,
+    refetch: refetchPolicies,
+  } = useEbayPolicies(connected);
   const defaults = policyData?.defaults;
   const hasLocation = !!defaults?.merchant_location_key;
   const hasPolicies = !!(
@@ -694,10 +873,16 @@ function EbaySetup({
     (connected && hasPolicies ? 1 : 0);
   const allReady = connected && hasLocation && hasPolicies;
   const pct = Math.round((doneCount / 3) * 100);
-  const polReady = connected && !polLoading;
+  const polReady = connected && !polLoading && !polError;
+  // MP-07: a failed policies read is "couldn't check", not two todo steps.
+  const checkAgain = (
+    <Button size="sm" variant="outline" onClick={() => void refetchPolicies()}>
+      Check again
+    </Button>
+  );
 
   return (
-    <Card>
+    <Card id="ebay-setup" className="scroll-mt-20">
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2">
@@ -740,7 +925,14 @@ function EbaySetup({
           <>
             {!allReady && (
               <div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  role="progressbar"
+                  aria-label="eBay setup progress"
+                  aria-valuemin={0}
+                  aria-valuemax={3}
+                  aria-valuenow={doneCount}
+                  className="h-2 w-full overflow-hidden rounded-full bg-muted"
+                >
                   <div
                     className="h-full bg-brand-navy transition-all"
                     style={{ width: `${pct}%` }}
@@ -765,7 +957,7 @@ function EbaySetup({
                       : "A direct OAuth connection syncs listings, pushes drafts, and streams payouts."
                 }
                 action={
-                  connected ? (
+                  !canManage ? undefined : connected ? (
                     <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
@@ -775,18 +967,15 @@ function EbaySetup({
                       >
                         Reconnect
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => disconnect.mutate()}
-                        disabled={disconnect.isPending}
-                      >
-                        {disconnect.isPending && (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        )}
-                        Disconnect
-                      </Button>
+                      <DisconnectConfirm
+                        channel="eBay"
+                        account={connection?.account_handle}
+                        consequence="Sales from eBay stop syncing, cross-listed items won't auto-end, and you can't publish until you reconnect."
+                        pending={disconnect.isPending}
+                        onConfirm={() =>
+                          connection && disconnect.mutate({ connectionId: connection.id })
+                        }
+                      />
                     </div>
                   ) : (
                     connError ? (
@@ -813,24 +1002,30 @@ function EbaySetup({
                 state={
                   !connected
                     ? "blocked"
-                    : polLoading
-                      ? "loading"
-                      : hasLocation
-                        ? "done"
-                        : "todo"
+                    : polError
+                      ? "unknown"
+                      : polLoading
+                        ? "loading"
+                        : hasLocation
+                          ? "done"
+                          : "todo"
                 }
                 label="Ship-from location"
                 status={
                   !connected
                     ? "Connect your account first"
-                    : polLoading
+                    : polError
+                      ? "Status unknown. Couldn't check."
+                      : polLoading
                       ? "Checking…"
                       : hasLocation
                         ? "Set — used on every listing"
                         : "eBay needs a ship-from location to publish"
                 }
                 action={
-                  polReady ? (
+                  connected && polError ? (
+                    checkAgain
+                  ) : polReady && canManage ? (
                     <Button
                       size="sm"
                       variant={hasLocation ? "ghost" : "default"}
@@ -847,24 +1042,30 @@ function EbaySetup({
                 state={
                   !connected
                     ? "blocked"
-                    : polLoading
-                      ? "loading"
-                      : hasPolicies
-                        ? "done"
-                        : "todo"
+                    : polError
+                      ? "unknown"
+                      : polLoading
+                        ? "loading"
+                        : hasPolicies
+                          ? "done"
+                          : "todo"
                 }
                 label="Business policies"
                 status={
                   !connected
                     ? "Connect your account first"
-                    : polLoading
+                    : polError
+                      ? "Status unknown. Couldn't check."
+                      : polLoading
                       ? "Checking…"
                       : hasPolicies
                         ? "Shipping, payment & return set"
                         : "Pick a shipping, payment & return default"
                 }
                 action={
-                  polReady ? (
+                  connected && polError ? (
+                    checkAgain
+                  ) : polReady && canManage ? (
                     <Button
                       size="sm"
                       variant={hasPolicies ? "ghost" : "default"}
@@ -876,6 +1077,10 @@ function EbaySetup({
                 }
               />
             </div>
+
+            {!canManage && (
+              <p className="text-xs text-muted-foreground">{MARKETPLACE_ADMIN_ONLY}</p>
+            )}
 
             {allReady && manageOpen && (
               <div className="flex justify-end">
@@ -966,6 +1171,8 @@ function ShopifySetup() {
   const startOauth = useStartShopifyOauth();
   const disconnect = useDisconnectShopify();
   const sync = useSyncShopify();
+  const { can } = useWorkspace();
+  const canManage = can("manage_marketplaces");
   const [shop, setShop] = useState("");
   // US-3248: see the eBay card. A failed read is not a missing connection.
   const connected = !connError && !!connection;
@@ -980,7 +1187,7 @@ function ShopifySetup() {
   };
 
   return (
-    <Card>
+    <Card id="shopify-setup" className="scroll-mt-20">
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2">
@@ -1022,6 +1229,8 @@ function ShopifySetup() {
               Check again
             </Button>
           </div>
+        ) : !connected && !canManage ? (
+          <p className="text-xs text-muted-foreground">{MARKETPLACE_ADMIN_ONLY}</p>
         ) : !connected ? (
           <div className="space-y-2">
             <Label htmlFor="shopify-domain" className="text-xs">
@@ -1057,18 +1266,15 @@ function ShopifySetup() {
               )}
               {sync.isPending ? "Syncing…" : "Sync from Shopify"}
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={() => disconnect.mutate()}
-              disabled={disconnect.isPending}
-            >
-              {disconnect.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              Disconnect
-            </Button>
+            {canManage && (
+              <DisconnectConfirm
+                channel="Shopify"
+                account={connection?.account_handle}
+                consequence="Orders from Shopify stop syncing, cross-listed items won't auto-end, and you can't publish to Shopify until you reconnect."
+                pending={disconnect.isPending}
+                onConfirm={() => disconnect.mutate()}
+              />
+            )}
             <span className="ml-auto text-[11px] text-muted-foreground">
               {connection?.last_synced_at
                 ? `Last synced ${formatAgo(connection.last_synced_at)}.`
@@ -1102,7 +1308,7 @@ function PromoStat({ label, value }: { label: string; value: string }) {
 
 function PromotedListingsSection() {
   const qc = useQueryClient();
-  const { data, isLoading } = useEbayPromotedOverview(true);
+  const { data, isLoading, isError, isFetching, refetch } = useEbayPromotedOverview(true);
   const sync = useEbaySyncPromoted();
 
   const refresh = async () => {
@@ -1156,6 +1362,16 @@ function PromotedListingsSection() {
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading promoted listings…
           </div>
+        ) : isError ? (
+          // MP-11: not "No promoted listings yet".
+          <ErrorState
+            className="py-6"
+            title="Couldn't load promoted listings"
+            description="This is a loading problem, not an empty list."
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+            hideSupport
+          />
         ) : listings.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No promoted listings yet. An ad is attached automatically when you
@@ -1364,7 +1580,12 @@ function ChannelRisk({ platform }: { platform: keyof typeof MARKETPLACE_TIER }) 
 function ClaimControl({ review }: { review: SyncReview }) {
   const [open, setOpen] = useState(false);
   const claim = useClaimSyncReview();
-  const { data: candidates, isLoading } = useClaimCandidates(open ? review.platform : null);
+  const {
+    data: candidates,
+    isLoading,
+    isError,
+    refetch,
+  } = useClaimCandidates(open ? review.id : null);
 
   if (!open) {
     return (
@@ -1374,8 +1595,21 @@ function ClaimControl({ review }: { review: SyncReview }) {
     );
   }
 
+  if (isError) {
+    // MP-08: an empty picker read as "no listings to link to".
+    return (
+      <span role="alert" className="flex items-center gap-1 text-xs">
+        Couldn&apos;t load your listings.
+        <Button variant="ghost" size="sm" onClick={() => void refetch()}>
+          Retry
+        </Button>
+      </span>
+    );
+  }
+
   return (
     <select
+      aria-label={`Link ${review.title ?? "this sale"} to one of your listings`}
       className="h-8 max-w-[16rem] rounded-md border bg-background px-2 text-xs"
       defaultValue=""
       disabled={isLoading || claim.isPending}
@@ -1383,20 +1617,57 @@ function ClaimControl({ review }: { review: SyncReview }) {
         if (!e.target.value) return;
         claim.mutate(
           { reviewId: review.id, listingId: e.target.value },
-          {
-            onSuccess: () => toast.success("Linked. The next sale on this listing matches by itself."),
-            onError: (err) => toastError(err),
-          },
+          { onSuccess: claimToast, onError: (err) => toastError(err) },
         );
       }}
     >
       <option value="">{isLoading ? "Loading your listings..." : "Choose an item"}</option>
+      {!isLoading && (candidates ?? []).length === 0 && (
+        <option value="" disabled>
+          No unlinked active listings on this channel
+        </option>
+      )}
       {(candidates ?? []).map((c: ClaimCandidate) => (
         <option key={c.id} value={c.id}>
-          {c.title ?? "Untitled listing"}
+          {c.listing_title ?? "Untitled listing"}
+          {c.listing_price != null ? ` ($${Number(c.listing_price).toFixed(2)})` : ""}
         </option>
       ))}
     </select>
+  );
+}
+
+// MP-09: the claim links the listing even when the review row could not be
+// cleared, and that row sitting open afterwards reads like the link failed.
+function claimToast(res: { review_resolved?: boolean }) {
+  if (res.review_resolved === false) {
+    toast.warning("Linked, but this row could not be cleared. Dismiss it.");
+  } else {
+    toast.success("Linked. The next sale on this listing matches by itself.");
+  }
+}
+
+// MP-09: a sale matched to one of the seller's items, short of the certainty to
+// act alone. The group copy asks them to confirm; this is the button that does.
+function ConfirmMatch({ review }: { review: SyncReview }) {
+  const claim = useClaimSyncReview();
+  if (!review.listing_id) return null;
+  const listingId = review.listing_id;
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      aria-label={`Yes, ${review.title ?? "this sale"} is this item`}
+      disabled={claim.isPending}
+      onClick={() =>
+        claim.mutate(
+          { reviewId: review.id, listingId },
+          { onSuccess: claimToast, onError: (err) => toastError(err) },
+        )
+      }
+    >
+      Yes, this item
+    </Button>
   );
 }
 
@@ -1407,11 +1678,19 @@ function ClaimControl({ review }: { review: SyncReview }) {
 // appears anywhere, and that channel never runs again until the seller opens it
 // themselves. Resuming is a button and not a timer, because GradeThread never
 // decides a human check has passed.
-function StoppedChannels({ platforms }: { platforms: string[] }) {
-  if (platforms.length === 0) return null;
+function StoppedChannels({
+  platforms,
+  alreadyShown,
+}: {
+  platforms: string[];
+  /** MP-14: channels the status rows above already show as stopped. */
+  alreadyShown: ReadonlySet<string>;
+}) {
+  const fresh = platforms.filter((p) => !alreadyShown.has(p));
+  if (fresh.length === 0) return null;
   return (
     <div className="mt-3 rounded-lg border border-dashed p-3">
-      {platforms.map((platform) => {
+      {fresh.map((platform) => {
         const copy = stoppedChannelCopy(platform);
         return (
           <div key={platform}>
@@ -1424,8 +1703,15 @@ function StoppedChannels({ platforms }: { platforms: string[] }) {
   );
 }
 
-function SoldSyncSchedule() {
-  const { data: poll, isLoading } = usePollState();
+function SoldSyncSchedule({
+  poll,
+  isLoading,
+  stoppedInRows,
+}: {
+  poll: ReturnType<typeof usePollState>["data"];
+  isLoading: boolean;
+  stoppedInRows: ReadonlySet<string>;
+}) {
   const stop = useStopPoll();
   const setInterval = useSetPollInterval();
 
@@ -1494,17 +1780,50 @@ function SoldSyncSchedule() {
           </Button>
         </div>
       </div>
-      <StoppedChannels platforms={stopped} />
+      <StoppedChannels platforms={stopped} alreadyShown={stoppedInRows} />
     </div>
   );
 }
 
 function SoldSyncSection() {
-  const { data: channels, isLoading } = useSyncStatus();
-  const { data: reviews } = useSyncReviews();
+  const {
+    data: channels,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useSyncStatus();
+  const {
+    data: reviews,
+    isError: reviewsError,
+    refetch: refetchReviews,
+  } = useSyncReviews();
   const dismiss = useDismissSyncReview();
+  // MP-14: lifted here so the blurb can say whether reads also run on a
+  // schedule. It used to say "Nothing is read on a schedule" directly above
+  // "Checking on a schedule".
+  const { data: poll, isLoading: pollLoading } = usePollState();
+  const scheduled = !!poll?.available && !!poll.accepted && !!poll.enabled;
 
   const rows = channels ?? [];
+  const stoppedInRows = new Set(rows.filter((r) => r.status === "stopped").map((r) => r.platform));
+  // MP-08: this is the double-sale guard. A failed status read used to hide
+  // the whole section, which reads exactly like "no channel to guard".
+  if (isError) {
+    return (
+      <div>
+        <h3 className="mb-1 text-sm font-semibold text-foreground">Sold-sync</h3>
+        <ErrorState
+          className="rounded-lg border py-6"
+          title="Couldn't check sold-sync"
+          description="We could not read whether your channels are being watched for sales. This is a loading problem, not a stopped sync."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+          hideSupport
+        />
+      </div>
+    );
+  }
   if (isLoading || rows.length === 0) return null;
 
   const queue = reviews ?? [];
@@ -1527,9 +1846,12 @@ function SoldSyncSection() {
       <p className="mb-3 max-w-prose text-xs text-muted-foreground">
         When one of these channels sells a garment, GradeThread ends your other
         listings for it so the same item cannot sell twice. It reads your own
-        sold page while you are on it, from your browser. Nothing is read on a
-        schedule, and GradeThread never receives your marketplace password,
-        session, or the name or address of anyone who bought from you.
+        sold page while you are on it, from your browser.{" "}
+        {scheduled
+          ? "It also checks on the schedule below while your browser is open."
+          : "Nothing is read on a schedule."}{" "}
+        GradeThread never receives your marketplace password, session, or the
+        name or address of anyone who bought from you.
       </p>
 
       <div className="rounded-lg border">
@@ -1565,7 +1887,16 @@ function SoldSyncSection() {
         </ul>
       </div>
 
-      <SoldSyncSchedule />
+      <SoldSyncSchedule poll={poll} isLoading={pollLoading} stoppedInRows={stoppedInRows} />
+
+      {reviewsError && (
+        <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span>Couldn&apos;t load the sales waiting for your review.</span>
+          <Button variant="outline" size="sm" onClick={() => void refetchReviews()}>
+            Retry
+          </Button>
+        </div>
+      )}
 
       {queue.length > 0 && (
         <div className="mt-3 space-y-3">
@@ -1595,15 +1926,39 @@ function SoldSyncSection() {
                         {MARKETPLACE_LABELS[
                           r.platform as keyof typeof MARKETPLACE_LABELS
                         ] ?? r.platform}
+                        {r.sold_price_cents != null
+                          ? `, sold for $${(r.sold_price_cents / 100).toFixed(2)}`
+                          : ""}
+                        {r.sold_at ? ` on ${new Date(r.sold_at).toLocaleDateString()}` : ""}
                         {r.unexplained != null
-                          ? ` — ${r.unexplained} unaccounted for`
+                          ? `, ${r.unexplained} unaccounted for`
                           : ""}
                         {r.claimed != null && r.cap != null
-                          ? ` — claimed ${r.claimed}, cap ${r.cap}`
+                          ? `, claimed ${r.claimed}, cap ${r.cap}`
                           : ""}
+                        {safeHref(r.listing_url) && (
+                          <>
+                            {" "}
+                            <a
+                              href={safeHref(r.listing_url) ?? undefined}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline underline-offset-2"
+                            >
+                              Open on{" "}
+                              {MARKETPLACE_LABELS[
+                                r.platform as keyof typeof MARKETPLACE_LABELS
+                              ] ?? r.platform}
+                            </a>
+                          </>
+                        )}
                       </span>
                       <span className="flex items-center gap-1">
-                        {reason === "unmatched" && (
+                        {reason === "needs_confirming" && <ConfirmMatch review={r} />}
+                        {/* The claim writes the sale's address onto the
+                            listing; a row with no address has nothing to claim
+                            and the server answers 422. */}
+                        {reason === "unmatched" && r.listing_url && (
                           <ClaimControl review={r} />
                         )}
                         <Button
@@ -1643,6 +1998,10 @@ function SoldSyncSection() {
  * identical blank screen. The first is fine and the second is a stalled seller
  * who will not find out until an item sells in two places.
  */
+// MP-15: how long a desktop can go without draining before pending work is
+// called out as stalled.
+const STALLED_DRAIN_MS = 24 * 60 * 60 * 1000;
+
 function QueueSummary({
   pending,
   lastDrainedAt,
@@ -1650,9 +2009,34 @@ function QueueSummary({
   pending: ExtensionQueueItem[];
   lastDrainedAt: string | null;
 }) {
+  const qc = useQueryClient();
   const groups = groupQueue(pending);
   const drained = lastDrainedAt ? new Date(lastDrainedAt) : null;
   const drainedValid = drained && !Number.isNaN(drained.getTime()) ? drained : null;
+  const [running, setRunning] = useState(false);
+  // MP-15: requestDrainNow() and the extension's GT_DRAIN_NOW already existed;
+  // the page that shows the queue had no button for them, so a seller waited
+  // for the 5-minute alarm.
+  const canRunNow = pending.length > 0 && isListerAvailable();
+  const stalled =
+    pending.length > 0 &&
+    (!drainedValid || Date.now() - drainedValid.getTime() > STALLED_DRAIN_MS);
+
+  const runNow = async () => {
+    setRunning(true);
+    try {
+      const result = await requestDrainNow();
+      const sentence = drainNudgeSentence(result);
+      if (result.state === "ok" || result.state === "empty" || result.state === "busy") {
+        toast.success(sentence);
+      } else {
+        toast.info(sentence);
+      }
+      await qc.invalidateQueries({ queryKey: ["extension_queue"] });
+    } finally {
+      setRunning(false);
+    }
+  };
 
   return (
     <div className="mb-3 rounded-lg border p-3">
@@ -1662,12 +2046,29 @@ function QueueSummary({
             ? "Nothing waiting for your desktop"
             : `${pending.length} job${pending.length === 1 ? "" : "s"} waiting for your desktop`}
         </p>
-        <p className="text-xs text-muted-foreground">
-          {drainedValid
-            ? `Last run ${drainedValid.toLocaleString()}`
-            : "Your extension has never run any of this"}
-        </p>
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground" title={drainedValid?.toLocaleString()}>
+            {drainedValid
+              ? `Last run ${formatAgo(drainedValid.toISOString())}`
+              : "Your extension has never run any of this"}
+          </span>
+          {canRunNow && (
+            <Button size="sm" variant="outline" onClick={() => void runNow()} disabled={running}>
+              {running && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Run now
+            </Button>
+          )}
+        </span>
       </div>
+
+      {stalled && (
+        <p role="status" className="mt-2 text-xs text-brand-red-text">
+          {drainedValid
+            ? `Your desktop has not picked up work since ${formatAgo(drainedValid.toISOString())}.`
+            : "Your desktop has never picked up work."}{" "}
+          Open Chrome with the extension.
+        </p>
+      )}
 
       {groups.length > 0 && (
         <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
@@ -1697,17 +2098,56 @@ function QueueSummary({
 }
 
 function ExtensionQueueSection() {
-  const { data, isLoading } = useExtensionQueue();
+  const { data, isLoading, isError, isFetching, refetch } = useExtensionQueue();
+  const { hash } = useLocation();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  // MP-14: the attention rail links here. Scroll once the queue has settled,
+  // so the layout below does not jump the section away again, and move focus
+  // to the heading so a keyboard or screen-reader user lands on it too.
+  useEffect(() => {
+    if (hash !== "#extension-queue" || isLoading) return;
+    const el = document.getElementById("extension-queue");
+    el?.scrollIntoView({ block: "start" });
+    headingRef.current?.focus();
+  }, [hash, isLoading]);
   const cancel = useCancelExtensionWork();
+  const requeue = useRequeueExtensionWork();
+  // MP-10: only the row being acted on is busy, not every row on the list.
+  const busyId =
+    (cancel.isPending ? cancel.variables : undefined) ??
+    (requeue.isPending ? requeue.variables?.id : undefined);
 
   const pending = data?.pending ?? [];
   const needsAttention = data?.needsAttention ?? [];
   // US-3425: runs that FINISHED and still want a human. The edge has answered
   // with this since US-3370 and no web surface read it.
   const finished = data?.finishedNeedsReview ?? [];
-  // US-3198: the loading guard stays; the empty guard is gone. QueueSummary is
-  // the thing a seller with an empty queue needs to see.
-  if (isLoading) return null;
+  // US-3198: the empty guard is gone. QueueSummary is the thing a seller with
+  // an empty queue needs to see.
+  // MP-08: loading and error keep the heading and the #extension-queue anchor,
+  // so the attention rail's link lands somewhere, and a failed read is never
+  // "Nothing waiting for your desktop".
+  if (isLoading || isError) {
+    return (
+      <div id="extension-queue" className="scroll-mt-20">
+        <h3 className="mb-3 text-sm font-semibold text-foreground">
+          Queued for your desktop
+        </h3>
+        {isError ? (
+          <ErrorState
+            className="rounded-lg border py-6"
+            title="Couldn't load your queued work"
+            description="This is a loading problem. Anything you queued is still queued."
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+            hideSupport
+          />
+        ) : (
+          <Skeleton className="h-16 w-full" />
+        )}
+      </div>
+    );
+  }
 
   const describe = (kind: string, platform: string) => {
     const label = MARKETPLACE_LABELS[platform as keyof typeof MARKETPLACE_LABELS] ?? platform;
@@ -1726,7 +2166,7 @@ function ExtensionQueueSection() {
     // US-3032: h3 and <div> — a part of the "Browser extension" section.
     // The id is the attention rail's extension chips' anchor.
     <div id="extension-queue" className="scroll-mt-20">
-      <h3 className="mb-3 text-sm font-semibold text-foreground">
+      <h3 ref={headingRef} tabIndex={-1} className="mb-3 text-sm font-semibold text-foreground">
         Queued for your desktop
       </h3>
 
@@ -1771,11 +2211,13 @@ function ExtensionQueueSection() {
                   </span>
                 ) : (
                   <Button
-                    aria-label={`Cancel ${describe(job.kind, job.platform)}`}
+                    aria-label={`Cancel ${describe(job.kind, job.platform)}${
+                      job.item_title ? ` for ${job.item_title}` : ""
+                    }`}
                     variant="ghost"
                     size="sm"
                     className="shrink-0"
-                    disabled={cancel.isPending}
+                    disabled={busyId === job.id}
                     onClick={() => {
                       cancel.mutate(job.id, {
                         onSuccess: () => toast.success("Removed from the queue."),
@@ -1804,16 +2246,56 @@ function ExtensionQueueSection() {
             or queue it again.
           </p>
           <ul className="mt-2 space-y-1.5">
-            {needsAttention.map((job) => (
-              <li key={job.id} className="text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {job.item_title
-                    ? `${job.item_title} — ${describe(job.kind, job.platform)}`
-                    : describe(job.kind, job.platform)}
-                </span>
-                {job.result?.error ? ` — ${job.result.error}` : ""}
-              </li>
-            ))}
+            {needsAttention.map((job) => {
+              const name = job.item_title
+                ? `${job.item_title}: ${describe(job.kind, job.platform)}`
+                : describe(job.kind, job.platform);
+              return (
+                <li
+                  key={job.id}
+                  className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"
+                >
+                  <span>
+                    <span className="font-medium text-foreground">{name}</span>
+                    {job.result?.error ? `. ${job.result.error}` : ""}
+                  </span>
+                  {/* MP-10: these rows used to stay forever with no way to act
+                      on them from here. */}
+                  <span className="flex shrink-0 items-center gap-1">
+                    {canRequeue(job) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label={`Queue again: ${name}`}
+                      disabled={busyId === job.id}
+                      onClick={() =>
+                        requeue.mutate(job, {
+                          onSuccess: () => toast.success("Queued again."),
+                          onError: (e) => toastError(e),
+                        })
+                      }
+                    >
+                      Queue again
+                    </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`Dismiss: ${name}`}
+                      disabled={busyId === job.id}
+                      onClick={() =>
+                        cancel.mutate(job.id, {
+                          onSuccess: () => toast.success("Cleared."),
+                          onError: (e) => toastError(e),
+                        })
+                      }
+                    >
+                      Dismiss
+                    </Button>
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
@@ -1902,6 +2384,8 @@ export function FlipdeskMarketplacesPage() {
   const { data: connIssue } = useEbayConnectionIssue();
   const startOauth = useStartEbayOauth();
   const syncListings = useSyncEbayListings();
+  const { can } = useWorkspace();
+  const canManage = can("manage_marketplaces");
 
   // Detect completion: last_synced_at changed from the pre-sync baseline.
   useEffect(() => {
@@ -2005,7 +2489,7 @@ export function FlipdeskMarketplacesPage() {
       else if (entry.type === "info") toast.info(entry.message);
       else toast.error(entry.message);
     };
-    if (ebayCode && CALLBACK_MESSAGES[ebayCode]) show(CALLBACK_MESSAGES[ebayCode]);
+    if (ebayCode) show(CALLBACK_MESSAGES[ebayCode] ?? CALLBACK_FALLBACK);
     // US-3458: the callback started the first pull server-side, so watch for
     // it the same way a Sync click does. `before` is whatever this page last
     // saw; a reconnect resets the server's cursor to null, so the first stamp
@@ -2018,8 +2502,8 @@ export function FlipdeskMarketplacesPage() {
         duration: Infinity,
       });
     }
-    if (shopifyCode && SHOPIFY_CALLBACK_MESSAGES[shopifyCode]) {
-      show(SHOPIFY_CALLBACK_MESSAGES[shopifyCode]);
+    if (shopifyCode) {
+      show(SHOPIFY_CALLBACK_MESSAGES[shopifyCode] ?? SHOPIFY_CALLBACK_FALLBACK);
     }
     const next = new URLSearchParams(params);
     next.delete("ebay");
@@ -2030,13 +2514,65 @@ export function FlipdeskMarketplacesPage() {
   }, [params, setParams, connection?.last_synced_at, syncBaseline]);
 
   const syncing = syncListings.isPending || syncBaseline != null;
+  const { hash } = useLocation();
+  const anchor = hash.replace(/^#/, "");
+  const tabParam = params.get("tab");
+  const tab = CONNECTIONS_ANCHORS.has(anchor)
+    ? "connections"
+    : TABS.includes(tabParam as (typeof TABS)[number])
+      ? (tabParam as string)
+      : DEFAULT_TAB;
+  const setTab = (next: string) => {
+    const p = new URLSearchParams(params);
+    p.set("tab", next);
+    setParams(p, { replace: true });
+  };
+  // MP-14: the summary rows link to #ebay-setup and #shopify-setup. The queue
+  // anchor scrolls itself once its data settles (ExtensionQueueSection).
+  useEffect(() => {
+    if (anchor !== "ebay-setup" && anchor !== "shopify-setup") return;
+    document.getElementById(anchor)?.scrollIntoView({ block: "start" });
+  }, [anchor]);
+  // MP-07: a failed read, a pending read and a real "not connected" are three
+  // different answers in the Ads and Settings tabs too.
+  const connCouldNotCheck = (
+    <div
+      role="alert"
+      className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed p-4 text-sm"
+    >
+      <span>
+        Couldn&apos;t check your eBay connection. This is a loading problem, not
+        a disconnection.
+      </span>
+      <Button size="sm" variant="outline" onClick={() => void refetchConnection()}>
+        Retry
+      </Button>
+    </div>
+  );
+  const connectPrompt = (text: string) => (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+      <span>{text}</span>
+      <Button size="sm" variant="outline" onClick={() => setTab("connections")}>
+        Go to Connections
+      </Button>
+    </div>
+  );
 
   // Per-user FlipDesk behavior settings (migration 00134). Absent row =
   // defaults (auto-end ON), so the toggle reads that until the user changes it.
   const user = useAuthStore((s) => s.user);
-  const { data: fdSettings } = useQuery({
+  // MP-06: flipdesk_settings is per-user (RLS 00134) and the edge reads the
+  // OWNER's row, so inside someone else's workspace a change here saved to a
+  // row nothing reads. The control is withheld there instead.
+  const ownSettings = useOwnsActiveWorkspace();
+  const {
+    data: fdSettings,
+    isLoading: fdLoading,
+    isError: fdError,
+    refetch: refetchFdSettings,
+  } = useQuery({
     queryKey: ["flipdesk_settings", user?.id],
-    enabled: !!user,
+    enabled: !!user && ownSettings,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("flipdesk_settings")
@@ -2055,7 +2591,7 @@ export function FlipdeskMarketplacesPage() {
   const [autoEndSaving, setAutoEndSaving] = useState(false);
 
   async function toggleAutoEnd(next: boolean) {
-    if (!user) return;
+    if (!user || !ownSettings || autoEndSetting === undefined) return;
     setAutoEndSaving(true);
     try {
       const { error } = await supabase
@@ -2069,7 +2605,7 @@ export function FlipdeskMarketplacesPage() {
       toast.success(
         next
           ? "Cross-listed siblings will end automatically when one sells."
-          : "Auto-end disabled — end other listings yourself after a sale.",
+          : "Auto-end is off. End the other listings yourself after a sale.",
       );
     } catch (err) {
       toastError(err, "Couldn't save the setting.");
@@ -2091,25 +2627,32 @@ export function FlipdeskMarketplacesPage() {
           (revoked/expired grant) needs explicit re-auth. Show a clear banner
           with a reconnect action rather than silently reverting to the
           "Connect eBay" CTA. */}
-      {connIssue && !connIssue.is_active && connIssue.refresh_error && (
-        <div className="flex flex-col gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+      {isReauthNeeded(connIssue) && (
+        <div
+          role="alert"
+          className="flex flex-col gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+        >
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-destructive" />
-            <span className="text-foreground">{connIssue.refresh_error}</span>
+            <span className="text-foreground">{reauthMessage(connIssue?.refresh_error)}</span>
           </div>
-          <Button
-            size="sm"
-            onClick={() => startOauth.mutate()}
-            disabled={startOauth.isPending}
-            className="shrink-0"
-          >
-            {startOauth.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            Reconnect eBay
-          </Button>
+          {canManage ? (
+            <Button
+              size="sm"
+              onClick={() => startOauth.mutate()}
+              disabled={startOauth.isPending}
+              className="shrink-0"
+            >
+              {startOauth.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Reconnect eBay
+            </Button>
+          ) : (
+            <span className="text-xs text-muted-foreground">{MARKETPLACE_ADMIN_ONLY}</span>
+          )}
         </div>
       )}
 
@@ -2131,12 +2674,20 @@ export function FlipdeskMarketplacesPage() {
           takes Connections back to what its name promises, and puts every card
           that spends money on eBay where they can be read against each other.
           The programs card went to Settings, which is what it always was. */}
-      <Tabs defaultValue="connections" className="space-y-6">
-        <TabsList>
+      <Tabs value={tab} onValueChange={setTab} className="space-y-6">
+        {/* MP-14: four triggers overflow at 375px. Short labels below sm, and
+            the list scrolls sideways rather than pushing the page wider. */}
+        <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="connections">Connections</TabsTrigger>
-          <TabsTrigger value="ads">Ads &amp; promotions</TabsTrigger>
+          <TabsTrigger value="ads">
+            <span className="sm:hidden">Ads</span>
+            <span className="hidden sm:inline">Ads &amp; promotions</span>
+          </TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
-          <TabsTrigger value="how">How channels work</TabsTrigger>
+          <TabsTrigger value="how">
+            <span className="sm:hidden">How it works</span>
+            <span className="hidden sm:inline">How channels work</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="connections" className="space-y-8">
@@ -2316,11 +2867,12 @@ export function FlipdeskMarketplacesPage() {
             // and connect eBay for the half-second before the query answers is
             // worse than an empty tab.
             <div className="h-4" />
+          ) : connError ? (
+            connCouldNotCheck
           ) : !connection ? (
-            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              Connect eBay on the Connections tab and your ads, sales and
-              follower emails show up here.
-            </div>
+            connectPrompt(
+              "Connect eBay on the Connections tab and your ads, sales and follower emails show up here.",
+            )
           ) : (
             <>
               <section>
@@ -2389,13 +2941,31 @@ export function FlipdeskMarketplacesPage() {
                 When an item pushed to multiple marketplaces sells on one of
                 them, automatically end its listings on the others.
               </p>
+              {!ownSettings && (
+                <p className="text-xs text-muted-foreground">{SETTINGS_OWNER_ONLY}</p>
+              )}
+              {ownSettings && fdError && (
+                <p role="alert" className="text-xs">
+                  Couldn&apos;t load this setting.
+                </p>
+              )}
             </div>
-            <Switch
-              id="auto-end-cross"
-              checked={autoEndSetting ?? true}
-              disabled={autoEndSaving || autoEndSetting === undefined}
-              onCheckedChange={(v) => void toggleAutoEnd(v)}
-            />
+            {!ownSettings ? (
+              <Switch id="auto-end-cross" checked={false} disabled />
+            ) : fdError ? (
+              <Button size="sm" variant="outline" onClick={() => void refetchFdSettings()}>
+                Retry
+              </Button>
+            ) : fdLoading || autoEndSetting === undefined ? (
+              <Skeleton className="h-5 w-9 rounded-full" />
+            ) : (
+              <Switch
+                id="auto-end-cross"
+                checked={autoEndSetting}
+                disabled={autoEndSaving}
+                onCheckedChange={(v) => void toggleAutoEnd(v)}
+              />
+            )}
           </div>
           {/* US-2721: which channels a draft is offered at all. Beside the
               auto-end toggle because both answer "how does cross-listing
@@ -2445,12 +3015,14 @@ export function FlipdeskMarketplacesPage() {
           <h2 className="mb-3 text-base font-semibold text-foreground">
             eBay account programs
           </h2>
-          {connection ? (
+          {connLoading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : connError ? (
+            connCouldNotCheck
+          ) : connection ? (
             <EbayProgramsCard />
           ) : (
-            <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-              Connect eBay on the Connections tab to switch these on.
-            </p>
+            connectPrompt("Connect eBay on the Connections tab to switch these on.")
           )}
         </section>
         </TabsContent>

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 import {
   Select,
   SelectContent,
@@ -29,7 +30,7 @@ import {
 import {
   createExpenseFromRow,
   fetchCandidates,
-  fetchRows,
+  fetchRowsPage,
   fetchSources,
   fetchSummary,
   ignoreRow,
@@ -47,6 +48,8 @@ import {
 // matching it against the books catches both the expense logged twice and the
 // one never logged at all.
 
+const ROWS_SHOWN = 30;
+
 export function StatementImportCard() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
@@ -56,11 +59,12 @@ export function StatementImportCard() {
   const [map, setMap] = useState<Partial<ColumnMap>>({});
   const [busy, setBusy] = useState(false);
 
-  const { data: sources = [] } = useQuery({
+  const sourcesQuery = useQuery({
     queryKey: ["statement-sources", user?.id],
     enabled: !!user,
     queryFn: fetchSources,
   });
+  const sources = sourcesQuery.data ?? [];
 
   const active = sourceId ?? sources[0]?.id ?? null;
 
@@ -70,11 +74,16 @@ export function StatementImportCard() {
     queryFn: () => fetchSummary(active as string),
   });
 
-  const { data: rows = [], isLoading } = useQuery({
+  // A failed read used to leave `rows` empty and print "Nothing left to
+  // review", an all-clear on a statement nobody read.
+  const rowsQuery = useQuery({
     queryKey: ["statement-rows", active],
     enabled: !!active,
-    queryFn: () => fetchRows(active as string, "unreviewed"),
+    queryFn: () => fetchRowsPage(active as string, "unreviewed", ROWS_SHOWN),
   });
+  const rows = rowsQuery.data?.rows ?? [];
+  const rowsTotal = rowsQuery.data?.total ?? rows.length;
+  const isLoading = rowsQuery.isLoading;
 
   async function onFile(file: File | null) {
     if (!file) return;
@@ -282,14 +291,32 @@ export function StatementImportCard() {
           </p>
         )}
 
-        {isLoading ? (
+        {sourcesQuery.isError || rowsQuery.isError ? (
+          <ErrorState
+            title="Couldn't load your statement"
+            description="The read failed, so this can't say whether anything is left to review."
+            onRetry={() => {
+              if (sourcesQuery.isError) void sourcesQuery.refetch();
+              if (rowsQuery.isError) void rowsQuery.refetch();
+            }}
+            retrying={sourcesQuery.isFetching || rowsQuery.isFetching}
+            hideSupport
+          />
+        ) : isLoading ? (
           <Skeleton className="h-32 w-full" />
         ) : rows.length > 0 ? (
-          <ul className="space-y-2">
-            {rows.slice(0, 30).map((row) => (
-              <StatementRowItem key={row.id} row={row} />
-            ))}
-          </ul>
+          <>
+            {rowsTotal > rows.length && (
+              <p className="text-[13px] text-muted-foreground">
+                Showing {rows.length} of {rowsTotal} to review, newest first.
+              </p>
+            )}
+            <ul className="space-y-2">
+              {rows.map((row) => (
+                <StatementRowItem key={row.id} row={row} />
+              ))}
+            </ul>
+          </>
         ) : active ? (
           <p className="text-[13px] text-muted-foreground">
             Nothing left to review on this account.

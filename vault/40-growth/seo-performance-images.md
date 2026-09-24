@@ -14,11 +14,20 @@ code_refs:
   - src/routes/index.tsx
   - src/lib/mount-when-router-ready.ts
   - src/index.css
-reviewed: 2026-09-05
+reviewed: 2026-09-24
 tags: [seo, performance, images, cwv]
 summary: The shipped performance levers, how responsive images are gated (ON since US-2333), and how the edge SSR cache and its purges actually work.
 ---
 # Core Web Vitals + edge caching (US-1690)
+
+> [!note] Re-reviewed 2026-09-24, no change. `f9b4fc89b` (the
+> `mountWhenRouterReady` mount, the mobile hero-animation cut and the mobile
+> `content-visibility` rule) already rewrote this note in the same commit;
+> re-checked at HEAD: `src/main.tsx:63` mounts through it, and the
+> `font-display: swap` faces and the `content-visibility: auto` rule are still
+> in `src/index.css`. The later `index.css` commits (`aff7195ce` contrast token,
+> `cfe886375` glass-card shadow, `62eed233c` certificate print) change colour,
+> elevation and print only, none of the performance levers here.
 
 The SPA + edge-SSR + Cloudflare stack tuned so ranking and crawl quality hold as
 certificate/pSEO volume grows. Most levers were already in place; this records

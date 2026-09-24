@@ -41,9 +41,12 @@ function newRule(): FilterRule {
 export function FilterBuilder({
   query,
   onChange,
+  fields = FILTER_FIELDS,
 }: {
   query: FilterQuery;
   onChange: (q: FilterQuery) => void;
+  /** The fields to offer. Defaults to every inventory field. */
+  fields?: readonly FilterField[];
 }) {
   const ruleCount = query.rules.length;
   // US-3129: the "Sourced by" rule picks a person instead of asking the seller
@@ -166,7 +169,7 @@ export function FilterBuilder({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {FILTER_FIELDS.map((f) => (
+                    {fields.map((f) => (
                       <SelectItem key={f} value={f}>
                         {FIELD_LABELS[f]}
                       </SelectItem>

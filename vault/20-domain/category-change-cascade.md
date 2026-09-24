@@ -10,7 +10,7 @@ code_refs:
   - src/lib/garment-mapping.ts
   - src/lib/grading-readiness.ts
   - src/lib/measurement-templates.ts
-reviewed: 2026-09-04
+reviewed: 2026-09-24
 tags: [flipdesk, grading, ebay, contract]
 summary: An item carries three category axes that must agree; correcting one cascades into the others, and the specifics a change cannot carry are set aside rather than destroyed.
 ---
@@ -219,6 +219,12 @@ same-named SELECTION_ONLY aspect can retain an out-of-domain value.
 mirror of the edge `buildValidation()` — same rules, same blocker strings, locked
 by a test. It exists because photos write to `item_photos` immediately without
 bumping `updated_at`, so a card keyed on the saved row never noticed them.
+
+It must also count photos the way the server does. `gradablePhotoTypes` (US-2304)
+keeps only rows with a `storage_path`, because `/submit` copies only those and
+`/validate` counts only those; an imported listing photo that has just a
+`photo_url` must not turn the card to Ready, or the seller presses Grade and is
+refused for a tag photo they can see on screen.
 
 Submit still persists title and the garment fields **before** calling submit, so a
 card that says Ready always passes the authoritative server check.

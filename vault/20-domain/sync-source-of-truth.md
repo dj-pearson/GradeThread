@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/ebay-catalog-merge.ts
   - services/edge-functions/src/routes/flipdesk-google-sync.ts
   - services/edge-functions/src/lib/sheet-map.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-24
 tags: [flipdesk, sync, contract]
 summary: Provenance model, field ownership and linking-source rules for bidirectional marketplace and sheet sync.
 ---

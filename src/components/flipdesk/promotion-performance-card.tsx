@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, BarChart3, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -12,8 +12,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { useEbayPromotions } from "@/hooks/use-ebay";
+import {
+  useEbayPromotionPerformance,
+  useEbayPromotions,
+  useEbayStackCheck,
+} from "@/hooks/use-ebay";
 import { promotionPerformanceHasContent } from "@/components/flipdesk/promotion-performance";
+import { InlineRetry } from "@/components/flipdesk/inline-retry";
 
 // US-2949 + US-2951: did the sale sell more, and can the discounts stack below
 // cost?
@@ -91,27 +96,13 @@ function liftText(v: number | null): string {
 export function PromotionPerformanceCard() {
   const qc = useQueryClient();
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["ebay_promotion_performance"],
-    staleTime: 10 * 60_000,
-    queryFn: async (): Promise<{ promotions: PromotionRow[] }> => {
-      const res = await edgeFetch("/api/flipdesk/ebay/promotions/performance");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't work out how your promotions did.");
-      return json as { promotions: PromotionRow[] };
-    },
-  });
-
-  const { data: stack } = useQuery({
-    queryKey: ["ebay_stack_check"],
-    staleTime: 10 * 60_000,
-    queryFn: async (): Promise<StackReport> => {
-      const res = await edgeFetch("/api/flipdesk/ebay/promotions/stack-check");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't check your discounts.");
-      return json as StackReport;
-    },
-  });
+  const { data, isLoading, isError, refetch } =
+    useEbayPromotionPerformance<{ promotions: PromotionRow[] }>();
+  const {
+    data: stack,
+    isError: stackError,
+    refetch: refetchStack,
+  } = useEbayStackCheck<StackReport>();
 
   const sync = useMutation<{ stored: number }, Error, void>({
     mutationFn: async () => {
@@ -175,6 +166,13 @@ export function PromotionPerformanceCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* MP-11: a failed stack check is not "no breaches". */}
+        {stackError && (
+          <InlineRetry
+            message="Couldn't check discounts against your cost floor."
+            onRetry={() => void refetchStack()}
+          />
+        )}
         {/* The warning first: it is the one that costs money right now. */}
         {stack && stack.breaching.length > 0 && (
           <div className="space-y-1 rounded-md border border-brand-red/40 bg-brand-red/5 p-2">
@@ -192,7 +190,8 @@ export function PromotionPerformanceCard() {
             </ul>
             <p className="text-xs text-muted-foreground">
               Nothing has been changed. Take the item out of a promotion, raise its
-              price, or lower its auto-accept.
+              price, lower its auto-accept, or lower its ad rate. Promoted Listings
+              ad fees are counted.
             </p>
           </div>
         )}
@@ -206,6 +205,11 @@ export function PromotionPerformanceCard() {
 
         {isLoading ? (
           <Skeleton className="h-32 w-full" />
+        ) : isError ? (
+          <InlineRetry
+            message="Couldn't work out how your promotions did."
+            onRetry={() => void refetch()}
+          />
         ) : !data || data.promotions.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No promotions on record yet. Refresh from eBay to pull them in.

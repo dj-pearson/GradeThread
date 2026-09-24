@@ -103,6 +103,16 @@ describe("lighthouse.yml", () => {
     );
   });
 
+  it("gives each uploading static step its own artifact name", () => {
+    // Two uploads under one name in one run is a 409 Conflict, which fails the
+    // second step after its assertions pass and trips the gate above.
+    const job = wf.slice(0, wf.indexOf("\n  prod-ssr:"));
+    const uploads = job.match(/uploadArtifacts: true/g) ?? [];
+    const names = [...job.matchAll(/artifactName: (\S+)/g)].map((m) => m[1]);
+    expect(names).toHaveLength(uploads.length);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
   it("runs the prod lane off pull requests and reports it to an issue", () => {
     const prod = wf.slice(wf.indexOf("\n  prod-ssr:"));
     expect(prod).toContain("if: github.event_name != 'pull_request'");

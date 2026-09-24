@@ -1,24 +1,33 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  type UseQueryResult,
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
 import { getFreshAccessToken } from "@/lib/auth-token";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
+import { useTenantKey } from "@/hooks/use-tenant-key";
+import { edgeFetch } from "@/lib/edge-fetch";
+import { SHIP_QUEUE_KEY } from "@/hooks/use-ship-queue";
+import {
+  orderTotalFromRows,
+  type OrderLineRow,
+  type OrderTotal,
+} from "@/lib/refund-amount";
 // US-2170: the score shape the /listings/validate response already carries. The
 // component file owns it because that is where it is rendered; the edge's
 // lib/listing-quality-score.ts is the authority for how it is COMPUTED.
 import type { ListingQualityScore } from "@/components/flipdesk/quality-score-chip";
 import type { ValueBasis } from "@/components/value/value-basis-note";
 
-// US-1933: tenant partition for eBay query keys — the active workspace owner
-// (or the user for a solo account). Every eBay query keys on this so a workspace
-// switch or a new sign-in on a shared browser can never serve the prior tenant's
-// cached eBay data, independent of the fragile queryClient.clear() on switch.
-// Mirrors the useEbayPayouts precedent (US-1617 / US-1624).
-function useEbayTenantKey(): string | undefined {
-  return useAuthStore((s) => s.activeWorkspaceOwnerId ?? s.user?.id);
-}
+// US-1933 / MP-04: the tenant partition every eBay query keys on lives in
+// use-tenant-key.ts now, shared with the Shopify and extension hooks.
 
 // ── Connection state ────────────────────────────────────────────────
 
@@ -38,10 +47,15 @@ export interface EbayConnection {
 // it scoped to the current user.
 // Pass `pollingInterval` (ms) to fast-poll while a background sync is running.
 export function useEbayConnection(pollingInterval?: number) {
-  const user = useAuthStore((s) => s.user);
+  // MP-04: keyed and filtered on the ACTIVE workspace owner, and the primary
+  // account first. It used to key on user.id with no owner filter and order by
+  // updated_at only, so an admin of two workspaces could see one tenant's
+  // account while Sync and Disconnect acted on another's, and the card could
+  // show account B while the edge synced primary account A.
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["ebay_connection", user?.id],
-    enabled: !!user,
+    queryKey: ["ebay_connection", tenantKey],
+    enabled: !!tenantKey,
     staleTime: pollingInterval ? 0 : 60_000,
     refetchInterval: pollingInterval ?? false,
     queryFn: async (): Promise<EbayConnection | null> => {
@@ -50,8 +64,10 @@ export function useEbayConnection(pollingInterval?: number) {
         .select(
           "id, account_handle, token_expires_at, is_active, last_synced_at, analytics_access_denied"
         )
+        .eq("user_id", tenantKey!)
         .eq("marketplace", "ebay")
         .eq("is_active", true)
+        .order("is_primary", { ascending: false })
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -72,16 +88,19 @@ export interface EbayConnectionIssue {
 }
 
 export function useEbayConnectionIssue() {
-  const user = useAuthStore((s) => s.user);
+  // MP-04: same tenant scoping and primary-first order as useEbayConnection.
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["ebay_connection_issue", user?.id],
-    enabled: !!user,
+    queryKey: ["ebay_connection_issue", tenantKey],
+    enabled: !!tenantKey,
     staleTime: 60_000,
     queryFn: async (): Promise<EbayConnectionIssue | null> => {
       const { data, error } = await supabase
         .from("marketplace_connections")
         .select("is_active, refresh_error")
+        .eq("user_id", tenantKey!)
         .eq("marketplace", "ebay")
+        .order("is_primary", { ascending: false })
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -89,6 +108,26 @@ export function useEbayConnectionIssue() {
       return (data ?? null) as EbayConnectionIssue | null;
     },
   });
+}
+
+/**
+ * MP-12: does this issue mean the seller has to sign in to eBay again?
+ *
+ * A seller-initiated disconnect writes refresh_error = "disconnected" on the
+ * row it deactivates, and that used to trip the red re-auth banner and the
+ * summary's "needs attention" right after the seller chose to disconnect.
+ */
+export function isReauthNeeded(issue: EbayConnectionIssue | null | undefined): boolean {
+  return !!issue && !issue.is_active && !!issue.refresh_error &&
+    issue.refresh_error !== "disconnected";
+}
+
+/** MP-12: plain words for a stored refresh_error, never the raw string. */
+export function reauthMessage(refreshError: string | null | undefined): string {
+  if (refreshError && /revoked|expired/i.test(refreshError)) {
+    return "Your eBay sign-in expired or was revoked. Reconnect eBay to keep syncing sales and publishing.";
+  }
+  return "eBay needs you to sign in again. Reconnect eBay to keep syncing sales and publishing.";
 }
 
 // ── Business policies + ship-from location ──────────────────────────
@@ -115,7 +154,7 @@ export interface EbayPoliciesResponse {
 // so this also tells us whether a ship-from location exists yet. `enabled`
 // lets callers defer the call until the account is connected.
 export function useEbayPolicies(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_policies", tenantKey],
     enabled,
@@ -198,7 +237,7 @@ export interface EbayAccountHealth {
 }
 
 export function useEbayAccountHealth(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_account_health", tenantKey],
     enabled,
@@ -230,7 +269,7 @@ export interface EbayListingHealth {
 }
 
 export function useEbayListingHealth(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_listing_health", tenantKey],
     enabled,
@@ -337,7 +376,7 @@ export function useEbayListingViolations(
   complianceType: string,
   enabled: boolean,
 ) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_listing_violations", tenantKey, complianceType],
     enabled,
@@ -488,7 +527,7 @@ export interface EbayPromotionsResponse {
   promotions?: EbayItemPromotion[];
 }
 export function useEbayPromotions(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_promotions", tenantKey],
     enabled,
@@ -743,13 +782,19 @@ export function useStartEbayOauth() {
 // US-364: revoke the grant upstream at eBay (where supported) and deactivate the
 // connection locally, so a long-lived refresh token isn't left valid after the
 // seller disconnects.
+// MP-04: sends the connection_id of the account on screen. Without it the edge
+// deactivates EVERY eBay account in the workspace (US-1507's fallback).
 export function useDisconnectEbay() {
   const qc = useQueryClient();
-  return useMutation<{ ok: true; revoked: boolean }, Error, void>({
-    mutationFn: async () => {
+  return useMutation<{ ok: true; revoked: boolean }, Error, { connectionId: string }>({
+    mutationFn: async ({ connectionId }) => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/disconnect`,
-        { method: "POST", headers: await ebayHeaders() },
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ connection_id: connectionId }),
+        },
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Could not disconnect eBay.");
@@ -1825,11 +1870,32 @@ export interface EbayBuyerMessage {
   answered?: boolean;
 }
 
+/**
+ * OM-04: an edge failure that keeps what the edge said. The page branches on
+ * `code` (offer_not_open, body_too_long, counter_out_of_range) and on `status`
+ * (409), so a hook that threw a bare Error made every one of those look alike.
+ */
+export type EdgeError = Error & { status?: number; code?: string };
+
+function edgeError(
+  res: Response,
+  json: { detail?: string; error?: string; code?: string },
+  fallback: string,
+  preferDetail = true,
+): EdgeError {
+  const err: EdgeError = new Error(
+    (preferDetail ? json.detail || json.error : json.error) || fallback,
+  );
+  err.status = res.status;
+  if (typeof json.code === "string") err.code = json.code;
+  return err;
+}
+
 export function useEbayBestOffers(enabled = true) {
-  const tenantKey = useEbayTenantKey();
-  return useQuery({
+  const tenantKey = useTenantKey();
+  return useQuery<EbayBestOffer[], EdgeError>({
     queryKey: ["ebay_best_offers", tenantKey],
-    enabled,
+    enabled: enabled && !!tenantKey,
     // US-2236 AC4: Best Offers carry short (often 48h) deadlines, so a stale
     // inbox can cost a sale. Refresh in the background every 90s and on window
     // focus — but only while the tab is visible (refetchIntervalInBackground
@@ -1842,7 +1908,7 @@ export function useEbayBestOffers(enabled = true) {
         { headers: await ebayHeaders() },
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load best offers.");
+      if (!res.ok) throw edgeError(res, json, "Couldn't load best offers.", false);
       return (json.offers ?? []) as EbayBestOffer[];
     },
   });
@@ -1851,16 +1917,17 @@ export function useEbayBestOffers(enabled = true) {
 export function useEbayRespondOffer() {
   return useMutation<
     { ok: true },
-    Error & { status?: number },
+    EdgeError,
     {
       bestOfferId: string;
       itemId: string;
       action: "Accept" | "Decline" | "Counter";
       counterPrice?: number;
+      counterQuantity?: number;
       message?: string;
     }
   >({
-    mutationFn: async ({ bestOfferId, itemId, action, counterPrice, message }) => {
+    mutationFn: async ({ bestOfferId, itemId, action, counterPrice, counterQuantity, message }) => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/offers/${encodeURIComponent(
           bestOfferId,
@@ -1872,18 +1939,13 @@ export function useEbayRespondOffer() {
             item_id: itemId,
             action,
             counter_price: counterPrice,
+            counter_quantity: counterQuantity,
             message,
           }),
         },
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const err: Error & { status?: number } = new Error(
-          json.detail || json.error || "Offer response failed.",
-        );
-        err.status = res.status;
-        throw err;
-      }
+      if (!res.ok) throw edgeError(res, json, "Offer response failed.");
       return json;
     },
   });
@@ -1901,7 +1963,7 @@ export interface EbayNegotiationCapability {
 }
 
 export function useEbayNegotiationCapability(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_negotiation_capability", tenantKey],
     enabled,
@@ -1924,29 +1986,42 @@ export function useEbayNegotiationCapability(enabled = true) {
 }
 
 export function useEbayEligibleOffers(enabled = true) {
-  const tenantKey = useEbayTenantKey();
-  return useQuery({
+  const tenantKey = useTenantKey();
+  return useQuery<EbayEligibleItem[], EdgeError>({
     queryKey: ["ebay_eligible_offers", tenantKey],
-    enabled,
+    enabled: enabled && !!tenantKey,
     queryFn: async (): Promise<EbayEligibleItem[]> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/eligible`,
         { headers: await ebayHeaders() },
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load eligible listings.");
+      if (!res.ok) throw edgeError(res, json, "Couldn't load eligible listings.", false);
       return (json.items ?? []) as EbayEligibleItem[];
     },
   });
 }
 
+/**
+ * OM-02: what a send answers. A partial multi-store send is a 200 with the ids
+ * that went and the ones that did not, so the page can keep only the failures
+ * selected and a retry does not re-offer the watchers who already have one.
+ */
+export interface EbaySendOfferResult {
+  ok: boolean;
+  count: number;
+  sent?: string[];
+  failed?: Array<{ ids: string[]; detail: string }>;
+}
+
 export function useEbaySendOffer() {
+  const qc = useQueryClient();
   return useMutation<
-    { ok: true; count: number },
-    Error & { status?: number },
-    { listingIds: string[]; discountPercentage?: string; message?: string }
+    EbaySendOfferResult,
+    EdgeError,
+    { listingIds: string[]; discountPct: number; message?: string }
   >({
-    mutationFn: async ({ listingIds, discountPercentage, message }) => {
+    mutationFn: async ({ listingIds, discountPct, message }) => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/send-offer`,
         {
@@ -1954,34 +2029,112 @@ export function useEbaySendOffer() {
           headers: await ebayHeaders(),
           body: JSON.stringify({
             listing_ids: listingIds,
-            discount_percentage: discountPercentage,
+            discount_percentage: discountPct,
             message,
           }),
         },
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const err: Error & { status?: number } = new Error(
-          json.detail || json.error || "Send-offer failed.",
-        );
-        err.status = res.status;
-        throw err;
-      }
-      return json;
+      if (!res.ok) throw edgeError(res, json, "Send-offer failed.");
+      return json as EbaySendOfferResult;
+    },
+    // OM-04: what went out changes three lists. Without this the ranked list
+    // offered the same watchers again, because it still thought they had none.
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["ebay_send_offers_today"] });
+      void qc.invalidateQueries({ queryKey: ["ebay_eligible_offers"] });
+      void qc.invalidateQueries({ queryKey: ["ebay_offer_analytics"] });
+    },
+  });
+}
+
+// US-2943: the morning list of watchers worth an offer.
+export interface SendOfferCandidate {
+  listingId: string;
+  title: string | null;
+  priceCents: number | null;
+  watchers: number;
+  daysListed: number | null;
+  lastOfferedAt: string | null;
+}
+
+export interface SendOffersTodayResponse {
+  available: boolean;
+  detail?: string;
+  fallback?: { kind: string; detail: string; href: string };
+  cooldownDays?: number;
+  discountPct?: number;
+  candidates: SendOfferCandidate[];
+  suppressed: SendOfferCandidate[];
+  exposureCents?: number | null;
+}
+
+/**
+ * OM-04: tenant-keyed, and the discount is NOT in the key. The candidate list
+ * does not depend on it and the card computes the exposure itself, so typing
+ * "15" into the discount box used to fire a new eBay-backed request per key.
+ */
+export function useEbaySendOffersToday(enabled = true) {
+  const tenantKey = useTenantKey();
+  return useQuery<SendOffersTodayResponse, EdgeError>({
+    queryKey: ["ebay_send_offers_today", tenantKey],
+    enabled: enabled && !!tenantKey,
+    staleTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const res = await edgeFetch("/api/flipdesk/ebay/negotiation/send-offer-today");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw edgeError(res, json, "Couldn't load today's offer candidates.", false);
+      return json as SendOffersTodayResponse;
+    },
+  });
+}
+
+// US-2944: eBay's per-listing auto-accept against the seller's own rule.
+export interface OfferThresholdConflict {
+  listing_id: string;
+  title: string | null;
+  stored_auto_accept_cents: number | null;
+  rule_auto_accept_cents: number | null;
+  reason: "raised_to_rule" | "raised_to_margin_floor" | "dropped_no_valid_price";
+}
+
+export interface OfferThresholdConflictReport {
+  rule: { id: string; accept_at_pct: number; margin_floor_pct: number } | null;
+  conflicts: OfferThresholdConflict[];
+}
+
+export function useEbayThresholdConflicts(enabled = true) {
+  const tenantKey = useTenantKey();
+  return useQuery<OfferThresholdConflictReport, EdgeError>({
+    queryKey: ["ebay_threshold_conflicts", tenantKey],
+    enabled: enabled && !!tenantKey,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const res = await edgeFetch("/api/flipdesk/ebay/negotiation/threshold-conflicts");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw edgeError(res, json, "Couldn't check your offer thresholds.", false);
+      return json as OfferThresholdConflictReport;
     },
   });
 }
 
 export function useEbayMessages(enabled = true) {
-  return useQuery({
-    queryKey: ["ebay_messages"],
-    enabled,
+  const tenantKey = useTenantKey();
+  return useQuery<EbayBuyerMessage[], EdgeError>({
+    queryKey: ["ebay_messages", tenantKey],
+    enabled: enabled && !!tenantKey,
+    // OM-04: a buyer question is time-sensitive too. Less often than offers,
+    // which carry a hard deadline, but no longer "only when you reload".
+    refetchInterval: 120_000,
+    refetchOnWindowFocus: true,
+    staleTime: 60_000,
     queryFn: async (): Promise<EbayBuyerMessage[]> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/messages`, {
         headers: await ebayHeaders(),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load messages.");
+      if (!res.ok) throw edgeError(res, json, "Couldn't load messages.", false);
       return (json.messages ?? []) as EbayBuyerMessage[];
     },
   });
@@ -1990,7 +2143,7 @@ export function useEbayMessages(enabled = true) {
 export function useEbayReplyMessage() {
   return useMutation<
     { ok: true },
-    Error & { status?: number },
+    EdgeError,
     { messageId: string; itemId: string; recipientId: string; body: string }
   >({
     mutationFn: async ({ messageId, itemId, recipientId, body }) => {
@@ -2009,13 +2162,7 @@ export function useEbayReplyMessage() {
         },
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const err: Error & { status?: number } = new Error(
-          json.detail || json.error || "Reply failed.",
-        );
-        err.status = res.status;
-        throw err;
-      }
+      if (!res.ok) throw edgeError(res, json, "Reply failed.");
       return json;
     },
   });
@@ -2078,19 +2225,49 @@ export interface EbayReturn {
   sellerActions?: string[] | null;
 }
 
+/**
+ * PS-12: where a post-sale list came from. The edge answers "cache" (fresh
+ * enough), "ebay" (live) or "cache_stale" (eBay failed, so this is the last
+ * stored copy). The page labels the last one, instead of offering Refund and
+ * Accept on hours-old data with no warning.
+ */
+export type PostSaleSource = "cache" | "ebay" | "cache_stale";
+
+interface PostSaleList<T> {
+  items: T[];
+  source: PostSaleSource | null;
+}
+
+function listSource(raw: unknown): PostSaleSource | null {
+  return raw === "cache" || raw === "ebay" || raw === "cache_stale" ? raw : null;
+}
+
+/**
+ * Keep `data` the plain array every caller reads, and carry `source` beside
+ * it. Spreading the result reads every tracked field, which costs a re-render
+ * on any change; these lists are small and change rarely.
+ */
+function withSource<T>(query: UseQueryResult<PostSaleList<T>, Error>) {
+  return { ...query, data: query.data?.items, source: query.data?.source ?? null };
+}
+
 export function useEbayReturns(enabled = true) {
-  return useQuery({
-    queryKey: ["ebay_returns"],
-    enabled,
-    queryFn: async (): Promise<EbayReturn[]> => {
+  // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
+  // tenant's cases from cache.
+  const tenantKey = useTenantKey();
+  const query = useQuery({
+    queryKey: ["ebay_returns", tenantKey],
+    enabled: enabled && !!tenantKey,
+    queryFn: async (): Promise<PostSaleList<EbayReturn>> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/returns`, {
         headers: await ebayHeaders(),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Couldn't load returns.");
-      return (json.returns ?? []) as EbayReturn[];
+      return { items: (json.returns ?? []) as EbayReturn[], source: listSource(json.source) };
     },
   });
+  return withSource(query);
 }
 
 /**
@@ -2200,7 +2377,41 @@ export function useEbaySendReturnEvidence() {
   });
 }
 
+/**
+ * PS-07: everything a post-sale money or stock action can change.
+ *
+ * The edge sets the sale cancelled or refunded on these actions, so a cancelled
+ * order also has to leave the Ship tab and its badge, the order total has to
+ * re-read, and the sale and item screens have to stop showing it as sold. Each
+ * card used to invalidate only its own list, which left a cancelled order in
+ * the ship queue inviting the seller to post it. Keys match by prefix, so the
+ * tenant segment on the list keys does not need spelling out here.
+ */
+export function invalidatePostSaleMoney(qc: QueryClient): Promise<unknown> {
+  const keys: ReadonlyArray<readonly unknown[]> = [
+    ["ebay_returns"],
+    ["ebay_cancellations"],
+    ["ebay_inquiries"],
+    ["ebay_cases"],
+    ["ebay_payment_disputes"],
+    ["ebay_return_analytics"],
+    SHIP_QUEUE_KEY,
+    ["ebay_order_total"],
+    ["case_items"],
+    ["sales_all"],
+    ["sale_for_item"],
+    ["inventory"],
+    ["inventory_item"],
+    // The inventory table and the item canvas read this one. A refunded
+    // return or approved cancellation moves the item to 'returned' on the
+    // edge, and without it the table kept showing the garment as sold.
+    ["items_full"],
+  ];
+  return Promise.all(keys.map((queryKey) => qc.invalidateQueries({ queryKey })));
+}
+
 export function useEbayDecideReturn() {
+  const qc = useQueryClient();
   return useMutation<
     { ok: true },
     Error,
@@ -2219,6 +2430,7 @@ export function useEbayDecideReturn() {
       if (!res.ok) throw new Error(json.error || "Return decision failed.");
       return json;
     },
+    onSuccess: () => invalidatePostSaleMoney(qc),
   });
 }
 
@@ -2294,6 +2506,7 @@ export function useEbaySendReturnMessage() {
 }
 
 export function useEbayRefundReturn() {
+  const qc = useQueryClient();
   return useMutation<
     { ok: true },
     Error,
@@ -2312,6 +2525,7 @@ export function useEbayRefundReturn() {
       if (!res.ok) throw new Error(json.error || "Refund failed.");
       return json;
     },
+    onSuccess: () => invalidatePostSaleMoney(qc),
   });
 }
 
@@ -2343,18 +2557,22 @@ export interface EbayInquiry {
 }
 
 export function useEbayInquiries(enabled = true) {
-  return useQuery({
-    queryKey: ["ebay_inquiries"],
-    enabled,
-    queryFn: async (): Promise<EbayInquiry[]> => {
+  // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
+  // tenant's cases from cache.
+  const tenantKey = useTenantKey();
+  const query = useQuery({
+    queryKey: ["ebay_inquiries", tenantKey],
+    enabled: enabled && !!tenantKey,
+    queryFn: async (): Promise<PostSaleList<EbayInquiry>> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/inquiries`, {
         headers: await ebayHeaders(),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Couldn't load inquiries.");
-      return (json.inquiries ?? []) as EbayInquiry[];
+      return { items: (json.inquiries ?? []) as EbayInquiry[], source: listSource(json.source) };
     },
   });
+  return withSource(query);
 }
 
 /**
@@ -2395,9 +2613,7 @@ export function useEbayInquiryAction() {
       if (!res.ok) throw new Error(json.error || "The inquiry action failed.");
       return json;
     },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["ebay_inquiries"] });
-    },
+    onSuccess: () => invalidatePostSaleMoney(qc),
   });
 }
 
@@ -2423,18 +2639,22 @@ export interface EbayCase {
 }
 
 export function useEbayCases(enabled = true) {
-  return useQuery({
-    queryKey: ["ebay_cases"],
-    enabled,
-    queryFn: async (): Promise<EbayCase[]> => {
+  // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
+  // tenant's cases from cache.
+  const tenantKey = useTenantKey();
+  const query = useQuery({
+    queryKey: ["ebay_cases", tenantKey],
+    enabled: enabled && !!tenantKey,
+    queryFn: async (): Promise<PostSaleList<EbayCase>> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/cases`, {
         headers: await ebayHeaders(),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Couldn't load cases.");
-      return (json.cases ?? []) as EbayCase[];
+      return { items: (json.cases ?? []) as EbayCase[], source: listSource(json.source) };
     },
   });
+  return withSource(query);
 }
 
 export function useEbayCaseAction() {
@@ -2469,28 +2689,31 @@ export function useEbayCaseAction() {
       if (!res.ok) throw new Error(json.error || "The case action failed.");
       return json;
     },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["ebay_cases"] });
-    },
+    onSuccess: () => invalidatePostSaleMoney(qc),
   });
 }
 
 export function useEbayCancellations(enabled = true) {
-  return useQuery({
-    queryKey: ["ebay_cancellations"],
-    enabled,
-    queryFn: async (): Promise<EbayCancellation[]> => {
+  // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
+  // tenant's cases from cache.
+  const tenantKey = useTenantKey();
+  const query = useQuery({
+    queryKey: ["ebay_cancellations", tenantKey],
+    enabled: enabled && !!tenantKey,
+    queryFn: async (): Promise<PostSaleList<EbayCancellation>> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/cancellations`, {
         headers: await ebayHeaders(),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Couldn't load cancellations.");
-      return (json.cancellations ?? []) as EbayCancellation[];
+      return { items: (json.cancellations ?? []) as EbayCancellation[], source: listSource(json.source) };
     },
   });
+  return withSource(query);
 }
 
 export function useEbayDecideCancellation() {
+  const qc = useQueryClient();
   return useMutation<
     { ok: true },
     Error,
@@ -2509,6 +2732,7 @@ export function useEbayDecideCancellation() {
       if (!res.ok) throw new Error(json.error || "Cancellation action failed.");
       return json;
     },
+    onSuccess: () => invalidatePostSaleMoney(qc),
   });
 }
 
@@ -2527,21 +2751,26 @@ export interface EbayPaymentDispute {
 }
 
 export function useEbayPaymentDisputes(enabled = true) {
-  return useQuery({
-    queryKey: ["ebay_payment_disputes"],
-    enabled,
-    queryFn: async (): Promise<EbayPaymentDispute[]> => {
+  // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
+  // tenant's cases from cache.
+  const tenantKey = useTenantKey();
+  const query = useQuery({
+    queryKey: ["ebay_payment_disputes", tenantKey],
+    enabled: enabled && !!tenantKey,
+    queryFn: async (): Promise<PostSaleList<EbayPaymentDispute>> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/payment-disputes`, {
         headers: await ebayHeaders(),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Couldn't load payment disputes.");
-      return (json.disputes ?? []) as EbayPaymentDispute[];
+      return { items: (json.disputes ?? []) as EbayPaymentDispute[], source: listSource(json.source) };
     },
   });
+  return withSource(query);
 }
 
 export function useEbayResolveDispute() {
+  const qc = useQueryClient();
   return useMutation<
     { ok: true },
     Error,
@@ -2560,6 +2789,7 @@ export function useEbayResolveDispute() {
       if (!res.ok) throw new Error(json.error || "Dispute action failed.");
       return json;
     },
+    onSuccess: () => invalidatePostSaleMoney(qc),
   });
 }
 
@@ -2686,9 +2916,11 @@ export interface PromotedOverview {
 }
 
 export function useEbayPromotedOverview(enabled = true) {
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["ebay_promoted_overview"],
-    enabled,
+    // MP-05: tenant-keyed (US-1933).
+    queryKey: ["ebay_promoted_overview", tenantKey],
+    enabled: enabled && !!tenantKey,
     queryFn: async (): Promise<PromotedOverview> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/marketing/promoted/overview`,
@@ -2766,15 +2998,20 @@ export interface BulkPriceQtyUpdate {
   listing_id: string;
   price?: number;
   quantity?: number;
+  /** The price the seller saw. The server refuses the row if it has moved. */
+  expected_price?: number;
 }
 
 export interface BulkPriceQtyResult {
   listing_id: string;
   ok: boolean;
   error?: string;
+  reason?: "floor" | "not_live" | "price_changed" | "origin_locked" | "local_write";
+  floor?: number;
 }
 
 export function useEbayBulkPriceQuantity() {
+  const queryClient = useQueryClient();
   return useMutation<
     { ok: true; results: BulkPriceQtyResult[]; succeeded: number; total: number },
     Error,
@@ -2792,6 +3029,12 @@ export function useEbayBulkPriceQuantity() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Bulk update failed.");
       return json;
+    },
+    // Prices moved on eBay: every view that shows one reads again.
+    onSuccess: () => {
+      for (const key of ["bulk_pricing_listings", "ebay_listings", "items_full", "repricing_suggestions"]) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
     },
   });
 }
@@ -2986,7 +3229,7 @@ export interface EbayItemPromotionDetail extends EbayItemPromotion {
 }
 
 export function useEbayItemPromotion(promotionId: string | null) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_item_promotion", tenantKey, promotionId],
     enabled: !!promotionId,
@@ -3255,7 +3498,7 @@ export interface EbayPrograms {
 }
 
 export function useEbayPrograms(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_programs", tenantKey],
     enabled,
@@ -3356,7 +3599,7 @@ export interface EbayLogisticsCapability {
 }
 
 export function useEbayLogisticsCapability(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_logistics_capability", tenantKey],
     enabled,
@@ -3629,33 +3872,43 @@ export function useEbayReprintLabel() {
 // opening a return first — worse for both sides, and it drags the seller's
 // return metrics.
 
-/** The order total a partial refund is checked against. Null when unknown. */
+/**
+ * The order total a partial refund is checked against, across every line of
+ * the order (PS-05). `total` is null when unknown.
+ */
 export function useEbayOrderTotal(orderId: string | null) {
   return useQuery({
     queryKey: ["ebay_order_total", orderId],
     enabled: Boolean(orderId),
     // RLS scopes `sales` to the caller, so this cannot read another tenant's
     // order even though the id came off an eBay payload.
-    queryFn: async (): Promise<number | null> => {
+    queryFn: async (): Promise<OrderTotal> => {
       const { data, error: dataReadError } = await supabase
         .from("sales")
-        .select("sale_price")
+        .select("sale_price, currency")
         .eq("platform_order_id", orderId as string)
-        .maybeSingle();
+        .limit(50);
       if (dataReadError) throw dataReadError;
-      const price = (data as { sale_price?: number | null } | null)?.sale_price;
-      return typeof price === "number" && Number.isFinite(price) ? price : null;
+      return orderTotalFromRows((data ?? []) as unknown as OrderLineRow[]);
     },
   });
 }
 
 export function useEbayIssueOrderRefund() {
+  const qc = useQueryClient();
   return useMutation<
     { ok: true; refund_id?: string },
     Error,
-    { orderId: string; reason: string; amountValue: string; comment?: string }
+    {
+      orderId: string;
+      reason: string;
+      amountValue: string;
+      /** The sale's own currency (PS-05). Never assumed. */
+      currency: string;
+      comment?: string;
+    }
   >({
-    mutationFn: async ({ orderId, reason, amountValue, comment }) => {
+    mutationFn: async ({ orderId, reason, amountValue, currency, comment }) => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/orders/${encodeURIComponent(orderId)}/refund`,
         {
@@ -3667,7 +3920,7 @@ export function useEbayIssueOrderRefund() {
             // eBay wants a decimal string; the currency rides with it because
             // the route rejects an amount with no currency rather than assuming
             // USD for a seller who is not selling in it.
-            amount: { currency: "USD", value: amountValue },
+            amount: { currency, value: amountValue },
           }),
         },
       );
@@ -3675,6 +3928,7 @@ export function useEbayIssueOrderRefund() {
       if (!res.ok) throw new Error(json.error || "Refund failed.");
       return json;
     },
+    onSuccess: () => invalidatePostSaleMoney(qc),
   });
 }
 
@@ -3707,9 +3961,10 @@ export interface ReturnAnalytics {
 }
 
 export function useReturnAnalytics(days = 90, enabled = true) {
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["ebay_return_analytics", days],
-    enabled,
+    queryKey: ["ebay_return_analytics", tenantKey, days],
+    enabled: enabled && !!tenantKey,
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<ReturnAnalytics> => {
       const res = await fetch(
@@ -3740,6 +3995,8 @@ export interface OfferDepthBucket {
 
 export interface OfferEfficientDepth {
   key: string;
+  /** Lower edge of the efficient bucket, in percent (OM-12 prefill). */
+  fromPct?: number;
   acceptRate: number;
   bestKey: string;
   bestAcceptRate: number;
@@ -3761,18 +4018,103 @@ export interface OfferAnalytics {
 }
 
 export function useOfferAnalytics(days = 180, enabled = true) {
-  return useQuery({
-    queryKey: ["ebay_offer_analytics", days],
-    enabled,
+  const tenantKey = useTenantKey();
+  return useQuery<OfferAnalytics, EdgeError>({
+    queryKey: ["ebay_offer_analytics", tenantKey, days],
+    enabled: enabled && !!tenantKey,
     staleTime: 5 * 60_000,
+    // The window toggle should not blank the card while the next one loads.
+    placeholderData: keepPreviousData,
     queryFn: async (): Promise<OfferAnalytics> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/analytics?days=${days}`,
         { headers: await ebayHeaders() },
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load offer analytics.");
+      if (!res.ok) throw edgeError(res, json, "Couldn't load offer analytics.", false);
       return json as OfferAnalytics;
     },
   });
+}
+
+// ── MP-05: the Ads-tab card reads, tenant-keyed ─────────────────────
+//
+// These lived inline in the cards with keys like ["ebay_keywords"], which
+// broke the US-1933 rule: after a workspace switch the previous tenant's
+// campaign, keywords and follower list could be served from cache. The key is
+// [name, tenant] so a prefix invalidate of [name] still reaches it. The
+// response types stay with the cards that render them.
+
+function useEdgeJson<T>(
+  name: string,
+  path: string,
+  fallbackError: string,
+  opts: { enabled?: boolean; staleTime?: number } = {},
+) {
+  const tenantKey = useTenantKey();
+  return useQuery({
+    queryKey: [name, tenantKey],
+    enabled: !!tenantKey && (opts.enabled ?? true),
+    staleTime: opts.staleTime,
+    queryFn: async (): Promise<T> => {
+      const res = await edgeFetch(path);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((json as { error?: string }).error || fallbackError);
+      return json as T;
+    },
+  });
+}
+
+export function useEbayMarketingSuggestions<T>() {
+  return useEdgeJson<T>(
+    "ebay_marketing_suggestions",
+    "/api/flipdesk/ebay/marketing/suggestions",
+    "Couldn't load eBay's suggestions.",
+    { staleTime: 30 * 60_000 },
+  );
+}
+
+export function useEbayKeywords<T>() {
+  return useEdgeJson<T>(
+    "ebay_keywords",
+    "/api/flipdesk/ebay/marketing/keywords",
+    "Couldn't load your eBay keywords.",
+    { staleTime: 5 * 60_000 },
+  );
+}
+
+export function useEbayKeywordSuggestions<T>(enabled: boolean) {
+  return useEdgeJson<T>(
+    "ebay_keyword_suggestions",
+    "/api/flipdesk/ebay/marketing/keywords/suggestions",
+    "Couldn't load suggestions.",
+    { enabled, staleTime: 30 * 60_000 },
+  );
+}
+
+export function useEbayEmailCampaigns<T>() {
+  return useEdgeJson<T>(
+    "ebay_email_campaigns",
+    "/api/flipdesk/ebay/marketing/email-campaigns",
+    "Couldn't load your eBay campaigns.",
+    { staleTime: 10 * 60_000 },
+  );
+}
+
+export function useEbayPromotionPerformance<T>() {
+  return useEdgeJson<T>(
+    "ebay_promotion_performance",
+    "/api/flipdesk/ebay/promotions/performance",
+    "Couldn't work out how your promotions did.",
+    { staleTime: 10 * 60_000 },
+  );
+}
+
+export function useEbayStackCheck<T>() {
+  return useEdgeJson<T>(
+    "ebay_stack_check",
+    "/api/flipdesk/ebay/promotions/stack-check",
+    "Couldn't check your discounts.",
+    { staleTime: 10 * 60_000 },
+  );
 }

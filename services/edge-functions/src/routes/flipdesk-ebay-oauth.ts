@@ -28,6 +28,7 @@ import { requireJobSecret } from "../lib/job-auth.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { pushTokenExpiring } from "../lib/transactional-push.ts";
 import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
+import { refuseMarketplaceChange } from "../lib/marketplace-admin-guard.ts";
 import { EBAY_CONNECTION_SCAN_CAP, type EbayEnv } from "./flipdesk-ebay-shared.ts";
 import { triggerEbaySyncForUser } from "./flipdesk-ebay-sync.ts";
 
@@ -51,6 +52,10 @@ flipdeskEbayRoutes.get("/oauth/start", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
+  // MP-01: a GET skips blockViewerWrites, so without this a viewer could attach
+  // their own eBay account to the owner's tenant.
+  const refused = await refuseMarketplaceChange(c, c.get("workspaceRole"), "Connecting a marketplace");
+  if (refused) return refused;
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const redirectTo = sanitizeRelativePath(c.req.query("redirect_to"));
 
@@ -104,6 +109,17 @@ flipdeskEbayRoutes.get("/oauth/start", async (c) => {
 // eBay redirects the browser here. We verify the state token, exchange the
 // code for tokens, store them encrypted, then redirect the user back into
 // the app (or to /dashboard/flipdesk/marketplaces by default).
+// MP-12: standard OAuth consent-error codes the web and iOS both have a line
+// for. Everything else becomes provider_error.
+const PASSTHROUGH_CONSENT_ERRORS = new Set([
+  "invalid_scope",
+  "invalid_request",
+  "unauthorized_client",
+  "unsupported_response_type",
+  "server_error",
+  "temporarily_unavailable",
+]);
+
 flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -163,7 +179,12 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
     console.error(
       `[flipdesk-ebay] consent error: ${ebayError} — ${ebayErrorDesc ?? "(no description)"}`
     );
-    return finish(ebayError === "access_denied" ? "cancelled" : ebayError);
+    // MP-12: a standard OAuth code the apps already word (iOS maps each of
+    // these to its own line in EbayConnectionTypes.swift) passes through;
+    // anything else collapses to provider_error, which the web words as a
+    // generic failure. The raw value is never reflected.
+    if (ebayError === "access_denied") return finish("cancelled");
+    return finish(PASSTHROUGH_CONSENT_ERRORS.has(ebayError) ? ebayError : "provider_error");
   }
   if (!code || !state) {
     return finish("cancelled");

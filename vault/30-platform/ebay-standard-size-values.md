@@ -10,13 +10,23 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/scripts/refresh-ebay-aspect-cache.ts
   - src/lib/aspect-normalize.ts
-reviewed: 2026-09-20
+reviewed: 2026-09-24
 tags: [ebay, publishing, aspects, gotcha]
 summary: eBay now rejects a custom Size or Size Type value at publish; the size aspects are treated as closed lists whatever the cached Taxonomy mode says, a rejection refetches the spec and repairs the draft on the spot, and the aspect cache lives seven days instead of thirty.
 ---
 
 
-> [!note] Re-reviewed 2026-09-20. Two drifts, neither touching what this note
+> [!note] Re-reviewed 2026-09-24. Three refs drifted and the size rules
+> below still hold. `aspect-normalize.ts` gained a folded match (US-3471,
+> spacing, hyphens, accents) that never runs on a value holding a digit, so
+> size values like "3-4" are untouched. `aspect-reconcile.ts` gained the
+> `off_list_value` path (US-3474) for FREE_TEXT aspects that ship a list;
+> `isSizeAspect` still makes a size aspect with values a closed list, so it
+> never reaches that path. `ebay-client.ts` stopped caching `{}` as a
+> category's aspects (US-3472), which rule 3 now records; its other change is
+> order tracking. The stale "cached for 30 days" comment is now at `:1358`.
+
+> **Re-reviewed 2026-09-20.** Two drifts, neither touching what this note
 > says. `refresh-ebay-aspect-cache.ts` changed in the US-3437 sweep that swaps
 > `error.message` for `supabaseErrorText(error)`; the command this note gives
 > for running it is unchanged. `ebay-client.ts` changed in e7d84ab3a, which is
@@ -106,7 +116,12 @@ a custom value passed through to the Inventory API and eBay rejected it.
    the seller a sentence: what was changed and to what ("publish again"), or
    which value to pick from eBay's list. Wired into the publish catch and both
    revise catches in `flipdesk-ebay.ts`; the variation revise path is not yet.
-3. **The aspect cache lives seven days**, not thirty (`ASPECT_TTL_MS`).
+3. **The aspect cache lives seven days**, not thirty (`ASPECT_TTL_MS`). A
+   cached row counts only when it is inside the TTL AND holds eBay's aspects
+   array (`aspectCacheRowIsUsable`, US-3472): `getCategoryName` used to write
+   `{}` with a fresh `fetched_at`, which served "no item specifics" for a week.
+   A name-only row is now stamped at the epoch so the first aspects read
+   fetches for real.
 4. **The composer mirrors the rule.** `isClosedAspect` in
    `src/lib/aspect-normalize.ts` turns a size aspect with values into a dropdown
    in the category picker and a closed list in the prefill, so a seller cannot

@@ -93,7 +93,8 @@ describe("the queue is rendered, not just the button (US-3197 AC1/AC4)", () => {
 
   it("an empty queue says so rather than rendering blank", () => {
     // Empty and never-built look identical on screen and mean opposite things.
-    expect(CARD).toMatch(/pending\.length === 0 && !reviews\.isLoading/);
+    // MP-08: only on a SUCCESSFUL read. A failed one is not an empty queue.
+    expect(CARD).toMatch(/pending\.length === 0 && reviews\.isSuccess/);
     expect(CARD).toMatch(/Nothing waiting on you/);
   });
 

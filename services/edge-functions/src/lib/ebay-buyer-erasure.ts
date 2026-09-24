@@ -161,7 +161,15 @@ export function applicableMatches(
   for (const m of target.matchColumns) {
     const value = m.source === "userId" ? ids.userId : ids.username;
     if (typeof value === "string" && value.trim() !== "") {
-      out.push({ column: m.column, value: value.trim() });
+      const v = value.trim();
+      out.push({ column: m.column, value: v });
+      // eBay usernames are case-insensitive, and marketplace_offers stores them
+      // lower-cased since OM-14 (offer-store.ts buyerKey). A deletion notice
+      // carrying "DenimFan" must still erase the "denimfan" rows, so a username
+      // match also runs on the lower-cased spelling when that differs.
+      if (m.source === "username" && v.toLowerCase() !== v) {
+        out.push({ column: m.column, value: v.toLowerCase() });
+      }
     }
   }
   return out;

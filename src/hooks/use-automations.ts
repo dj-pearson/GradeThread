@@ -7,6 +7,7 @@ import {
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { ruleRunToast } from "@/lib/rule-run-summary";
 import type { FilterField, FilterOp } from "@/lib/item-filter";
 
 // Price-drop and promo scheduler (US-150) — rule CRUD, per-rule dry-run,
@@ -58,7 +59,13 @@ export type AutomationTrigger =
   };
 
 export type AutomationAction =
-  | { type: "price_drop_pct"; pct: number; margin_floor_pct: number }
+  | {
+    type: "price_drop_pct";
+    pct: number;
+    margin_floor_pct: number;
+    /** May the rule cut a price the seller typed by hand? Absent reads as no. */
+    override_manual?: boolean;
+  }
   | { type: "set_promo_rate_pct"; pct: number }
   // US-1448: aged-inventory coded coupon (server generates the code + uses
   // the cover photo as eBay's required promotion image).
@@ -167,6 +174,35 @@ export interface AutomationActionRow {
 
 const RULES_KEY = ["automation_rules"];
 
+/**
+ * The ranges the server accepts (lib/automation-rules.ts). The form checks
+ * these inline and disables Save, rather than quietly changing the number the
+ * seller typed.
+ */
+export const AUTOMATION_BOUNDS = {
+  priceDropPct: { min: 1, max: 90 },
+  promoRatePct: { min: 1, max: 100 },
+  couponPct: { min: 5, max: 70 },
+  markdownPct: { min: 5, max: 70 },
+} as const;
+
+/**
+ * The scope fields normalizeScope accepts (SCOPE_FIELDS on the server). The
+ * shared FilterBuilder offers every inventory field, and a rule saved with one
+ * of the others was refused as "Unknown scope filter field".
+ */
+export const AUTOMATION_SCOPE_FIELDS: FilterField[] = [
+  "brand",
+  "category",
+  "size",
+  "source",
+  "cost",
+  "target_price",
+  "status",
+  "grade",
+  "days_in_status",
+];
+
 export function useAutomationRules() {
   return useQuery({
     queryKey: RULES_KEY,
@@ -243,6 +279,39 @@ export function useDeleteAutomationRule() {
       queryClient.invalidateQueries({ queryKey: RULES_KEY });
     },
     onError: (err: Error) => toastError(err),
+  });
+}
+
+/**
+ * Pause or resume a rule. Uses the PATCH built for exactly this, not the full
+ * PUT: the PUT is plan-gated and re-validates the whole rule, so a seller whose
+ * plan lapsed could not even switch a rule off. Optimistic, rolled back on error.
+ */
+export function useToggleAutomationRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { id: string; is_active: boolean }) => {
+      const res = await edgeFetch(`/api/flipdesk/automations/rules/${args.id}`, {
+        method: "PATCH",
+        json: { is_active: args.is_active },
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Couldn't update the rule.");
+    },
+    onMutate: async (args) => {
+      await queryClient.cancelQueries({ queryKey: RULES_KEY });
+      const prev = queryClient.getQueryData<AutomationRule[]>(RULES_KEY);
+      queryClient.setQueryData<AutomationRule[]>(
+        RULES_KEY,
+        (rows) => rows?.map((r) => (r.id === args.id ? { ...r, is_active: args.is_active } : r)),
+      );
+      return { prev };
+    },
+    onError: (err: Error, _args, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(RULES_KEY, ctx.prev);
+      toastError(err);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: RULES_KEY }),
   });
 }
 
@@ -339,19 +408,19 @@ export function useRunAutomations() {
         applied?: number;
         listings_scanned?: number;
         errors?: number;
+        reason?: string;
         error?: string;
       };
       if (!res.ok) throw new Error(data.error ?? "Run failed");
       return data;
     },
     onSuccess: (r) => {
-      if (r.skipped) {
+      if (r.skipped && r.reason !== "already_running" && r.reason !== "lock_unavailable") {
         toast.info("Automations are temporarily disabled.");
         return;
       }
-      toast.success(
-        `Scanned ${r.listings_scanned ?? 0} listing${r.listings_scanned === 1 ? "" : "s"} — applied ${r.applied ?? 0} action${r.applied === 1 ? "" : "s"}.`,
-      );
+      const t = ruleRunToast(r, "action");
+      toast[t.kind](t.text);
       queryClient.invalidateQueries({ queryKey: RULES_KEY });
       queryClient.invalidateQueries({ queryKey: ["automation_rule_actions"] });
       queryClient.invalidateQueries({ queryKey: ["items_full"] });

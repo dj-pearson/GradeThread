@@ -44,7 +44,11 @@ describe("long settings pages are grouped (US-2543)", () => {
       // defaultValue must name a tab that exists. A default pointing at a value
       // no trigger declares renders an empty page, and nothing else here would
       // catch it.
-      const m = /<Tabs defaultValue="([a-z-]+)"/.exec(src);
+      // A controlled Tabs (MP-14: the tab lives in the URL) names its default
+      // in DEFAULT_TAB instead.
+      const m =
+        /<Tabs defaultValue="([a-z-]+)"/.exec(src) ??
+        /const DEFAULT_TAB = "([a-z-]+)"/.exec(src);
       expect(m, "no defaultValue on <Tabs>").not.toBeNull();
       expect(page.tabs).toContain(m![1]);
       expect(m![1], "the default should be the first tab").toBe(page.tabs[0]);
@@ -56,7 +60,7 @@ describe("marketplaces answers its own question first (US-2543 AC3)", () => {
   it("the connection summary renders above the tabs", () => {
     const src = read("src/pages/flipdesk/marketplaces.tsx");
     const summary = src.indexOf("<MarketplaceConnectionSummary");
-    const tabs = src.indexOf("<Tabs defaultValue=");
+    const tabs = src.search(/<Tabs (defaultValue|value)=/);
     expect(summary, "summary not mounted").toBeGreaterThan(-1);
     expect(summary, "summary must come before the tabs").toBeLessThan(tabs);
   });

@@ -13,6 +13,9 @@ import {
   readExpiry,
   netMarginCents,
   netMarginPct,
+  quickCounters,
+  solvePriceForNet,
+  validateCounter,
 } from "@/pages/flipdesk/offer-economics";
 
 describe("pctOfList", () => {
@@ -56,7 +59,11 @@ describe("readExpiry", () => {
     // A day-granularity countdown spends half its life saying "1d left" about
     // something that expires before lunch.
     expect(readExpiry(inHours(6), NOW)).toMatchObject({ urgency: "today", label: "6h left" });
-    expect(readExpiry(inHours(30), NOW)).toMatchObject({ urgency: "later", label: "1d left" });
+    // OM-05: 30h used to read "1d left", the same as 47h.
+    expect(readExpiry(inHours(30), NOW)).toMatchObject({ urgency: "later", label: "30h left" });
+    expect(readExpiry(inHours(47.5), NOW)?.label).toBe("47h left");
+    expect(readExpiry(inHours(53), NOW)?.label).toBe("2d 5h left");
+    expect(readExpiry(inHours(72), NOW)?.label).toBe("3d left");
   });
 
   it("calls out the last two hours", () => {
@@ -163,5 +170,121 @@ describe("US-3194 lockstep with the rules engine", () => {
     const grossFromScreen = cents! / 100;
     const grossFromRule = 36 - 12;
     expect(grossFromScreen).toBe(grossFromRule);
+  });
+});
+
+// OM-07: the same bounds the edge enforces, shown before Send rather than as a
+// generic eBay 502 after it.
+describe("validateCounter", () => {
+  const offer = { price: 40, listPriceCents: 5000, currency: "USD" };
+
+  it("refuses a counter at or below the buyer's offer", () => {
+    expect(validateCounter(offer, "40").ok).toBe(false);
+    expect(validateCounter(offer, "39.99").reason).toMatch(/more than the buyer's \$40\.00/);
+  });
+
+  it("refuses a counter at or above the asking price", () => {
+    const at = validateCounter(offer, "50");
+    expect(at.ok).toBe(false);
+    expect(at.reason).toMatch(/less than your \$50\.00 asking price/);
+    expect(validateCounter(offer, "55").ok).toBe(false);
+  });
+
+  it("refuses three decimals rather than rounding them silently", () => {
+    const r = validateCounter(offer, "45.125");
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/dollars and cents/);
+  });
+
+  it("accepts a price between the two, in cents", () => {
+    expect(validateCounter(offer, "45.50")).toEqual({ ok: true, cents: 4550, reason: null });
+  });
+
+  it("says nothing about an empty box", () => {
+    expect(validateCounter(offer, "  ")).toEqual({ ok: false, cents: null, reason: null });
+  });
+
+  it("does not invent a bound it does not have", () => {
+    expect(validateCounter({ price: null, listPriceCents: null }, "999").ok).toBe(true);
+  });
+});
+
+// OM-15: counters priced from what the seller keeps.
+describe("solvePriceForNet", () => {
+  const cases = [
+    { name: "cost only", e: { offerPrice: 40, listPrice: 50, itemCost: 12 } },
+    {
+      name: "cost + postage",
+      e: { offerPrice: 40, listPrice: 50, itemCost: 12, shippingCost: 8.3 },
+    },
+    {
+      name: "cost + postage + grading",
+      e: { offerPrice: 90, listPrice: 120, itemCost: 35, shippingCost: 11, gradingCost: 4 },
+    },
+  ];
+  for (const { name, e } of cases) {
+    it(`inverts netMarginCents to within a cent (${name})`, () => {
+      for (const target of [0, 500, 1234, 2500]) {
+        const cents = solvePriceForNet(e, target)!;
+        const net = netMarginCents({ ...e, offerPrice: cents / 100 })!;
+        expect(net).toBeGreaterThanOrEqual(target);
+        expect(net - target).toBeLessThanOrEqual(1);
+      }
+    });
+  }
+
+  it("is null when the cost is unknown", () => {
+    expect(solvePriceForNet({ offerPrice: 40, listPrice: 50, itemCost: null }, 0)).toBeNull();
+  });
+});
+
+describe("quickCounters", () => {
+  // A $20 bid on a $60 ask, $12 cost, $8.30 postage: break-even is about
+  // $23.96, so the bid loses money and the floor sits between bid and ask.
+  const offer = {
+    price: 20,
+    listPriceCents: 6000,
+    currency: "USD",
+    itemCost: 12,
+    shippingCost: 8.3,
+  };
+
+  it("offers split, ask minus 10% and the floor, each with what the seller keeps", () => {
+    const chips = quickCounters(offer);
+    expect(chips.map((c) => c.id)).toEqual(["split", "ask_minus_10", "floor"]);
+    expect(chips.find((c) => c.id === "split")!.cents).toBe(4000);
+    expect(chips.find((c) => c.id === "ask_minus_10")!.cents).toBe(5400);
+    for (const c of chips) expect(c.netCents).not.toBeNull();
+  });
+
+  it("never puts the floor below break-even", () => {
+    const floor = quickCounters(offer).find((c) => c.id === "floor")!;
+    expect(floor.netCents!).toBeGreaterThanOrEqual(0);
+    const breakEven = solvePriceForNet(
+      { offerPrice: 20, listPrice: 60, itemCost: 12, shippingCost: 8.3 },
+      0,
+    )!;
+    expect(floor.cents).toBeGreaterThanOrEqual(breakEven);
+  });
+
+  it("uses the rule's accept point when that is higher", () => {
+    const floor = quickCounters(offer, { acceptAtPct: 85, marginFloorPct: 10 }).find(
+      (c) => c.id === "floor",
+    )!;
+    expect(floor.cents).toBe(5100);
+  });
+
+  it("drops the floor chip when the bid already clears it", () => {
+    // Accepting beats countering at a price lower than the bid.
+    expect(quickCounters({ ...offer, price: 30 }).some((c) => c.id === "floor")).toBe(false);
+  });
+
+  it("drops a chip that would fall outside the valid range", () => {
+    // Break-even here is above the asking price, so no floor chip can be sent.
+    const chips = quickCounters({ ...offer, itemCost: 70 });
+    expect(chips.some((c) => c.id === "floor")).toBe(false);
+    // A bid above ask-minus-10% leaves that chip below the bid.
+    const high = quickCounters({ ...offer, price: 56 });
+    expect(high.some((c) => c.id === "ask_minus_10")).toBe(false);
   });
 });

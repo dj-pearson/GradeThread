@@ -175,7 +175,6 @@ const KNOWN_UNSEEDED: Record<string, string> = {
   // script — moved out of this list, which the stale-check requires.
   // These remain because they need more than a plain insert:
   TEST_USER_A_PHOTO_ID: "needs an uploaded item photo in storage",
-  TEST_USER_A_SUGGESTION_ID: "produced by a repricing run — needs pipeline execution",
   TEST_USER_A_BUYER_PURCHASE_ID: "needs a completed buyer purchase",
   TEST_USER_A_CERT_ID: "needs a certified grade report (published, certificate_id set)",
   TEST_PRIVATE_REPORT_ID: "needs an uncertified/private report",
@@ -1229,6 +1228,58 @@ Deno.test({
 });
 
 Deno.test({
+  // Pricing plan P6: bulk-price-quantity takes listing ids in the BODY, so a
+  // refusal here can only come from the owner-scoped load. A 402 also passes:
+  // B lacking bulkActions is refused before it reaches A's rows either way.
+  name: "B cannot bulk-reprice A's listing through bulk-price-quantity",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/listings/bulk-price-quantity`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ updates: [{ listing_id: id, price: 1 }] }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      results?: Array<{ ok?: boolean }>;
+    };
+    if (res.status === 200) {
+      assertEquals(
+        body.results?.filter((r) => r.ok).length ?? 0,
+        0,
+        "bulk-price-quantity must not apply to another tenant's listing",
+      );
+    } else {
+      assert(
+        [401, 402, 403, 404, 503].includes(res.status),
+        `bulk-price-quantity for another tenant should be denied, got ${res.status}`,
+      );
+    }
+  },
+});
+
+Deno.test({
+  // Pricing plan P1: single-row Apply now refuses dismissed nudges, dead
+  // listings and stale prices with a 409 that NAMES the reason. That refusal
+  // must never become a way for B to learn about A's suggestion: the lookup is
+  // owner-scoped first, so B gets a plain 404 before any of those checks run.
+  // P14 added restore (the dismiss toast's Undo); it is held to the same rule.
+  name: "B cannot apply, dismiss or restore A's repricing suggestion",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SUGGESTION_ID"),
+  fn: async () => {
+    const aId = Deno.env.get("TEST_USER_A_SUGGESTION_ID")!;
+    for (const verb of ["apply", "dismiss", "restore"]) {
+      const res = await fetch(
+        `${BASE}/api/flipdesk/pricing/suggestions/${aId}/${verb}`,
+        { method: "POST", headers: authHeaders(B_JWT!) },
+      );
+      await res.body?.cancel();
+      assertEquals(res.status, 404, `B ${verb} on A's suggestion: expected 404`);
+    }
+  },
+});
+
+Deno.test({
   // US-1899: the listing-performance feed (which drives the stale surface +
   // Sell-Similar hint) is scoped to the caller's workspace owner via
   // inventory_items.user_id, so B's performance rows must never include one of
@@ -1295,7 +1346,7 @@ Deno.test({
 Deno.test({
   // US-672: repricing rules CRUD is scoped by user_id. B's PUT/DELETE on A's
   // rule are scoped, so they hit 0 rows and return 404.
-  name: "B cannot update or delete A's repricing rule",
+  name: "B cannot update, pause or delete A's repricing rule",
   ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_RULE_ID"),
   fn: async () => {
     const id = Deno.env.get("TEST_USER_A_RULE_ID")!;
@@ -1306,6 +1357,15 @@ Deno.test({
     });
     await put.body?.cancel();
     assertDenied(put.status, "PUT repricing rule");
+
+    // The pause/resume PATCH is its own route and must hold the same line.
+    const patch = await fetch(`${BASE}/api/flipdesk/pricing/rules/${id}`, {
+      method: "PATCH",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ enabled: false }),
+    });
+    await patch.body?.cancel();
+    assertDenied(patch.status, "PATCH repricing rule");
 
     const del = await fetch(`${BASE}/api/flipdesk/pricing/rules/${id}`, {
       method: "DELETE",
@@ -2383,6 +2443,106 @@ Deno.test({
     const status = res.status;
     await res.body?.cancel();
     assert(status === 401, `unauthenticated reply should 401, got ${status}`);
+  },
+});
+
+// OM-16: the rest of the negotiation surface. Each one reads or writes the
+// caller's own offers (marketplace_offers) or eBay account, so an anonymous
+// caller must be turned away before any of it runs.
+for (
+  const [method, path, body] of [
+    ["POST", "/api/flipdesk/ebay/negotiation/send-offer", { listing_ids: ["1"], discount_percentage: 10 }],
+    ["GET", "/api/flipdesk/ebay/negotiation/eligible", null],
+    ["GET", "/api/flipdesk/ebay/negotiation/send-offer-today", null],
+    ["GET", "/api/flipdesk/ebay/negotiation/analytics", null],
+    ["POST", "/api/flipdesk/ebay/negotiation/rule-dry-run", { accept_at_pct: 90 }],
+    ["GET", "/api/flipdesk/ebay/negotiation/threshold-conflicts", null],
+  ] as const
+) {
+  Deno.test({
+    name: `${method} ${path.replace("/api/flipdesk/ebay", "")} requires authentication`,
+    ignore: !BASE,
+    fn: async () => {
+      const res = await fetch(`${BASE}${path}`, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const status = res.status;
+      await res.body?.cancel();
+      assert(status === 401, `unauthenticated ${method} ${path} should 401, got ${status}`);
+    },
+  });
+}
+
+// OM-16: send-offer takes listing ids from the REQUEST BODY and writes
+// marketplace_offers rows for what it sends. B naming A's listing must never
+// come back as a successful send: B's token cannot reach A's eBay account, and
+// every row the route writes is keyed on B.
+Deno.test({
+  name: "B cannot send a watcher offer on A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/negotiation/send-offer`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ listing_ids: [listingId], discount_percentage: 10 }),
+    });
+    const json = await res.json().catch(() => ({}));
+    assert(
+      !(res.status === 200 && Array.isArray(json.sent) && json.sent.includes(listingId)),
+      "send-offer reported a send on another tenant's listing",
+    );
+  },
+});
+
+// OM-16: B's analytics and dry-run are computed from B's stored offers. A
+// response naming A's listing would mean the owner filter on marketplace_offers
+// is gone.
+for (
+  const [method, path, body] of [
+    ["GET", "/api/flipdesk/ebay/negotiation/analytics", null],
+    ["POST", "/api/flipdesk/ebay/negotiation/rule-dry-run", { accept_at_pct: 90, days: 180 }],
+  ] as const
+) {
+  Deno.test({
+    name: `B's ${path.replace("/api/flipdesk/ebay", "")} carries none of A's offers`,
+    ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+    fn: async () => {
+      const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+      const res = await fetch(`${BASE}${path}`, {
+        method,
+        headers: authHeaders(B_JWT!),
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const text = await res.text();
+      assert(
+        res.status !== 200 || !text.includes(listingId),
+        `${path} for B contains A's listing id`,
+      );
+    },
+  });
+}
+
+// OM-16: B answering an offer on A's listing. B's token is B's eBay account, so
+// eBay cannot apply it to A's listing; the property is that the edge never
+// reports it as done.
+Deno.test({
+  name: "B cannot respond to a best offer on A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/negotiation/offers/abc123/respond`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ item_id: listingId, action: "Decline" }),
+      },
+    );
+    const json = await res.json().catch(() => ({}));
+    assert(json.ok !== true, `cross-tenant respond reported ok (status ${res.status})`);
   },
 });
 
@@ -3890,6 +4050,63 @@ Deno.test({
   },
 });
 
+// MP-01: attaching or reshaping the owner's marketplace connection is
+// admin-only. The OAuth start route skips blockViewerWrites (it is a GET), so this is
+// the only thing stopping a viewer attaching their own eBay account to the
+// owner's tenant. The member/listing_manager/admin half is driven in
+// marketplace-admin-guard_test.ts.
+Deno.test({
+  name: "MP-01: viewer cannot start marketplace OAuth or change eBay policies/programs",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const cases: Array<[string, string]> = [
+      ["GET", "/api/flipdesk/ebay/oauth/start"],
+      ["GET", "/api/flipdesk/shopify/oauth/start?shop=my-store.myshopify.com"],
+      ["PUT", "/api/flipdesk/ebay/policies/default"],
+      ["POST", "/api/flipdesk/ebay/policies/sync"],
+      ["POST", "/api/flipdesk/ebay/policies/create"],
+      ["POST", "/api/flipdesk/ebay/policies/location"],
+      ["POST", "/api/flipdesk/ebay/programs/out-of-stock"],
+      ["DELETE", "/api/flipdesk/ebay/programs/out-of-stock"],
+    ];
+    for (const [method, path] of cases) {
+      const res = await fetch(`${BASE}${path}`, {
+        method,
+        headers: viewerHeaders(),
+        body: method === "GET" || method === "DELETE"
+          ? undefined
+          : JSON.stringify({ postal_code: "10001", handling_days: 1 }),
+      });
+      await res.body?.cancel();
+      assertDenied(res.status, `${method} ${path} as viewer`);
+    }
+  },
+});
+
+// MP-02: ending the campaign, bidding on listings and emailing every follower
+// spend or end something on the owner's eBay account. The member and
+// listing_manager halves are driven in marketplace-admin-guard_test.ts.
+Deno.test({
+  name: "MP-02: viewer cannot end the campaign, bulk-promote or send a follower email",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const cases: Array<[string, string]> = [
+      ["POST", "/api/flipdesk/ebay/marketing/campaign/end"],
+      ["POST", "/api/flipdesk/ebay/marketing/ads/bulk"],
+      ["POST", "/api/flipdesk/ebay/marketing/email-campaigns/00000000-0000-0000-0000-000000000000/send"],
+    ];
+    for (const [method, path] of cases) {
+      const res = await fetch(`${BASE}${path}`, {
+        method,
+        headers: viewerHeaders(),
+        body: JSON.stringify({ listing_ids: [], bid_percentage: 5 }),
+      });
+      await res.body?.cancel();
+      assertDenied(res.status, `${method} ${path} as viewer`);
+    }
+  },
+});
+
 // DASH-2: the extension queue now runs workspaceMiddleware. Before it did, a
 // member's X-Workspace-Owner was ignored (they saw their own queue on the
 // owner's board) and the viewer floor could not see the role at all.
@@ -4017,6 +4234,23 @@ Deno.test({
     });
     await res.body?.cancel();
     assertDenied(res.status, "POST workspace invitation as non-member");
+  },
+});
+
+// Money M10: POST /reconciliation/run now sweeps EVERY unreconciled payout of
+// the owner it resolves, in keyset batches, and links them. The owner comes
+// from workspaceOwnerId ?? userId only, so a non-member carrying A's workspace
+// header must be refused before the sweep reads a single one of A's payouts.
+Deno.test({
+  name: "M10: non-member B cannot run auto-match over A's payouts",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/reconciliation/run`, {
+      method: "POST",
+      headers: foreignWorkspaceHeaders(),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST reconciliation/run in A's workspace as non-member");
   },
 });
 
@@ -8350,6 +8584,59 @@ Deno.test({
   },
 });
 
+// MP-09: the claim picker's candidates are read by review id. A foreign review
+// id is a 404, and the owner's own list never carries another tenant's listing.
+Deno.test({
+  name: "MP-09: A cannot read candidates for B's sync review, and B's list holds none of A's listings",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SYNC_LISTING_URL"),
+  fn: async () => {
+    const url = Deno.env.get("TEST_USER_A_SYNC_LISTING_URL")!;
+    const res = await fetch(`${BASE}/api/flipdesk/sync/observations`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        platform: "poshmark",
+        signedIn: true,
+        sold: [{
+          listingUrl: url,
+          title: "Tenant-A-sync-fixture",
+          soldPriceCents: 5500,
+          soldAt: "2026-08-18T12:00:00.000Z",
+          orderRef: "isolation-probe-candidates",
+        }],
+      }),
+    });
+    if (res.status === 402) {
+      await res.body?.cancel();
+      return;
+    }
+    await res.body?.cancel();
+    const mine = await fetch(`${BASE}/api/flipdesk/sync/reviews`, { headers: authHeaders(B_JWT!) });
+    const mineBody = await mine.json();
+    const row = (mineBody.reviews ?? []).find((r: { dedupe_key: string | null }) =>
+      (r.dedupe_key ?? "").includes("isolation-probe-candidates")
+    ) as { id: string } | undefined;
+    assert(row, "B's probe produced no review row to ask about");
+
+    const foreign = await fetch(`${BASE}/api/flipdesk/sync/reviews/${row.id}/candidates`, {
+      headers: authHeaders(A_JWT!),
+    });
+    await foreign.body?.cancel();
+    assertDenied(foreign.status, "A reading candidates for B's review");
+
+    const own = await fetch(`${BASE}/api/flipdesk/sync/reviews/${row.id}/candidates`, {
+      headers: authHeaders(B_JWT!),
+    });
+    assertEquals(own.status, 200);
+    const ownBody = await own.json() as { candidates?: Array<{ id: string }> };
+    const aListing = Deno.env.get("TEST_USER_A_LISTING_ID");
+    assert(
+      !(ownBody.candidates ?? []).some((c) => c.id === aListing),
+      "B's candidate list carries A's listing",
+    );
+  },
+});
+
 // US-9201: the closet import matches rows on (platform, platform_listing_id).
 // That key is chosen by whoever posts the batch, so the match MUST be owner-
 // scoped: B naming A's Poshmark id has to get a fresh row of B's own, never an
@@ -8907,6 +9194,43 @@ for (
     },
   });
 }
+
+// ── PS-04: an outcome acts on the STORED order, not the body's ──────
+//
+// The refund, decide and approve routes used to pass body.order_id straight to
+// the sale update. user_id scoping kept that inside the seller's own tenant,
+// but a stale client could still refund, restock and reverse the payout on a
+// DIFFERENT one of the seller's sales. This drives the same resolution and
+// write the routes use, against a recording fake, so it runs without a
+// fixture: a refund for return R-1 carrying sale 2's order id must leave sale 2
+// exactly as it was.
+Deno.test("PS-04: a mismatched body order_id does not move another of the seller's sales", async () => {
+  const { fakeOutcomeDb } = await import("./_fake-outcome-db.ts");
+  const { chooseOrderId, resolveCaseOrderId } = await import("../lib/post-sale-store.ts");
+  const { applyOutcomeToSale } = await import("../lib/post-sale-outcome.ts");
+  const owner = "owner-ps04";
+  const sales = [
+    { id: "s1", user_id: owner, platform_order_id: "O-1", inventory_item_id: "i1", listing_id: null, status: "completed" },
+    { id: "s2", user_id: owner, platform_order_id: "O-2", inventory_item_id: "i2", listing_id: null, status: "completed" },
+  ];
+  const w = fakeOutcomeDb({
+    sales,
+    inventory_items: [{ id: "i1", user_id: owner }, { id: "i2", user_id: owner }],
+    marketplace_post_sale_cases: [
+      { user_id: owner, platform: "ebay", case_type: "return", external_id: "R-1", external_order_id: "O-1", reason: null, raw: {} },
+    ],
+  });
+  const stored = await resolveCaseOrderId(owner, "return", "R-1", w.db);
+  const chosen = chooseOrderId(stored, "O-2");
+  assertEquals(chosen.orderId, "O-1");
+  assert(chosen.mismatch, "the disagreement is reported for the audit row");
+  await applyOutcomeToSale(owner, chosen.orderId, "return_refunded", {
+    db: w.db,
+    reversePayouts: () => Promise.resolve(),
+  });
+  assertEquals(sales[1]!.status, "completed", "sale 2 must be untouched");
+  assertEquals(sales[0]!.status, "refunded");
+});
 
 // ── US-2930/US-2931/US-2932: the three new return actions ───────────
 //

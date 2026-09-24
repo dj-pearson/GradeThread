@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/lib/destructive-guard.ts
   - supabase/migrations/00521_impersonation_sessions.sql
   - services/edge-functions/src/tests/impersonation-bounds_test.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-24
 tags: [admin, security, impersonation, audit]
 summary: Impersonation is capped at 30 minutes, recorded server-side, revoked on stop, and refused by every destructive route while it is live.
 ---

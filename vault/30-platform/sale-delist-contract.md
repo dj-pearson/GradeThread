@@ -14,7 +14,7 @@ code_refs:
   - src/components/flipdesk/delist-panel.tsx
   - src/components/flipdesk/record-sale-dialog.tsx
   - src/lib/delist-links.ts
-reviewed: 2026-09-22
+reviewed: 2026-09-24
 tags: [flipdesk, delist, extension, cross-listing]
 summary: A sale on any marketplace ends every other live listing of the same item; API channels end on the server, extension channels in the seller's browser from a link or by searching their active listings, and every listing keeps a link to that marketplace's own active-listings page as the fallback.
 ---
@@ -36,6 +36,14 @@ summary: A sale on any marketplace ends every other live listing of the same ite
 > ref was read and what was looked for.
 
 # What a sale ends, and how
+
+> **Re-reviewed 2026-09-24.** Drift flagged four refs. `cross-listings.ts`
+> (MP-06) now logs a failed settings read and defaults ON, recorded in section
+> 2. `flipdesk-extension-queue.ts` reclaims stale claims server-side and
+> separates pending from needs-attention rows, recorded in section 5.
+> `flipdesk-listings.ts` changed only the item-delete guard (fail closed,
+> admin only), and `lister/common.js` only lost a dead helper and a regex
+> escape. The six rules stand.
 
 > **Re-reviewed 2026-09-22.** Drift flagged three code refs on this branch:
 > `flipdesk-listings.ts` (371e8523, US-3456; e53cb718, US-3452),
@@ -67,6 +75,8 @@ sale asks where the item sold and marks that listing sold; before, it closed
 the item's primary listing whatever the marketplace. The automatic callers
 honour `flipdesk_settings.auto_end_cross_listings`. The Delist button sends
 `mode: "explicit"` and does not, because pressing it is the seller saying yes.
+If the settings read itself fails, the setting defaults ON and the error is
+logged (MP-06): a double sale costs more than an unwanted delist.
 
 ## 3. A stamped row is reachable if the extension has a way in
 
@@ -103,6 +113,13 @@ A background delist that succeeds clears `delist_requested_at`
 (`/extension-queue/:id/complete`). Nothing did before, so the robot ended the
 listing and FlipDesk kept asking the seller to end it. A confirmed delist
 drops any still-`queued` delist job for that listing.
+
+A delist whose browser died mid-job does not wait out `expires_at` (seven
+days). `/claim` and the queue GET requeue a claim older than its kind's TTL
+(15 minutes for delist and revise), counting it in `attempts`; the third stale
+claim fails the row with a `result.error` the delist log shows. `/complete`
+reads the row first, so a stale failure report from an install that no longer
+holds the claim is dropped rather than cancelling the retry (`2abc48397`).
 
 ## 6. The fallback link
 

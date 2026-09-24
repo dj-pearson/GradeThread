@@ -65,6 +65,16 @@ const DECLARED: readonly DeclaredPeek[] = [
     why: "instant source matches; useSources owns the key",
   },
   {
+    file: "src/hooks/use-automations.ts",
+    key: "getQueryData<AutomationRule[]>(RULES_KEY)",
+    writer: "src/hooks/use-automations.ts",
+    writes: "queryKey: RULES_KEY",
+    why:
+      "the Pricing plan P10 optimistic pause/resume snapshots the rules list " +
+      "before flipping is_active, so onError can roll back; useAutomationRules " +
+      "in the same module is the writer",
+  },
+  {
     file: "src/hooks/use-dashboard-layout.ts",
     key: "getQueryData<LayoutEntry[]>(key)",
     writer: "src/hooks/use-dashboard-layout.ts",

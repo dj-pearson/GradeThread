@@ -4,6 +4,7 @@ import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 
 // Cross-source sync conflicts (US-148): FlipDesk ↔ eBay ↔ Google Sheets
 // disagreements written by the sync cycles. RLS has no policies on
@@ -36,9 +37,13 @@ export interface SyncConflictsResponse {
 
 export function useSyncConflicts(enabled = true) {
   const user = useAuthStore((s) => s.user);
+  // The edge answers for the X-Workspace-Owner on the request, so the cache
+  // is keyed on that owner: a user.id key served the last workspace's
+  // conflicts (and the tab badge's count) after a switch.
+  const { workspaceOwnerId: ownerId } = useWorkspace();
   return useQuery({
-    queryKey: ["sync_conflicts", user?.id],
-    enabled: enabled && !!user,
+    queryKey: ["sync_conflicts", ownerId],
+    enabled: enabled && !!user && !!ownerId,
     staleTime: 30_000,
     queryFn: async (): Promise<SyncConflictsResponse> => {
       // silentGate: this read runs on page mount (tab badge) — a non-Business

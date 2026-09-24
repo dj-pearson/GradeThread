@@ -8,14 +8,14 @@ import {
 // covers.
 //
 // FlipDesk registers eleven marketplaces. The offers, messages and post-sale
-// screens drive the eBay hooks and nothing else, and said so nowhere — so a
+// screens drive the eBay hooks and nothing else, and said so nowhere, so a
 // seller cross-listing to Poshmark had every reason to read an empty offers
 // list as "no offers" rather than "we do not read Poshmark".
 //
 // The gap is not laziness, and the copy should not imply it is: these features
 // need a marketplace API that exposes offers, buyer messages, returns and
 // cancellations, and most of the eleven either have no public API at all
-// (poshmark, mercari, grailed, vinted, facebook — the extension channels) or
+// (poshmark, mercari, grailed, vinted, facebook: the extension channels) or
 // have one that covers listings and not negotiation (etsy, depop, shopify).
 //
 // Lives here rather than in constants.ts on purpose: constants.ts is in the
@@ -42,7 +42,7 @@ export function uncoveredReason(platform: string): string {
   ];
   switch (mechanism) {
     case "extension":
-      return "no public API — listed through your own browser";
+      return "no public API, so it is listed through your own browser";
     case "api":
       return "its API covers listings, not negotiation";
     default:
@@ -58,7 +58,7 @@ export interface CoverageSummary {
 /**
  * The covered and uncovered platforms for one surface. Derived from
  * LISTING_PLATFORMS, so a marketplace added to the registry appears here
- * immediately — as uncovered, which is the truthful default.
+ * immediately: as uncovered, which is the truthful default.
  *
  * `other` is excluded: it is the catch-all bucket for a manually-tracked
  * listing, not a marketplace anyone expects offers from.

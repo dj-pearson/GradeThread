@@ -604,6 +604,34 @@ export interface DrainNudgeResult {
  * flag off. All of those already work today — five minutes later, on the alarm
  * — so there is nothing to tell anyone about.
  */
+/**
+ * MP-15: one plain sentence for what a "Run now" press did. The Marketplaces
+ * queue is the first place a seller presses this on purpose, so every state
+ * gets words rather than a silent no-op.
+ */
+export function drainNudgeSentence(result: DrainNudgeResult): string {
+  switch (result.state) {
+    case "ok":
+      return result.drained
+        ? "Your desktop picked up the queued work."
+        : "Nothing was left to run. The queue is up to date.";
+    case "empty":
+      return "Nothing was left to run. The queue is up to date.";
+    case "busy":
+      return "Your desktop is already running queued work. It will get to the rest.";
+    case "throttled":
+      return "Asked a moment ago. Give it a minute.";
+    case "not-allowed":
+      return "The extension is not allowed to run queued work on this browser. Open the extension and check its settings.";
+    case "needs-consent":
+      return "Open the GradeThread extension once and accept what it will do, then press Run now again.";
+    case "error":
+      return "The extension could not start the run. Try again in a minute.";
+    default:
+      return "Couldn't reach the extension. Open Chrome with the GradeThread extension installed.";
+  }
+}
+
 export async function requestDrainNow(): Promise<DrainNudgeResult> {
   if (!isListerAvailable()) return { drained: false, state: "unavailable" };
 

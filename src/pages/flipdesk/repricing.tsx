@@ -38,13 +38,13 @@ import {
   useApplyReprice,
   useBulkRepriceApply,
   useDismissReprice,
+  useRestoreReprice,
   useRepriceRules,
   useRunRepriceRules,
   useCreateRepriceRule,
-  useUpdateRepriceRule,
+  useToggleRepriceRule,
   useDeleteRepriceRule,
   useRepriceActions,
-  ruleToInput,
   type ReasonCode,
   type RepriceRule,
   type RepriceRuleInput,
@@ -62,7 +62,11 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Plus, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { usePageHost } from "@/hooks/use-page-host";
 import { Term } from "@/components/help/term";
+import { changeLabel, queueCounts, undoPriors } from "./reprice-plan";
+import { repriceRuleFormError } from "./rule-form-validation";
+import { ruleRunToast } from "@/lib/rule-run-summary";
 
 // US-2171: the queue can carry dozens of nudges. Paginate the client-side list
 // so the page renders a bounded slice, and let the reseller filter/sort/bulk-act
@@ -108,6 +112,44 @@ function money(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+/**
+ * What used to be the Price suggestions tab, folded in: the same feed, counted.
+ * One bordered strip rather than three cards, so it reads as a summary of the
+ * queue under it and not as three more things to click.
+ */
+function QueueSummary({ rows }: { rows: RepriceSuggestion[] }) {
+  const c = queueCounts(rows);
+  return (
+    <dl className="grid grid-cols-1 divide-y rounded-lg border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+      <div className="p-3">
+        <dt className="text-xs text-muted-foreground">Nudges</dt>
+        <dd className="text-2xl font-semibold tabular-nums">{c.total}</dd>
+        <dd className="text-xs text-muted-foreground">
+          Live listings checked against condition-matched comps
+        </dd>
+      </div>
+      <div className="p-3">
+        <dt className="text-xs text-muted-foreground">Room to raise</dt>
+        <dd className="text-2xl font-semibold tabular-nums text-green-700 dark:text-green-400">
+          {c.raise}
+        </dd>
+        <dd className="text-xs text-muted-foreground">
+          Priced below condition-matched active listings
+        </dd>
+      </div>
+      <div className="p-3">
+        <dt className="text-xs text-muted-foreground">Consider lowering</dt>
+        <dd className="text-2xl font-semibold tabular-nums text-amber-700 dark:text-amber-400">
+          {c.lower}
+        </dd>
+        <dd className="text-xs text-muted-foreground">
+          Priced above comps, or listed a while with little interest
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
 function SuggestionRow({
   s,
   selected,
@@ -120,7 +162,9 @@ function SuggestionRow({
   const confirm = useConfirm();
   const apply = useApplyReprice();
   const dismiss = useDismissReprice();
+  const restore = useRestoreReprice();
   const meta = REASON_META[s.reason_code] ?? REASON_META.OK;
+  const title = s.inventory_items?.title ?? "Untitled item";
   const Icon = meta.icon;
   const up = s.suggested_price_cents >= s.current_price_cents;
 
@@ -139,13 +183,17 @@ function SuggestionRow({
   return (
     <Card>
       <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
-        <Checkbox
-          checked={selected}
-          onCheckedChange={() => onToggleSelect(s.id)}
-          aria-label={`Select ${s.inventory_items?.title ?? "item"} for bulk repricing`}
-          className="mt-1 sm:mt-0"
-        />
         <div className="min-w-0 flex-1 space-y-1.5">
+          {/* The checkbox and the title share a row so the box never sits
+              alone above the item it selects on a phone. */}
+          <div className="flex items-center gap-2">
+            <Checkbox
+              checked={selected}
+              onCheckedChange={() => onToggleSelect(s.id)}
+              aria-label={`Select ${title} for bulk repricing`}
+            />
+            <span className="min-w-0 truncate font-medium">{title}</span>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className={cn("gap-1", meta.classes)}>
               <Icon className="h-3.5 w-3.5" />
@@ -158,18 +206,19 @@ function SuggestionRow({
                   ` · ${s.inventory_items.grade_value.toFixed(1)}`}
               </Badge>
             )}
-            <span className="truncate font-medium">
-              {s.inventory_items?.title ?? "Untitled item"}
-            </span>
           </div>
           <p className="text-sm text-muted-foreground">{s.message}</p>
-          <div className="flex items-center gap-2 text-sm">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
             <span className="text-muted-foreground line-through">
               {money(s.current_price_cents)}
             </span>
+            <span aria-hidden="true" className="text-muted-foreground">→</span>
             <span className={cn("font-semibold", up ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400")}>
               {money(s.suggested_price_cents)}
             </span>
+            {changeLabel(s) && (
+              <span className="text-xs tabular-nums text-muted-foreground">({changeLabel(s)})</span>
+            )}
             <span className="text-xs text-muted-foreground">
               · {s.comp_count} comps
               {s.comp_median_cents != null && ` · median ${money(s.comp_median_cents)}`}
@@ -205,10 +254,14 @@ function SuggestionRow({
             variant="outline"
             onClick={() =>
               dismiss.mutate(s.id, {
-                onSuccess: () => toast.success("Suggestion dismissed."),
+                onSuccess: () =>
+                  toast.success("Suggestion dismissed.", {
+                    action: { label: "Undo", onClick: () => restore.mutate(s.id) },
+                  }),
               })
             }
             disabled={dismiss.isPending}
+            aria-label={`Dismiss suggestion for ${title}`}
           >
             <X className="h-4 w-4" />
           </Button>
@@ -256,12 +309,19 @@ function CreateRuleDialog() {
     setFloor("");
   }
 
+  // Checked as the seller types; Save stays off until it is null. The server
+  // refuses the same ranges, so nothing is quietly clamped on the way in.
+  const formError = repriceRuleFormError({
+    name,
+    dropPct,
+    intervalDays,
+    minAgeDays: minAge,
+  });
+
   function submit() {
+    if (formError) return;
     const drop = Number(dropPct);
     const interval = Number(intervalDays);
-    if (!name.trim()) return toast.error("Give the rule a name.");
-    if (!Number.isFinite(drop) || drop <= 0) return toast.error("Drop % must be a positive number.");
-    if (!Number.isFinite(interval) || interval <= 0) return toast.error("Interval (days) must be a positive number.");
     const floorDollars = Number(floor);
     const input: RepriceRuleInput = {
       name: name.trim(),
@@ -269,7 +329,7 @@ function CreateRuleDialog() {
       inventory_item_id: null,
       filter_brand: brand.trim() || null,
       filter_category_id: null,
-      min_age_days: Math.max(0, Math.trunc(Number(minAge) || 0)),
+      min_age_days: minAge.trim() === "" ? 0 : Number(minAge),
       drop_pct: drop,
       interval_days: Math.trunc(interval),
       floor_price_cents:
@@ -381,11 +441,16 @@ function CreateRuleDialog() {
             </div>
           </div>
         </div>
+        {formError && (
+          <p className="text-sm text-destructive" role="status">
+            {formError}
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={create.isPending}>
+          <Button onClick={submit} disabled={create.isPending || formError != null}>
             {create.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
             Create rule
           </Button>
@@ -401,8 +466,10 @@ function RepriceActionsFeed() {
   if (actions.length === 0) return null;
   return (
     <div className="mt-3 border-t pt-3">
+      {/* Rules and the seller's own Apply / Undo share this log, so the
+          heading does not call every row automatic and each row says who. */}
       <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-        Recent automatic changes
+        Recent price changes
       </p>
       <ul className="space-y-1">
         {actions.slice(0, 5).map((a) => (
@@ -423,6 +490,8 @@ function RepriceActionsFeed() {
                 <span className="ml-1 font-medium">{money(a.new_price_cents)}</span>
               )}
               <span className="ml-1 text-muted-foreground">
+                {a.rule_id ? "by a rule" : a.reason === "undo" ? "undone by you" : "by you"}
+                {" · "}
                 {new Date(a.created_at).toLocaleDateString()}
               </span>
             </span>
@@ -434,9 +503,9 @@ function RepriceActionsFeed() {
 }
 
 function RepriceRulesCard() {
-  const { data: rules = [], isLoading } = useRepriceRules();
+  const { data: rules = [], isLoading, isError, refetch, isFetching } = useRepriceRules();
   const run = useRunRepriceRules();
-  const update = useUpdateRepriceRule();
+  const toggle = useToggleRepriceRule();
   const del = useDeleteRepriceRule();
   const confirm = useConfirm();
 
@@ -453,10 +522,13 @@ function RepriceRulesCard() {
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
         <div className="space-y-1">
-          <CardTitle className="text-base">Automation rules</CardTitle>
+          {/* Not "Automation rules": the Automations tab is a separate engine,
+              and two headings claiming the word read as one set of rules. */}
+          <CardTitle className="text-base">Markdown rules</CardTitle>
           <p className="text-xs text-muted-foreground">
             Scheduled markdowns behind these nudges. Run them now to apply any
-            drops that are due.
+            drops that are due. A listing cut by an Automations rule waits out
+            this rule's interval too, so the two never stack.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -467,10 +539,10 @@ function RepriceRulesCard() {
             disabled={run.isPending}
             onClick={() =>
               run.mutate(undefined, {
-                onSuccess: (res) =>
-                  toast.success(
-                    `Rules run — ${res.applied} price${res.applied === 1 ? "" : "s"} changed.`,
-                  ),
+                onSuccess: (res) => {
+                  const t = ruleRunToast(res);
+                  toast[t.kind](t.text);
+                },
               })
             }
           >
@@ -486,9 +558,17 @@ function RepriceRulesCard() {
       <CardContent>
         {isLoading ? (
           <Skeleton className="h-10 w-full" />
+        ) : isError ? (
+          <ErrorState
+            className="py-6"
+            title="Couldn't load your rules"
+            description="They still run on schedule."
+            onRetry={() => refetch()}
+            retrying={isFetching}
+          />
         ) : rules.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No automation rules yet. Create one to age out slow inventory
+            No markdown rules yet. Create one to age out slow inventory
             automatically.
           </p>
         ) : (
@@ -509,11 +589,9 @@ function RepriceRulesCard() {
                 <div className="flex shrink-0 items-center gap-2">
                   <Switch
                     checked={r.enabled}
-                    disabled={update.isPending}
-                    aria-label={r.enabled ? "Pause rule" : "Enable rule"}
-                    onCheckedChange={(v) =>
-                      update.mutate({ id: r.id, input: { ...ruleToInput(r), enabled: v } })
-                    }
+                    disabled={toggle.isPending}
+                    aria-label={r.enabled ? `Pause rule: ${r.name}` : `Enable rule: ${r.name}`}
+                    onCheckedChange={(v) => toggle.mutate({ id: r.id, enabled: v })}
                   />
                   <Button
                     size="icon"
@@ -605,7 +683,7 @@ export function FlipdeskRepricingPage() {
   // already {listing_id, price_cents} — no unit conversion, no per-row round trip.
   function revertRows(priors: Array<{ listing_id: string; price_cents: number }>) {
     if (priors.length === 0) return;
-    bulkApply.mutate(priors, {
+    bulkApply.mutate({ items: priors, revert: true }, {
       onSuccess: (res) =>
         toast.success(`Reverted ${res.applied} price${res.applied === 1 ? "" : "s"}.`),
     });
@@ -626,25 +704,19 @@ export function FlipdeskRepricingPage() {
       listing_id: s.listing_id,
       price_cents: s.suggested_price_cents,
     }));
-    // US-2171 AC5: capture each row's PRIOR price so the apply is reversible —
-    // re-applying these restores exactly what changed, cents-for-cents.
-    const priorByListing = new Map(
-      rows.map((s) => [s.listing_id, s.current_price_cents]),
-    );
     bulkApply.mutate(items, {
       onSuccess: (res) => {
         setSelected(new Set());
         const parts = [`${res.applied} applied`];
         if (res.skipped.length) parts.push(`${res.skipped.length} skipped`);
         if (res.errors.length) parts.push(`${res.errors.length} failed`);
-        // Undo only the rows that actually changed (skips never moved).
-        const skipped = new Set(res.skipped.map((x) => x.listing_id));
-        const priors = [...priorByListing.entries()]
-          .filter(([id]) => !skipped.has(id))
-          .map(([listing_id, price_cents]) => ({ listing_id, price_cents }));
+        if (res.not_processed.length) parts.push(`${res.not_processed.length} not sent`);
+        // US-2171 AC5: Undo writes back only the rows the server changed, at
+        // the price it says it replaced. Skipped and failed rows never moved.
+        const priors = undoPriors(res.applied_rows);
         toast.success(`Repricing: ${parts.join(" · ")}.`, {
           action:
-            res.applied > 0
+            priors.length > 0
               ? { label: "Undo", onClick: () => revertRows(priors) }
               : undefined,
         });
@@ -653,18 +725,14 @@ export function FlipdeskRepricingPage() {
   }
 
   const hasSuggestions = suggestions.length > 0;
+  const { embedded } = usePageHost();
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
+    // Inside the Pricing host the host sets the width and gutter; standalone,
+    // the page sets its own.
+    <div className={cn("space-y-6", !embedded && "mx-auto w-full max-w-4xl p-6")}>
       <PageHeader
         title="Repricing"
-        subtitle={
-          <>
-            Condition-aware price nudges. We compare each active listing against{" "}
-            <Term name="Comp">comps</Term> matched to its grade, so a grade-9 is
-            not priced like a grade-6.
-          </>
-        }
         actions={
           <Button onClick={() => scan.mutate(undefined)} disabled={scan.isPending}>
             {scan.isPending ? (
@@ -676,12 +744,20 @@ export function FlipdeskRepricingPage() {
           </Button>
         }
       />
-      {/* US-460: comps are active asking prices, not sold prices. Kept out of
-          the header subtitle so it survives when a tab host suppresses it. */}
-      <p className="text-xs text-muted-foreground">
-        Comps are <strong>active</strong> asking prices, not sold prices — real
-        sale prices are usually lower, so nudges trend toward a ceiling.
+      {/* The page's purpose lives in the body, not the header subtitle, so it
+          survives when the Pricing host suppresses the header. */}
+      <p className="text-sm text-muted-foreground">
+        Condition-aware price nudges. We compare each active listing against{" "}
+        <Term name="Comp">comps</Term> matched to its grade, so a grade-9 is not
+        priced like a grade-6.
       </p>
+      {/* US-460: comps are active asking prices. */}
+      <p className="text-xs text-muted-foreground">
+        Comps are <strong>active</strong> asking prices from live listings.
+        Final sale prices usually come in lower, so treat a nudge as a ceiling.
+      </p>
+
+      {hasSuggestions && <QueueSummary rows={suggestions} />}
 
       <RepriceRulesCard />
 
@@ -790,6 +866,7 @@ export function FlipdeskRepricingPage() {
                 variant="outline"
                 disabled={safePage === 0}
                 onClick={() => setPage(safePage - 1)}
+                aria-label="Previous page"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -801,6 +878,7 @@ export function FlipdeskRepricingPage() {
                 variant="outline"
                 disabled={safePage >= pageCount - 1}
                 onClick={() => setPage(safePage + 1)}
+                aria-label="Next page"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>

@@ -100,17 +100,14 @@ const EXEMPT: ReadonlyArray<{ file: string; why: string }> = [
       "Same reasoning as the keywords card.",
   },
   {
-    file: "src/pages/price-suggestions.tsx",
+    file: "src/pages/flipdesk/repricing.tsx",
     why:
       "shows a comp COUNT and median for the seller's own items, not any " +
       "listing from eBay. value-basis-note.tsx already names active asking " +
       "prices as the basis. DERIVED-PRICE QUESTION, raised by US-3112 and " +
       "still open: whether a number computed from eBay comps needs the notice " +
-      "when no eBay content is rendered is an owner call.",
-  },
-  {
-    file: "src/pages/flipdesk/repricing.tsx",
-    why: "same comp-derived suggestion feed as price-suggestions.tsx.",
+      "when no eBay content is rendered is an owner call. (Price suggestions " +
+      "folded into this page.)",
   },
 ];
 

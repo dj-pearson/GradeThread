@@ -19,6 +19,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { ErrorState } from "@/components/ui/error-state";
+import { PlanLockedNotice } from "@/components/flipdesk/plan-locked-notice";
+import { isPlanGateError } from "@/lib/plan-gate-error";
+import { useWorkspace } from "@/hooks/use-workspace";
 import {
   useConflictThreshold,
   useResolveConflicts,
@@ -72,7 +76,9 @@ interface ListingGroup {
 }
 
 export function CrossSourceConflicts() {
-  const { data, isLoading } = useSyncConflicts();
+  const { data, isLoading, isError, error, refetch, isFetching } =
+    useSyncConflicts();
+  const locked = isError && isPlanGateError(error);
   const resolve = useResolveConflicts();
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -144,9 +150,18 @@ export function CrossSourceConflicts() {
                 remembered per field, so future syncs won&apos;t overwrite it.
               </CardDescription>
             </div>
-            <Badge variant={groups.length > 0 ? "destructive" : "outline"}>
-              {data?.total ?? 0}
-            </Badge>
+            {!isError && (
+              <Badge
+                variant="outline"
+                className={
+                  groups.length > 0
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-200"
+                    : undefined
+                }
+              >
+                {data?.total ?? 0}
+              </Badge>
+            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -163,7 +178,7 @@ export function CrossSourceConflicts() {
                     key={source}
                     variant="outline"
                     size="sm"
-                    className="h-7 px-2 text-xs"
+                    className="h-9 text-xs"
                     disabled={busy || entries.length === 0}
                     onClick={() => void resolveConflicts(entries)}
                   >
@@ -179,7 +194,7 @@ export function CrossSourceConflicts() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 text-xs"
+                className="h-9 text-xs"
                 onClick={() => setSelected(new Set())}
               >
                 Clear
@@ -187,7 +202,17 @@ export function CrossSourceConflicts() {
             </div>
           )}
 
-          {isLoading ? (
+          {locked ? (
+            <PlanLockedNotice what="Cross-source conflict checks" />
+          ) : isError ? (
+            <ErrorState
+              title="Couldn't load conflicts"
+              description="The conflicts read failed, so this card cannot say whether FlipDesk, eBay and Sheets agree. This is not a clean bill of health."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+              hideSupport
+            />
+          ) : isLoading ? (
             <div className="py-6 text-center text-sm text-muted-foreground">
               Loading conflicts…
             </div>
@@ -267,9 +292,9 @@ function ListingConflictCard({
             </a>
           )}
         </div>
-        <div className="flex items-center gap-1">
-          <span className="mr-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-            Accept all
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="mr-1 text-xs text-muted-foreground">
+            Accept all from
           </span>
           {SOURCES.map((source) => {
             const entries = bulkEntries(source);
@@ -278,7 +303,7 @@ function ListingConflictCard({
                 key={source}
                 variant="outline"
                 size="sm"
-                className="h-6 px-2 text-[10px]"
+                className="h-9 text-xs"
                 disabled={busy || entries.length === 0}
                 onClick={() => void onResolve(entries)}
               >
@@ -291,7 +316,7 @@ function ListingConflictCard({
 
       <div className="divide-y">
         {/* Column header */}
-        <div className="grid grid-cols-[5.5rem_1fr_1fr_1fr] gap-2 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <div className="grid grid-cols-[5.5rem_1fr_1fr_1fr] gap-2 px-3 py-1.5 text-xs font-medium text-muted-foreground">
           <div>Field</div>
           {SOURCES.map((s) => (
             <div key={s}>{SOURCE_LABELS[s]}</div>
@@ -346,7 +371,7 @@ function ListingConflictCard({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-6 px-2 text-[10px]"
+                  className="h-9 text-xs"
                   disabled={busy}
                   aria-label={`Mark ${group.title} ended in FlipDesk`}
                   onClick={() =>
@@ -367,6 +392,10 @@ function ListingConflictCard({
 // Email-alert threshold: one email per upward crossing of the open-conflict
 // count. Blank = disabled.
 function ThresholdCard() {
+  // The threshold is a column on the caller's OWN users row, but the alert
+  // job reads the workspace owner's. A member saving here changed a number
+  // nothing reads, so for a member the setting is shown as the owner's.
+  const { isPersonal } = useWorkspace();
   const { data: threshold, isLoading } = useConflictThreshold();
   const setThreshold = useSetConflictThreshold();
   const [draft, setDraft] = useState<string | null>(null);
@@ -400,34 +429,43 @@ function ThresholdCard() {
           Leave blank to turn alerts off.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-wrap items-center gap-3">
-        <Input
-          aria-label="Conflict email alert threshold"
-          type="number"
-          min={1}
-          className="w-28"
-          placeholder="Off"
-          value={value}
-          disabled={isLoading}
-          onChange={(e) => setDraft(e.target.value)}
-        />
-        <Button
-          size="sm"
-          onClick={save}
-          disabled={!dirty || setThreshold.isPending}
-        >
-          {setThreshold.isPending ? (
-            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-          ) : null}
-          Save
-        </Button>
-        {threshold == null && !isLoading && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <AlertTriangle className="h-3 w-3" />
-            Alerts are currently off.
-          </span>
-        )}
-      </CardContent>
+      {!isPersonal ? (
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Only the workspace owner can change this. Alerts for this workspace
+            go to the owner.
+          </p>
+        </CardContent>
+      ) : (
+        <CardContent className="flex flex-wrap items-center gap-3">
+          <Input
+            aria-label="Conflict email alert threshold"
+            type="number"
+            min={1}
+            className="w-28"
+            placeholder="Off"
+            value={value}
+            disabled={isLoading}
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <Button
+            size="sm"
+            onClick={save}
+            disabled={!dirty || setThreshold.isPending}
+          >
+            {setThreshold.isPending ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            Save
+          </Button>
+          {threshold == null && !isLoading && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <AlertTriangle className="h-3 w-3" />
+              Alerts are currently off.
+            </span>
+          )}
+        </CardContent>
+      )}
     </Card>
   );
 }

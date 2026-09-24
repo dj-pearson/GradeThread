@@ -10,6 +10,10 @@ import {
   LISTING_BADGE_QUERY_KEY,
   useListingBadgeSetting,
 } from "@/lib/listing-badge-setting";
+import { useOwnsActiveWorkspace } from "@/hooks/use-tenant-key";
+import { SETTINGS_OWNER_ONLY } from "@/lib/workspace-permissions";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // US-3060: the seller's switch for the on-marketplace verified badge.
 //
@@ -34,7 +38,9 @@ import {
 export function ListingBadgeToggle() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
-  const { data, isLoading } = useListingBadgeSetting();
+  // MP-06: see useOwnsActiveWorkspace.
+  const own = useOwnsActiveWorkspace();
+  const { data, isLoading, isError, refetch } = useListingBadgeSetting(own);
   const [pending, setPending] = useState(false);
 
   const save = useMutation<void, Error, boolean>({
@@ -77,21 +83,33 @@ export function ListingBadgeToggle() {
           certificate on your eBay, Poshmark and Mercari listings. Only listings
           you have graded and published a certificate for.
         </p>
-        {!writable && !isLoading ? (
+        {!own ? (
+          <p className="text-xs text-muted-foreground">{SETTINGS_OWNER_ONLY}</p>
+        ) : isError ? (
+          <p role="alert" className="text-xs">Couldn&apos;t load this setting.</p>
+        ) : !writable && !isLoading ? (
           <p className="text-xs text-muted-foreground">
             This setting is not available yet on this environment.
           </p>
         ) : null}
       </div>
-      <Switch
-        id="listing-badge"
-        checked={showBadge}
-        disabled={pending || isLoading || !writable}
-        onCheckedChange={(v) => {
-          setPending(true);
-          save.mutate(!v);
-        }}
-      />
+      {own && isError ? (
+        <Button size="sm" variant="outline" onClick={() => void refetch()}>
+          Retry
+        </Button>
+      ) : own && isLoading ? (
+        <Skeleton className="h-5 w-9 rounded-full" />
+      ) : (
+        <Switch
+          id="listing-badge"
+          checked={own && showBadge}
+          disabled={!own || pending || isLoading || !writable}
+          onCheckedChange={(v) => {
+            setPending(true);
+            save.mutate(!v);
+          }}
+        />
+      )}
     </div>
   );
 }

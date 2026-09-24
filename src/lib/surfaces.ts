@@ -333,7 +333,8 @@ export const SURFACES = [
     iosElsewhere: "ios/GradeThread/Marketplaces/PostSale/PostSaleView.swift",
   },
   {
-    // US-2161: Repricing + Bulk pricing + Price Suggestions + Automations.
+    // US-2161: Repricing + Bulk pricing + Automations (Price Suggestions folded
+    // into Repricing).
     id: "pricing",
     label: "Pricing",
     description: "Reprice live listings, edit prices in bulk, and run pricing rules.",
@@ -349,6 +350,15 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/pricing?tab=repricing",
     nav: null,
     ios: "repricing",
+  },
+  {
+    id: "bulk-pricing",
+    label: "Bulk pricing",
+    description: "Change the price or quantity of many live eBay listings at once.",
+    web: "/dashboard/flipdesk/pricing?tab=bulk",
+    nav: null,
+    ios: null,
+    iosElsewhere: "ios/GradeThread/Marketplaces/BulkPricing/BulkPricingView.swift",
   },
   {
     id: "automations",

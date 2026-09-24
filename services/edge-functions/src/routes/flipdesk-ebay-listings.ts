@@ -71,7 +71,11 @@ import {
   validateEbayOriginEdit,
 } from "../lib/sync-precedence.ts";
 // US-2166: the shared platform-agnostic lifecycle core.
-import { applyListingPrice } from "../lib/listing-lifecycle.ts";
+import {
+  applyListingPrice,
+  originLockResponse,
+  type OwnedListingRow,
+} from "../lib/listing-lifecycle.ts";
 // US-2166 (AC5): the bulk-edit handler now lives with the other
 // platform-agnostic listing operations; this file only forwards to it.
 import { bulkEditListingsHandler } from "./flipdesk-listings.ts";
@@ -366,41 +370,102 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
     return c.json({ error: "Too many updates (max 500)." }, 400);
   }
 
+  const outcome = await applyBulkPriceQuantity(
+    userId,
+    rawUpdates as Array<Record<string, unknown>>,
+  );
+  if (!outcome.ok) return c.json({ error: outcome.error }, 400);
+  const { results, listingIds, succeeded } = outcome;
+
+  await writeAuditLog(c, {
+    action: "ebay.bulk_price_quantity",
+    targetType: "listings",
+    details: { requested: listingIds.length, succeeded },
+  });
+  return c.json({ ok: true, results, succeeded, total: results.length });
+});
+
+type BulkPriceQtyResult = {
+  listing_id: string;
+  ok: boolean;
+  error?: string;
+  reason?: "floor" | "not_live" | "price_changed" | "origin_locked" | "local_write";
+  floor?: number;
+};
+
+/**
+ * The body of POST /listings/bulk-price-quantity, minus the plan gate and the
+ * audit write, so it can be driven with a stand-in eBay. `push` is eBay's
+ * bulk_update_price_quantity.
+ *
+ * Every refusal happens before any eBay call, and names its reason:
+ *  - floor: the new price is under the seller's floor on the garment. The same
+ *    shape /listings/bulk-price returns, so one client reads both. This used to
+ *    live only in the browser, so any other client could price through it.
+ *  - not_live: sold, ended or not an eBay row. A price on it can't change.
+ *  - price_changed: the caller sent the price it saw and the row moved since.
+ *  - origin_locked: an eBay-originated listing, which eBay owns (US-1976).
+ */
+export async function applyBulkPriceQuantity(
+  userId: string,
+  rawUpdates: Array<Record<string, unknown>>,
+  push: typeof bulkUpdatePriceQuantity = (user, requests) =>
+    bulkUpdatePriceQuantity(user, requests),
+): Promise<
+  | { ok: false; error: string }
+  | { ok: true; results: BulkPriceQtyResult[]; listingIds: string[]; succeeded: number }
+> {
   // Normalize + validate. price>0, quantity>=0 integer; at least one present.
-  const wanted = new Map<string, { price?: number; quantity?: number }>();
-  for (const u of rawUpdates as Array<Record<string, unknown>>) {
+  const wanted = new Map<
+    string,
+    { price?: number; quantity?: number; expectedPrice?: number }
+  >();
+  for (const u of rawUpdates) {
     if (!u || typeof u.listing_id !== "string") continue;
     const priceNum = Number(u.price);
     const qtyNum = Number(u.quantity);
+    const expNum = Number(u.expected_price);
     const price = u.price != null && Number.isFinite(priceNum) && priceNum > 0
       ? priceNum
       : undefined;
     const quantity = u.quantity != null && Number.isInteger(qtyNum) && qtyNum >= 0
       ? qtyNum
       : undefined;
+    const expectedPrice = u.expected_price != null && Number.isFinite(expNum)
+      ? expNum
+      : undefined;
     if (price === undefined && quantity === undefined) continue;
-    wanted.set(u.listing_id, { price, quantity });
+    wanted.set(u.listing_id, { price, quantity, expectedPrice });
   }
   const listingIds = [...wanted.keys()];
-  if (listingIds.length === 0) return c.json({ error: "No valid updates." }, 400);
+  if (listingIds.length === 0) return { ok: false, error: "No valid updates." };
 
   // Load owned listings with their SKU + offer id (tenant-scoped, US-268).
   const { data: rows } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, platform_offer_id, inventory_item_id, inventory_sku, inventory_items!inner(user_id, sku)",
+      "id, platform, listing_status, listing_price, listing_origin, platform_listing_id, " +
+        "batch_id, synced_to_ebay_at, platform_offer_id, inventory_item_id, inventory_sku, " +
+        "inventory_items!inner(user_id, sku, floor_price)",
     )
     .in("id", listingIds)
     .eq("inventory_items.user_id", userId);
   const owned = (rows ?? []) as unknown as Array<{
     id: string;
+    platform: string | null;
+    listing_status: string | null;
+    listing_price: number | null;
+    listing_origin: string | null;
+    platform_listing_id: string | null;
+    batch_id: string | null;
+    synced_to_ebay_at: string | null;
     platform_offer_id: string | null;
     inventory_item_id: string | null;
     inventory_sku: string | null;
-    inventory_items: { user_id: string; sku: string | null };
+    inventory_items: { user_id: string; sku: string | null; floor_price: number | null };
   }>;
 
-  const results: Array<{ listing_id: string; ok: boolean; error?: string }> = [];
+  const results: BulkPriceQtyResult[] = [];
   const items: Array<
     PriceQtyUpdate & { listingId: string; itemId: string | null }
   > = [];
@@ -409,6 +474,59 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
     const want = wanted.get(lid)!;
     if (!row) {
       results.push({ listing_id: lid, ok: false, error: "Listing not found" });
+      continue;
+    }
+    if (row.platform !== "ebay" || row.listing_status !== "active") {
+      results.push({
+        listing_id: lid,
+        ok: false,
+        reason: "not_live",
+        error: "This listing is not live on eBay, so it was not changed.",
+      });
+      continue;
+    }
+    const lockedFields = [
+      ...(want.price != null ? ["listing_price"] : []),
+      ...(want.quantity != null ? ["quantity"] : []),
+    ];
+    const lock = originLockResponse(row as unknown as OwnedListingRow, lockedFields);
+    if (lock.locked) {
+      results.push({
+        listing_id: lid,
+        ok: false,
+        reason: "origin_locked",
+        error: String(lock.body.error),
+      });
+      continue;
+    }
+    if (
+      want.price != null &&
+      want.expectedPrice != null &&
+      typeof row.listing_price === "number" &&
+      Math.round(row.listing_price * 100) !== Math.round(want.expectedPrice * 100)
+    ) {
+      results.push({
+        listing_id: lid,
+        ok: false,
+        reason: "price_changed",
+        error: "Price changed since you loaded this page.",
+      });
+      continue;
+    }
+    const floor = row.inventory_items.floor_price;
+    if (
+      want.price != null &&
+      typeof floor === "number" &&
+      Number.isFinite(floor) &&
+      Math.round(want.price * 100) < Math.round(floor * 100)
+    ) {
+      results.push({
+        listing_id: lid,
+        ok: false,
+        reason: "floor",
+        floor,
+        error: `That price goes below this item's floor of $${floor.toFixed(2)}.`,
+      });
       continue;
     }
     const offerId = row.platform_offer_id;
@@ -430,10 +548,11 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
     });
   }
 
+  const pushedOk = new Set<string>();
   for (const batch of chunk(items, EBAY_BULK_MAX)) {
     let entries: Array<Record<string, unknown>>;
     try {
-      entries = await bulkUpdatePriceQuantity(
+      entries = await push(
         userId,
         batch.map((b) => buildPriceQtyRequest(b)),
       ) as unknown as Array<Record<string, unknown>>;
@@ -446,24 +565,41 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
     }
     batch.forEach((b, i) => {
       const norm = normalizeBulkEntry({ offerId: b.offerId, ...(entries[i] ?? {}) }, b.offerId);
-      results.push(
-        norm.ok
-          ? { listing_id: b.listingId, ok: true }
-          : { listing_id: b.listingId, ok: false, error: norm.error },
-      );
+      if (norm.ok) pushedOk.add(b.listingId);
+      else results.push({ listing_id: b.listingId, ok: false, error: norm.error });
     });
   }
 
-  // Persist local rows for the successes.
-  const okIds = new Set(results.filter((r) => r.ok).map((r) => r.listing_id));
+  // Persist local rows for the successes. eBay already has the new values, so
+  // a failed local write is still reported: the seller's copy is behind.
   for (const b of items) {
-    if (!okIds.has(b.listingId)) continue;
+    if (!pushedOk.has(b.listingId)) continue;
     const patch: Record<string, unknown> = {};
-    if (b.priceValue != null) patch.listing_price = b.priceValue;
+    if (b.priceValue != null) {
+      patch.listing_price = b.priceValue;
+      // A person chose this number, so a rule that skips hand-set prices
+      // leaves it alone.
+      patch.price_set_by = "seller";
+    }
     if (b.quantity != null) patch.quantity = b.quantity;
     if (Object.keys(patch).length > 0) {
-      await supabaseAdmin.from("listings").update(patch as never).eq("id", b.listingId);
+      const { error: localErr } = await supabaseAdmin
+        .from("listings")
+        .update(patch as never)
+        .eq("id", b.listingId)
+        .eq("user_id", userId);
+      if (localErr) {
+        console.error("[flipdesk-ebay] bulk-price-quantity local write failed:", localErr.message);
+        results.push({
+          listing_id: b.listingId,
+          ok: false,
+          reason: "local_write",
+          error: "Live on eBay, but our copy did not save. It will correct on the next sync.",
+        });
+        continue;
+      }
     }
+    results.push({ listing_id: b.listingId, ok: true });
     // US-1504: mirror a successful reprice onto the item's target_price so the
     // canvas "not pushed to eBay" badge stays truthful (see the single-price
     // handler). Only when the price actually changed.
@@ -476,13 +612,9 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
     }
   }
 
-  await writeAuditLog(c, {
-    action: "ebay.bulk_price_quantity",
-    targetType: "listings",
-    details: { requested: listingIds.length, succeeded: okIds.size },
-  });
-  return c.json({ ok: true, results, succeeded: okIds.size, total: results.length });
-});
+  const succeeded = results.filter((r) => r.ok).length;
+  return { ok: true, results, listingIds, succeeded };
+}
 
 // ── Bulk-edit live listings (US-1292) ───────────────────────────────
 // US-2166 (AC5): the handler MOVED to routes/flipdesk-listings.ts. It was

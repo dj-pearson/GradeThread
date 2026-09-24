@@ -112,3 +112,38 @@ Deno.test("no discounts at all is a clean pass with no contributions", () => {
   assertEquals(out.breaches, false);
   assertEquals(out.contributions.length, 0);
 });
+
+// MP-16: the Promoted Listings ad fee is part of the stack.
+Deno.test("MP-16: a 20% markdown plus an active 12% ad fee breaches a 10% floor", () => {
+  const withAd = evaluateStack({
+    priceCents: 10_000,
+    costCents: 7_000,
+    markdownPct: 20,
+    adFeePct: 12,
+    marginFloorPct: 10,
+  });
+  assert(withAd.breaches, "80.00 minus a 12% fee is 70.40, under the 77.00 floor");
+  assertEquals(withAd.worstCaseCents, 7_040);
+  assert(describeStack(withAd).includes("Promoted Listings ad fee $9.60"), describeStack(withAd));
+
+  const withoutAd = evaluateStack({
+    priceCents: 10_000,
+    costCents: 7_000,
+    markdownPct: 20,
+    marginFloorPct: 10,
+  });
+  assert(!withoutAd.breaches, "the same stack with no ad clears the floor");
+  assert(!describeStack(withoutAd).includes("ad fee"));
+});
+
+Deno.test("MP-16: the ad fee is charged on the price after the auto-accept cap", () => {
+  const v = evaluateStack({
+    priceCents: 10_000,
+    costCents: 1_000,
+    autoAcceptCents: 5_000,
+    adFeePct: 10,
+    marginFloorPct: 0,
+  });
+  assertEquals(v.contributions.find((c) => c.kind.includes("ad fee"))?.cents, 500);
+  assertEquals(v.worstCaseCents, 4_500);
+});

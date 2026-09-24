@@ -814,3 +814,44 @@ Deno.test("US-2236: one threshold alone is a valid rule", () => {
   });
   assert(declineOnly.ok);
 });
+
+// ── Pricing plan P10: the markdown trigger's bounds ─────────────────
+
+Deno.test("P10: a markdown outside eBay's 5-70% is refused, not clamped", async () => {
+  const { MIN_MARKDOWN_PCT, MAX_MARKDOWN_PCT } = await import("../lib/automation-rules.ts");
+  const ebay = await import("../lib/ebay-marketing.ts");
+  assertEquals([MIN_MARKDOWN_PCT, MAX_MARKDOWN_PCT], [ebay.MIN_MARKDOWN_PCT, ebay.MAX_MARKDOWN_PCT]);
+  for (const markdown_pct of [2, 90]) {
+    const r = normalizeAutomationInput({
+      name: "Clear",
+      trigger_json: { type: "markdown_schedule", min_days_listed: 45, markdown_pct },
+      action_json: { type: "notify", message: "x" },
+    });
+    assertEquals(r.ok, false, `markdown_pct ${markdown_pct}`);
+  }
+  for (const markdown_pct of [5, 70]) {
+    const r = normalizeAutomationInput({
+      name: "Clear",
+      trigger_json: { type: "markdown_schedule", min_days_listed: 45, markdown_pct },
+      action_json: { type: "notify", message: "x" },
+    });
+    assert(r.ok, `markdown_pct ${markdown_pct}`);
+  }
+});
+
+Deno.test("P10: a markdown margin floor of 0 is stored as 0, and absent defaults", () => {
+  const zero = normalizeAutomationInput({
+    name: "Clear",
+    trigger_json: { type: "markdown_schedule", min_days_listed: 45, markdown_pct: 20, margin_floor_pct: 0 },
+    action_json: { type: "notify", message: "x" },
+  });
+  assert(zero.ok);
+  assertEquals((zero.value.trigger_json as { margin_floor_pct: number }).margin_floor_pct, 0);
+  const absent = normalizeAutomationInput({
+    name: "Clear",
+    trigger_json: { type: "markdown_schedule", min_days_listed: 45, markdown_pct: 20 },
+    action_json: { type: "notify", message: "x" },
+  });
+  assert(absent.ok);
+  assertEquals((absent.value.trigger_json as { margin_floor_pct: number }).margin_floor_pct, 10);
+});

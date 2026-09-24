@@ -72,14 +72,13 @@ const ROOTS = [
  * NOT offenders, with the reason. US-3250: a page can carry a query and still
  * be right to say nothing when it fails.
  *
- * money.tsx — its only query drives a BADGE COUNTER on a tab. Hiding a badge
- * when the count cannot be fetched is correct degradation, not a false claim:
- * nothing on screen asserts the books are clean, and the page's real content is
- * a nested router view that does its own reads. An ErrorState for a badge would
- * be noise, and padding a shrink-only list with cosmetic fixes is how it stops
- * meaning anything.
+ * (Empty.) money.tsx used to sit here: its only query drives a badge counter
+ * on a tab, and hiding the badge on a failed count was judged correct. It was
+ * not quite -- a hidden badge reads the same as zero, which is a clean bill of
+ * health -- so the badge now shows a neutral "?" with "Couldn't check your
+ * books" and the file surfaces its failure like every other page.
  */
-const SILENCE_IS_CORRECT = ["src/pages/flipdesk/money.tsx"];
+const SILENCE_IS_CORRECT: string[] = [];
 
 interface PageFacts {
   rel: string;

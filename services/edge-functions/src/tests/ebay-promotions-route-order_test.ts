@@ -9,9 +9,13 @@
 // unconfigured it got a 503 for two routes that only read local tables.
 //
 // The handlers are told apart by what they answer with eBay unconfigured and
-// the database unreachable (the _env.ts SUPABASE_URL points at a closed port):
-// the :promotionId read refuses with 503 before any work, performance answers
-// { promotions: [] }, stack-check answers with its margin_floor_pct.
+// every database read answering empty: the :promotionId read refuses with 503
+// before any work, performance answers { promotions: [] }, stack-check answers
+// with its margin_floor_pct.
+//
+// MP-11: this used to rely on the database being UNREACHABLE and the reads
+// swallowing that into []. A failed read is now a 500, so the reads are stubbed
+// to succeed empty instead.
 //
 // Run: deno test --allow-env --allow-read --allow-net src/tests/ebay-promotions-route-order_test.ts
 import "./_env.ts";
@@ -19,6 +23,20 @@ import { assert, assertEquals } from "@std/assert";
 import { Hono } from "hono";
 import { flipdeskEbayRoutes } from "../routes/flipdesk-ebay.ts";
 import type { EbayEnv } from "../routes/flipdesk-ebay-shared.ts";
+
+const realFetch = globalThis.fetch;
+globalThis.fetch = ((input: Request | URL | string, init?: RequestInit) => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  if (url.includes("/rest/v1/")) {
+    return Promise.resolve(
+      new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
+  }
+  return realFetch(input, init);
+}) as typeof fetch;
+addEventListener("unload", () => {
+  globalThis.fetch = realFetch;
+});
 
 const OWNER = "00000000-0000-4000-8000-0000000000aa";
 

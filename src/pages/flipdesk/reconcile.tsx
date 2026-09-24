@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -60,6 +60,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { EbaySkuMatch } from "@/components/flipdesk/ebay-sku-match";
 import { CrossSourceConflicts } from "@/components/flipdesk/cross-source-conflicts";
 import { useSyncConflicts } from "@/hooks/use-sync-conflicts";
@@ -81,7 +88,9 @@ import {
 } from "@/lib/reconcile-cluster";
 import {
   commitClusters,
+  LINKABLE_STATUSES,
   type CommitCluster,
+  type CommitProgress,
   type CommitResult,
 } from "@/hooks/use-reconcile-commit";
 import {
@@ -92,6 +101,9 @@ import {
   type BulkExtractResponse,
 } from "@/hooks/use-ai-extract";
 import { rankItemMatches } from "@/lib/reconcile-match";
+import { pruneCommitted } from "@/lib/reconcile-board";
+import { runPool } from "@/lib/async-pool";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { compressImage } from "@/lib/image-utils";
 import { PhotoTagSelect } from "@/components/flipdesk/photo-tag-select";
 import { usePhotoProfile, type PhotoProfile } from "@/lib/photo-profiles";
@@ -111,6 +123,11 @@ interface DumpPhoto extends ClusterablePhoto {
   // US-289: set when the blob is already in storage (iOS-staged). Commit
   // references it instead of re-uploading a (missing) in-memory File.
   storagePath?: string | null;
+}
+
+/** Revoke a board preview. Restored photos use a storage URL, not a blob. */
+function revokePreview(p: { previewUrl: string }) {
+  if (p.previewUrl.startsWith("blob:")) URL.revokeObjectURL(p.previewUrl);
 }
 
 interface LinkTarget {
@@ -141,7 +158,6 @@ const ACCEPT = "image/*";
 const NEEDS_SORTING_DROP = "__needs_sorting__";
 const NEW_CLUSTER_DROP = "__new_cluster__";
 // item statuses eligible to receive a linked cluster (no photos yet)
-const LINKABLE_STATUSES = ["sourced", "cataloged", "drafted"] as const;
 // Candidates for the cluster-link picker. Well under any plausible server row
 // ceiling, so the fetchCapped +1 probe is always answerable (US-2169).
 const LINKABLE_PICKER_LIMIT = 200;
@@ -158,7 +174,9 @@ export function FlipdeskReconcilePage() {
   const tabParam = searchParams.get("tab");
   const activeTab: ReconcileTab = RECONCILE_TABS.includes(tabParam as ReconcileTab)
     ? (tabParam as ReconcileTab)
-    : "photos";
+    : // Payouts first: this lives under Money, and matching payouts is the
+      // money task. Sorting photos into items is a catalog job.
+      "payouts";
   const setActiveTab = (value: string) => {
     setSearchParams(
       (prev) => {
@@ -170,7 +188,9 @@ export function FlipdeskReconcilePage() {
     );
   };
   // Open cross-source conflict count for the tab badge (US-148).
-  const { data: conflicts } = useSyncConflicts();
+  // Only a successful read produces a badge. A plan gate (402/403) or a failed
+  // read leaves `data` undefined, so nothing renders rather than a count.
+  const { data: conflicts, isError: conflictsFailed } = useSyncConflicts();
   const [photos, setPhotos] = useState<DumpPhoto[]>([]);
   const [assignments, setAssignments] = useState<AssignmentMap>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -181,9 +201,34 @@ export function FlipdeskReconcilePage() {
   const [restored, setRestored] = useState(false);
   const [linkTargets, setLinkTargets] = useState<Record<string, LinkTarget>>({});
   const [committing, setCommitting] = useState(false);
+  const [progress, setProgress] = useState<CommitProgress | null>(null);
+  // Photo-type classification after a commit. It used to run behind the
+  // commit spinner, one item at a time, so the button stayed busy long after
+  // everything was saved.
+  const [classifying, setClassifying] = useState<number | null>(null);
   const [results, setResults] = useState<CommitResult[] | null>(null);
   const [committed, setCommitted] = useState<CommittedItem[]>([]);
+  // Cluster id -> the item a partial commit created, so a retry adds to it.
+  const [resumeTargets, setResumeTargets] = useState<Record<string, string>>({});
+  const [restoreFailed, setRestoreFailed] = useState(false);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const confirm = useConfirm();
+  // The latest photos, for the unmount cleanup: the effect's own closure only
+  // ever saw the first render's empty list, so no preview URL was revoked.
+  const photosRef = useRef<DumpPhoto[]>([]);
+  photosRef.current = photos;
+  // The latest grouping, for the post-commit prune. commit() awaits for
+  // minutes on a big haul, and its own closure still holds the board as it
+  // was when Commit was pressed, so pruning from that would wipe out every
+  // photo dropped, retagged or regrouped while the upload ran.
+  const assignmentsRef = useRef<AssignmentMap>({});
+  assignmentsRef.current = assignments;
+  // One in-flight session insert shared by concurrent ingests, so two drops
+  // in quick succession cannot create two sessions.
+  const sessionPromiseRef = useRef<Promise<string | null> | null>(null);
+  // The snapshot write waiting on the debounce, flushed on unmount/pagehide.
+  const pendingSnapshotRef = useRef<(() => void) | null>(null);
 
   const bulkExtract = useBulkExtract();
   const embedPhotos = useEmbedPhotos();
@@ -215,6 +260,7 @@ export function FlipdeskReconcilePage() {
         const { data, error } = await supabase
           .from("items_full")
           .select("id, item_title, brand, item_number, status")
+          .eq("user_id", workspaceOwnerId ?? "")
           .eq("photo_count", 0)
           .in("status", [...LINKABLE_STATUSES])
           .order("updated_at", { ascending: false })
@@ -257,10 +303,12 @@ export function FlipdeskReconcilePage() {
       if (cancelled) return;
       if (error) {
         // Don't silently drop an in-progress reconcile board on a transient
-        // failure. Surface it and leave `restored` false so a reload retries.
-        toast.error("Couldn't restore your in-progress reconcile session. Reload to retry.");
+        // failure. Surface it and leave `restored` false; the drop zone stays
+        // off until a retry succeeds, so new photos cannot race the restore.
+        setRestoreFailed(true);
         return;
       }
+      setRestoreFailed(false);
       setRestored(true);
       const row = data as
         | { id: string; gap_seconds: number; assignments: ReconcileAssignmentSnapshot[] }
@@ -270,7 +318,9 @@ export function FlipdeskReconcilePage() {
       setGapSeconds(row.gap_seconds ?? DEFAULT_GAP_SECONDS);
       const restoredPhotos: DumpPhoto[] = [];
       const map: AssignmentMap = {};
+      const resume: Record<string, string> = {};
       for (const a of row.assignments) {
+        if (a.clusterId && a.resumeItemId) resume[a.clusterId] = a.resumeItemId;
         // US-289: iOS-staged photos already live in storage — hydrate a preview
         // from the public URL so the board shows real thumbnails (not blanks)
         // and keep storagePath so commit reuses the object.
@@ -291,18 +341,28 @@ export function FlipdeskReconcilePage() {
       }
       setPhotos(restoredPhotos);
       setAssignments(map);
+      setResumeTargets(resume);
       toast.info("Restored your in-progress reconcile session.");
     })();
     return () => {
       cancelled = true;
     };
-  }, [workspaceOwnerId, restored]);
+  }, [workspaceOwnerId, restored, restoreAttempt]);
 
+  // On unmount: write any snapshot still waiting on its debounce, and revoke
+  // every preview URL the board still holds.
   useEffect(() => {
-    return () => {
-      for (const p of photos) if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+    const flush = () => {
+      const pending = pendingSnapshotRef.current;
+      pendingSnapshotRef.current = null;
+      pending?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+      for (const p of photosRef.current) revokePreview(p);
+    };
   }, []);
 
   const { clusters, needsSorting } = useMemo(
@@ -323,8 +383,9 @@ export function FlipdeskReconcilePage() {
       storagePath: p.storagePath ?? null,
       photoType: p.photoType,
       photoRole: p.photoRole,
+      resumeItemId: resumeTargets[assignments[p.id]?.clusterId ?? ""] ?? null,
     }));
-    const t = setTimeout(() => {
+    const write = () => {
       // US-3376: best-effort, deliberately, and reported. This fires on every
       // debounced change to the grouping, so a toast per failure would nag
       // through a whole sorting session for something the seller cannot fix in
@@ -345,25 +406,39 @@ export function FlipdeskReconcilePage() {
           });
         }
       })();
+    };
+    pendingSnapshotRef.current = write;
+    const t = setTimeout(() => {
+      if (pendingSnapshotRef.current === write) pendingSnapshotRef.current = null;
+      write();
     }, 600);
     return () => clearTimeout(t);
-  }, [sessionId, photos, assignments, gapSeconds]);
+  }, [sessionId, photos, assignments, gapSeconds, resumeTargets]);
 
   const ensureSession = useCallback(
     async (existing: string | null): Promise<string | null> => {
       if (existing) return existing;
       if (!workspaceOwnerId) return null;
-      const { data, error } = await supabase
-        .from("flipdesk_reconcile_sessions")
-        .insert({ user_id: workspaceOwnerId, gap_seconds: gapSeconds } as never)
-        .select("id")
-        .single();
-      if (error) {
-        toast.error("Could not start a reconcile session; grouping still works.");
-        return null;
-      }
-      const id = (data as { id: string }).id;
-      setSessionId(id);
+      if (sessionPromiseRef.current) return sessionPromiseRef.current;
+      const p = (async () => {
+        const { data, error } = await supabase
+          .from("flipdesk_reconcile_sessions")
+          .insert({ user_id: workspaceOwnerId, gap_seconds: gapSeconds } as never)
+          .select("id")
+          .single();
+        if (error) {
+          toast.error("Could not start a reconcile session; grouping still works.");
+          return null;
+        }
+        const id = (data as { id: string }).id;
+        setSessionId(id);
+        return id;
+      })();
+      sessionPromiseRef.current = p;
+      const id = await p;
+      // A failed insert may be retried by the next drop; a good one is kept
+      // until the board is cleared.
+      if (!id) sessionPromiseRef.current = null;
       return id;
     },
     [workspaceOwnerId, gapSeconds],
@@ -373,6 +448,10 @@ export function FlipdeskReconcilePage() {
     async (fileList: FileList | File[]) => {
       if (!can("manage_inventory")) {
         toast.error("You don't have permission to manage inventory in this workspace.");
+        return;
+      }
+      if (!restored) {
+        toast.info("Still loading your saved board. Add photos in a moment.");
         return;
       }
       const files = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
@@ -391,25 +470,30 @@ export function FlipdeskReconcilePage() {
             return next;
           });
         };
-        for (const file of files) {
-          const capturedAt = await readCaptureTime(file);
-          batch.push({
-            id: crypto.randomUUID(),
-            name: file.name,
-            capturedAt,
-            previewUrl: URL.createObjectURL(file),
-            file,
-            photoType: "detail",
-            photoRole: null,
+        // Capture times are read four at a time, a chunk at a time, so the
+        // board fills in as it goes rather than after the whole haul.
+        const CHUNK = 24;
+        for (let at = 0; at < files.length; at += CHUNK) {
+          const chunk = files.slice(at, at + CHUNK);
+          const times = await runPool(chunk, 4, (f) => readCaptureTime(f));
+          chunk.forEach((file, i) => {
+            batch.push({
+              id: crypto.randomUUID(),
+              name: file.name,
+              capturedAt: times[i] ?? null,
+              previewUrl: URL.createObjectURL(file),
+              file,
+              photoType: "detail",
+              photoRole: null,
+            });
           });
-          if (batch.length >= 12) flush();
+          flush();
         }
-        flush();
       } finally {
         setIngesting(false);
       }
     },
-    [can, ensureSession, sessionId, gapSeconds],
+    [can, ensureSession, sessionId, gapSeconds, restored],
   );
 
   function onGapChange(next: number) {
@@ -417,21 +501,25 @@ export function FlipdeskReconcilePage() {
     setAssignments((prev) => reapplyThreshold(prev, photos, next));
   }
 
-  function toggleSelect(id: string) {
+  // Stable, so a memoised Thumb re-renders only when its own photo changes.
+  const toggleSelect = useCallback((id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  }
+  }, []);
 
   // US-2461: a tag is a (type, role) pair, so both move together or neither does.
-  function setPhotoType(id: string, type: FlipdeskPhotoType, role: string | null) {
-    setPhotos((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, photoType: type, photoRole: role } : p)),
-    );
-  }
+  const setPhotoType = useCallback(
+    (id: string, type: FlipdeskPhotoType, role: string | null) => {
+      setPhotos((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, photoType: type, photoRole: role } : p)),
+      );
+    },
+    [],
+  );
 
   const selectedIds = useMemo(() => [...selected], [selected]);
 
@@ -443,9 +531,18 @@ export function FlipdeskReconcilePage() {
     setAssignments((prev) => moveToCluster(prev, selectedIds, clusterId));
     setSelected(new Set());
   }
-  function applyMerge(into: string, from: string) {
+  const applyMerge = useCallback((into: string, from: string) => {
     setAssignments((prev) => mergeClusters(prev, into, from));
-  }
+  }, []);
+
+  const setLinkTarget = useCallback((clusterId: string, t: LinkTarget | null) => {
+    setLinkTargets((prev) => {
+      const next = { ...prev };
+      if (t) next[clusterId] = t;
+      else delete next[clusterId];
+      return next;
+    });
+  }, []);
 
   function onDragEnd(e: DragEndEvent) {
     const photoId = String(e.active.id);
@@ -456,24 +553,63 @@ export function FlipdeskReconcilePage() {
     else setAssignments((prev) => moveToCluster(prev, [photoId], String(over)));
   }
 
-  function reset() {
-    for (const p of photos) if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+  async function reset() {
+    if (clusters.length > 0) {
+      const ok = await confirm({
+        title: "Clear the board?",
+        description: `This removes ${photos.length} photo${photos.length === 1 ? "" : "s"} in ${clusters.length} group${clusters.length === 1 ? "" : "s"} from the board. Nothing already committed is touched.`,
+        confirmLabel: "Clear",
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    // The saved session has to close too, or a reload restores what was just
+    // cleared. A failed close leaves the board as it was and says so.
+    if (sessionId) {
+      pendingSnapshotRef.current = null;
+      const { error } = await supabase
+        .from("flipdesk_reconcile_sessions")
+        .update({ status: "abandoned" } as never)
+        .eq("id", sessionId);
+      if (error) {
+        toast.error("Couldn't clear the saved board, so it would come back on reload. Try again.");
+        return;
+      }
+    }
+    for (const p of photos) revokePreview(p);
     setPhotos([]);
     setAssignments({});
     setSelected(new Set());
     setLinkTargets({});
+    setResumeTargets({});
     setCommitted([]);
     setSessionId(null);
+    sessionPromiseRef.current = null;
   }
 
   async function commit() {
     if (!workspaceOwnerId || clusters.length === 0) return;
+    const unsorted = needsSorting.length;
+    if (unsorted > 0) {
+      const ok = await confirm({
+        title: `${unsorted} unsorted photo${unsorted === 1 ? "" : "s"} won't be saved`,
+        description:
+          "Photos under Needs sorting are not in any item. They stay on the board so you can sort them and commit again.",
+        confirmLabel: `Commit ${clusters.length} item${clusters.length === 1 ? "" : "s"}`,
+      });
+      if (!ok) return;
+    }
     setCommitting(true);
+    setProgress(null);
+    let classifyIds: string[] = [];
     try {
       const payload: CommitCluster[] = clusters.map((c, i) => ({
         clusterId: c.clusterId,
         label: linkTargets[c.clusterId]?.title ?? `Item ${i + 1}`,
-        linkItemId: linkTargets[c.clusterId]?.itemId ?? null,
+        linkItemId: resumeTargets[c.clusterId]
+          ? null
+          : (linkTargets[c.clusterId]?.itemId ?? null),
+        resumeItemId: resumeTargets[c.clusterId] ?? null,
         titleHint: undefined,
         photos: c.photos.map((p) => ({
           id: p.id,
@@ -484,28 +620,74 @@ export function FlipdeskReconcilePage() {
           storagePath: p.storagePath ?? null,
         })),
       }));
-      const res = await commitClusters(payload, workspaceOwnerId, sessionId);
+      const res = await commitClusters(payload, workspaceOwnerId, sessionId, {
+        keepSessionOpen: unsorted > 0,
+        onProgress: setProgress,
+      });
       setResults(res);
+      // Everything that reached an item leaves the board; the rest stays
+      // editable and committable, and a partial cluster remembers its item.
+      const pruned = pruneCommitted(
+        photosRef.current,
+        assignmentsRef.current,
+        res,
+        new Set(payload.flatMap((c) => c.photos.map((p) => p.id))),
+      );
+      for (const p of pruned.dropped) revokePreview(p);
+      setPhotos(pruned.photos);
+      setAssignments(pruned.assignments);
+      if (pruned.photos.length === 0) {
+        // Everything went through and the session is closed; the next drop
+        // starts a new one rather than writing into a committed session.
+        pendingSnapshotRef.current = null;
+        setSessionId(null);
+        sessionPromiseRef.current = null;
+      }
+      setSelected(new Set());
+      setResumeTargets((prev) => {
+        const next: Record<string, string> = {};
+        for (const [k, v] of Object.entries({ ...prev, ...pruned.resume })) {
+          if (pruned.photos.some((p) => pruned.assignments[p.id]?.clusterId === k)) {
+            next[k] = v;
+          }
+        }
+        return next;
+      });
+      setLinkTargets((prev) => {
+        const next = { ...prev };
+        for (const r of res) if (r.ok || r.itemId) delete next[r.clusterId];
+        return next;
+      });
       const okItems = res
-        .filter((r) => r.ok && r.itemId)
+        .filter((r) => r.itemId && (r.saved ?? 0) > 0)
         .map((r) => ({ itemId: r.itemId!, label: r.title }));
-      setCommitted(okItems);
+      setCommitted((prev) => [
+        ...prev,
+        ...okItems.filter((it) => !prev.some((p) => p.itemId === it.itemId)),
+      ]);
       const failed = res.filter((r) => !r.ok).length;
       if (failed === 0) toast.success(`Committed ${res.length} item(s) to your pipeline.`);
       else toast.warning(`${res.length - failed} committed, ${failed} failed — see details.`);
 
-      // US-286: classify each committed item's photos (best-effort; failures
-      // leave photos as 'detail' and never block). User corrections made before
-      // commit are respected — the server only overwrites the generic default.
-      for (const it of okItems) {
-        try {
-          await classifyPhotos.mutateAsync({ item_id: it.itemId });
-        } catch {
-          /* fall back to existing photo types */
-        }
-      }
+      classifyIds = okItems.map((it) => it.itemId);
     } finally {
       setCommitting(false);
+      setProgress(null);
+    }
+
+    // US-286: classify each committed item's photos (best-effort; failures
+    // leave photos as 'detail' and never block). User corrections made before
+    // commit are respected — the server only overwrites the generic default.
+    // After the commit button is free again, all at once, with its own line.
+    if (classifyIds.length > 0) {
+      setClassifying(classifyIds.length);
+      try {
+        await Promise.allSettled(
+          classifyIds.map((id) => classifyPhotos.mutateAsync({ item_id: id })),
+        );
+      } finally {
+        setClassifying(null);
+      }
     }
   }
 
@@ -618,9 +800,25 @@ export function FlipdeskReconcilePage() {
   }
 
   const timedCount = photos.length - needsSorting.length;
-  const clusterLabel = (clusterId: string) =>
-    `Item ${clusters.findIndex((c) => c.clusterId === clusterId) + 1}`;
-  const committable = clusters.length > 0 && committed.length === 0;
+  // A stable handle on the latest suggestForCluster, so the memoised cards
+  // are not re-rendered by a new function every render.
+  const suggestRef = useRef(suggestForCluster);
+  suggestRef.current = suggestForCluster;
+  const onSuggest = useCallback(
+    (clusterId: string, clusterPhotos: DumpPhoto[]) =>
+      void suggestRef.current(clusterId, clusterPhotos),
+    [],
+  );
+
+  // One label list for every card. Each card used to rebuild it with a
+  // findIndex per other cluster, which made rendering the board cubic.
+  const clusterLabels = useMemo(
+    () => clusters.map((c, i) => ({ id: c.clusterId, label: `Item ${i + 1}` })),
+    [clusters],
+  );
+  // Committable whenever there is a group on the board: committed groups are
+  // removed from it, so what is left is only work that has not gone through.
+  const committable = clusters.length > 0;
 
   return (
     <div className="space-y-6">
@@ -638,14 +836,37 @@ export function FlipdeskReconcilePage() {
       />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+        {/* Below sm the four tabs overflow a 375px screen, so they become a
+            picker, the same pattern the Money host uses for its views. */}
+        <div className="sm:hidden">
+          <Label htmlFor="reconcile-tab" className="sr-only">
+            Which part of Reconcile
+          </Label>
+          <Select value={activeTab} onValueChange={setActiveTab}>
+            <SelectTrigger id="reconcile-tab" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="payouts">Payouts &amp; fees</SelectItem>
+              <SelectItem value="photos">Photos &rarr; Items</SelectItem>
+              <SelectItem value="ebay">eBay SKU match</SelectItem>
+              <SelectItem value="cross-source">
+                Cross-source
+                {!conflictsFailed && (conflicts?.total ?? 0) > 0
+                  ? ` (${conflicts!.total})`
+                  : ""}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <TabsList className="hidden sm:inline-flex">
+          <TabsTrigger value="payouts">Payouts &amp; fees</TabsTrigger>
           <TabsTrigger value="photos">Photos &rarr; Items</TabsTrigger>
           <TabsTrigger value="ebay">eBay SKU match</TabsTrigger>
-          <TabsTrigger value="payouts">Payouts &amp; fees</TabsTrigger>
           <TabsTrigger value="cross-source">
             Cross-source
-            {(conflicts?.total ?? 0) > 0 && (
-              <Badge variant="destructive" className="ml-1.5 px-1.5 text-[10px]">
+            {!conflictsFailed && (conflicts?.total ?? 0) > 0 && (
+              <Badge variant="outline" className="ml-1.5 px-1.5 text-xs">
                 {conflicts!.total}
               </Badge>
             )}
@@ -665,7 +886,12 @@ export function FlipdeskReconcilePage() {
               </p>
             </div>
             {photos.length > 0 && (
-              <Button variant="outline" size="sm" onClick={reset}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void reset()}
+                disabled={committing}
+              >
                 Clear
               </Button>
             )}
@@ -674,8 +900,27 @@ export function FlipdeskReconcilePage() {
       {/* Drop zone */}
       <Card>
         <CardContent className="pt-6">
+          {restoreFailed && (
+            <div role="alert" className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-muted-foreground">
+                Couldn&apos;t load your saved board. Adding photos is off until it
+                loads, so nothing you drop can be lost under it.
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setRestoreFailed(false);
+                  setRestoreAttempt((n) => n + 1);
+                }}
+              >
+                Try again
+              </Button>
+            </div>
+          )}
           <button
             type="button"
+            disabled={!restored || committing}
             onClick={() => fileInputRef.current?.click()}
             onDragOver={(e) => {
               e.preventDefault();
@@ -685,20 +930,32 @@ export function FlipdeskReconcilePage() {
             onDrop={(e) => {
               e.preventDefault();
               setDragOver(false);
-              if (e.dataTransfer.files?.length) void ingest(e.dataTransfer.files);
+              // Not during a commit: the commit closes the session when every
+              // group it took went through, and a photo dropped meanwhile would
+              // be left on a board whose saved session is already closed.
+              if (restored && !committing && e.dataTransfer.files?.length) {
+                void ingest(e.dataTransfer.files);
+              }
             }}
             className={cn(
               "flex w-full flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-10 text-center transition-colors",
               dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50",
+              (!restored || committing) && "cursor-not-allowed opacity-60",
             )}
           >
-            {ingesting ? (
+            {ingesting || (!restored && !restoreFailed) ? (
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             ) : (
               <Upload className="h-8 w-8 text-muted-foreground" />
             )}
             <div className="text-sm font-medium text-foreground">
-              {ingesting ? "Reading capture times…" : "Drop photos here or click to browse"}
+              {ingesting
+                ? "Reading capture times…"
+                : !restored
+                  ? restoreFailed
+                    ? "Adding photos is off until your saved board loads"
+                    : "Loading your saved board…"
+                  : "Drop photos here or click to browse"}
             </div>
             <div className="text-xs text-muted-foreground">
               Drag in your whole haul — JPEG/PNG/HEIC, hundreds at a time.
@@ -709,6 +966,7 @@ export function FlipdeskReconcilePage() {
             type="file"
             accept={ACCEPT}
             multiple
+            disabled={!restored || committing}
             className="hidden"
             onChange={(e) => {
               if (e.target.files?.length) void ingest(e.target.files);
@@ -717,6 +975,58 @@ export function FlipdeskReconcilePage() {
           />
         </CardContent>
       </Card>
+
+      {/* Committed items → generate title/details (US-288) */}
+      {committed.length > 0 && (
+        <Card className="border-green-300/60 dark:border-green-800/60">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                Committed {committed.length} item{committed.length === 1 ? "" : "s"}
+              </CardTitle>
+              <CardDescription>
+                Generate titles &amp; details with AI, or do it later.
+                {classifying !== null && (
+                  <span role="status" className="mt-1 flex items-center gap-1.5">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Sorting photo types for {classifying} item
+                    {classifying === 1 ? "" : "s"}…
+                  </span>
+                )}
+              </CardDescription>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => generate(committed.map((c) => c.itemId))}
+              disabled={bulkExtract.isPending}
+            >
+              {bulkExtract.isPending ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="mr-1 h-3.5 w-3.5" />
+              )}
+              Generate all
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {committed.map((c) => (
+              <div key={c.itemId} className="flex items-center justify-between rounded border px-3 py-1.5 text-sm">
+                <span>{c.label}</span>
+                <Button
+                aria-label={`Generate for ${c.label}`}
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => generate([c.itemId])}
+                  disabled={bulkExtract.isPending}
+                >
+                  <Sparkles className="mr-1 h-3.5 w-3.5" /> Generate
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {photos.length > 0 && (
         <>
@@ -731,7 +1041,7 @@ export function FlipdeskReconcilePage() {
                     <Badge variant="outline">{needsSorting.length} need sorting</Badge>
                   )}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
                   <Label htmlFor="gap" className="flex items-center gap-1 text-xs text-muted-foreground">
                     <Clock className="h-3.5 w-3.5" /> Gap: {gapSeconds}s
                   </Label>
@@ -743,7 +1053,7 @@ export function FlipdeskReconcilePage() {
                     step={5}
                     value={gapSeconds}
                     onChange={(e) => onGapChange(Number(e.target.value))}
-                    className="h-2 w-44 cursor-pointer accent-primary"
+                    className="h-2 w-full min-w-0 flex-1 cursor-pointer accent-primary sm:w-44 sm:flex-none"
                   />
                   {committable && (
                     <>
@@ -761,13 +1071,15 @@ export function FlipdeskReconcilePage() {
                         )}
                         Group similar
                       </Button>
-                      <Button size="sm" onClick={commit} disabled={committing}>
+                      <Button size="sm" onClick={commit} disabled={committing || ingesting}>
                         {committing ? (
                           <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                         ) : (
                           <PackageCheck className="mr-1 h-3.5 w-3.5" />
                         )}
-                        Commit {clusters.length} item{clusters.length === 1 ? "" : "s"}
+                        {committing && progress
+                          ? `Saving ${progress.photosDone} of ${progress.photosTotal} photos (item ${progress.item} of ${progress.items})`
+                          : `Commit ${clusters.length} item${clusters.length === 1 ? "" : "s"}`}
                       </Button>
                     </>
                   )}
@@ -780,51 +1092,8 @@ export function FlipdeskReconcilePage() {
             </CardHeader>
           </Card>
 
-          {/* Committed items → generate title/details (US-288) */}
-          {committed.length > 0 && (
-            <Card className="border-green-300/60 dark:border-green-800/60">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
-                    Committed {committed.length} item{committed.length === 1 ? "" : "s"}
-                  </CardTitle>
-                  <CardDescription>Generate titles &amp; details with AI, or do it later.</CardDescription>
-                </div>
-                <Button
-                  size="sm"
-                  onClick={() => generate(committed.map((c) => c.itemId))}
-                  disabled={bulkExtract.isPending}
-                >
-                  {bulkExtract.isPending ? (
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Sparkles className="mr-1 h-3.5 w-3.5" />
-                  )}
-                  Generate all
-                </Button>
-              </CardHeader>
-              <CardContent className="space-y-1">
-                {committed.map((c) => (
-                  <div key={c.itemId} className="flex items-center justify-between rounded border px-3 py-1.5 text-sm">
-                    <span>{c.label}</span>
-                    <Button
-                    aria-label={`Generate for ${c.label}`}
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => generate([c.itemId])}
-                      disabled={bulkExtract.isPending}
-                    >
-                      <Sparkles className="mr-1 h-3.5 w-3.5" /> Generate
-                    </Button>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
           {/* Selection action bar */}
-          {selected.size > 0 && committed.length === 0 && (
+          {selected.size > 0 && (
             <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-background/95 p-3 shadow-sm backdrop-blur">
               <span className="text-sm font-medium">{selected.size} selected</span>
               <Button size="sm" variant="outline" onClick={applyMoveToNew}>
@@ -865,28 +1134,19 @@ export function FlipdeskReconcilePage() {
                   selected={selected}
                   onToggleSelect={toggleSelect}
                   onSetPhotoType={setPhotoType}
-                  locked={committed.length > 0}
-                  otherClusters={clusters
-                    .filter((c) => c.clusterId !== cluster.clusterId)
-                    .map((c) => ({ id: c.clusterId, label: clusterLabel(c.clusterId) }))}
-                  onMerge={(from) => applyMerge(cluster.clusterId, from)}
+                  locked={committing}
+                  clusterLabels={clusterLabels}
+                  onMerge={applyMerge}
                   linkTarget={linkTargets[cluster.clusterId] ?? null}
                   linkableItems={linkableItems}
                   linkableTruncated={linkableRead?.truncated ?? false}
-                  onLink={(t) =>
-                    setLinkTargets((prev) => {
-                      const next = { ...prev };
-                      if (t) next[cluster.clusterId] = t;
-                      else delete next[cluster.clusterId];
-                      return next;
-                    })
-                  }
+                  onLink={setLinkTarget}
                   suggestion={suggestions[cluster.clusterId] ?? null}
                   suggesting={suggestingId === cluster.clusterId}
-                  onSuggest={() => suggestForCluster(cluster.clusterId, cluster.photos)}
+                  onSuggest={onSuggest}
                 />
               ))}
-              {committed.length === 0 && <NewClusterDropZone />}
+              {!committing && <NewClusterDropZone />}
             </div>
 
             <NeedsSortingZone
@@ -918,7 +1178,7 @@ export function FlipdeskReconcilePage() {
   );
 }
 
-function ClusterCard({
+const ClusterCard = memo(function ClusterCard({
   clusterId,
   index,
   photos,
@@ -926,7 +1186,7 @@ function ClusterCard({
   onToggleSelect,
   onSetPhotoType,
   locked,
-  otherClusters,
+  clusterLabels,
   onMerge,
   linkTarget,
   linkableItems,
@@ -943,17 +1203,18 @@ function ClusterCard({
   onToggleSelect: (id: string) => void;
   onSetPhotoType: (id: string, t: FlipdeskPhotoType, role: string | null) => void;
   locked: boolean;
-  otherClusters: Array<{ id: string; label: string }>;
-  onMerge: (fromClusterId: string) => void;
+  clusterLabels: Array<{ id: string; label: string }>;
+  onMerge: (intoClusterId: string, fromClusterId: string) => void;
   linkTarget: LinkTarget | null;
   linkableItems: PhotolessItem[];
   linkableTruncated: boolean;
-  onLink: (t: LinkTarget | null) => void;
+  onLink: (clusterId: string, t: LinkTarget | null) => void;
   suggestion: ItemSuggestion | null;
   suggesting: boolean;
-  onSuggest: () => void;
+  onSuggest: (clusterId: string, photos: DumpPhoto[]) => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: clusterId, disabled: locked });
+  const otherClusters = clusterLabels.filter((c) => c.id !== clusterId);
   return (
     <Card
       ref={setNodeRef}
@@ -981,10 +1242,10 @@ function ClusterCard({
               items={linkableItems}
               truncated={linkableTruncated}
               current={linkTarget}
-              onLink={onLink}
+              onLink={(t) => onLink(clusterId, t)}
               suggestion={suggestion}
               suggesting={suggesting}
-              onSuggest={onSuggest}
+              onSuggest={() => onSuggest(clusterId, photos)}
             />
             {otherClusters.length > 0 && (
               <DropdownMenu>
@@ -997,7 +1258,7 @@ function ClusterCard({
                   <DropdownMenuLabel>Merge another item into this one</DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   {otherClusters.map((c) => (
-                    <DropdownMenuItem key={c.id} onClick={() => onMerge(c.id)}>
+                    <DropdownMenuItem key={c.id} onClick={() => onMerge(clusterId, c.id)}>
                       {c.label}
                     </DropdownMenuItem>
                   ))}
@@ -1018,7 +1279,7 @@ function ClusterCard({
       </CardContent>
     </Card>
   );
-}
+});
 
 function LinkPicker({
   items,
@@ -1230,8 +1491,8 @@ function ThumbGrid({
           key={p.id}
           photo={p}
           selected={selected.has(p.id)}
-          onToggleSelect={() => onToggleSelect(p.id)}
-          onSetPhotoType={(t, role) => onSetPhotoType(p.id, t, role)}
+          onToggleSelect={onToggleSelect}
+          onSetPhotoType={onSetPhotoType}
           editable={editable}
         />
       ))}
@@ -1239,7 +1500,9 @@ function ThumbGrid({
   );
 }
 
-function Thumb({
+// Memoised with id-taking handlers, so selecting one photo or retyping one
+// re-renders that thumb rather than every thumb on the board.
+const Thumb = memo(function Thumb({
   photo,
   selected,
   onToggleSelect,
@@ -1248,8 +1511,8 @@ function Thumb({
 }: {
   photo: DumpPhoto;
   selected: boolean;
-  onToggleSelect: () => void;
-  onSetPhotoType: (t: FlipdeskPhotoType, role: string | null) => void;
+  onToggleSelect: (id: string) => void;
+  onSetPhotoType: (id: string, t: FlipdeskPhotoType, role: string | null) => void;
   editable: boolean;
 }) {
   // US-2461: the reconcile board holds loose photos that have no item yet, so
@@ -1284,7 +1547,7 @@ function Thumb({
             <input
               type="checkbox"
               checked={selected}
-              onChange={onToggleSelect}
+              onChange={() => onToggleSelect(photo.id)}
               aria-label="Select photo"
               className="h-4 w-4 cursor-pointer accent-primary"
             />
@@ -1307,7 +1570,7 @@ function Thumb({
           photoType={photo.photoType}
           photoRole={photo.photoRole}
           profile={profile}
-          onChange={onSetPhotoType}
+          onChange={(t, role) => onSetPhotoType(photo.id, t, role)}
           disabled={!editable}
           ariaLabel="Photo type"
           className="h-auto w-full px-1 py-0.5 text-[10px]"
@@ -1315,7 +1578,7 @@ function Thumb({
       </div>
     </div>
   );
-}
+});
 
 function CommitResultsDialog({
   results,

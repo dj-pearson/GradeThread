@@ -43,7 +43,13 @@ vi.mock("@/hooks/use-ebay", () => ({
   useEbayMessages: () => messagesState,
   useEbayRespondOffer: () => idleMutation,
   useEbayReplyMessage: () => idleMutation,
+  useEbayThresholdConflicts: () => ({ data: undefined }),
   resolveInventoryItemIdForEbayItem: async () => null,
+}));
+// OM-06: the offer buttons ask through the app-level confirm, which a static
+// render has no provider for.
+vi.mock("@/components/ui/confirm-dialog", () => ({
+  useConfirm: () => async () => false,
 }));
 vi.mock("@/hooks/use-ai-extract", () => ({
   useNegotiationDraft: () => idleMutation,

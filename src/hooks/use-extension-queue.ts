@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // US-2481: extension work queued from one device, run on the desktop.
 //
@@ -146,11 +147,23 @@ export function groupQueue(items: readonly ExtensionQueueItem[]): QueueGroup[] {
   );
 }
 
+/**
+ * MP-15: poll every 10 seconds while the desktop is running a job, so "Running
+ * now" turns into a result without a reload. Off otherwise.
+ */
+export function queueRefetchInterval(data: QueueResponse | undefined): number | false {
+  return data?.pending.some((r) => r.status === "claimed") ? 10_000 : false;
+}
+
 export function useExtensionQueue(enabled = true) {
+  // MP-05: tenant-keyed (US-1933). A prefix invalidate of ["extension_queue"]
+  // still reaches it.
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["extension_queue"],
-    enabled,
+    queryKey: ["extension_queue", tenantKey],
+    enabled: enabled && !!tenantKey,
     staleTime: 60 * 1000,
+    refetchInterval: (query) => queueRefetchInterval(query.state.data),
     queryFn: async (): Promise<QueueResponse> => {
       const res = await edgeFetch("/api/flipdesk/extension-queue");
       if (!res.ok) throw new Error("Could not load your queued work.");
@@ -217,6 +230,55 @@ export function useCancelExtensionWork() {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(j.error ?? "Could not cancel that job.");
       }
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["extension_queue"] });
+    },
+  });
+}
+
+/**
+ * MP-10: "Queue again" on a row that expired or failed. Enqueues the same
+ * instruction (kind, platform, item, listing, payload) and then clears the dead
+ * row, so the "Didn't run" list does not keep showing work that is queued
+ * again. The clear is best-effort: the new row is what matters.
+ */
+/**
+ * Whether "Queue again" is safe for this row. A relist is not: enqueueing one
+ * creates a new draft copy of the listing every time, so re-running a dead
+ * relist would leave a second draft behind the first.
+ */
+export function canRequeue(job: Pick<ExtensionQueueItem, "kind">): boolean {
+  return job.kind !== "relist";
+}
+
+export function useRequeueExtensionWork() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, ExtensionQueueItem>({
+    mutationFn: async (job) => {
+      const res = await edgeFetch("/api/flipdesk/extension-queue", {
+        method: "POST",
+        json: {
+          kind: job.kind,
+          platform: job.platform,
+          inventory_item_id: job.inventory_item_id ?? null,
+          listing_id: job.listing_id ?? null,
+          payload: job.payload ?? {},
+          // A revise is refused (400) without the field list, which the
+          // original enqueue stamped onto the payload.
+          ...(job.kind === "revise" && Array.isArray(job.payload?.fields)
+            ? { fields: job.payload.fields }
+            : {}),
+          source: "web",
+        },
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? "Could not queue that again.");
+      }
+      await edgeFetch(`/api/flipdesk/extension-queue/${job.id}`, { method: "DELETE" }).catch(
+        () => undefined,
+      );
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["extension_queue"] });

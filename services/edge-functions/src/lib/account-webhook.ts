@@ -107,6 +107,16 @@ export async function rotateWebhookSecret(
   ownerId: string,
   db: WebhookDb = supabaseAdmin,
 ): Promise<{ signing_secret: string; secret_created_at: string } | null> {
+  // No webhook is a 404, decided before anything is encrypted: a caller with
+  // no endpoint must never reach the key, and a missing key must not turn
+  // "you have no webhook" into a 500.
+  const { data: existing, error: readError } = await db
+    .from("api_webhook_endpoints")
+    .select("user_id")
+    .eq("user_id", ownerId) // US-268
+    .limit(1);
+  if (readError) throw new AccountWebhookError(`webhook rotate read failed: ${readError.message}`);
+  if (!existing || existing.length === 0) return null;
   const secret = generateWebhookSecret();
   const createdAt = new Date().toISOString();
   const { data, error } = await db

@@ -97,7 +97,9 @@ export function deepLinkForHit(hit: SearchHit): string {
     case "listing":
       return itemId ? itemPath(itemId) : "/dashboard/flipdesk/listings";
     case "sale":
-      return itemId ? itemPath(itemId) : "/dashboard/flipdesk/reconciliation";
+      return itemId
+        ? itemPath(itemId)
+        : "/dashboard/flipdesk/money?view=reconcile&tab=payouts";
     default:
       return itemId ? itemPath(itemId) : "/dashboard/flipdesk/inventory";
   }

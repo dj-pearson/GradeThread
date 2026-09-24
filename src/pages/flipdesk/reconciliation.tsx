@@ -28,6 +28,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
+import { PlanLockedNotice } from "@/components/flipdesk/plan-locked-notice";
+import { isPlanGateError } from "@/lib/plan-gate-error";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -49,8 +51,14 @@ import {
 } from "@/components/ui/table";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { useItemsList } from "@/hooks/use-items-full";
-import { detectDiscrepancies } from "@/lib/pnl";
+import {
+  FEE_GAP_RED,
+  detectFeeDiscrepancy,
+  salePlatform,
+  type FeeDiscrepancy,
+} from "@/lib/pnl";
 import {
   useImportPayoutsCsv,
   usePayoutImports,
@@ -85,12 +93,12 @@ import type { ItemListRow } from "@/lib/item-list-columns";
 
 const STEPS = [
   {
-    title: "Ingest payout rows",
-    body: "Payouts come in two ways: automatically from eBay, or from a CSV you upload from your eBay seller dashboard.",
+    title: "Bring in your payouts",
+    body: "eBay payouts come in on their own once eBay is connected. For eBay, Poshmark, Mercari, Depop or Etsy you can also upload the payout report as a CSV.",
   },
   {
-    title: "Auto-match to sales",
-    body: "We match each payout to the right sale by listing ID and date, then fill in the fee breakdown on that sale.",
+    title: "Match them to sales",
+    body: "Each payout is matched to its sale by the payout ID when eBay gives one, otherwise by amount and date.",
   },
   {
     title: "Review the rest",
@@ -133,12 +141,17 @@ function fmtRelative(iso: string | null | undefined): string {
 // and Cross-source flows are sibling tabs rendered by FlipdeskReconcilePage.
 export function ReconciliationPayoutsTab() {
   const user = useAuthStore((s) => s.user);
+  // The workspace on screen. RLS admits a member to every workspace they
+  // belong to, and COGS below comes from one business only, so an unscoped
+  // sales read mixed businesses into one discrepancy check.
+  const { workspaceOwnerId: ownerId } = useWorkspace();
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [importing, setImporting] = useState(false);
   const importPayouts = useImportPayoutsCsv();
   const { data: payoutImports = [], isLoading: payoutsLoading } =
     usePayoutImports();
-  const { data: queueData, isLoading: queueLoading } = useReconciliationQueue();
+  const queueQuery = useReconciliationQueue();
+  const { data: queueData, isLoading: queueLoading } = queueQuery;
   const queue = queueData?.queue ?? [];
 
   async function handlePayoutFile(file: File) {
@@ -172,8 +185,8 @@ export function ReconciliationPayoutsTab() {
     isFetching,
     refetch,
   } = useQuery({
-    queryKey: ["sales_all", user?.id],
-    enabled: !!user,
+    queryKey: ["sales_all", ownerId],
+    enabled: !!user && !!ownerId,
     // US-2169: paged, not a single unbounded read. Reconciliation decides
     // which sales are flagged as discrepancies; a response clipped at
     // PostgREST's `db-max-rows` (silent, header-only) would drop older sales
@@ -183,6 +196,7 @@ export function ReconciliationPayoutsTab() {
         const { data, error } = await supabase
           .from("sales")
           .select("*")
+          .eq("user_id", ownerId ?? "")
           .order("created_at", { ascending: false })
           .order("id", { ascending: false })
           .range(from, to);
@@ -200,13 +214,34 @@ export function ReconciliationPayoutsTab() {
     for (const it of items) m.set(it.id, it.item_title);
     return m;
   }, [items]);
+  const platformByItem = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const it of items) m.set(it.id, it.listing_platform ?? null);
+    return m;
+  }, [items]);
 
+  // Completed sales only, and each one against its own marketplace's fee
+  // schedule. A cancelled or refunded sale is never checked; a sale on a
+  // platform we have no schedule for skips the fee rule rather than guessing.
   const flagged = useMemo(
     () =>
       sales
-        .map((s) => ({ sale: s, issues: detectDiscrepancies(s) }))
-        .filter((r) => r.issues.length > 0),
-    [sales],
+        .filter((s) => s.status === "completed")
+        .map((s) => {
+          const fee = detectFeeDiscrepancy(
+            s,
+            salePlatform(s, platformByItem.get(s.inventory_item_id)),
+          );
+          const shippingOver =
+            (s.shipping_cost ?? 0) > (s.shipping_collected ?? 0) + 2;
+          return { sale: s, fee, shippingOver };
+        })
+        .filter((r) => r.fee !== null || r.shippingOver),
+    [sales, platformByItem],
+  );
+  const possibleOvercharge = flagged.reduce(
+    (sum, r) => sum + (r.fee?.overBy ?? 0),
+    0,
   );
 
   return (
@@ -273,8 +308,9 @@ export function ReconciliationPayoutsTab() {
         </CardContent>
       </Card>
 
-      {/* Recent imports preview */}
-      {payoutImports.length > 0 && (
+      {/* Recent imports preview. Rendered while loading too, so its
+          skeleton shows instead of the card popping in afterwards. */}
+      {(payoutsLoading || payoutImports.length > 0) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -348,6 +384,9 @@ export function ReconciliationPayoutsTab() {
       <ReviewQueueCard
         queue={queue}
         loading={queueLoading}
+        error={queueQuery.isError ? queueQuery.error : null}
+        onRetry={() => void queueQuery.refetch()}
+        retrying={queueQuery.isFetching}
         total={queueData?.total ?? queue.length}
         hasMore={queueData?.hasMore ?? false}
         limit={queueData?.limit ?? queue.length}
@@ -363,13 +402,12 @@ export function ReconciliationPayoutsTab() {
                 Fee &amp; shipping discrepancies
               </CardTitle>
               <CardDescription>
-                Sales where marketplace fees exceed 15% of the sale price, or
-                shipping cost runs more than $2 over what the buyer paid.
+                Completed sales where the fees charged are more than each
+                marketplace&apos;s own schedule says they should be, or where
+                postage cost more than $2 over what the buyer paid.
               </CardDescription>
             </div>
-            <Badge variant={flagged.length > 0 ? "destructive" : "outline"}>
-              {flagged.length}
-            </Badge>
+            <Badge variant="outline">{flagged.length}</Badge>
           </div>
         </CardHeader>
         <CardContent>
@@ -394,25 +432,27 @@ export function ReconciliationPayoutsTab() {
               No discrepancies. Fees and shipping look clean.
             </div>
           ) : (
-            <ul className="space-y-2">
-              {flagged.map(({ sale, issues }) => (
-                <li key={sale.id} className="rounded-md bg-destructive/10 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-medium">
-                      {titleById.get(sale.inventory_item_id) ?? "Item"}
-                    </div>
-                    <div className="font-mono text-xs tabular-nums text-muted-foreground">
-                      Sold ${(sale.sale_price ?? 0).toFixed(2)}
-                    </div>
-                  </div>
-                  {issues.map((d, i) => (
-                    <div key={i} className="mt-1 text-xs text-destructive">
-                      • {d}
-                    </div>
-                  ))}
-                </li>
-              ))}
-            </ul>
+            <div className="space-y-3">
+              {possibleOvercharge > 0 && (
+                <p className="text-sm">
+                  Possible overcharges:{" "}
+                  <span className="font-semibold tabular-nums">
+                    ${possibleOvercharge.toFixed(2)}
+                  </span>
+                </p>
+              )}
+              <ul className="space-y-2">
+                {flagged.map(({ sale, fee, shippingOver }) => (
+                  <FlaggedSaleRow
+                    key={sale.id}
+                    title={titleById.get(sale.inventory_item_id) ?? "Item"}
+                    sale={sale}
+                    fee={fee}
+                    shippingOver={shippingOver}
+                  />
+                ))}
+              </ul>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -421,8 +461,8 @@ export function ReconciliationPayoutsTab() {
         <CardHeader>
           <CardTitle>How reconciliation works</CardTitle>
           <CardDescription>
-            The flow runs in the consolidated edge service. Imports never
-            auto-apply without a recorded match.
+            Nothing is linked to a sale unless it is a clear match or you
+            confirm it.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -447,6 +487,57 @@ export function ReconciliationPayoutsTab() {
       {/* eBay sync history — stats from each background pull, newest first. */}
       <SyncHistoryCard />
     </div>
+  );
+}
+
+/** One flagged sale. Amber means "check this"; red means the fee gap is
+ *  over $5, which is worth raising with the marketplace. */
+function FlaggedSaleRow({
+  title,
+  sale,
+  fee,
+  shippingOver,
+}: {
+  title: string;
+  sale: SaleRow;
+  fee: FeeDiscrepancy | null;
+  shippingOver: boolean;
+}) {
+  const red = (fee?.overBy ?? 0) > FEE_GAP_RED;
+  return (
+    <li
+      className={
+        red
+          ? "rounded-md bg-destructive/10 p-3"
+          : "rounded-md bg-amber-500/10 p-3"
+      }
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="font-medium">{title}</div>
+        <div className="text-xs tabular-nums text-muted-foreground">
+          Sold ${(sale.sale_price ?? 0).toFixed(2)}
+        </div>
+      </div>
+      {fee && (
+        <div
+          className={
+            red
+              ? "mt-1 text-xs text-destructive"
+              : "mt-1 text-xs text-amber-900 dark:text-amber-200"
+          }
+        >
+          Charged ${fee.charged.toFixed(2)} in fees, expected about $
+          {fee.expected.toFixed(2)}.
+        </div>
+      )}
+      {shippingOver && (
+        <div className="mt-1 text-xs text-amber-900 dark:text-amber-200">
+          Postage cost ${(sale.shipping_cost ?? 0).toFixed(2)}, which is more
+          than $2 over the ${(sale.shipping_collected ?? 0).toFixed(2)} the
+          buyer paid.
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -663,7 +754,7 @@ function TaxPnlExportCard({
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           {summaryTiles.map((t) => (
             <div key={t.label} className="p-2.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              <div className="text-xs text-muted-foreground">
                 {t.label}
               </div>
               <div
@@ -835,8 +926,9 @@ function runStatusBadge(status: EbaySyncRun["status"]) {
 // eBay sync history — one row per background pull, newest first. Surfaces the
 // stats the sync computes (listings pulled/matched, sales created/updated,
 // fee enrichment, errors) which were previously only in the container logs.
-function SyncHistoryCard() {
-  const { data: runs = [], isLoading, isFetching, refetch } = useEbaySyncRuns();
+export function SyncHistoryCard() {
+  const { data: runs = [], isLoading, isError, isFetching, refetch } =
+    useEbaySyncRuns();
   const sync = useSyncEbayListings();
 
   // US-457: a run stuck in 'running' (e.g. a crashed worker) shouldn't block the
@@ -906,7 +998,15 @@ function SyncHistoryCard() {
         </div>
       </CardHeader>
       <CardContent className="px-0">
-        {isLoading ? (
+        {isError ? (
+          <ErrorState
+            title="Couldn't load sync history"
+            description="The history read failed, so this card cannot say whether any sync has run."
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+            hideSupport
+          />
+        ) : isLoading ? (
           <LoadingRegion label="Loading sync history" className="px-4">
             <SkeletonRows rows={5} />
           </LoadingRegion>
@@ -1026,27 +1126,52 @@ function SyncHistoryCard() {
   );
 }
 
-function ReviewQueueCard({
+export function ReviewQueueCard({
   queue,
   loading,
+  error,
+  onRetry,
+  retrying,
   total,
   hasMore,
   limit,
 }: {
   queue: QueueEntry[];
   loading: boolean;
+  /** The queue read's error, or null. A failed read leaves `queue` empty, and
+   *  without this the card said "All payouts are reconciled." */
+  error: unknown;
+  onRetry: () => void;
+  retrying: boolean;
   total: number;
   hasMore: boolean;
   limit: number;
 }) {
+  const failed = error != null;
   const matchMutation = useReconciliationMatch();
   const dismissMutation = useReconciliationDismiss();
   const runMutation = useReconciliationRun();
   const [busyPayoutId, setBusyPayoutId] = useState<string | null>(null);
+  // Only the clicked Match spins; the row's other buttons just disable.
+  const [busySaleId, setBusySaleId] = useState<string | null>(null);
+  const [lastRun, setLastRun] = useState<{ scanned: number; total: number } | null>(
+    null,
+  );
 
   async function doAutoMatch() {
     try {
       const r = await runMutation.mutateAsync();
+      if (typeof r.total === "number") {
+        setLastRun({ scanned: r.scanned, total: r.total });
+      }
+      if ((r.errors ?? 0) > 0) {
+        // Some payouts could not be checked. Their counts are not "no match".
+        toast.warning(
+          `Auto-match could not finish, try again. Matched ${r.auto_matched} before it stopped.`,
+          { duration: 12_000 },
+        );
+        return;
+      }
       const parts: string[] = [];
       parts.push(`Auto-matched ${r.auto_matched}`);
       if (r.ambiguous > 0) parts.push(`${r.ambiguous} ambiguous`);
@@ -1063,6 +1188,7 @@ function ReviewQueueCard({
 
   async function doMatch(payoutId: string, saleId: string) {
     setBusyPayoutId(payoutId);
+    setBusySaleId(saleId);
     try {
       await matchMutation.mutateAsync({
         payoutImportId: payoutId,
@@ -1084,6 +1210,7 @@ function ReviewQueueCard({
       }
     } finally {
       setBusyPayoutId(null);
+      setBusySaleId(null);
     }
   }
 
@@ -1115,10 +1242,19 @@ function ReviewQueueCard({
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant={total > 0 ? "destructive" : "outline"}>
-              {total}
-            </Badge>
-            {queue.length > 0 && (
+            {!failed && (
+              <Badge
+                variant="outline"
+                className={
+                  total > 0
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-200"
+                    : undefined
+                }
+              >
+                {total}
+              </Badge>
+            )}
+            {!failed && queue.length > 0 && (
               <Button
                 variant="outline"
                 size="sm"
@@ -1141,18 +1277,40 @@ function ReviewQueueCard({
             payouts would otherwise be silently hidden. Flag it and point at
             Auto-match, which sweeps ALL of them server-side (not just this
             page); the list re-fetches after so the next batch surfaces. */}
-        {hasMore && (
+        {!failed && hasMore && (
           <div className="flex items-start gap-2 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
               Showing the first {Math.min(limit, queue.length)} of {total}{" "}
-              unreconciled payouts. Run <strong>Auto-match</strong> to clear the
-              unambiguous ones across all of them — the list refreshes to reveal
-              the rest.
+              unreconciled payouts.{" "}
+              {lastRun ? (
+                <>
+                  The last Auto-match checked {lastRun.scanned} of{" "}
+                  {lastRun.total}
+                  {lastRun.scanned < lastRun.total
+                    ? ". Run it again to check the rest."
+                    : "."}
+                </>
+              ) : (
+                <>
+                  Run <strong>Auto-match</strong> to clear the unambiguous ones
+                  across all of them. The list refreshes to show the rest.
+                </>
+              )}
             </span>
           </div>
         )}
-        {loading ? (
+        {failed && isPlanGateError(error) ? (
+          <PlanLockedNotice what="Payout matching" />
+        ) : failed ? (
+          <ErrorState
+            title="Couldn't load the review queue"
+            description="The queue read failed, so this card cannot say whether any payout is unmatched. This is not a clean bill of health."
+            onRetry={onRetry}
+            retrying={retrying}
+            hideSupport
+          />
+        ) : loading ? (
           <LoadingRegion label="Loading queue">
             <SkeletonRows rows={4} />
           </LoadingRegion>
@@ -1177,7 +1335,7 @@ function ReviewQueueCard({
                     <span className="text-xs text-muted-foreground">
                       {fmtDate(entry.payout_import.payout_date)}
                     </span>
-                    <span className="font-mono text-[10px] text-muted-foreground">
+                    <span className="font-mono text-xs text-muted-foreground">
                       {String(
                         entry.payout_import.raw_payload?.payoutid ?? "—",
                       ).slice(0, 22)}
@@ -1192,7 +1350,7 @@ function ReviewQueueCard({
                       aria-label={`Dismiss the ${fmtMoney(entry.payout_import.amount)} payout`}
                       variant="ghost"
                       size="sm"
-                      className="h-7 px-2 text-[10px]"
+                      className="h-9 text-xs"
                       onClick={() => doDismiss(entry.payout_import.id)}
                       disabled={isBusy}
                     >
@@ -1220,7 +1378,7 @@ function ReviewQueueCard({
                           <div className="truncate font-medium">
                             {c.item_title ?? "Untitled item"}
                           </div>
-                          <div className="text-[10px] text-muted-foreground">
+                          <div className="text-xs text-muted-foreground">
                             {c.reasons.join(" · ")}
                           </div>
                         </div>
@@ -1228,19 +1386,20 @@ function ReviewQueueCard({
                           <div className="font-semibold">
                             {fmtMoney(c.payout_amount ?? c.sale_price)}
                           </div>
-                          <div className="text-[10px] text-muted-foreground">
+                          <div className="text-xs text-muted-foreground">
                             {fmtDate(c.sale_date)}
                           </div>
                         </div>
                         <Button
                           size="sm"
-                          className="h-7 px-2 text-[10px]"
+                          className="h-9 text-xs"
+                          aria-label={`Match to ${c.item_title ?? "untitled item"}`}
                           onClick={() =>
                             doMatch(entry.payout_import.id, c.sale_id)
                           }
                           disabled={isBusy}
                         >
-                          {isBusy ? (
+                          {isBusy && busySaleId === c.sale_id ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
                           ) : (
                             "Match"

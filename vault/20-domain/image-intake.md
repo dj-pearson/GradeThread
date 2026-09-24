@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/lib/upload-validation.ts
   - services/edge-functions/src/routes/flipdesk-expenses.ts
   - src/lib/media-intake.ts
-reviewed: 2026-08-30
+reviewed: 2026-09-24
 tags: [grading, uploads, images, gotcha]
 summary: A file's extension and its bytes disagree often enough to break grading — sniff the bytes on the way in and on the way out.
 ---

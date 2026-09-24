@@ -18,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 import {
   Dialog,
   DialogContent,
@@ -80,13 +81,25 @@ export function BooksReviewCard({
   const [reason, setReason] = useState("");
   const [showDismissed, setShowDismissed] = useState(false);
 
-  const { data: issues = [], isLoading } = useQuery({
+  // A failed read leaves `issues` empty, which used to print "Nothing to sort
+  // out" -- an all-clear on books nobody read.
+  const {
+    data: issues = [],
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: ["books-review", user?.id, from, to],
     enabled: !!user,
     queryFn: () => fetchReviewQueue(from, to),
   });
 
-  const { data: dismissed = [] } = useQuery({
+  const {
+    data: dismissed = [],
+    isError: dismissedFailed,
+    refetch: refetchDismissed,
+  } = useQuery({
     queryKey: ["books-review-dismissed", user?.id],
     enabled: !!user && showDismissed,
     queryFn: fetchDismissals,
@@ -140,7 +153,15 @@ export function BooksReviewCard({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {isLoading ? (
+        {isError ? (
+          <ErrorState
+            title="Couldn't check your books"
+            description={`The review read failed, so this can't say whether anything needs a look for ${periodLabel}.`}
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+            hideSupport
+          />
+        ) : isLoading ? (
           <Skeleton className="h-40 w-full" />
         ) : issues.length === 0 ? (
           <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400">
@@ -282,7 +303,18 @@ export function BooksReviewCard({
           </Button>
           {showDismissed && (
             <ul className="mt-2 space-y-1.5">
-              {dismissed.length === 0 ? (
+              {dismissedFailed ? (
+                <li className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
+                  Couldn&apos;t load what you set aside.
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void refetchDismissed()}
+                  >
+                    Try again
+                  </Button>
+                </li>
+              ) : dismissed.length === 0 ? (
                 <li className="text-[13px] text-muted-foreground">
                   Nothing set aside.
                 </li>

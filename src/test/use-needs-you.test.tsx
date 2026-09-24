@@ -136,6 +136,26 @@ describe("useNeedsYou", () => {
   });
 });
 
+describe("useNeedsYou include (PS-11)", () => {
+  function IncludeProbe() {
+    captured = useNeedsYou(true, true, {
+      include: ["returns", "cancellations", "inquiries", "cases", "disputes", "shipments"],
+    });
+    return null;
+  }
+
+  it("does not fetch an excluded queue, and does not wait on or retry it", async () => {
+    state.queues.shipments = { data: [] };
+    state.queues.offers = { isLoading: true, isError: true };
+    await act(async () => root.render(<IncludeProbe />));
+    expect(state.enabledSeen.offers!.every((e) => e === false)).toBe(true);
+    expect(captured!.pending).not.toContain("offers");
+    expect(captured!.isPartial).toBe(false);
+    act(() => captured!.refetch());
+    expect(state.refetched).not.toContain("offers");
+  });
+});
+
 describe("FlipdeskNeedsYouWidget", () => {
   async function renderWidget() {
     await act(async () =>

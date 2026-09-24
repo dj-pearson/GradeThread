@@ -148,6 +148,19 @@ Deno.test("applicableMatches: identifiers are trimmed before they reach a query"
   );
 });
 
+Deno.test("applicableMatches: a mixed-case username also erases the lower-cased rows", () => {
+  // OM-14 stores marketplace_offers.buyer_username lower-cased. A deletion
+  // notice keeps eBay's casing, and an exact match alone would leave every
+  // offer row from that buyer in place.
+  assertEquals(
+    applicableMatches(target("marketplace_offers"), { username: "DenimFan" }),
+    [
+      { column: "buyer_username", value: "DenimFan" },
+      { column: "buyer_username", value: "denimfan" },
+    ],
+  );
+});
+
 Deno.test("erasurePatch: nulls the identity columns and marks the payload", () => {
   const now = new Date("2026-09-01T12:00:00Z");
   const patch = erasurePatch(target("marketplace_offers"), now);

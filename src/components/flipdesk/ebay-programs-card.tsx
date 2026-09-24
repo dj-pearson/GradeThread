@@ -6,6 +6,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -16,6 +17,8 @@ import {
   useSetEbayProgram,
   type EbayProgramSlug,
 } from "@/hooks/use-ebay";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { MARKETPLACE_ADMIN_ONLY } from "@/lib/workspace-permissions";
 
 // US-2157: eBay seller-program enrollment. The GET/POST/DELETE /programs routes
 // shipped with US-1979 and were fully tenant-scoped, but nothing in the product
@@ -29,8 +32,12 @@ import {
 export function EbayProgramsCard() {
   const { data: connection } = useEbayConnection();
   const connected = !!connection;
-  const { data, isLoading, isError } = useEbayPrograms(connected);
+  const { data, isLoading, isError, refetch } = useEbayPrograms(connected);
   const setProgram = useSetEbayProgram();
+  // MP-01: these change the owner's whole eBay account; the edge refuses them
+  // below admin, so the switches do too.
+  const { can } = useWorkspace();
+  const canManage = can("manage_marketplaces");
 
   // Self-gates like the other eBay cards — a disconnected seller sees nothing
   // rather than a card full of controls that would 502 on touch.
@@ -62,12 +69,20 @@ export function EbayProgramsCard() {
             ))}
           </div>
         ) : isError ? (
-          <p className="text-sm text-muted-foreground">
-            Couldn't read your eBay programs. Your connection may need a
-            reconnect.
-          </p>
+          <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="text-muted-foreground">
+              Couldn&apos;t read your eBay programs. Your connection may need a
+              reconnect.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => void refetch()}>
+              Retry
+            </Button>
+          </div>
         ) : (
           <ul className="space-y-4">
+            {!canManage && (
+              <li className="text-xs text-muted-foreground">{MARKETPLACE_ADMIN_ONLY}</li>
+            )}
             {EBAY_PROGRAMS.map((program) => {
               const checked = optedIn.has(program.apiName);
               const busy = pendingSlug === program.slug;
@@ -77,7 +92,7 @@ export function EbayProgramsCard() {
                   <Switch
                     id={inputId}
                     checked={checked}
-                    disabled={busy}
+                    disabled={busy || !canManage}
                     onCheckedChange={(next) =>
                       setProgram.mutate({ slug: program.slug, optIn: next })
                     }

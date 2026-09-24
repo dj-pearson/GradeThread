@@ -6,7 +6,7 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - scripts/ops/edge-watchdog.sh
-reviewed: 2026-09-22
+reviewed: 2026-09-24
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
@@ -27,6 +27,13 @@ summary: Two hostnames serve two different systems; calling an app route on the 
 
 # DNS and routing
 
+> **Re-reviewed 2026-09-24.** Drift flagged `main.ts` for four commits: the
+> `workspaceMiddleware` mounts on `/api/flipdesk/extension-queue` and
+> `/api/flipdesk/ebay/{programs,marketing}`, a per-IP rate limit on
+> `/api/flipdesk/capture/s/*`, and `app.post("/api/jobs/webhook-retry", ...)`.
+> All under `/api/`, all on the edge host. Nothing about which host serves
+> what moved.
+>
 > **Re-reviewed 2026-09-22.** Drift flagged `main.ts` on 3ec56ed3 (US-3453):
 > `app.post("/api/jobs/delist-nudge", ...)`, one import and one line, the
 > same shape as the other `/api/jobs/*` routes below. It is called over

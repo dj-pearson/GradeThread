@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ban, Loader2, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -16,6 +16,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { useEbayKeywords, useEbayKeywordSuggestions } from "@/hooks/use-ebay";
+import { InlineRetry } from "@/components/flipdesk/inline-retry";
+import { roleNeededNote, roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2945: keywords for Promoted Listings Advanced.
 //
@@ -52,8 +56,10 @@ interface NegativeCandidate {
 }
 
 interface KeywordsResponse {
-  campaignId: string;
-  adGroupId: string;
+  /** MP-03: null when there is no cost-per-click campaign yet. */
+  campaign?: { campaignId: string } | null;
+  campaignId: string | null;
+  adGroupId: string | null;
   keywords: Keyword[];
   negatives: NegativeKeyword[];
   negativeCandidates: NegativeCandidate[];
@@ -63,29 +69,15 @@ export function EbayKeywordsCard() {
   const qc = useQueryClient();
   const [newKeyword, setNewKeyword] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
+  // MP-02: keyword writes need listing_manager on the edge.
+  const { can } = useWorkspace();
+  const canAds = can("manage_ads");
+  const adsTitle = canAds ? undefined : roleNeededTitle("manage_ads");
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["ebay_keywords"],
-    staleTime: 5 * 60_000,
-    queryFn: async (): Promise<KeywordsResponse> => {
-      const res = await edgeFetch("/api/flipdesk/ebay/marketing/keywords");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load your eBay keywords.");
-      return json as KeywordsResponse;
-    },
-  });
-
-  const { data: suggestions } = useQuery({
-    queryKey: ["ebay_keyword_suggestions"],
-    enabled: showSuggestions,
-    staleTime: 30 * 60_000,
-    queryFn: async (): Promise<{ suggestions: string[] }> => {
-      const res = await edgeFetch("/api/flipdesk/ebay/marketing/keywords/suggestions");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load suggestions.");
-      return json as { suggestions: string[] };
-    },
-  });
+  const { data, isLoading, isError, refetch } = useEbayKeywords<KeywordsResponse>();
+  const { data: suggestions } = useEbayKeywordSuggestions<{ suggestions: string[] }>(
+    showSuggestions,
+  );
 
   const addKeyword = useMutation<unknown, Error, { text: string }>({
     mutationFn: async ({ text }) => {
@@ -104,6 +96,26 @@ export function EbayKeywordsCard() {
     },
     onError: (err) => toastError(err, "eBay rejected the keyword."),
   });
+
+  // MP-03: the read never creates a campaign; this button is the only way here.
+  const start = useMutation<unknown, Error, void>({
+    mutationFn: async () => {
+      const res = await edgeFetch("/api/flipdesk/ebay/marketing/campaign/start", {
+        method: "POST",
+        body: "{}",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "eBay would not start the campaign.");
+      return json;
+    },
+    onSuccess: () => {
+      toast.success("Campaign started.");
+      void qc.invalidateQueries({ queryKey: ["ebay_keywords"] });
+      void qc.invalidateQueries({ queryKey: ["ebay_marketing_suggestions"] });
+    },
+    onError: (err) => toastError(err, "eBay would not start the campaign."),
+  });
+  const canStart = can("manage_campaign");
 
   const block = useMutation<unknown, Error, { text: string }>({
     mutationFn: async ({ text }) => {
@@ -135,16 +147,51 @@ export function EbayKeywordsCard() {
     );
   }
   if (isError || !data) {
+    // MP-11: a failed read used to say "No cost-per-click campaign to read
+    // yet", which is a different fact.
     return (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Ad keywords</CardTitle>
         </CardHeader>
         <CardContent>
+          <InlineRetry
+            message="Couldn't load your eBay keywords."
+            onRetry={() => void refetch()}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (data.campaign === null) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Search className="h-4 w-4" />
+            Ad keywords
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
           <p className="text-sm text-muted-foreground">
-            No cost-per-click campaign to read yet. Keywords apply to Promoted
-            Listings Advanced only.
+            No cost-per-click campaign yet. Keywords apply to Promoted Listings
+            Advanced only.
           </p>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={start.isPending || !canStart}
+            title={canStart ? undefined : roleNeededTitle("manage_campaign")}
+            onClick={() => start.mutate()}
+          >
+            Start one
+          </Button>
+          {!canStart && (
+            <p className="text-xs text-muted-foreground">
+              {roleNeededNote("manage_campaign", "start a campaign")}
+            </p>
+          )}
         </CardContent>
       </Card>
     );
@@ -162,6 +209,11 @@ export function EbayKeywordsCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
+        {!canAds && (
+            <p className="text-xs text-muted-foreground">
+              {roleNeededNote("manage_ads", "add or block keywords")}
+            </p>
+          )}
         {/* Money saved before money spent. */}
         {data.negativeCandidates.length > 0 && (
           <div className="space-y-2">
@@ -178,7 +230,8 @@ export function EbayKeywordsCard() {
                     aria-label={`Stop bidding on ${cand.term}`}
                     size="sm"
                     variant="outline"
-                    disabled={block.isPending}
+                    disabled={block.isPending || !canAds}
+                    title={adsTitle}
                     onClick={() => block.mutate({ text: cand.term })}
                   >
                     <Ban className="mr-1 h-3.5 w-3.5" />
@@ -205,7 +258,8 @@ export function EbayKeywordsCard() {
             />
             <Button
               size="sm"
-              disabled={!newKeyword.trim() || addKeyword.isPending}
+              disabled={!newKeyword.trim() || addKeyword.isPending || !canAds}
+              title={adsTitle}
               onClick={() => addKeyword.mutate({ text: newKeyword.trim() })}
             >
               {addKeyword.isPending ? (

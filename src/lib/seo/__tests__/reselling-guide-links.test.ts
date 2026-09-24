@@ -13,7 +13,7 @@ import {
   guideMechanismSentence,
   resellingGuidePath,
 } from "../reselling-guides";
-import { destinationMechanism } from "../crosslist-pairs";
+import { canReadCloset, destinationMechanism } from "../crosslist-pairs";
 import { isCrossHubLinkAllowed } from "../interlink-rules";
 import { PUBLIC_ROUTES } from "../public-routes";
 import { FRESHNESS_REGISTRY, verifiedLabel } from "../freshness";
@@ -61,12 +61,19 @@ describe("the guide's mechanism copy is derived, not written", () => {
     expect(off).not.toContain("you press post");
   });
 
-  it("does not claim a Vinted closet import", () => {
-    // canReadCloset is poshmark + mercari. Claiming Vinted here would promise
-    // an import the extension cannot do.
+  it("claims a Vinted closet import only because the extension can do one", () => {
+    // US-3460 (2026-09-22) taught the extension to read a Vinted wardrobe, so
+    // canReadCloset now answers yes for Vinted and the guide says so. The
+    // sentence is still derived: a marketplace the extension cannot read
+    // (Depop) gets the "no export" branch, and the guide carries whichever
+    // sentence the capability produces.
+    expect(canReadCloset("vinted")).toBe(true);
     const closet = guideClosetSentence("vinted", "Vinted");
-    expect(closet).toContain("no export the extension can read");
+    expect(closet).toContain("read your existing Vinted closet");
     expect(vinted?.sections.some((s) => s.body.includes(closet))).toBe(true);
+
+    expect(canReadCloset("depop")).toBe(false);
+    expect(guideClosetSentence("depop", "Depop")).toContain("no export the extension can read");
   });
 });
 

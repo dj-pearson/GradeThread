@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   byDeadline,
   canMarkReceived,
-  daysUntil,
   deadlineBucket,
   deadlineLabel,
   isNotAsDescribed,
@@ -37,6 +35,8 @@ import { Input } from "@/components/ui/input";
 import {
   centsToEbayValue,
   isFullRefund,
+  orderTotalLabel,
+  refundReasonFor,
   validateRefundAmount,
 } from "@/lib/refund-amount";
 import {
@@ -48,7 +48,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { EmptyState } from "@/components/ui/empty-state";
+import { QueueBody } from "@/components/flipdesk/post-sale/queue-body";
+import { InlineRetry } from "@/components/flipdesk/inline-retry";
 import { PlatformCoverageNote } from "@/components/flipdesk/platform-coverage-note";
 import { CaseItemSummary } from "@/components/flipdesk/case-item-summary";
 import { ReturnEvidencePanel } from "@/components/flipdesk/return-evidence-panel";
@@ -87,22 +88,34 @@ import {
 import { PageHelp } from "@/components/help/page-help";
 import { ReturnAnalyticsCard } from "@/components/flipdesk/return-analytics-card";
 import { ShipQueueCard } from "@/components/flipdesk/ship-queue-card";
-import { useSearchParams } from "react-router";
+import { useLocation, useSearchParams } from "react-router";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNeedsYou } from "@/hooks/use-needs-you";
 import { useFocusParam } from "@/hooks/use-focus-param";
 import {
   DEFAULT_POST_SALE_TAB,
+  POST_SALE_QUEUES,
   POST_SALE_TABS,
+  pickOpeningTab,
   postSaleTabCounts,
+  QUEUE_NOUN,
   resolvePostSaleTabId,
   type PostSaleTabId,
   tabForKind,
+  tabLoadState,
+  type TabLoadState,
 } from "@/pages/flipdesk/post-sale-tabs";
 import {
   centsToDisplay,
   suggestKeepItRefund,
 } from "@/pages/flipdesk/keep-it-offer";
+import {
+  detectCarrier,
+  normalizeTracking,
+  SHIP_CARRIERS,
+  stripUspsZipPrefix,
+  type ShipCarrier,
+} from "@/pages/flipdesk/ship-queue";
 
 // US-1043 + US-1049: web surface for post-sale issues — returns, cancellations,
 // and payment disputes — with the accept/decline/refund/contest actions.
@@ -185,8 +198,11 @@ function PostSaleTabs() {
 
   // One hook for every badge. It is the same merged query the ranked card used,
   // so opening this page costs no more reads than it did before.
-  const needsYou = useNeedsYou();
+  // PS-11: offers are not on this page, so they are neither fetched nor
+  // polled here, and cannot hold the page in a loading state.
+  const needsYou = useNeedsYou(true, true, { include: POST_SALE_QUEUES });
   const counts = postSaleTabCounts(needsYou.items);
+  const failedQueues = POST_SALE_QUEUES.filter((q) => needsYou.queues[q]?.isError);
 
   function setTab(next: PostSaleTabId, keepFocus = false) {
     const params = new URLSearchParams(searchParams);
@@ -223,31 +239,94 @@ function PostSaleTabs() {
   const focusMissing = !!focusParam && queuesLoaded && !needsYou.isPartial &&
     focusItem == null;
 
+  // PS-15: with no ?tab= in the link, open where the most urgent work is, once
+  // every queue has answered. Once only: after that the seller's own clicks
+  // decide. An old #payment-disputes style anchor still wins, since someone
+  // saved that link on purpose.
+  const location = useLocation();
+  const openedRef = useRef(false);
+  useEffect(() => {
+    if (openedRef.current) return;
+    if (searchParams.get("tab") || focusParam) {
+      openedRef.current = true;
+      return;
+    }
+    const fromHash = resolvePostSaleTabId(location.hash);
+    if (fromHash) {
+      openedRef.current = true;
+      setTab(fromHash);
+      return;
+    }
+    if (!queuesLoaded) return;
+    openedRef.current = true;
+    const opening = pickOpeningTab(needsYou.items);
+    if (opening !== tab) setTab(opening);
+    // setTab is recreated each render; this runs until it has opened once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queuesLoaded, location.hash]);
+
+  // PS-15: say "all clear" out loud, and only when it is true. Not while any
+  // queue is loading or failed, because an unfinished read is not a clear one.
+  const totalWaiting = POST_SALE_TABS.reduce((n, t) => n + counts[t.id], 0);
+  const settled = queuesLoaded && failedQueues.length === 0;
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (settled && !needsYou.isFetching) setCheckedAt(Date.now());
+  }, [settled, needsYou.isFetching]);
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const soonest = needsYou.items.find((i) => i.deadline && tabForKind(i.kind))?.deadline ?? null;
+
   return (
     <>
+      {settled ? (
+        // role=status announces changes, so the minute-by-minute "Checked"
+        // clock is kept out of it. Otherwise a screen reader hears the line
+        // again every minute and on every background poll.
+        <p className="mb-3 text-sm" role="status">
+          {totalWaiting === 0
+            ? (
+              <>
+                Nothing is waiting on you.
+                <span aria-hidden="true">{` Checked ${minutesAgo(checkedAt, now)}.`}</span>
+              </>
+            )
+            : `${totalWaiting.toLocaleString()} ${totalWaiting === 1 ? "thing needs" : "things need"} you${
+                soonest ? `, the soonest due ${fmtDate(soonest)}` : ""
+              }.`}
+        </p>
+      ) : null}
       {focusMissing ? (
         <p className="mb-3 text-sm text-muted-foreground" role="status">
           This case is no longer open. It may have been resolved or closed on
           eBay.
         </p>
       ) : null}
+      {/* PS-11: which queues did not answer, in words, with one Retry. A tab
+          that failed carries a warning mark, and this line says what it is. */}
+      {failedQueues.length > 0 ? (
+        <div className="mb-3">
+          <InlineRetry
+            message={`Couldn't load ${joinWords(failedQueues.map((q) => QUEUE_NOUN[q]))}. What is waiting there may not be counted.`}
+            onRetry={needsYou.refetch}
+          />
+        </div>
+      ) : null}
       <Tabs value={tab} onValueChange={(v) => setTab(v as PostSaleTabId)}>
         <TabsList className="flex flex-wrap">
           {POST_SALE_TABS.map((t) => (
             <TabsTrigger key={t.id} value={t.id} className="gap-2">
               {t.label}
-              {/* No badge while the queues are still loading, and none on a tab
-                  that counts nothing. A "0" that is really "not known yet"
-                  reads as "nothing waiting", which is the one wrong answer
-                  this page must not give. */}
-              {t.kinds.length > 0 && !needsYou.isLoading && counts[t.id] > 0 && (
-                <Badge
-                  variant={tab === t.id ? "default" : "secondary"}
-                  className="px-1.5 py-0 text-[10px] tabular-nums"
-                >
-                  {counts[t.id].toLocaleString()}
-                </Badge>
-              )}
+              {t.kinds.length > 0 ? (
+                <TabMarker
+                  load={tabLoadState(t.id, needsYou.queues)}
+                  count={counts[t.id]}
+                  active={tab === t.id}
+                />
+              ) : null}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -269,32 +348,73 @@ function PostSaleTabs() {
   );
 }
 
+/**
+ * PS-11: one tab's marker. Loading and failed each say so, and a count only
+ * appears once every queue behind the tab has answered. A "0" that is really
+ * "not known yet" reads as "nothing waiting", which is the one wrong answer
+ * this page must not give, so an answered zero shows no badge at all.
+ */
+function TabMarker({
+  load,
+  count,
+  active,
+}: {
+  load: TabLoadState;
+  count: number;
+  active: boolean;
+}) {
+  if (load === "loading") {
+    return (
+      <span className="text-xs text-muted-foreground">
+        <span aria-hidden="true">...</span>
+        <span className="sr-only">loading</span>
+      </span>
+    );
+  }
+  if (load === "error") {
+    return (
+      <span className="inline-flex items-center">
+        <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 text-destructive" />
+        <span className="sr-only">could not load</span>
+      </span>
+    );
+  }
+  if (count <= 0) return null;
+  return (
+    <Badge
+      variant={active ? "default" : "secondary"}
+      className="px-1.5 py-0 text-[10px] tabular-nums"
+    >
+      {count.toLocaleString()}
+      <span className="sr-only"> waiting on you</span>
+    </Badge>
+  );
+}
+
+function minutesAgo(at: number | null, now: number): string {
+  if (at == null) return "just now";
+  const mins = Math.floor((now - at) / 60_000);
+  if (mins < 1) return "just now";
+  return `${mins} min ago`;
+}
+
+function joinWords(words: string[]): string {
+  if (words.length <= 1) return words[0] ?? "";
+  return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
+
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
 }
 
-// US-2541: was a bare paragraph. These three lists are the ones a seller
-// checks to confirm NOTHING is waiting on them, so "nothing here" has to read
-// as an answer rather than as a list that failed to draw.
-function EmptyRow({ text }: { text: string }) {
-  return (
-    <EmptyState
-      className="py-8"
-      icon={PackageCheck}
-      title={text}
-      description="eBay cases only — GradeThread does not read your other marketplaces."
-    />
-  );
-}
-
 // ── Payment disputes (most urgent — deadline-driven) ────────────────
 
 function DisputesCard() {
-  const qc = useQueryClient();
   const confirm = useConfirm();
-  const { data: disputes = [], isLoading } = useEbayPaymentDisputes();
+  const disputesQuery = useEbayPaymentDisputes();
+  const { data: disputes = [] } = disputesQuery;
   const resolve = useEbayResolveDispute();
   const [busy, setBusy] = useState<string | null>(null);
   // The dispute currently being contested (drives the note dialog), plus its note.
@@ -321,7 +441,7 @@ function DisputesCard() {
     d: EbayPaymentDispute,
     action: "accept" | "contest",
     note: string | undefined,
-  ) {
+  ): Promise<boolean> {
     setBusy(`${d.paymentDisputeId}:${action}`);
     try {
       await resolve.mutateAsync({
@@ -333,9 +453,10 @@ function DisputesCard() {
       toast.success(
         action === "accept" ? "Dispute accepted (buyer refunded)." : "Dispute contested.",
       );
-      await qc.invalidateQueries({ queryKey: ["ebay_payment_disputes"] });
+      return true;
     } catch (err) {
       toastError(err, "Action failed.");
+      return false;
     } finally {
       setBusy(null);
     }
@@ -356,19 +477,21 @@ function DisputesCard() {
 
   function openContest(d: EbayPaymentDispute) {
     setContestNote("");
+    // US-2935: contesting is the moment the grade report is the argument.
+    // PS-13: the pack now opens INSIDE the Contest dialog (below), because the
+    // inline one this used to open sat under the modal, and the seller wrote
+    // the note blind to the verdict.
+    setPackFor(null);
     setContestFor(d);
-    // US-2935: contesting is the moment the grade report is the argument. Open
-    // the pack with it, already checked. It is a READ — the send stays behind
-    // its own button inside the panel.
-    if (isNotAsDescribed(d.reason) && d.orderId) setPackFor(d.paymentDisputeId);
   }
 
   async function submitContest() {
     const d = contestFor;
     if (!d) return;
     const note = contestNote.trim() || undefined;
-    setContestFor(null);
-    await runResolve(d, "contest", note);
+    // PS-13: the dialog stays open until eBay answers, so a failure leaves the
+    // note where the seller typed it instead of throwing it away.
+    if (await runResolve(d, "contest", note)) setContestFor(null);
   }
 
   return (
@@ -388,22 +511,29 @@ function DisputesCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {isLoading ? (
-          <Skeleton className="h-16 w-full" />
-        ) : visible.length === 0 ? (
-          <EmptyRow text={showClosed ? "No closed payment disputes." : "No open payment disputes."} />
-        ) : (
-          visible.map((d) => {
-            const days = daysUntil(d.respondByDate);
-            const overdue = days != null && days < 0;
+        <QueueBody
+          isLoading={disputesQuery.isLoading}
+          isError={disputesQuery.isError}
+          isSuccess={disputesQuery.isSuccess}
+          refetch={disputesQuery.refetch}
+          source={disputesQuery.source}
+          updatedAt={disputesQuery.dataUpdatedAt}
+          isEmpty={visible.length === 0}
+          emptyText={showClosed ? "No closed payment disputes." : "No open payment disputes."}
+          kind="payment disputes"
+        >
+          {visible.map((d) => {
+            const orderLabel = d.orderId ?? d.paymentDisputeId;
             return (
+              // PS-13: stacked like the returns rows. Side by side, five buttons
+              // in a row that could not wrap ran off a 375px screen.
               <div
                 key={d.paymentDisputeId}
                 data-focus-id={d.paymentDisputeId}
-                className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none"
+                className="flex flex-col gap-3 rounded-md border p-3 data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none"
               >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">
                       {d.reason?.replace(/_/g, " ") ?? "Payment dispute"}
                     </span>
@@ -412,15 +542,7 @@ function DisputesCard() {
                         {d.currency ?? "$"} {d.amount.toFixed(2)}
                       </Badge>
                     )}
-                    {d.respondByDate && (
-                      <Badge variant={overdue ? "destructive" : "outline"}>
-                        {overdue
-                          ? "Overdue"
-                          : `Respond by ${fmtDate(d.respondByDate)}${
-                              days != null ? ` (${days}d)` : ""
-                            }`}
-                      </Badge>
-                    )}
+                    <DeadlineBadge respondBy={d.respondByDate} />
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Order {d.orderId ?? "—"}
@@ -430,7 +552,7 @@ function DisputesCard() {
                 {/* US-2227: a closed dispute keeps no actions — Accept refunds the
                     buyer, and Contest is meaningless once eBay has decided. */}
                 {!showClosed && (
-                <div className="flex shrink-0 gap-2">
+                <div className="flex flex-wrap gap-2">
                   <EvidenceUploader disputeId={d.paymentDisputeId} disabled={!!busy} />
                   {/* US-2707: the same review-before-send pack the returns list
                       offers. The rarer path is not the one where GradeThread
@@ -440,6 +562,7 @@ function DisputesCard() {
                     variant="outline"
                     disabled={!!busy}
                     aria-label={`Grade pack for order ${d.orderId ?? "unknown"}`}
+                    aria-expanded={packFor === d.paymentDisputeId}
                     onClick={() =>
                       setPackFor(
                         packFor === d.paymentDisputeId ? null : d.paymentDisputeId,
@@ -451,6 +574,7 @@ function DisputesCard() {
                     size="sm"
                     variant="outline"
                     disabled={!!busy}
+                    aria-label={`Contest the dispute on order ${orderLabel}`}
                     onClick={() => openContest(d)}
                   >
                     {busy === `${d.paymentDisputeId}:contest` ? (
@@ -464,6 +588,7 @@ function DisputesCard() {
                     size="sm"
                     variant="destructive"
                     disabled={!!busy}
+                    aria-label={`Accept and refund order ${orderLabel}`}
                     onClick={() => acceptDispute(d)}
                   >
                     {busy === `${d.paymentDisputeId}:accept` ? (
@@ -486,24 +611,36 @@ function DisputesCard() {
                 )}
               </div>
             );
-          })
-        )}
+          })}
+        </QueueBody>
       </CardContent>
 
       <Dialog
         open={!!contestFor}
         onOpenChange={(open) => {
-          if (!open) setContestFor(null);
+          if (!open && !busy) setContestFor(null);
         }}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Contest payment dispute</DialogTitle>
             <DialogDescription>
+              {contestFor?.orderId ? `Order ${contestFor.orderId}. ` : ""}
               Add a short note for eBay explaining why you're contesting this
               dispute. It's sent to eBay with your response.
             </DialogDescription>
           </DialogHeader>
+          {/* PS-13: the grade pack, in view while the seller writes the
+              argument it is evidence for. */}
+          {contestFor && (
+            <ReturnEvidencePanel
+              caseId={contestFor.paymentDisputeId}
+              orderId={contestFor.orderId}
+              kind="dispute"
+              initialComplaint={contestFor.reason ?? ""}
+              autoCheck={isNotAsDescribed(contestFor.reason)}
+            />
+          )}
           <div className="space-y-2">
             <Label htmlFor="contest-note">Note to eBay</Label>
             <Textarea
@@ -515,10 +652,15 @@ function DisputesCard() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setContestFor(null)}>
+            <Button variant="outline" disabled={!!busy} onClick={() => setContestFor(null)}>
               Cancel
             </Button>
-            <Button onClick={submitContest}>Contest dispute</Button>
+            <Button disabled={!!busy} onClick={submitContest}>
+              {busy?.endsWith(":contest") ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : null}
+              Contest dispute
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -579,9 +721,9 @@ function EvidenceUploader({
 // ── Returns ─────────────────────────────────────────────────────────
 
 function ReturnsCard() {
-  const qc = useQueryClient();
   const confirm = useConfirm();
-  const { data: returns = [], isLoading } = useEbayReturns();
+  const returnsQuery = useEbayReturns();
+  const { data: returns = [] } = returnsQuery;
   // US-2227 AC3: the list arrived unfiltered and every row got Approve /
   // Decline / Refund buttons, so a case eBay had already closed looked exactly
   // like one waiting on the seller — with a destructive action attached.
@@ -619,7 +761,13 @@ function ReturnsCard() {
     () => returns.find((r) => r.returnId === partialFor)?.orderId ?? null,
     [returns, partialFor],
   );
-  const { data: orderTotal, isError: orderTotalError, isLoading: orderTotalLoading, refetch: reloadOrderTotal } = useEbayOrderTotal(partialOrderId);
+  const { data: orderTotalInfo, isError: orderTotalError, isLoading: orderTotalLoading, refetch: reloadOrderTotal } = useEbayOrderTotal(partialOrderId);
+  // PS-05: across every line of the order, not one sales row.
+  const orderTotal = orderTotalInfo?.total ?? null;
+  const orderCurrency = orderTotalInfo?.currency ?? null;
+  // PS-05: the validation message sits under the box it is about, instead of
+  // only in a toast that is gone before the seller reads it.
+  const [partialError, setPartialError] = useState<string | null>(null);
 
   // US-2930. Confirmed, because telling eBay an item is back stops a clock and
   // is a statement of fact the seller is on record for.
@@ -635,7 +783,6 @@ function ReturnsCard() {
     try {
       await markReceived.mutateAsync({ returnId: r.returnId });
       toast.success("eBay has been told the item arrived.");
-      await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
     } catch (err) {
       toastError(err, "Marking the return received failed.");
     } finally {
@@ -653,7 +800,6 @@ function ReturnsCard() {
           ? `Tracking ${label.trackingNumber} on ${label.carrier ?? "the carrier"}.`
           : "eBay has no shipment for this return yet.",
       );
-      await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
     } catch (err) {
       toastError(err, "Couldn't read the return shipment.");
     } finally {
@@ -711,7 +857,6 @@ function ReturnsCard() {
         orderId: r.orderId ?? undefined,
       });
       toast.success(decision === "approve" ? "Return approved." : "Return declined.");
-      await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
     } catch (err) {
       toastError(err, "Action failed.");
     } finally {
@@ -732,18 +877,27 @@ function ReturnsCard() {
       toast.error("This return has no order id, so we can't refund against it.");
       return;
     }
-    const v = validateRefundAmount(partialAmount, orderTotal ?? null);
+    const v = validateRefundAmount(partialAmount, orderTotal);
     if (!v.ok) {
-      toast.error(v.error ?? "Enter a valid refund amount.");
+      setPartialError(v.error ?? "Enter a valid refund amount.");
       return;
     }
     // A full amount through this route refunds the buyer and leaves the return
     // sitting OPEN — two different eBay conversations. Send the seller to the
     // button that closes the case instead of quietly doing the wrong one.
-    if (isFullRefund(v.cents, orderTotal ?? null)) {
-      toast.error("That is the whole order — use Refund to close the return instead.");
+    if (isFullRefund(v.cents, orderTotal)) {
+      setPartialError("That is the whole order. Use Refund to close the return instead.");
       return;
     }
+    // PS-05: the amount goes to eBay in the sale's own currency. Lines that
+    // disagree leave it unknown, and a guess here would move the wrong money.
+    if (!orderCurrency) {
+      setPartialError(
+        "This order's lines are in different currencies, so we can't send a partial refund. Refund from eBay directly.",
+      );
+      return;
+    }
+    setPartialError(null);
     const ok = await confirm({
       title: `Refund ${centsToEbayValue(v.cents)} to the buyer?`,
       description:
@@ -756,13 +910,13 @@ function ReturnsCard() {
     try {
       await partialRefund.mutateAsync({
         orderId: r.orderId,
-        reason: "ITEM_NOT_AS_DESCRIBED",
+        reason: refundReasonFor(r.reason),
         amountValue: centsToEbayValue(v.cents),
+        currency: orderCurrency,
       });
       toast.success(`Refunded ${centsToEbayValue(v.cents)}.`);
       setPartialFor(null);
       setPartialAmount("");
-      await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
     } catch (err) {
       toastError(err, "Refund failed.");
     } finally {
@@ -783,7 +937,6 @@ function ReturnsCard() {
     try {
       await refund.mutateAsync({ returnId: r.returnId, orderId: r.orderId ?? undefined });
       toast.success("Refund issued.");
-      await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
     } catch (err) {
       toastError(err, "Refund failed.");
     } finally {
@@ -814,14 +967,18 @@ function ReturnsCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {isLoading ? (
-          <Skeleton className="h-16 w-full" />
-        ) : visible.length === 0 ? (
-          <EmptyRow
-            text={showClosed ? "No closed returns." : "No open returns."}
-          />
-        ) : (
-          visible.map((r) => (
+        <QueueBody
+          isLoading={returnsQuery.isLoading}
+          isError={returnsQuery.isError}
+          isSuccess={returnsQuery.isSuccess}
+          refetch={returnsQuery.refetch}
+          source={returnsQuery.source}
+          updatedAt={returnsQuery.dataUpdatedAt}
+          isEmpty={visible.length === 0}
+          emptyText={showClosed ? "No closed returns." : "No open returns."}
+          kind="returns"
+        >
+          {visible.map((r) => (
             // US-3466: always stacked. Side by side, eight buttons in a
             // shrink-0 row could not wrap, so on desktop they ran past the
             // card edge and squeezed the details into a one-word column.
@@ -986,10 +1143,11 @@ function ReturnsCard() {
                   disabled={!!busy}
                   onClick={() => {
                     setPartialAmount("");
+                    setPartialError(null);
                     setPartialFor(partialFor === r.returnId ? null : r.returnId);
                   }}
                 >
-                  Partial…
+                  Refund part now…
                 </Button>
                 )}
                 {/* US-2706: the grade evidence. Opens a review panel and sends
@@ -997,6 +1155,7 @@ function ReturnsCard() {
                     useful outcome of this feature is often "do not fight". */}
                 <Button
                 aria-label={`Evidence for ${r.reason?.replace(/_/g, " ") ?? "the return"}`}
+                  aria-expanded={evidenceFor === r.returnId}
                   size="sm"
                   variant="outline"
                   disabled={!!busy}
@@ -1027,12 +1186,23 @@ function ReturnsCard() {
                     inputMode="decimal"
                     placeholder="0.00"
                     value={partialAmount}
-                    onChange={(e) => setPartialAmount(e.target.value)}
+                    aria-invalid={partialError ? true : undefined}
+                    aria-describedby={partialError
+                      ? `partial-${r.returnId}-total partial-${r.returnId}-error`
+                      : `partial-${r.returnId}-total`}
+                    onChange={(e) => {
+                      setPartialAmount(e.target.value);
+                      setPartialError(null);
+                    }}
                   />
-                  <span className="text-xs text-muted-foreground">
-                    {orderTotalError ? "Couldn't load the order total" : orderTotalLoading ? "Loading order total..." : orderTotal != null
-                      ? `of ${orderTotal.toFixed(2)}`
-                      : "order total unavailable"}
+                  <span id={`partial-${r.returnId}-total`} className="text-xs text-muted-foreground">
+                    {orderTotalError
+                      ? "Couldn't load the order total"
+                      : orderTotalLoading
+                        ? "Loading order total..."
+                        : orderTotal != null
+                          ? orderTotalLabel(orderTotal, orderCurrency, orderTotalInfo?.lineCount ?? 1)
+                          : "order total unavailable"}
                   </span>
                   <Button
                     size="sm"
@@ -1044,6 +1214,15 @@ function ReturnsCard() {
                     ) : null}
                     Send
                   </Button>
+                  {partialError && (
+                    <p
+                      id={`partial-${r.returnId}-error`}
+                      role="alert"
+                      className="basis-full text-xs text-destructive"
+                    >
+                      {partialError}
+                    </p>
+                  )}
                   {orderTotalError && (
                     <Button
                       variant="outline"
@@ -1093,8 +1272,8 @@ function ReturnsCard() {
                 </div>
               )}
             </div>
-          ))
-        )}
+          ))}
+        </QueueBody>
       </CardContent>
     </Card>
   );
@@ -1103,9 +1282,9 @@ function ReturnsCard() {
 // ── Cancellations ───────────────────────────────────────────────────
 
 function CancellationsCard() {
-  const qc = useQueryClient();
   const confirm = useConfirm();
-  const { data: cancellations = [], isLoading } = useEbayCancellations();
+  const cancellationsQuery = useEbayCancellations();
+  const { data: cancellations = [] } = cancellationsQuery;
   const decide = useEbayDecideCancellation();
   const [busy, setBusy] = useState<string | null>(null);
   // US-2227 AC3: third instance of the same unfiltered-list defect.
@@ -1143,7 +1322,6 @@ function CancellationsCard() {
         orderId: ca.orderId ?? undefined,
       });
       toast.success(action === "approve" ? "Cancellation approved." : "Cancellation rejected.");
-      await qc.invalidateQueries({ queryKey: ["ebay_cancellations"] });
     } catch (err) {
       toastError(err, "Action failed.");
     } finally {
@@ -1168,12 +1346,18 @@ function CancellationsCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {isLoading ? (
-          <Skeleton className="h-16 w-full" />
-        ) : visible.length === 0 ? (
-          <EmptyRow text={showClosed ? "No closed cancellation requests." : "No open cancellation requests."} />
-        ) : (
-          visible.map((ca) => (
+        <QueueBody
+          isLoading={cancellationsQuery.isLoading}
+          isError={cancellationsQuery.isError}
+          isSuccess={cancellationsQuery.isSuccess}
+          refetch={cancellationsQuery.refetch}
+          source={cancellationsQuery.source}
+          updatedAt={cancellationsQuery.dataUpdatedAt}
+          isEmpty={visible.length === 0}
+          emptyText={showClosed ? "No closed cancellation requests." : "No open cancellation requests."}
+          kind="cancellation requests"
+        >
+          {visible.map((ca) => (
             <div
               key={ca.cancelId}
               data-focus-id={ca.cancelId}
@@ -1203,11 +1387,12 @@ function CancellationsCard() {
               </div>
               {/* US-2227: no Approve/Reject on a cancellation eBay has settled. */}
               {!showClosed && (
-              <div className="flex shrink-0 gap-2">
+              <div className="flex shrink-0 flex-wrap gap-2">
                 <Button
                   size="sm"
                   variant="outline"
                   disabled={!!busy}
+                  aria-label={`Reject the cancellation on order ${ca.orderId ?? ca.cancelId}`}
                   onClick={() => act(ca, "reject")}
                 >
                   {busy === `${ca.cancelId}:reject` ? (
@@ -1221,6 +1406,7 @@ function CancellationsCard() {
                   size="sm"
                   variant="destructive"
                   disabled={!!busy}
+                  aria-label={`Approve and cancel order ${ca.orderId ?? ca.cancelId}`}
                   onClick={() => act(ca, "approve")}
                 >
                   {busy === `${ca.cancelId}:approve` ? (
@@ -1233,8 +1419,8 @@ function CancellationsCard() {
               </div>
               )}
             </div>
-          ))
-        )}
+          ))}
+        </QueueBody>
       </CardContent>
     </Card>
   );
@@ -1250,50 +1436,118 @@ function CancellationsCard() {
 // shared is the copy: the whole reason a case is not "a return with a different
 // state" is that the seller has to know eBay decides it.
 
-/** Add-tracking dialog. The action that settles most INR inquiries and cases. */
+/**
+ * Add-tracking dialog. The action that settles most INR inquiries and cases.
+ *
+ * PS-02: callers mount it with a `key` per case. Its fields are local state,
+ * and one instance kept mounted across cases opened the next inquiry with the
+ * last order's tracking already typed in and Send enabled.
+ */
 function TrackingDialog({
   open,
   onOpenChange,
   onSubmit,
   busy,
+  orderId,
+  itemTitle,
+  shipped,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onSubmit: (carrier: string, trackingNumber: string, comments: string) => void;
   busy: boolean;
+  /** Which parcel this is for, so the seller can check before sending. */
+  orderId: string | null;
+  itemTitle: string | null;
+  /**
+   * PS-14: what the Ship tab already stored for this order. Starting from it
+   * makes the usual item-not-received answer one click. Mounted per case
+   * (PS-02), so these are real initial values rather than stale ones.
+   */
+  shipped?: { trackingNumber: string | null; carrier: string | null; shippedAt: string | null };
 }) {
-  const [carrier, setCarrier] = useState("");
-  const [tracking, setTracking] = useState("");
+  const initialTracking = shipped?.trackingNumber ?? "";
+  const [carrier, setCarrier] = useState<ShipCarrier | "">(
+    () => carrierFromStored(shipped?.carrier) ?? detectCarrier(initialTracking) ?? "",
+  );
+  const [carrierPicked, setCarrierPicked] = useState(false);
+  // eBay takes a carrier NAME here, and it checks the tracking against it. A
+  // seller on Royal Mail or Canada Post picks Other and types the name; sending
+  // the word "Other" would give eBay nothing to check the number against.
+  const [otherName, setOtherName] = useState(() => {
+    const raw = (shipped?.carrier ?? "").trim();
+    return carrierFromStored(raw) === "Other" && raw.toLowerCase() !== "other" ? raw : "";
+  });
+  const [tracking, setTracking] = useState(initialTracking);
   const [comments, setComments] = useState("");
-  const ready = carrier.trim().length > 0 && tracking.trim().length > 0;
+  const carrierName = carrier === "Other" ? otherName.trim() : carrier;
+  const ready = carrierName.length > 0 && normalizeTracking(tracking).length > 0;
+  const fromShipTab = initialTracking !== "" && tracking === initialTracking;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Send tracking to eBay</DialogTitle>
           <DialogDescription>
+            {orderId
+              ? `For order ${orderId}${itemTitle ? `: ${itemTitle}` : ""}. `
+              : ""}
             eBay accepts this as proof the parcel is on its way. It is what closes
             most item-not-received cases without a refund.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="po-carrier">Carrier</Label>
-            <Input
-              id="po-carrier"
-              value={carrier}
-              onChange={(e) => setCarrier(e.target.value)}
-              placeholder="USPS"
-            />
-          </div>
-          <div className="space-y-1.5">
             <Label htmlFor="po-tracking">Tracking number</Label>
             <Input
               id="po-tracking"
               value={tracking}
-              onChange={(e) => setTracking(e.target.value)}
+              onChange={(e) => {
+                setTracking(e.target.value);
+                if (!carrierPicked) {
+                  setCarrier(detectCarrier(e.target.value) ?? carrier);
+                }
+              }}
               placeholder="9400 1000 0000 0000 0000 00"
+              autoComplete="off"
+              spellCheck={false}
+              aria-describedby={fromShipTab ? "po-tracking-source" : undefined}
             />
+            {fromShipTab ? (
+              <p id="po-tracking-source" className="text-xs text-muted-foreground">
+                From your Ship tab
+                {shipped?.shippedAt ? `, shipped ${fmtDate(shipped.shippedAt)}` : ""}.
+              </p>
+            ) : null}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="po-carrier">Carrier</Label>
+            <select
+              id="po-carrier"
+              value={carrier}
+              onChange={(e) => {
+                setCarrier(e.target.value as ShipCarrier | "");
+                setCarrierPicked(true);
+              }}
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="">Choose a carrier</option>
+              {SHIP_CARRIERS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            {carrier === "Other" ? (
+              <Input
+                id="po-carrier-other"
+                aria-label="Carrier name"
+                value={otherName}
+                onChange={(e) => setOtherName(e.target.value)}
+                placeholder="Royal Mail"
+                autoComplete="off"
+              />
+            ) : null}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="po-comments">Note to the buyer (optional)</Label>
@@ -1311,7 +1565,7 @@ function TrackingDialog({
           </Button>
           <Button
             disabled={!ready || busy}
-            onClick={() => onSubmit(carrier.trim(), tracking.trim(), comments.trim())}
+            onClick={() => onSubmit(carrierName, stripUspsZipPrefix(tracking), comments.trim())}
           >
             {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
             Send tracking
@@ -1320,6 +1574,13 @@ function TrackingDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** A carrier stored on the sale, as one of the pick-list values. */
+function carrierFromStored(raw: string | null | undefined): ShipCarrier | null {
+  const key = (raw ?? "").trim().toLowerCase();
+  if (!key) return null;
+  return SHIP_CARRIERS.find((c) => c.toLowerCase() === key) ?? "Other";
 }
 
 /**
@@ -1343,7 +1604,8 @@ function DeadlineBadge({ respondBy }: { respondBy: string | null | undefined }) 
 }
 
 function InquiriesCard() {
-  const { data: inquiries = [], isLoading } = useEbayInquiries();
+  const inquiriesQuery = useEbayInquiries();
+  const { data: inquiries = [] } = inquiriesQuery;
   const act = useEbayInquiryAction();
   const confirm = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
@@ -1371,8 +1633,9 @@ function InquiriesCard() {
     if (action === "refund") {
       const ok = await confirm({
         title: "Refund the buyer?",
+        // PS-03: an item-not-received refund no longer restocks the garment.
         description:
-          "This refunds the order on eBay and settles the inquiry. It can't be undone.",
+          "This refunds the order on eBay and settles the inquiry. The item stays marked sold, since it never came back. It can't be undone.",
         confirmLabel: "Refund",
         destructive: true,
       });
@@ -1424,14 +1687,18 @@ function InquiriesCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {isLoading ? (
-          <Skeleton className="h-16 w-full" />
-        ) : visible.length === 0 ? (
-          <EmptyRow
-            text={showClosed ? "No closed inquiries." : "No open item-not-received inquiries."}
-          />
-        ) : (
-          visible.map((inq) => (
+        <QueueBody
+          isLoading={inquiriesQuery.isLoading}
+          isError={inquiriesQuery.isError}
+          isSuccess={inquiriesQuery.isSuccess}
+          refetch={inquiriesQuery.refetch}
+          source={inquiriesQuery.source}
+          updatedAt={inquiriesQuery.dataUpdatedAt}
+          isEmpty={visible.length === 0}
+          emptyText={showClosed ? "No closed inquiries." : "No open item-not-received inquiries."}
+          kind="item-not-received inquiries"
+        >
+          {visible.map((inq) => (
             <div
               key={inq.inquiryId}
               data-focus-id={inq.inquiryId}
@@ -1498,13 +1765,21 @@ function InquiriesCard() {
                 </div>
               )}
             </div>
-          ))
-        )}
+          ))}
+        </QueueBody>
       </CardContent>
       <TrackingDialog
+        key={trackingFor ? trackingFor.inquiryId : "none"}
         open={!!trackingFor}
         onOpenChange={(v) => !v && setTrackingFor(null)}
         busy={!!busy}
+        orderId={trackingFor?.orderId ?? null}
+        itemTitle={trackingFor
+          ? caseItems?.get(caseItemKey(trackingFor) ?? "")?.title ?? null
+          : null}
+        shipped={trackingFor
+          ? caseItems?.get(caseItemKey(trackingFor) ?? "") ?? undefined
+          : undefined}
         onSubmit={(carrier, trackingNumber, comments) => {
           if (trackingFor) {
             void run(trackingFor, "shipment", { carrier, trackingNumber, comments });
@@ -1516,7 +1791,8 @@ function InquiriesCard() {
 }
 
 function CasesCard() {
-  const { data: cases = [], isLoading } = useEbayCases();
+  const casesQuery = useEbayCases();
+  const { data: cases = [] } = casesQuery;
   const act = useEbayCaseAction();
   const confirm = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
@@ -1539,6 +1815,11 @@ function CasesCard() {
     cases.map((k) => ({ orderId: k.orderId, itemId: k.itemId })),
   );
 
+  function closeAppeal() {
+    setAppealFor(null);
+    setAppealText("");
+  }
+
   async function run(
     kase: EbayCase,
     action: "shipment" | "refund" | "appeal" | "close",
@@ -1547,8 +1828,11 @@ function CasesCard() {
     if (action === "refund") {
       const ok = await confirm({
         title: "Refund the buyer and settle the case?",
-        description:
-          "This refunds the order on eBay and closes the case. It can't be undone.",
+        // PS-03: the edge restocks only when the case is about an item the
+        // buyer sent back, so the copy says which one this is.
+        description: /NOT_RECEIVED/i.test(kase.reason ?? "")
+          ? "This refunds the order on eBay and closes the case. The item stays marked sold, since it never came back. It can't be undone."
+          : "This refunds the order on eBay and closes the case. It can't be undone.",
         confirmLabel: "Refund",
         destructive: true,
       });
@@ -1610,16 +1894,23 @@ function CasesCard() {
           A case is a return or inquiry the buyer escalated. eBay decides it, and a
           case decided against you counts as a defect on your seller account.
         </p>
-        {isLoading ? (
-          <Skeleton className="h-16 w-full" />
-        ) : visible.length === 0 ? (
-          <EmptyRow text={showClosed ? "No closed cases." : "No open eBay cases."} />
-        ) : (
-          visible.map((kase) => (
+        <QueueBody
+          isLoading={casesQuery.isLoading}
+          isError={casesQuery.isError}
+          isSuccess={casesQuery.isSuccess}
+          refetch={casesQuery.refetch}
+          source={casesQuery.source}
+          updatedAt={casesQuery.dataUpdatedAt}
+          isEmpty={visible.length === 0}
+          emptyText={showClosed ? "No closed cases." : "No open eBay cases."}
+          kind="eBay cases"
+        >
+          {visible.map((kase) => (
+            // PS-13: stacked, like returns and disputes.
             <div
               key={kase.caseId}
               data-focus-id={kase.caseId}
-              className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none"
+              className="flex flex-col gap-3 rounded-md border p-3 data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none"
             >
               <div className="min-w-0 space-y-2">
                 <div className="flex items-center gap-2">
@@ -1673,6 +1964,7 @@ function CasesCard() {
                       our own report agrees with the buyer. */}
                   <Button
                     aria-label={`Grade evidence for case ${kase.caseId}`}
+                    aria-expanded={evidenceFor === kase.caseId}
                     size="sm"
                     variant="outline"
                     disabled={!!busy}
@@ -1687,12 +1979,12 @@ function CasesCard() {
                     variant="outline"
                     disabled={!!busy}
                     onClick={() => {
+                      // PS-02: case B must not open with case A's argument.
+                      setAppealText("");
+                      // The appeal argument IS the evidence. PS-13: the pack
+                      // opens inside the Appeal dialog, not under it.
+                      setEvidenceFor(null);
                       setAppealFor(kase);
-                      // The appeal argument IS the evidence. Open the pack with
-                      // the dialog rather than making the seller find it.
-                      if (isNotAsDescribed(kase.reason) && kase.orderId) {
-                        setEvidenceFor(kase.caseId);
-                      }
                     }}
                   >
                     <Gavel className="mr-1 h-4 w-4" />
@@ -1724,28 +2016,46 @@ function CasesCard() {
                 />
               )}
             </div>
-          ))
-        )}
+          ))}
+        </QueueBody>
       </CardContent>
       <TrackingDialog
+        key={trackingFor ? trackingFor.caseId : "none"}
         open={!!trackingFor}
         onOpenChange={(v) => !v && setTrackingFor(null)}
         busy={!!busy}
+        orderId={trackingFor?.orderId ?? null}
+        itemTitle={trackingFor
+          ? caseItems?.get(caseItemKey(trackingFor) ?? "")?.title ?? null
+          : null}
+        shipped={trackingFor
+          ? caseItems?.get(caseItemKey(trackingFor) ?? "") ?? undefined
+          : undefined}
         onSubmit={(carrier, trackingNumber, comments) => {
           if (trackingFor) {
             void run(trackingFor, "shipment", { carrier, trackingNumber, comments });
           }
         }}
       />
-      <Dialog open={!!appealFor} onOpenChange={(v) => !v && setAppealFor(null)}>
-        <DialogContent>
+      <Dialog open={!!appealFor} onOpenChange={(v) => !v && !busy && closeAppeal()}>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Appeal this case</DialogTitle>
             <DialogDescription>
+              {appealFor?.orderId ? `Order ${appealFor.orderId}. ` : ""}
               eBay rejects an appeal with no argument, so say what it got wrong and
               point at the evidence. The appeal window is short.
             </DialogDescription>
           </DialogHeader>
+          {appealFor && (
+            <ReturnEvidencePanel
+              caseId={appealFor.caseId}
+              orderId={appealFor.orderId}
+              kind="case"
+              initialComplaint={appealFor.reason ?? ""}
+              autoCheck={isNotAsDescribed(appealFor.reason)}
+            />
+          )}
           <Textarea
             aria-label="Your appeal argument"
             value={appealText}
@@ -1754,7 +2064,7 @@ function CasesCard() {
             placeholder="Tracking shows delivered on 12 August, signed for."
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAppealFor(null)}>
+            <Button variant="outline" disabled={!!busy} onClick={closeAppeal}>
               Cancel
             </Button>
             <Button

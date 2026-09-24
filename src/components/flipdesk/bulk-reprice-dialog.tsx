@@ -40,6 +40,7 @@ function money(cents: number): string {
 const SKIP_LABEL: Record<string, string> = {
   no_comps: "No comps",
   below_margin_floor: "Below floor",
+  listing_not_active: "No longer live",
 };
 
 export function BulkRepriceDialog({

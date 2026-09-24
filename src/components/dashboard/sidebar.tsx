@@ -126,6 +126,7 @@ const SURFACE_ICONS: Record<SurfaceId, typeof LayoutDashboard> = {
   "post-sale": ShieldAlert,
   pricing: Tags,
   repricing: Tags,
+  "bulk-pricing": Tags,
   automations: Sparkles,
   money: DollarSign,
   reconciliation: DollarSign,
