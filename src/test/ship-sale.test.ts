@@ -13,10 +13,24 @@ interface Call {
   filters: Array<[string, string, unknown]>;
 }
 
-function fakeDb(opts: { salesRows: unknown[]; itemError?: unknown }) {
+function fakeDb(opts: {
+  salesRows: unknown[];
+  itemError?: unknown;
+  /** What a read-back of the sale finds after a zero-row update. */
+  current?: { id: string; shipped_at: string | null } | null;
+}) {
   const calls: Call[] = [];
+  const reads: string[] = [];
   const db = {
     from: (table: string) => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () => {
+            reads.push(table);
+            return Promise.resolve({ data: opts.current ?? null, error: null });
+          },
+        }),
+      }),
       update: (patch: Record<string, unknown>) => {
         const call: Call = { table, patch, filters: [] };
         calls.push(call);
@@ -39,7 +53,7 @@ function fakeDb(opts: { salesRows: unknown[]; itemError?: unknown }) {
       },
     }),
   };
-  return { db: db as never, calls };
+  return { db: db as never, calls, reads };
 }
 
 describe("shipSale (PS-08)", () => {
@@ -49,10 +63,25 @@ describe("shipSale (PS-08)", () => {
   });
 
   it("throws when the sales update changed no row", async () => {
-    const f = fakeDb({ salesRows: [] });
+    const f = fakeDb({ salesRows: [], current: { id: "sale-1", shipped_at: null } });
     await expect(shipSale(input, f.db)).rejects.toThrow(SHIP_WRITE_REFUSED);
     // And never moved the item for a sale it did not ship.
     expect(f.calls.map((c) => c.table)).toEqual(["sales"]);
+  });
+
+  it("throws when the sale is not visible at all", async () => {
+    const f = fakeDb({ salesRows: [], current: null });
+    await expect(shipSale(input, f.db)).rejects.toThrow(SHIP_WRITE_REFUSED);
+    expect(f.calls.map((c) => c.table)).toEqual(["sales"]);
+  });
+
+  it("still moves the item when the sale was already shipped (the dialog's retry)", async () => {
+    // The ship-order dialog tells the seller to press again when the item
+    // write failed after the sale landed. That press finds shipped_at set.
+    const f = fakeDb({ salesRows: [], current: { id: "sale-1", shipped_at: "2026-09-20T10:00:00Z" } });
+    await expect(shipSale(input, f.db)).resolves.toEqual({ itemError: null });
+    expect(f.reads).toEqual(["sales"]);
+    expect(f.calls.map((c) => c.table)).toEqual(["sales", "inventory_items"]);
   });
 
   it("writes the sale, then the item, on success", async () => {

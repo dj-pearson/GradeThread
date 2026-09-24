@@ -23,6 +23,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // isolates the one write under test.
 let salesUpdateError: unknown = null;
 let statusUpdateError: unknown = null;
+// Set when the sale already carries shipped_at: the `.is("shipped_at", null)`
+// update then changes no row, and the read-back finds it shipped.
+let saleAlreadyShipped = false;
 const writes: { table: string; patch: Record<string, unknown> }[] = [];
 
 vi.mock("@/lib/supabase", () => {
@@ -32,6 +35,11 @@ vi.mock("@/lib/supabase", () => {
       from: (table: string) => ({
         select: () => ({
           eq: () => ({
+            maybeSingle: () =>
+              Promise.resolve({
+                data: { id: "sale-1", shipped_at: saleAlreadyShipped ? "2026-09-20T10:00:00Z" : null },
+                error: null,
+              }),
             order: () => ({
               limit: () => ({
                 maybeSingle: () => Promise.resolve({ data: saleRow, error: null }),
@@ -50,8 +58,12 @@ vi.mock("@/lib/supabase", () => {
               data: error ? null : [{ id: "sale-1" }],
               error,
             });
+            const guarded = Promise.resolve({
+              data: error ? null : saleAlreadyShipped ? [] : [{ id: "sale-1" }],
+              error,
+            });
             return Object.assign(result, {
-              is: () => ({ select: () => result }),
+              is: () => ({ select: () => guarded }),
             });
           },
         }),
@@ -194,6 +206,7 @@ beforeEach(() => {
   closes.length = 0;
   salesUpdateError = null;
   statusUpdateError = null;
+  saleAlreadyShipped = false;
   shipMutate.mockClear();
 });
 
@@ -230,6 +243,32 @@ describe("ShipOrderDialog: the status write that moves it out of the ship queue"
     expect(warnings[0]!.nextStep).toContain("Mark shipped again");
     // And the dialog stays open, because pressing the button again IS the fix.
     expect(closes).toHaveLength(0);
+  });
+
+  it("pressing Mark shipped again, as the warning says, moves the item", async () => {
+    // First press: the sale lands, the item write is refused.
+    statusUpdateError = { code: "42501", message: "rls" };
+    mount();
+    await settle();
+    await markShipped();
+    expect(warnings).toHaveLength(1);
+
+    // Second press: the sale is already shipped now, and the item write works.
+    saleAlreadyShipped = true;
+    statusUpdateError = null;
+    writes.length = 0;
+    const button = byText("Mark shipped");
+    await act(async () => {
+      button!.click();
+    });
+    await settle();
+
+    expect(errors).toEqual([]);
+    expect(
+      writes.some((w) => w.table === "inventory_items" && w.patch.status === "shipped"),
+    ).toBe(true);
+    expect(successes).toEqual(["Marked shipped."]);
+    expect(closes).toHaveLength(1);
   });
 
   it("says 'Marked shipped' and closes when the item really moved", async () => {

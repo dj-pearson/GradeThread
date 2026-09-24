@@ -31,16 +31,24 @@ export const SHIP_WRITE_REFUSED =
   "Couldn't mark this shipped. It may already be shipped, or you may not have permission to change it.";
 
 /**
- * Record the shipment on the sale. Throws when nothing changed.
+ * Record the shipment on the sale. Throws when nothing changed and the sale is
+ * not already shipped.
  *
  * `.is("shipped_at", null)` keeps a second press from restamping a sale that
  * is already shipped, and `.select("id")` is what makes a zero-row result
  * visible at all.
+ *
+ * A zero-row result is read back once. A sale that is ALREADY shipped answers
+ * "already_shipped" rather than throwing, because that is the retry the
+ * ship-order dialog tells the seller to make when the item write failed after
+ * the sale landed ("press Mark shipped again"). Throwing there stranded the
+ * garment as 'sold' for good. A sale that is not shipped, or not visible to
+ * this user, still throws.
  */
 export async function recordSaleShipped(
   input: Omit<ShipSaleInput, "itemId">,
   db: Db = supabase,
-): Promise<void> {
+): Promise<"recorded" | "already_shipped"> {
   const carrier = (input.carrier ?? "").trim();
   // Typed against SaleUpdate, so a misspelt column fails the build. The client's
   // generic resolves update() to `never` for every table in this schema, which
@@ -57,7 +65,15 @@ export async function recordSaleShipped(
     .is("shipped_at", null)
     .select("id");
   if (error) throw error;
-  if (!data || (data as unknown[]).length === 0) throw new Error(SHIP_WRITE_REFUSED);
+  if (data && (data as unknown[]).length > 0) return "recorded";
+  const { data: current, error: readErr } = await db
+    .from("sales")
+    .select("id, shipped_at")
+    .eq("id", input.saleId)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if ((current as { shipped_at?: string | null } | null)?.shipped_at) return "already_shipped";
+  throw new Error(SHIP_WRITE_REFUSED);
 }
 
 /** Move the garment to the Shipped tab. Returns the error rather than throwing. */
