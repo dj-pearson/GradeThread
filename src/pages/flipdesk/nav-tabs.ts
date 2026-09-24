@@ -190,8 +190,31 @@ export function resolveAutolisterView(
  */
 export const RETIRED_VIEW_REDIRECTS: Readonly<Record<string, string>> = {
   "/dashboard/finances": "/dashboard/flipdesk/money?view=finances",
+  // Opens on the eBay SKU match tab it used to be, unless the link names a
+  // tab of its own: /reconciliation?tab=payouts lands on payouts.
+  "/dashboard/flipdesk/reconciliation":
+    "/dashboard/flipdesk/money?view=reconcile&tab=ebay",
   "/dashboard/flipdesk/expenses": "/dashboard/flipdesk/money?view=expenses",
   "/dashboard/flipdesk/reconcile": "/dashboard/flipdesk/money?view=reconcile",
   "/dashboard/flipdesk/autolister/drafts":
     "/dashboard/flipdesk/autolister?view=drafts",
 };
+
+/**
+ * The query a ?view= redirect lands on. MERGES the incoming query rather than
+ * replacing it, so /reconcile?tab=payouts keeps its inner tab: a bare
+ * <Navigate> with a literal query drops every parameter already on the URL.
+ * `defaultTab` is applied only when the incoming URL names no tab, which is
+ * what lets /reconciliation default to the eBay tab without overriding a
+ * bookmarked ?tab=payouts. It never deletes a tab.
+ */
+export function viewRedirectSearch(
+  search: string,
+  view: string,
+  defaultTab?: string,
+): string {
+  const params = new URLSearchParams(search);
+  params.set("view", view);
+  if (defaultTab && !params.has("tab")) params.set("tab", defaultTab);
+  return params.toString();
+}

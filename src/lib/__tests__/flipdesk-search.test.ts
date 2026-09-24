@@ -124,7 +124,7 @@ describe("deepLinkForHit", () => {
       deepLinkForHit(
         hit({ result_type: "sale", result_id: "S1", inventory_item_id: null }),
       ),
-    ).toBe("/dashboard/flipdesk/reconciliation");
+    ).toBe("/dashboard/flipdesk/money?view=reconcile&tab=payouts");
   });
 });
 
@@ -177,7 +177,7 @@ describe("mapHits", () => {
     expect(mapped.map((m) => m.key)).toEqual(["item-a", "sale-b"]);
     expect(mapped[0]!.link).toBe("/dashboard/flipdesk/items/a");
     expect(mapped[0]!.typeLabel).toBe("Item");
-    expect(mapped[1]!.link).toBe("/dashboard/flipdesk/reconciliation");
+    expect(mapped[1]!.link).toBe("/dashboard/flipdesk/money?view=reconcile&tab=payouts");
     expect(mapped[1]!.typeLabel).toBe("Sale");
     expect(mapped[1]!.segments).toEqual([
       { text: "buyer notes", highlight: false },

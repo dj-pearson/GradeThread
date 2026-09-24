@@ -60,6 +60,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { EbaySkuMatch } from "@/components/flipdesk/ebay-sku-match";
 import { CrossSourceConflicts } from "@/components/flipdesk/cross-source-conflicts";
 import { useSyncConflicts } from "@/hooks/use-sync-conflicts";
@@ -167,7 +174,9 @@ export function FlipdeskReconcilePage() {
   const tabParam = searchParams.get("tab");
   const activeTab: ReconcileTab = RECONCILE_TABS.includes(tabParam as ReconcileTab)
     ? (tabParam as ReconcileTab)
-    : "photos";
+    : // Payouts first: this lives under Money, and matching payouts is the
+      // money task. Sorting photos into items is a catalog job.
+      "payouts";
   const setActiveTab = (value: string) => {
     setSearchParams(
       (prev) => {
@@ -816,14 +825,37 @@ export function FlipdeskReconcilePage() {
       />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+        {/* Below sm the four tabs overflow a 375px screen, so they become a
+            picker, the same pattern the Money host uses for its views. */}
+        <div className="sm:hidden">
+          <Label htmlFor="reconcile-tab" className="sr-only">
+            Which part of Reconcile
+          </Label>
+          <Select value={activeTab} onValueChange={setActiveTab}>
+            <SelectTrigger id="reconcile-tab" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="payouts">Payouts &amp; fees</SelectItem>
+              <SelectItem value="photos">Photos &rarr; Items</SelectItem>
+              <SelectItem value="ebay">eBay SKU match</SelectItem>
+              <SelectItem value="cross-source">
+                Cross-source
+                {!conflictsFailed && (conflicts?.total ?? 0) > 0
+                  ? ` (${conflicts!.total})`
+                  : ""}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <TabsList className="hidden sm:inline-flex">
+          <TabsTrigger value="payouts">Payouts &amp; fees</TabsTrigger>
           <TabsTrigger value="photos">Photos &rarr; Items</TabsTrigger>
           <TabsTrigger value="ebay">eBay SKU match</TabsTrigger>
-          <TabsTrigger value="payouts">Payouts &amp; fees</TabsTrigger>
           <TabsTrigger value="cross-source">
             Cross-source
             {!conflictsFailed && (conflicts?.total ?? 0) > 0 && (
-              <Badge variant="destructive" className="ml-1.5 px-1.5 text-[10px]">
+              <Badge variant="outline" className="ml-1.5 px-1.5 text-xs">
                 {conflicts!.total}
               </Badge>
             )}
@@ -988,7 +1020,7 @@ export function FlipdeskReconcilePage() {
                     <Badge variant="outline">{needsSorting.length} need sorting</Badge>
                   )}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
                   <Label htmlFor="gap" className="flex items-center gap-1 text-xs text-muted-foreground">
                     <Clock className="h-3.5 w-3.5" /> Gap: {gapSeconds}s
                   </Label>
@@ -1000,7 +1032,7 @@ export function FlipdeskReconcilePage() {
                     step={5}
                     value={gapSeconds}
                     onChange={(e) => onGapChange(Number(e.target.value))}
-                    className="h-2 w-44 cursor-pointer accent-primary"
+                    className="h-2 w-full min-w-0 flex-1 cursor-pointer accent-primary sm:w-44 sm:flex-none"
                   />
                   {committable && (
                     <>

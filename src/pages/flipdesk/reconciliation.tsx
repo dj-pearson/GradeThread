@@ -93,12 +93,12 @@ import type { ItemListRow } from "@/lib/item-list-columns";
 
 const STEPS = [
   {
-    title: "Ingest payout rows",
-    body: "Payouts come in two ways: automatically from eBay, or from a CSV you upload from your eBay seller dashboard.",
+    title: "Bring in your payouts",
+    body: "eBay payouts come in on their own once eBay is connected. For eBay, Poshmark, Mercari, Depop or Etsy you can also upload the payout report as a CSV.",
   },
   {
-    title: "Auto-match to sales",
-    body: "We match each payout to the right sale by listing ID and date, then fill in the fee breakdown on that sale.",
+    title: "Match them to sales",
+    body: "Each payout is matched to its sale by the payout ID when eBay gives one, otherwise by amount and date.",
   },
   {
     title: "Review the rest",
@@ -308,8 +308,9 @@ export function ReconciliationPayoutsTab() {
         </CardContent>
       </Card>
 
-      {/* Recent imports preview */}
-      {payoutImports.length > 0 && (
+      {/* Recent imports preview. Rendered while loading too, so its
+          skeleton shows instead of the card popping in afterwards. */}
+      {(payoutsLoading || payoutImports.length > 0) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -460,8 +461,8 @@ export function ReconciliationPayoutsTab() {
         <CardHeader>
           <CardTitle>How reconciliation works</CardTitle>
           <CardDescription>
-            The flow runs in the consolidated edge service. Imports never
-            auto-apply without a recorded match.
+            Nothing is linked to a sale unless it is a clear match or you
+            confirm it.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -753,7 +754,7 @@ function TaxPnlExportCard({
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           {summaryTiles.map((t) => (
             <div key={t.label} className="p-2.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              <div className="text-xs text-muted-foreground">
                 {t.label}
               </div>
               <div
@@ -1151,6 +1152,8 @@ export function ReviewQueueCard({
   const dismissMutation = useReconciliationDismiss();
   const runMutation = useReconciliationRun();
   const [busyPayoutId, setBusyPayoutId] = useState<string | null>(null);
+  // Only the clicked Match spins; the row's other buttons just disable.
+  const [busySaleId, setBusySaleId] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<{ scanned: number; total: number } | null>(
     null,
   );
@@ -1185,6 +1188,7 @@ export function ReviewQueueCard({
 
   async function doMatch(payoutId: string, saleId: string) {
     setBusyPayoutId(payoutId);
+    setBusySaleId(saleId);
     try {
       await matchMutation.mutateAsync({
         payoutImportId: payoutId,
@@ -1206,6 +1210,7 @@ export function ReviewQueueCard({
       }
     } finally {
       setBusyPayoutId(null);
+      setBusySaleId(null);
     }
   }
 
@@ -1238,7 +1243,14 @@ export function ReviewQueueCard({
           </div>
           <div className="flex items-center gap-2">
             {!failed && (
-              <Badge variant={total > 0 ? "destructive" : "outline"}>
+              <Badge
+                variant="outline"
+                className={
+                  total > 0
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-200"
+                    : undefined
+                }
+              >
                 {total}
               </Badge>
             )}
@@ -1323,7 +1335,7 @@ export function ReviewQueueCard({
                     <span className="text-xs text-muted-foreground">
                       {fmtDate(entry.payout_import.payout_date)}
                     </span>
-                    <span className="font-mono text-[10px] text-muted-foreground">
+                    <span className="font-mono text-xs text-muted-foreground">
                       {String(
                         entry.payout_import.raw_payload?.payoutid ?? "—",
                       ).slice(0, 22)}
@@ -1338,7 +1350,7 @@ export function ReviewQueueCard({
                       aria-label={`Dismiss the ${fmtMoney(entry.payout_import.amount)} payout`}
                       variant="ghost"
                       size="sm"
-                      className="h-7 px-2 text-[10px]"
+                      className="h-9 text-xs"
                       onClick={() => doDismiss(entry.payout_import.id)}
                       disabled={isBusy}
                     >
@@ -1366,7 +1378,7 @@ export function ReviewQueueCard({
                           <div className="truncate font-medium">
                             {c.item_title ?? "Untitled item"}
                           </div>
-                          <div className="text-[10px] text-muted-foreground">
+                          <div className="text-xs text-muted-foreground">
                             {c.reasons.join(" · ")}
                           </div>
                         </div>
@@ -1374,19 +1386,20 @@ export function ReviewQueueCard({
                           <div className="font-semibold">
                             {fmtMoney(c.payout_amount ?? c.sale_price)}
                           </div>
-                          <div className="text-[10px] text-muted-foreground">
+                          <div className="text-xs text-muted-foreground">
                             {fmtDate(c.sale_date)}
                           </div>
                         </div>
                         <Button
                           size="sm"
-                          className="h-7 px-2 text-[10px]"
+                          className="h-9 text-xs"
+                          aria-label={`Match to ${c.item_title ?? "untitled item"}`}
                           onClick={() =>
                             doMatch(entry.payout_import.id, c.sale_id)
                           }
                           disabled={isBusy}
                         >
-                          {isBusy ? (
+                          {isBusy && busySaleId === c.sale_id ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
                           ) : (
                             "Match"

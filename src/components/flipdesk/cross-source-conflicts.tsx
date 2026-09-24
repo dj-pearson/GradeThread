@@ -151,7 +151,14 @@ export function CrossSourceConflicts() {
               </CardDescription>
             </div>
             {!isError && (
-              <Badge variant={groups.length > 0 ? "destructive" : "outline"}>
+              <Badge
+                variant="outline"
+                className={
+                  groups.length > 0
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-200"
+                    : undefined
+                }
+              >
                 {data?.total ?? 0}
               </Badge>
             )}
@@ -171,7 +178,7 @@ export function CrossSourceConflicts() {
                     key={source}
                     variant="outline"
                     size="sm"
-                    className="h-7 px-2 text-xs"
+                    className="h-9 text-xs"
                     disabled={busy || entries.length === 0}
                     onClick={() => void resolveConflicts(entries)}
                   >
@@ -187,7 +194,7 @@ export function CrossSourceConflicts() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 text-xs"
+                className="h-9 text-xs"
                 onClick={() => setSelected(new Set())}
               >
                 Clear
@@ -285,9 +292,9 @@ function ListingConflictCard({
             </a>
           )}
         </div>
-        <div className="flex items-center gap-1">
-          <span className="mr-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-            Accept all
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="mr-1 text-xs text-muted-foreground">
+            Accept all from
           </span>
           {SOURCES.map((source) => {
             const entries = bulkEntries(source);
@@ -296,7 +303,7 @@ function ListingConflictCard({
                 key={source}
                 variant="outline"
                 size="sm"
-                className="h-6 px-2 text-[10px]"
+                className="h-9 text-xs"
                 disabled={busy || entries.length === 0}
                 onClick={() => void onResolve(entries)}
               >
@@ -309,7 +316,7 @@ function ListingConflictCard({
 
       <div className="divide-y">
         {/* Column header */}
-        <div className="grid grid-cols-[5.5rem_1fr_1fr_1fr] gap-2 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <div className="grid grid-cols-[5.5rem_1fr_1fr_1fr] gap-2 px-3 py-1.5 text-xs font-medium text-muted-foreground">
           <div>Field</div>
           {SOURCES.map((s) => (
             <div key={s}>{SOURCE_LABELS[s]}</div>
@@ -364,7 +371,7 @@ function ListingConflictCard({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-6 px-2 text-[10px]"
+                  className="h-9 text-xs"
                   disabled={busy}
                   aria-label={`Mark ${group.title} ended in FlipDesk`}
                   onClick={() =>
