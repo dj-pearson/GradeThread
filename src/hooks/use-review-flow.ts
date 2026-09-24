@@ -95,7 +95,14 @@ export function useReviewApproveMedian() {
         .not("review_approve_seconds", "is", null)
         .order("review_approved_at", { ascending: false })
         .limit(200);
-      if (error) return { median: null, count: 0 };
+      if (error) {
+        // The column not existing yet (a deploy window for a hand-applied
+        // migration) means "no median", which the widget shows as empty.
+        // Anything else is a failed read, and the widget says so.
+        const code = (error as { code?: string }).code;
+        if (code === "42703" || code === "PGRST204") return { median: null, count: 0 };
+        throw error;
+      }
       const values = ((data ?? []) as { review_approve_seconds: number | null }[])
         .map((r) => r.review_approve_seconds)
         .filter((v): v is number => typeof v === "number");
