@@ -5,6 +5,7 @@ import { escapeCsvCell } from "@/lib/items-csv";
 import { todayLocalDate, toLocalDate } from "@/lib/local-date";
 import { fetchInChunks } from "@/lib/supabase-batch";
 import { fetchAllPages } from "@/lib/paged-read";
+import { formatLabel } from "@/lib/format-label";
 import {
   applySubmissionFilters,
   NO_SUBMISSION_FILTERS,
@@ -19,13 +20,6 @@ import type { GradeReportRow, SubmissionRow } from "@/types/database";
 // as duplicate rows, ignored the filters on screen, and sorted each chunk of
 // selected ids on its own. Now it pages with a stable order, drops superseded
 // rows, applies the list's own filters, and sorts once at the end.
-
-function formatLabel(value: string): string {
-  return value
-    .split(/[-_]/)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
 
 // US-2204: the export's row width scales with the whole account. It writes
 // seven columns out of the row, so project them and type the read as the

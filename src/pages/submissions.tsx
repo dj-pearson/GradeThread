@@ -193,6 +193,11 @@ export function SubmissionsPage() {
   const lastWrittenSearch = useRef(search);
   // US-2544 AC4: ids picked for a partial export.
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // A selection belongs to one workspace. Carrying it across a switch would
+  // show "3 selected" for rows the new owner does not have.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [ownerId]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -414,7 +419,11 @@ export function SubmissionsPage() {
 
   // SUB-12: a ?page= past the end (a stale link, rows deleted since) lands on
   // the last real page instead of an empty table.
-  const pageOverflow = data ? clampedPage(page, totalCount, PAGE_SIZE) : null;
+  // Only from a real answer for THIS page: placeholder data carries the
+  // previous query's count, and a Back/Forward from a short filtered list to
+  // page 5 of the full one would otherwise snap page 5 to page 1.
+  const pageOverflow =
+    data && !isPlaceholderData ? clampedPage(page, totalCount, PAGE_SIZE) : null;
   useEffect(() => {
     if (pageOverflow !== null) updateParams({ page: pageOverflow }, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -499,7 +508,7 @@ export function SubmissionsPage() {
               <Download className="mr-1 h-4 w-4" />
               {exporting
                 ? "Exporting…"
-                : filtersActive && totalCount > 0
+                : filtersActive && totalCount > 0 && !isPlaceholderData
                   ? `Export ${totalCount} matching`
                   : "Export CSV"}
             </Button>
