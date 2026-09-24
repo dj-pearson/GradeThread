@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/ai-quota.ts
   - services/edge-functions/src/lib/ai-metering.ts
   - supabase/migrations/00763_action_credits.sql
-reviewed: 2026-09-08
+reviewed: 2026-09-24
 tags: [pricing, billing, plan-gating, contract]
 summary: A prepaid wallet the AI and connector meters fall through to when a monthly allowance runs out, priced so a small shortfall is cheaper to top up and a large one is still cheaper to upgrade.
 ---
@@ -99,6 +99,12 @@ This is harder than it looks, because `limit` reaching the reserve is already
 alongside the limit, and callers pass the whole quota rather than `quota.limit`.
 A source scan enforces that: passing `quota.limit` still compiles, still
 reserves, and only misbehaves for the sellers who set a cap.
+
+Since AL-01 (2026-09-24) a bare number that does slip through fails safe:
+`toSpendAuthority` reads it as `{ limit, allowCredits: false }`, so it can
+refuse a seller who could have used credits but can never spend a wallet past
+a self-cap. It used to read as credits-allowed, which let AutoLister's photo QA
+and batch retry drain paid credits past a seller's own cap.
 
 **A feature gate is never a top-up opportunity.** A plan that does not include
 the connector at all (`limit === 0`) is refused before the wallet is consulted.

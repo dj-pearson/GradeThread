@@ -8,12 +8,19 @@ code_refs:
   - supabase/migrations/00507_autolister_handoff_sessions.sql
   - ios/GradeThread/AutoLister/AutoListerReviewModel.swift
   - src/hooks/use-autolister.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-24
 tags: [flipdesk, autolister, mobile, contract]
 summary: What crosses from the phone to the desktop AutoLister before any AI runs, and the rules that keep the crossing safe.
 ---
 
 # AutoLister phone → desktop handoff
+
+> **Re-reviewed 2026-09-24.** Drift flagged `flipdesk-autolister.ts` and
+> `use-autolister.ts` for AL-01 to AL-07, US-3476 and the eBay-draft retry
+> work. The one change inside this note's subject is AL-02 (`67c6e008c`): the
+> handoff park and sweep now use `isOwnedStagingPath`, and the Tenancy section
+> below says so. The rest is spend authority, template specifics, draft
+> retries and the Drafts read, all after generation on the desktop.
 
 > **Re-reviewed 2026-09-11.** Drift flagged `flipdesk-autolister.ts` for
 > `180672109` (channel copy). The whole diff in this file is one import and
@@ -93,7 +100,11 @@ Two rules that are easy to get wrong:
 `.eq("user_id", ownerId)` (US-268). On top of that, **every** `storage_path`
 and `thumbnail_storage_path` in the payload is checked against the caller's own
 `{ownerId}/_staging/` prefix before the row is written, and again before the
-delete sweep touches storage. Public URLs are re-derived server-side from the
+delete sweep touches storage. The check is `isOwnedStagingPath` in
+`lib/staging-path.ts`, not a bare `startsWith`: a prefix match alone passes
+`owner/_staging/../../victim/x.jpg`, and storage normalises the `..` (AL-02).
+It also refuses an empty, `.` or `..` segment in the raw or decoded path, and
+any backslash, `%`, `?`, `#` or control character. Public URLs are re-derived server-side from the
 verified paths — a client-supplied URL is never stored, or a forged one would
 put another tenant's image on the seller's desktop grid.
 

@@ -7,13 +7,19 @@ code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
   - services/edge-functions/src/lib/circuit-breaker.ts
-reviewed: 2026-09-20
+reviewed: 2026-09-24
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
 
 
-> [!note] Re-reviewed 2026-09-20. Drift on `schema-version.ts`, and for the
+> [!note] Re-reviewed 2026-09-24. Drift on `schema-version.ts`: the constant
+> moved 00813 to 00834 with its migrations, and 8f63398f0 rewrote the comment on
+> skipped numbers to point at the `parked` list in
+> `supabase/held-migrations.json`. The boot guard, grace window and manifest
+> comparison this note describes are unchanged.
+
+> **Re-reviewed 2026-09-20.** Drift on `schema-version.ts`, and for the
 > third time the diff is the same one line. `EXPECTED_SCHEMA_VERSION` went
 > 00808 to 00813 across four held migrations (00809, 00810, 00811, 00812,
 > 00813). Read the file's whole history since the last review: every commit

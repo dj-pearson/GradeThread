@@ -12,7 +12,7 @@ code_refs:
   - src/pages/legal/privacy.tsx
   - src/pages/legal/__tests__/privacy-buyer.test.tsx
   - extension-unified/SUBMISSION.md
-reviewed: 2026-09-11
+reviewed: 2026-09-24
 tags: [buyer, privacy, legal, consent, contract]
 summary: Buyer personal data is enumerated in one register that the export iterates; legally-sensitive buyer copy is either behind an operator kill-switch that defaults off or bound to a fixed disclosure, and both are asserted rather than described.
 ---
@@ -174,3 +174,8 @@ disclosure changed. Nothing this note asserts has moved -- re-read to
 confirm, which is the only reason the date below moved.
 
 > **Re-read 2026-09-11.** US-3398 changed only the deletion-log fields `account.ts` writes; the erasure shape and the FK assertion this note describes are untouched.
+
+> **Re-read 2026-09-24.** `SUBMISSION.md` changed in `a7cea6270`: the host
+> permission justification now lists `https://*.depop.com/*`, which
+> `extension-unified/manifest.json` already requests for the Depop lister. It
+> is a seller-side listing host, so no buyer data and no buyer disclosure moved.

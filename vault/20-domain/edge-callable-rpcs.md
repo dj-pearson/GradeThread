@@ -8,7 +8,7 @@ code_refs:
   - src/test/edge-never-calls-caller-scoped-rpc.test.ts
   - src/test/rpc-identity-semantics.test.ts
   - supabase/migrations/00662_flipdesk_price_gap_for_user.sql
-reviewed: 2026-08-23
+reviewed: 2026-09-24
 tags: [security, rls, tenant-isolation, postgres, contract]
 summary: The edge calls Postgres as service_role, so auth.uid() is NULL and RLS is off; a function that scopes itself by either one returns nothing or returns every tenant's rows, silently and with a 200. Twenty run as the caller and five more are SECURITY DEFINER but scope their rows by the session; the edge calls none of either, and 00662 shows the p_user_id wrapper that converts one.
 ---

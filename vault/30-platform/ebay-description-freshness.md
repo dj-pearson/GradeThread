@@ -8,12 +8,22 @@ code_refs:
   - services/edge-functions/src/lib/seller-credentials.ts
   - services/edge-functions/src/routes/jobs-credentials-refresh.ts
   - services/edge-functions/src/lib/ai-listing.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-24
 tags: [ebay, publishing, listings, gotcha]
 summary: An eBay description is frozen text — eBay bans active content and off-eBay links — so anything time-varying in it goes stale until a scheduled revise re-renders it.
 ---
 
 # eBay descriptions cannot self-update — refresh by revise
+
+> **Re-reviewed 2026-09-24.** Drift flagged `ai-listing.ts` for US-3211
+> (`fed581fac`), which is on the description path: blocks lead with facts, a
+> graded item's condition block derives from the grade, and each AI block's
+> prose runs through `groundProse` before it is stored. It changes WHAT the
+> blocks say, not when eBay sees them. The array is still rendered once by
+> `renderDescription(withTemplate, descriptionCtx)` (now `:3564`) and is still
+> frozen HTML once eBay has it, so the freshness rule holds. The other commits
+> (AL-02 photo signing, the abort signal and `writeEbayDraft`, US-3474's
+> review flag) do not touch descriptions.
 
 > **Re-reviewed 2026-09-11.** Drift flagged `ai-listing.ts` for `416258523`
 > (US-3346). The diff is three comment blocks about ASPECT ordering, at
