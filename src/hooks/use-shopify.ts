@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { getFreshAccessToken } from "@/lib/auth-token";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 
 // Shopify connector hooks (US-599) — the first real non-eBay marketplace.
 // Mirror use-ebay.ts: connection state is read straight from
@@ -19,18 +20,21 @@ export interface ShopifyConnection {
 }
 
 export function useShopifyConnection(pollingInterval?: number) {
-  const user = useAuthStore((s) => s.user);
+  // MP-04: the active workspace owner's store, primary first.
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["shopify_connection", user?.id],
-    enabled: !!user,
+    queryKey: ["shopify_connection", tenantKey],
+    enabled: !!tenantKey,
     staleTime: pollingInterval ? 0 : 60_000,
     refetchInterval: pollingInterval ?? false,
     queryFn: async (): Promise<ShopifyConnection | null> => {
       const { data, error } = await supabase
         .from("marketplace_connections")
         .select("id, account_handle, is_active, last_synced_at")
+        .eq("user_id", tenantKey!)
         .eq("marketplace", "shopify")
         .eq("is_active", true)
+        .order("is_primary", { ascending: false })
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();

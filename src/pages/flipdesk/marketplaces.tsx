@@ -785,7 +785,9 @@ function EbaySetup({
                         variant="ghost"
                         size="sm"
                         className="text-destructive hover:text-destructive"
-                        onClick={() => disconnect.mutate()}
+                        onClick={() =>
+                          connection && disconnect.mutate({ connectionId: connection.id })
+                        }
                         disabled={disconnect.isPending}
                       >
                         {disconnect.isPending && (

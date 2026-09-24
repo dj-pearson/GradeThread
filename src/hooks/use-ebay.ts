@@ -5,20 +5,15 @@ import { supabase } from "@/lib/supabase";
 import { getFreshAccessToken } from "@/lib/auth-token";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
+import { useTenantKey } from "@/hooks/use-tenant-key";
 // US-2170: the score shape the /listings/validate response already carries. The
 // component file owns it because that is where it is rendered; the edge's
 // lib/listing-quality-score.ts is the authority for how it is COMPUTED.
 import type { ListingQualityScore } from "@/components/flipdesk/quality-score-chip";
 import type { ValueBasis } from "@/components/value/value-basis-note";
 
-// US-1933: tenant partition for eBay query keys — the active workspace owner
-// (or the user for a solo account). Every eBay query keys on this so a workspace
-// switch or a new sign-in on a shared browser can never serve the prior tenant's
-// cached eBay data, independent of the fragile queryClient.clear() on switch.
-// Mirrors the useEbayPayouts precedent (US-1617 / US-1624).
-function useEbayTenantKey(): string | undefined {
-  return useAuthStore((s) => s.activeWorkspaceOwnerId ?? s.user?.id);
-}
+// US-1933 / MP-04: the tenant partition every eBay query keys on lives in
+// use-tenant-key.ts now, shared with the Shopify and extension hooks.
 
 // ── Connection state ────────────────────────────────────────────────
 
@@ -38,10 +33,15 @@ export interface EbayConnection {
 // it scoped to the current user.
 // Pass `pollingInterval` (ms) to fast-poll while a background sync is running.
 export function useEbayConnection(pollingInterval?: number) {
-  const user = useAuthStore((s) => s.user);
+  // MP-04: keyed and filtered on the ACTIVE workspace owner, and the primary
+  // account first. It used to key on user.id with no owner filter and order by
+  // updated_at only, so an admin of two workspaces could see one tenant's
+  // account while Sync and Disconnect acted on another's, and the card could
+  // show account B while the edge synced primary account A.
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["ebay_connection", user?.id],
-    enabled: !!user,
+    queryKey: ["ebay_connection", tenantKey],
+    enabled: !!tenantKey,
     staleTime: pollingInterval ? 0 : 60_000,
     refetchInterval: pollingInterval ?? false,
     queryFn: async (): Promise<EbayConnection | null> => {
@@ -50,8 +50,10 @@ export function useEbayConnection(pollingInterval?: number) {
         .select(
           "id, account_handle, token_expires_at, is_active, last_synced_at, analytics_access_denied"
         )
+        .eq("user_id", tenantKey!)
         .eq("marketplace", "ebay")
         .eq("is_active", true)
+        .order("is_primary", { ascending: false })
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -72,16 +74,19 @@ export interface EbayConnectionIssue {
 }
 
 export function useEbayConnectionIssue() {
-  const user = useAuthStore((s) => s.user);
+  // MP-04: same tenant scoping and primary-first order as useEbayConnection.
+  const tenantKey = useTenantKey();
   return useQuery({
-    queryKey: ["ebay_connection_issue", user?.id],
-    enabled: !!user,
+    queryKey: ["ebay_connection_issue", tenantKey],
+    enabled: !!tenantKey,
     staleTime: 60_000,
     queryFn: async (): Promise<EbayConnectionIssue | null> => {
       const { data, error } = await supabase
         .from("marketplace_connections")
         .select("is_active, refresh_error")
+        .eq("user_id", tenantKey!)
         .eq("marketplace", "ebay")
+        .order("is_primary", { ascending: false })
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -115,7 +120,7 @@ export interface EbayPoliciesResponse {
 // so this also tells us whether a ship-from location exists yet. `enabled`
 // lets callers defer the call until the account is connected.
 export function useEbayPolicies(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_policies", tenantKey],
     enabled,
@@ -198,7 +203,7 @@ export interface EbayAccountHealth {
 }
 
 export function useEbayAccountHealth(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_account_health", tenantKey],
     enabled,
@@ -230,7 +235,7 @@ export interface EbayListingHealth {
 }
 
 export function useEbayListingHealth(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_listing_health", tenantKey],
     enabled,
@@ -337,7 +342,7 @@ export function useEbayListingViolations(
   complianceType: string,
   enabled: boolean,
 ) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_listing_violations", tenantKey, complianceType],
     enabled,
@@ -488,7 +493,7 @@ export interface EbayPromotionsResponse {
   promotions?: EbayItemPromotion[];
 }
 export function useEbayPromotions(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_promotions", tenantKey],
     enabled,
@@ -743,13 +748,19 @@ export function useStartEbayOauth() {
 // US-364: revoke the grant upstream at eBay (where supported) and deactivate the
 // connection locally, so a long-lived refresh token isn't left valid after the
 // seller disconnects.
+// MP-04: sends the connection_id of the account on screen. Without it the edge
+// deactivates EVERY eBay account in the workspace (US-1507's fallback).
 export function useDisconnectEbay() {
   const qc = useQueryClient();
-  return useMutation<{ ok: true; revoked: boolean }, Error, void>({
-    mutationFn: async () => {
+  return useMutation<{ ok: true; revoked: boolean }, Error, { connectionId: string }>({
+    mutationFn: async ({ connectionId }) => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/disconnect`,
-        { method: "POST", headers: await ebayHeaders() },
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ connection_id: connectionId }),
+        },
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Could not disconnect eBay.");
@@ -1826,7 +1837,7 @@ export interface EbayBuyerMessage {
 }
 
 export function useEbayBestOffers(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_best_offers", tenantKey],
     enabled,
@@ -1901,7 +1912,7 @@ export interface EbayNegotiationCapability {
 }
 
 export function useEbayNegotiationCapability(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_negotiation_capability", tenantKey],
     enabled,
@@ -1924,7 +1935,7 @@ export function useEbayNegotiationCapability(enabled = true) {
 }
 
 export function useEbayEligibleOffers(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_eligible_offers", tenantKey],
     enabled,
@@ -2986,7 +2997,7 @@ export interface EbayItemPromotionDetail extends EbayItemPromotion {
 }
 
 export function useEbayItemPromotion(promotionId: string | null) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_item_promotion", tenantKey, promotionId],
     enabled: !!promotionId,
@@ -3255,7 +3266,7 @@ export interface EbayPrograms {
 }
 
 export function useEbayPrograms(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_programs", tenantKey],
     enabled,
@@ -3356,7 +3367,7 @@ export interface EbayLogisticsCapability {
 }
 
 export function useEbayLogisticsCapability(enabled = true) {
-  const tenantKey = useEbayTenantKey();
+  const tenantKey = useTenantKey();
   return useQuery({
     queryKey: ["ebay_logistics_capability", tenantKey],
     enabled,
