@@ -24,6 +24,8 @@ const state = vi.hoisted(() => ({
   drafts: {} as Record<string, unknown>,
   overview: {} as Record<string, unknown>,
   needsYou: {} as Record<string, unknown>,
+  ebay: {} as Record<string, unknown>,
+  needsYouArgs: [] as unknown[][],
   calls: {
     conflictsEnabled: [] as unknown[],
     overviewEnabled: [] as unknown[],
@@ -69,7 +71,13 @@ vi.mock("@/stores/auth-store", () => ({
     select({ user: { id: "u1" } }),
 }));
 vi.mock("@/hooks/use-needs-you", () => ({
-  useNeedsYou: () => state.needsYou,
+  useNeedsYou: (...args: unknown[]) => {
+    state.needsYouArgs.push(args);
+    return state.needsYou;
+  },
+}));
+vi.mock("@/hooks/use-ebay", () => ({
+  useEbayConnection: () => state.ebay,
 }));
 vi.mock("@/hooks/use-sync-conflicts", () => ({
   useSyncConflicts: (enabled?: boolean) => {
@@ -118,6 +126,8 @@ beforeEach(() => {
   state.drafts = q({ data: { rows: [], truncated: false } });
   state.overview = q({ data: { agingCount: 0, staleCount: 0 } });
   state.needsYou = cleanNeedsYou();
+  state.ebay = q({ data: { id: "conn" } });
+  state.needsYouArgs = [];
   state.calls.conflictsEnabled = [];
   state.calls.overviewEnabled = [];
   container = document.createElement("div");
@@ -240,5 +250,14 @@ describe("AttentionRail: grading and extension states (DASH-7)", () => {
     expect(links[0]).toContain("2");
     expect(links[0]).toContain("need new photos");
     expect(links[links.length - 1]).toContain("being finalized");
+  });
+});
+
+describe("AttentionRail: no eBay connection (DASH-8)", () => {
+  it("does not ask eBay, and says All clear rather than Could not check", async () => {
+    state.ebay = { data: null, isLoading: false, isError: false };
+    await render("flipdesk");
+    expect(state.needsYouArgs.every((a) => a[1] === false)).toBe(true);
+    expect(container.textContent).toContain("All clear");
   });
 });

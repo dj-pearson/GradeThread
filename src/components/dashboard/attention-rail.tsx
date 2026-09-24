@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth-store";
 import { useNeedsYou } from "@/hooks/use-needs-you";
+import { useEbayConnection } from "@/hooks/use-ebay";
 import { useSyncConflicts } from "@/hooks/use-sync-conflicts";
 import { useExtensionQueue } from "@/hooks/use-extension-queue";
 import { useAutolisterDrafts } from "@/hooks/use-autolister";
@@ -109,7 +110,12 @@ export function AttentionRail(
   const isFlipdesk = surface === "flipdesk";
   const queryClient = useQueryClient();
 
-  const needsYou = useNeedsYou(isFlipdesk);
+  // The six eBay queues each 502 for a seller with no eBay connection, which
+  // would read as "Could not check eBay queues" on every load. Ask eBay only
+  // when there is a connection (or when the connection read itself failed).
+  const ebay = useEbayConnection();
+  const ebayOn = isFlipdesk && !ebay.isLoading && (ebay.isError || !!ebay.data);
+  const needsYou = useNeedsYou(isFlipdesk, ebayOn);
   // Gated like every other FlipDesk read here: the grading view must not fire
   // the aggregate RPC and a 500-row conflicts read it never shows.
   const conflicts = useSyncConflicts(isFlipdesk);
@@ -167,7 +173,7 @@ export function AttentionRail(
   const updatedAt = oldestUpdatedAt(sources.map((q) => q.dataUpdatedAt ?? 0));
   const updatedLabel = relativeTime(updatedAt, Date.now());
   const loading = sources.some((q) => q.isLoading) ||
-    (isFlipdesk && needsYou.isLoading);
+    (isFlipdesk && (ebay.isLoading || needsYou.isLoading));
   const refreshing = sources.some((q) => q.isFetching) ||
     (isFlipdesk && needsYou.isFetching);
 
