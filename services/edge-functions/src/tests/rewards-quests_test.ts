@@ -351,3 +351,50 @@ Deno.test("R7: finishing a weekly quest on Friday pays it on Monday's read, once
     db.restore();
   }
 });
+
+// ─── Review: the per-user event read pages past the row cap ─────────────────
+
+Deno.test("a busy closed month does not push this week's events past the row cap", async () => {
+  const { installFakePostgrest } = await import("./_fake-postgrest.ts");
+  const { loadQuestsState, USER_EVENTS_PAGE } = mod;
+  const db = installFakePostgrest();
+  try {
+    const userId = crypto.randomUUID();
+    const weekly = { ...quest({ target: 5, xp_reward: 0 }), id: crypto.randomUUID() };
+    // A monthly quest drags the read back to the start of LAST month.
+    const monthly = {
+      ...quest({ key: "monthly_q", cadence: "monthly", target: 100000, xp_reward: 0 }),
+      id: crypto.randomUUID(),
+    };
+    const e = (at: string) => ({
+      id: crypto.randomUUID(),
+      user_id: userId,
+      event_type: "coverage_completed",
+      occurred_at: at,
+      verified: true,
+      metadata: { paid: true },
+      reference_id: crypto.randomUUID(),
+    });
+    // A full page of July, then three grades this week.
+    const july = Array.from({ length: USER_EVENTS_PAGE }, (_, i) =>
+      e(new Date(Date.parse("2026-07-02T00:00:00.000Z") + i * 60_000).toISOString())
+    );
+    const thisWeek = [
+      e("2026-08-10T16:00:00.000Z"),
+      e("2026-08-11T16:00:00.000Z"),
+      e("2026-08-12T16:00:00.000Z"),
+    ];
+    db.reset({
+      reward_quests: [weekly, monthly],
+      reputation_events: [...july, ...thisWeek],
+      user_quest_progress: [],
+    });
+    db.maxRows = USER_EVENTS_PAGE;
+
+    const state = await loadQuestsState(userId, TZ, Date.parse("2026-08-12T18:00:00.000Z"));
+    const live = state.quests.find((q) => q.key === weekly.key)!;
+    assertEquals(live.progress.current, 3, "the newest rows must not be the ones dropped");
+  } finally {
+    db.restore();
+  }
+});

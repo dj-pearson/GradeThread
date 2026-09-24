@@ -268,7 +268,10 @@ Four rules constrain a quest:
   `quest:<key>:<period>`, is what makes two tabs award once. Each read also
   settles the window that just CLOSED (`previousQuestWindow`: the previous
   week or month, or a fixed quest for seven days after it ends), paying only a
-  finished one, so a quest done on Friday is paid on Monday's read.
+  finished one, so a quest done on Friday is paid on Monday's read. That
+  reaches the per-user event read back a whole extra window, so the read PAGES
+  (1,000 rows a page, rewardable types only): one oldest-first response stops
+  at PostgREST's row cap, and what it drops is this week's rows.
 
 **A community challenge is time-boxed by definition** and its leaderboard names
 **only sellers who joined the leaderboards** (`leaderboard_opt_in`, the same

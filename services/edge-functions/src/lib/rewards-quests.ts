@@ -348,22 +348,51 @@ function toQuestEvent(row: {
 }
 
 /** One user's reward events at or after `sinceMs`. Tenant-scoped (US-268). */
+/** Rows per page of the per-user event read. At or under PostgREST's row cap. */
+export const USER_EVENTS_PAGE = 1000;
+/** Hard stop on pages, so a runaway ledger cannot turn one read into hundreds. */
+const USER_EVENTS_MAX_PAGES = 50;
+
+const REWARD_TYPE_LIST: string[] = [...REWARD_TYPES];
+
+/**
+ * Every rewardable event this user has had since `sinceMs`, oldest first.
+ *
+ * PAGED. Settling the window that just closed (previousQuestWindow) reaches
+ * back a whole extra week or month, and a fixed quest's window can reach back
+ * further still. One unpaged, oldest-first read stops at PostgREST's row cap,
+ * and what it drops is the NEWEST rows: a busy seller's current-week quests
+ * would read short exactly because last month was busy. The type filter keeps
+ * rows that can never count out of the pages.
+ */
 async function loadUserEvents(userId: string, sinceMs: number): Promise<QuestEventInput[]> {
-  const { data, error } = await supabaseAdmin
-    .from("reputation_events")
-    .select("event_type, occurred_at, verified, metadata")
-    .eq("user_id", userId)
-    .gte("occurred_at", new Date(sinceMs).toISOString())
-    .order("occurred_at", { ascending: true });
-  if (error) {
-    console.error("[rewards-quests] event load failed:", error.message);
-    return [];
-  }
   const out: QuestEventInput[] = [];
-  for (const r of data ?? []) {
-    const ev = toQuestEvent(r as Parameters<typeof toQuestEvent>[0]);
-    if (ev) out.push(ev);
+  const sinceIso = new Date(sinceMs).toISOString();
+  for (let page = 0; page < USER_EVENTS_MAX_PAGES; page++) {
+    const from = page * USER_EVENTS_PAGE;
+    const { data, error } = await supabaseAdmin
+      .from("reputation_events")
+      .select("event_type, occurred_at, verified, metadata")
+      .eq("user_id", userId)
+      .in("event_type", REWARD_TYPE_LIST)
+      .gte("occurred_at", sinceIso)
+      .order("occurred_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + USER_EVENTS_PAGE - 1);
+    if (error) {
+      console.error("[rewards-quests] event load failed:", error.message);
+      return out;
+    }
+    const rows = data ?? [];
+    for (const r of rows) {
+      const ev = toQuestEvent(r as Parameters<typeof toQuestEvent>[0]);
+      if (ev) out.push(ev);
+    }
+    if (rows.length < USER_EVENTS_PAGE) return out;
   }
+  console.warn(
+    `[rewards-quests] event read for ${userId} hit ${USER_EVENTS_MAX_PAGES} pages; progress is partial.`,
+  );
   return out;
 }
 
