@@ -322,3 +322,51 @@ Deno.test("P4: more than 50 ids come back as not_processed", async () => {
   assertEquals(out.body.not_processed, ["extra-50", "extra-51", "extra-52"]);
   assertEquals(out.body.applied, 1);
 });
+
+// ── P11 ─────────────────────────────────────────────────────────────
+
+Deno.test("P11: 50 rows make 2 bulk eBay calls, not 50 single ones, and a refused offer stays put", async () => {
+  offerPushes = [];
+  const bulkCalls: number[] = [];
+  const realBulk = pricingEbay.bulkUpdatePriceQuantity;
+  pricingEbay.bulkUpdatePriceQuantity = ((_owner: string, requests: Array<Record<string, unknown>>) => {
+    bulkCalls.push(requests.length);
+    return Promise.resolve(
+      requests.map((r) => {
+        const offerId = (r.offers as Array<{ offerId: string }>)[0].offerId;
+        return offerId === "offer-7"
+          ? { offerId, statusCode: 400, errors: [{ message: "Price too low" }] }
+          : { offerId, statusCode: 200 };
+      }),
+    );
+  }) as unknown as typeof pricingEbay.bulkUpdatePriceQuantity;
+  try {
+    const items: Row[] = [];
+    const listings: Row[] = [];
+    for (let i = 0; i < 50; i++) {
+      items.push({ id: `item-${i}`, user_id: OWNER, sku: `SKU-${i}`, acquired_price: null, floor_price: null });
+      listings.push({
+        id: `listing-${i}`,
+        inventory_item_id: `item-${i}`,
+        platform: "ebay",
+        listing_status: "active",
+        listing_price: 50,
+        platform_offer_id: `offer-${i}`,
+        inventory_sku: null,
+      });
+    }
+    db.reset({ inventory_items: items, listings });
+    const out = await call("/reprice/apply", {
+      items: listings.map((l) => ({ listing_id: l.id, price_cents: 4500 })),
+    });
+    assertEquals(bulkCalls, [25, 25]);
+    assertEquals(offerPushes.length, 0, "no single-offer calls");
+    assertEquals(out.body.applied, 49);
+    assertEquals(out.body.errors, [{ listing_id: "listing-7", message: "Price too low" }]);
+    const byId = new Map(db.tables.listings.map((l) => [l.id, l.listing_price]));
+    assertEquals(byId.get("listing-7"), 50, "the refused row keeps its price");
+    assertEquals(byId.get("listing-8"), 45);
+  } finally {
+    pricingEbay.bulkUpdatePriceQuantity = realBulk;
+  }
+});

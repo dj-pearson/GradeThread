@@ -8,11 +8,14 @@ import { isFeatureEnabled } from "../lib/feature-flags.ts";
 import { getSetting } from "../lib/system-settings.ts";
 import { createMarkdownSale } from "../lib/ebay-marketing.ts";
 import {
+  bulkUpdatePriceQuantity,
+  EBAY_BULK_MAX,
   isEbayConfigured,
   searchBrowseComps,
   suggestCategories,
   updateOfferPrice,
 } from "../lib/ebay-client.ts";
+import { buildPriceQtyRequest, chunk, normalizeBulkEntry } from "../lib/ebay-bulk.ts";
 import {
   computeSuggestion,
   gradeToConditionId,
@@ -63,6 +66,7 @@ export const pricingEbay = {
   isEbayConfigured,
   searchBrowseComps,
   updateOfferPrice,
+  bulkUpdatePriceQuantity,
   createMarkdownSale,
 };
 
@@ -102,8 +106,11 @@ interface ListingJoinRow {
   listing_title: string | null;
   /** Only "active" listings may be priced; the bulk paths report the rest. */
   listing_status: string;
+  /** US-1999: the SKU pinned at publish time; the item's sku is the fallback. */
+  inventory_sku?: string | null;
   inventory_items: {
     user_id: string;
+    sku?: string | null;
     ebay_category_id: string | null;
     grade_value: number | null;
     brand: string | null;
@@ -119,8 +126,8 @@ interface ListingJoinRow {
 // Columns the repricing engine needs off a listing + its item, shared by the
 // scan and the bulk match-to-comp flow (US-962).
 const REPRICE_LISTING_COLUMNS =
-  "id, inventory_item_id, listing_price, listed_at, watchers, views, watchers_count, impressions_7d, click_through_rate, platform_offer_id, platform_category_id, listing_title, listing_status, " +
-  "inventory_items!inner(user_id, ebay_category_id, grade_value, brand, size, title, acquired_price, floor_price)";
+  "id, inventory_item_id, listing_price, listed_at, watchers, views, watchers_count, impressions_7d, click_through_rate, platform_offer_id, platform_category_id, listing_title, listing_status, inventory_sku, " +
+  "inventory_items!inner(user_id, ebay_category_id, grade_value, brand, size, title, sku, acquired_price, floor_price)";
 
 interface ScanResult {
   scanned: number;
@@ -1605,6 +1612,9 @@ async function applyRepriceFor(
   const appliedRows: Array<{ listing_id: string; old_price_cents: number; new_price_cents: number }> = [];
   const now = new Date().toISOString();
 
+  // 1. Refusals first, before anything reaches eBay.
+  type Ready = { req: { listingId: string; priceCents: number }; listing: ListingJoinRow };
+  const ready: Ready[] = [];
   for (const req of capped) {
     const listing = byId.get(req.listingId);
     if (!listing) {
@@ -1623,25 +1633,78 @@ async function applyRepriceFor(
       skipped.push({ listing_id: req.listingId, reason: "below_margin_floor" });
       continue;
     }
+    ready.push({ req, listing });
+  }
 
-    const dollars = req.priceCents / 100;
-    const offerId = listing.platform_offer_id;
-    const hasLiveOffer = Boolean(offerId) && pricingEbay.isEbayConfigured();
-
-    // Push to eBay FIRST (US-467): a failed remote update must not desync the
-    // local price, so skip the local write and surface it as a retryable error.
-    if (hasLiveOffer) {
-      try {
-        await pricingEbay.updateOfferPrice(ownerId, offerId!, dollars);
-      } catch (err) {
-        errors.push({
-          listing_id: req.listingId,
-          message: err instanceof Error ? err.message : String(err),
-        });
-        continue;
+  // 2. Push to eBay FIRST (US-467): a failed remote update must not desync the
+  // local price, so a row eBay refused skips the local write and comes back as
+  // a retryable error. Rows with an offer AND a SKU go through eBay's bulk
+  // price call, 25 offers per request, instead of one round trip each.
+  const ebayOn = pricingEbay.isEbayConfigured();
+  const pushed = new Set<string>();
+  const failed = new Set<string>();
+  const skuOf = (l: ListingJoinRow) => l.inventory_sku ?? l.inventory_items.sku ?? null;
+  const bulkable = ebayOn
+    ? ready.filter((r) => r.listing.platform_offer_id && skuOf(r.listing))
+    : [];
+  for (const batch of chunk(bulkable, EBAY_BULK_MAX)) {
+    let entries: Array<Record<string, unknown>>;
+    try {
+      entries = await pricingEbay.bulkUpdatePriceQuantity(
+        ownerId,
+        batch.map((r) =>
+          buildPriceQtyRequest({
+            sku: skuOf(r.listing)!,
+            offerId: r.listing.platform_offer_id!,
+            priceValue: r.req.priceCents / 100,
+          })
+        ),
+      ) as unknown as Array<Record<string, unknown>>;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      for (const r of batch) {
+        errors.push({ listing_id: r.req.listingId, message });
+        failed.add(r.req.listingId);
       }
+      continue;
     }
+    batch.forEach((r, i) => {
+      const offerId = r.listing.platform_offer_id!;
+      // eBay answers per offer; match on the offer id, falling back to order.
+      const entry = entries.find((e) => e.offerId === offerId) ?? entries[i] ?? {};
+      const norm = normalizeBulkEntry({ offerId, ...entry }, offerId);
+      if (norm.ok) {
+        pushed.add(r.req.listingId);
+      } else {
+        errors.push({ listing_id: r.req.listingId, message: norm.error ?? "eBay refused the price." });
+        failed.add(r.req.listingId);
+      }
+    });
+  }
+  // An offer with no SKU on record cannot ride the bulk call; it keeps the
+  // single-offer update.
+  for (const r of ready) {
+    const offerId = r.listing.platform_offer_id;
+    if (!ebayOn || !offerId || pushed.has(r.req.listingId) || failed.has(r.req.listingId)) {
+      continue;
+    }
+    try {
+      await pricingEbay.updateOfferPrice(ownerId, offerId, r.req.priceCents / 100);
+      pushed.add(r.req.listingId);
+    } catch (err) {
+      errors.push({
+        listing_id: r.req.listingId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      failed.add(r.req.listingId);
+    }
+  }
 
+  // 3. Local writes, only for rows eBay took or that have no live offer.
+  for (const { req, listing } of ready) {
+    if (failed.has(req.listingId)) continue;
+    const hasLiveOffer = pushed.has(req.listingId);
+    const dollars = req.priceCents / 100;
     const oldCents = Math.round(listing.listing_price * 100);
     const { error: updErr } = await supabaseAdmin
       .from("listings")
