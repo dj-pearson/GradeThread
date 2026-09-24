@@ -48,11 +48,21 @@ export interface Challenge extends Quest {
   you_are_listed: boolean;
 }
 
+/** How the personal quests in the window that just closed turned out. */
+export interface LastPeriodSummary {
+  label: "week" | "month" | "round";
+  done: number;
+  total: number;
+  xp: number;
+}
+
 export interface QuestsState {
   enabled: boolean;
   quests: Quest[];
   challenges: Challenge[];
   season_timezone: string;
+  /** Absent when no personal quest's window closed recently. */
+  last_period?: LastPeriodSummary;
 }
 
 const EMPTY: QuestsState = {

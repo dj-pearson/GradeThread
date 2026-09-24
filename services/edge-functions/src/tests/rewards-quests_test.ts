@@ -15,6 +15,7 @@ Deno.env.set(
 import { assert, assertEquals } from "@std/assert";
 import type { QuestDefinition, QuestEventInput } from "../lib/rewards-quests.ts";
 
+const mod = await import("../lib/rewards-quests.ts");
 const {
   computeQuestProgress,
   isQuestMetric,
@@ -280,6 +281,72 @@ Deno.test("R3: a Verified seller who has not joined the boards is scored but not
 
     const mine = await loadChallengeStandings(q, w, optedIn);
     assertEquals(mine.viewerListed, true);
+  } finally {
+    db.restore();
+  }
+});
+
+// ─── R7: a quest finished in a window that has since closed is still paid ────
+
+Deno.test("R7: previousQuestWindow is the window before the current one", () => {
+  const { previousQuestWindow } = mod;
+  const now = Date.parse("2026-08-12T15:00:00.000Z"); // Wednesday
+  const prev = previousQuestWindow(quest(), now, TZ)!;
+  assertEquals(prev.periodKey, "w2026-08-03");
+  assertEquals(prev.endMs, questWindow(quest(), now, TZ)!.startMs);
+  assertEquals(previousQuestWindow(quest({ cadence: "monthly" }), now, TZ)!.periodKey, "m2026-07");
+
+  const fixed = quest({
+    cadence: "fixed",
+    starts_at: "2026-08-01T00:00:00.000Z",
+    ends_at: "2026-08-10T00:00:00.000Z",
+  });
+  assertEquals(previousQuestWindow(fixed, now, TZ)?.periodKey, "fixed", "ended 2 days ago");
+  assertEquals(previousQuestWindow(fixed, Date.parse("2026-08-05T00:00:00Z"), TZ), null, "running");
+  assertEquals(previousQuestWindow(fixed, Date.parse("2026-08-30T00:00:00Z"), TZ), null, "long gone");
+});
+
+Deno.test("R7: finishing a weekly quest on Friday pays it on Monday's read, once", async () => {
+  const { installFakePostgrest } = await import("./_fake-postgrest.ts");
+  const { loadQuestsState } = mod;
+  const db = installFakePostgrest();
+  try {
+    const userId = crypto.randomUUID();
+    const q = { ...quest({ target: 2, xp_reward: 30 }), id: crypto.randomUUID() };
+    const e = (at: string) => ({
+      id: crypto.randomUUID(),
+      user_id: userId,
+      event_type: "coverage_completed",
+      occurred_at: at,
+      verified: true,
+      metadata: { paid: true },
+      reference_id: crypto.randomUUID(),
+    });
+    db.reset({
+      reward_quests: [q],
+      // Week of Monday 3 August: two grades, Thursday and Friday.
+      reputation_events: [e("2026-08-06T15:00:00.000Z"), e("2026-08-07T15:00:00.000Z")],
+      user_quest_progress: [],
+    });
+
+    const monday = Date.parse("2026-08-10T15:00:00.000Z");
+    const first = await loadQuestsState(userId, TZ, monday);
+    const rows = db.tables.user_quest_progress.filter((r) => r.period_key === "w2026-08-03");
+    assertEquals(rows.length, 1, "last week's finished quest was claimed");
+    assert(rows[0].completed_at, "and marked complete");
+    const paid = () =>
+      db.tables.reputation_events.filter((r) =>
+        r.event_type === "quest_completed" && r.reference_id === `quest:${q.key}:w2026-08-03`
+      );
+    assertEquals(paid().length, 1, "one quest_completed row");
+    assertEquals(first.last_period, { label: "week", done: 1, total: 1, xp: 30 });
+    assert(
+      first.quests.every((v) => v.period_key !== "w2026-08-03"),
+      "a closed window is summarized, not listed as live",
+    );
+
+    await loadQuestsState(userId, TZ, monday + 3_600_000);
+    assertEquals(paid().length, 1, "a second read pays nothing twice");
   } finally {
     db.restore();
   }

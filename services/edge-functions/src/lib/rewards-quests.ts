@@ -178,6 +178,37 @@ export function questWindow(
   return weekWindow(p.year, p.month, p.day, tz);
 }
 
+/** How long after a FIXED quest ends it is still settled on a read. */
+export const FIXED_QUEST_SETTLE_MS = 7 * 86_400_000;
+
+/**
+ * The window of this quest that most recently CLOSED, or null.
+ *
+ * A quest is only ever evaluated on a read, so a seller who finished a weekly
+ * quest on Friday and next opened the page on Monday was never claimed, paid or
+ * told: by Monday the read was looking at the new week. Settling the window that
+ * just closed on the next read fixes that, and it stays idempotent because the
+ * claim is keyed on (quest, period_key) and the grant on quest:<key>:<period>.
+ *
+ * Weekly and monthly: the window containing the instant before the current one
+ * started. Fixed: the quest's own dates, for FIXED_QUEST_SETTLE_MS after it ends.
+ */
+export function previousQuestWindow(
+  quest: Pick<QuestDefinition, "cadence" | "starts_at" | "ends_at">,
+  nowMs: number,
+  tz: string,
+): QuestWindow | null {
+  if (quest.cadence === "fixed") {
+    const start = Date.parse(quest.starts_at ?? "");
+    const end = Date.parse(quest.ends_at ?? "");
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+    if (nowMs < end || nowMs - end > FIXED_QUEST_SETTLE_MS) return null;
+    return { periodKey: "fixed", startMs: start, endMs: end };
+  }
+  const current = questWindow(quest, nowMs, tz);
+  return current ? questWindow(quest, current.startMs - 1, tz) : null;
+}
+
 // ─── Progress ───────────────────────────────────────────────────────────────
 
 export interface QuestEventInput {
@@ -351,11 +382,22 @@ export interface ChallengeView extends QuestView {
   you_are_listed: boolean;
 }
 
+/** How the personal quests in the window that just closed turned out. */
+export interface LastPeriodSummary {
+  /** What to call the window: every closed quest weekly, every one monthly, or mixed. */
+  label: "week" | "month" | "round";
+  done: number;
+  total: number;
+  xp: number;
+}
+
 export interface QuestsState {
   enabled: boolean;
   quests: QuestView[];
   challenges: ChallengeView[];
   season_timezone: string;
+  /** Absent when no personal quest had a window close recently. */
+  last_period?: LastPeriodSummary;
 }
 
 /**
@@ -572,11 +614,39 @@ export async function loadQuestsState(
     const live = defs
       .map((q) => ({ quest: q, window: questWindow(q, nowMs, tz) }))
       .filter((x): x is { quest: QuestDefinition; window: QuestWindow } => x.window !== null);
-    if (live.length === 0) return { ...off, enabled: true };
+    const closed = defs
+      .map((q) => ({ quest: q, window: previousQuestWindow(q, nowMs, tz) }))
+      .filter((x): x is { quest: QuestDefinition; window: QuestWindow } => x.window !== null);
+    if (live.length === 0 && closed.length === 0) return { ...off, enabled: true };
 
     // One event read for every window, from the earliest boundary in play.
-    const since = Math.min(...live.map((x) => x.window.startMs));
+    const since = Math.min(...[...live, ...closed].map((x) => x.window.startMs));
     const events = await loadUserEvents(userId, since);
+
+    // Settle the windows that just closed. Only a FINISHED one is written: an
+    // unfinished quest from last week has nothing left to claim, and writing its
+    // snapshot would only add a row per quest per week for nobody to read.
+    let lastPeriod: LastPeriodSummary | undefined;
+    for (const { quest, window } of closed) {
+      const progress = computeQuestProgress(events, quest, window);
+      let xpAwarded = 0;
+      if (progress.complete) {
+        xpAwarded = (await persistQuestProgress(userId, quest, window, progress)).xpAwarded;
+      }
+      if (quest.quest_type !== "personal") continue;
+      const label = quest.cadence === "weekly"
+        ? "week"
+        : quest.cadence === "monthly"
+        ? "month"
+        : "round";
+      lastPeriod ??= { label, done: 0, total: 0, xp: 0 };
+      if (lastPeriod.label !== label) lastPeriod.label = "round";
+      lastPeriod.total += 1;
+      if (progress.complete) {
+        lastPeriod.done += 1;
+        lastPeriod.xp += xpAwarded;
+      }
+    }
 
     const quests: QuestView[] = [];
     const challenges: ChallengeView[] = [];
@@ -609,7 +679,13 @@ export async function loadQuestsState(
       }
     }
 
-    return { enabled: true, quests, challenges, season_timezone: tz };
+    return {
+      enabled: true,
+      quests,
+      challenges,
+      season_timezone: tz,
+      ...(lastPeriod ? { last_period: lastPeriod } : {}),
+    };
   } catch (err) {
     console.error(
       "[rewards-quests] state load failed:",

@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
 import { useQuests, type QuestsState } from "@/hooks/use-quests";
-import { QuestsPanel, questTimeLeft } from "@/components/rewards/quests-panel";
+import { lastPeriodLine, QuestsPanel, questTimeLeft } from "@/components/rewards/quests-panel";
 
 vi.mock("@/hooks/use-quests", async (importActual) => {
   const actual = await importActual<typeof import("@/hooks/use-quests")>();
@@ -116,6 +116,22 @@ describe("QuestsPanel (US-1852)", () => {
     expect(html).toContain("Join the boards to be named here.");
     expect(html).toContain('href="/dashboard/rewards?tab=perks#leaderboard"');
     expect(html).not.toContain("ranked #");
+  });
+});
+
+describe("last period line (R7)", () => {
+  it("summarizes the window that just closed", () => {
+    expect(lastPeriodLine({ label: "week", done: 3, total: 4, xp: 60 })).toBe(
+      "Last week: 3 of 4 done, +60 XP.",
+    );
+    expect(lastPeriodLine({ label: "round", done: 0, total: 2, xp: 0 })).toBe(
+      "Last round: 0 of 2 done.",
+    );
+  });
+
+  it("renders under the quests heading when the server sends it", () => {
+    const html = mount(state({ last_period: { label: "week", done: 1, total: 1, xp: 30 } }));
+    expect(html).toContain("Last week: 1 of 1 done, +30 XP.");
   });
 });
 
