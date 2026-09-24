@@ -154,12 +154,21 @@ export interface ShipOneOrderDeps {
   pushToShopify?: () => Promise<void>;
   /** Write shipped_at + tracking straight onto the seller's own sales row. */
   writeLocal: () => Promise<void>;
+  /**
+   * Called when Depop or Shopify refused the push (409/503) and the shipment
+   * was recorded here only. Those refusals are not "this was never theirs"
+   * the way eBay's 409 is: Depop answers 409 when it has not issued a parcel
+   * yet, and Shopify when it is disconnected or the sale has no Shopify order
+   * id. The row still leaves the queue, but the buyer has no tracking, and
+   * the seller has to be told that rather than read a plain "Marked shipped".
+   */
+  onPushRefused?: (path: "depop" | "shopify", err: unknown) => void;
 }
 
 async function pushOrLocal(
   path: Exclude<ShipPath, "local">,
   push: () => Promise<void>,
-  writeLocal: () => Promise<void>,
+  deps: ShipOneOrderDeps,
 ): Promise<ShipPath> {
   try {
     await push();
@@ -167,7 +176,8 @@ async function pushOrLocal(
   } catch (err) {
     const status = (err as { status?: number } | null | undefined)?.status;
     if (!shipFallsBackToLocal(status)) throw err;
-    await writeLocal();
+    await deps.writeLocal();
+    if (path === "depop" || path === "shopify") deps.onPushRefused?.(path, err);
     return "local";
   }
 }
@@ -192,10 +202,10 @@ export async function shipOneOrder(
   const market = (platform ?? "").trim().toLowerCase();
   if (market && market !== "ebay") {
     if (market === "depop" && deps.pushToDepop) {
-      return pushOrLocal("depop", deps.pushToDepop, deps.writeLocal);
+      return pushOrLocal("depop", deps.pushToDepop, deps);
     }
     if (market === "shopify" && deps.pushToShopify) {
-      return pushOrLocal("shopify", deps.pushToShopify, deps.writeLocal);
+      return pushOrLocal("shopify", deps.pushToShopify, deps);
     }
     await deps.writeLocal();
     return "local";
@@ -206,14 +216,18 @@ export async function shipOneOrder(
     await deps.writeLocal();
     return "local";
   }
-  return pushOrLocal("ebay", deps.pushToEbay, deps.writeLocal);
+  return pushOrLocal("ebay", deps.pushToEbay, deps);
 }
 
 /** PS-09: what the ship button says, per marketplace. */
 export function shipButtonLabel(platform: string | null | undefined, orderRef: string | null): string {
   const market = (platform ?? "").trim().toLowerCase();
   const isEbay = market === "ebay" || (!market && (orderRef ?? "").trim() !== "");
-  return isEbay ? "Ship + send to eBay" : "Mark shipped";
+  if (isEbay) return "Ship + send to eBay";
+  // These two push tracking too (shipOneOrder), so the label says so.
+  if (market === "shopify") return "Ship + send to Shopify";
+  if (market === "depop") return "Ship + send to Depop";
+  return "Mark shipped";
 }
 
 // ── PS-10: fast tracking entry ──────────────────────────────────────────────

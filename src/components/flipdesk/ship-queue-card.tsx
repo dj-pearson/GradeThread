@@ -137,6 +137,7 @@ function ShipRow({
     setBusy(true);
     try {
       let itemError: unknown = null;
+      let refused: { path: "depop" | "shopify"; err: unknown } | null = null;
       const pushedThen = async (push: () => Promise<void>) => {
         await push();
         itemError = await markItemShipped(row.inventoryItemId);
@@ -161,6 +162,9 @@ function ShipRow({
             });
             itemError = res.itemError;
           },
+          onPushRefused: (p, err) => {
+            refused = { path: p, err };
+          },
         },
         row.platform,
       );
@@ -171,13 +175,23 @@ function ShipRow({
         qc.invalidateQueries({ queryKey: ["inventory"] }),
         qc.invalidateQueries({ queryKey: ["items_full"] }),
       ]);
+      const refusal = refused as { path: "depop" | "shopify"; err: unknown } | null;
+      if (refusal) {
+        // Recorded here, not on the marketplace. The buyer has no tracking yet.
+        const market = refusal.path === "depop" ? "Depop" : "Shopify";
+        toastWarning(refusal.err, `Marked shipped here, but ${market} did not get the tracking.`, {
+          action: `send tracking to ${market}`,
+          nextStep: `Add the tracking in ${market} so the buyer can follow the parcel.`,
+        });
+      }
       if (itemError) {
         // The shipment happened. Say which half did not land.
         toastWarning(itemError, "Marked shipped, but the item is not in the Shipped tab yet.", {
           action: "mark item shipped",
           nextStep: "Open the item and set it to Shipped.",
         });
-      } else {
+      }
+      if (!refusal && !itemError) {
         toast.success(
           path === "ebay"
             ? "Marked shipped, and the tracking is on eBay."

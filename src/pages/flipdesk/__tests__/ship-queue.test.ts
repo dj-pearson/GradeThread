@@ -273,8 +273,25 @@ describe("shipOneOrder by platform (PS-09)", () => {
     refused.deps.pushToDepop = async () => {
       throw Object.assign(new Error("no parcel"), { status: 409 });
     };
-    await expect(shipOneOrder("P-1", refused.deps, "depop")).resolves.toBe("local");
+    const told: string[] = [];
+    await expect(
+      shipOneOrder("P-1", { ...refused.deps, onPushRefused: (p) => told.push(p) }, "depop"),
+    ).resolves.toBe("local");
     expect(refused.calls).toEqual(["local"]);
+    // The seller is told Depop did not get the tracking.
+    expect(told).toEqual(["depop"]);
+  });
+
+  it("an eBay 409 is not reported as a refused push", async () => {
+    const s = spies();
+    s.deps.pushToEbay = async () => {
+      throw Object.assign(new Error("no order id"), { status: 409 });
+    };
+    const told: string[] = [];
+    await expect(
+      shipOneOrder("12-1", { ...s.deps, onPushRefused: (p) => told.push(p) }, "ebay"),
+    ).resolves.toBe("local");
+    expect(told).toEqual([]);
   });
 
   it("any other marketplace records locally", async () => {
@@ -292,7 +309,9 @@ describe("shipOneOrder by platform (PS-09)", () => {
 
   it("labels the button by what it does", () => {
     expect(shipButtonLabel("ebay", "12-1")).toBe("Ship + send to eBay");
-    expect(shipButtonLabel("shopify", "555")).toBe("Mark shipped");
+    expect(shipButtonLabel("shopify", "555")).toBe("Ship + send to Shopify");
+    expect(shipButtonLabel("depop", null)).toBe("Ship + send to Depop");
+    expect(shipButtonLabel("mercari", "M-1")).toBe("Mark shipped");
     expect(shipButtonLabel(null, null)).toBe("Mark shipped");
     expect(shipButtonLabel(null, "12-1")).toBe("Ship + send to eBay");
   });

@@ -36,6 +36,7 @@ const state = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
   shipped: [] as Array<Record<string, unknown>>,
   ebayPushes: 0,
+  pushError: null as (Error & { status?: number }) | null,
 }));
 
 vi.mock("@/hooks/use-ship-queue", () => ({
@@ -63,7 +64,9 @@ vi.mock("@/lib/ship-sale", () => ({
     return { itemError: null };
   },
   markItemShipped: async () => null,
-  pushMarketplaceShip: async () => {},
+  pushMarketplaceShip: async () => {
+    if (state.pushError) throw state.pushError;
+  },
 }));
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
@@ -103,6 +106,7 @@ beforeEach(() => {
   state.rows = [row("a"), row("b"), row("c")];
   state.shipped = [];
   state.ebayPushes = 0;
+  state.pushError = null;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -198,5 +202,24 @@ describe("focus after a ship (PS-10)", () => {
     state.rows = [row("b"), row("c")];
     await render();
     expect(document.activeElement).toBe(tracking("Coat b"));
+  });
+});
+
+describe("a refused Shopify or Depop push", () => {
+  it("records the shipment here and says the marketplace has no tracking", async () => {
+    const { toast } = await import("sonner");
+    vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.warning).mockClear();
+    state.rows = [row("a", { platform: "shopify", orderRef: "5550001" })];
+    state.pushError = Object.assign(new Error("Shopify is not connected."), { status: 409 });
+    await render();
+    const input = tracking("Coat a");
+    type(input, "1Z999AA10123456784");
+    await act(async () => input.closest("form")!.requestSubmit());
+    // The row still leaves the queue through the local write.
+    expect(state.shipped).toHaveLength(1);
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.warning).toHaveBeenCalledTimes(1);
+    expect(String(vi.mocked(toast.warning).mock.calls[0]![1]?.description ?? "")).toContain("Shopify");
   });
 });
