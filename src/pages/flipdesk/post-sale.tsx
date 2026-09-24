@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   byDeadline,
   canMarkReceived,
-  daysUntil,
   deadlineBucket,
   deadlineLabel,
   isNotAsDescribed,
@@ -369,7 +368,7 @@ function DisputesCard() {
     d: EbayPaymentDispute,
     action: "accept" | "contest",
     note: string | undefined,
-  ) {
+  ): Promise<boolean> {
     setBusy(`${d.paymentDisputeId}:${action}`);
     try {
       await resolve.mutateAsync({
@@ -381,8 +380,10 @@ function DisputesCard() {
       toast.success(
         action === "accept" ? "Dispute accepted (buyer refunded)." : "Dispute contested.",
       );
+      return true;
     } catch (err) {
       toastError(err, "Action failed.");
+      return false;
     } finally {
       setBusy(null);
     }
@@ -403,19 +404,21 @@ function DisputesCard() {
 
   function openContest(d: EbayPaymentDispute) {
     setContestNote("");
+    // US-2935: contesting is the moment the grade report is the argument.
+    // PS-13: the pack now opens INSIDE the Contest dialog (below), because the
+    // inline one this used to open sat under the modal, and the seller wrote
+    // the note blind to the verdict.
+    setPackFor(null);
     setContestFor(d);
-    // US-2935: contesting is the moment the grade report is the argument. Open
-    // the pack with it, already checked. It is a READ — the send stays behind
-    // its own button inside the panel.
-    if (isNotAsDescribed(d.reason) && d.orderId) setPackFor(d.paymentDisputeId);
   }
 
   async function submitContest() {
     const d = contestFor;
     if (!d) return;
     const note = contestNote.trim() || undefined;
-    setContestFor(null);
-    await runResolve(d, "contest", note);
+    // PS-13: the dialog stays open until eBay answers, so a failure leaves the
+    // note where the seller typed it instead of throwing it away.
+    if (await runResolve(d, "contest", note)) setContestFor(null);
   }
 
   return (
@@ -447,16 +450,17 @@ function DisputesCard() {
           kind="payment disputes"
         >
           {visible.map((d) => {
-            const days = daysUntil(d.respondByDate);
-            const overdue = days != null && days < 0;
+            const orderLabel = d.orderId ?? d.paymentDisputeId;
             return (
+              // PS-13: stacked like the returns rows. Side by side, five buttons
+              // in a row that could not wrap ran off a 375px screen.
               <div
                 key={d.paymentDisputeId}
                 data-focus-id={d.paymentDisputeId}
-                className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none"
+                className="flex flex-col gap-3 rounded-md border p-3 data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none"
               >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">
                       {d.reason?.replace(/_/g, " ") ?? "Payment dispute"}
                     </span>
@@ -465,15 +469,7 @@ function DisputesCard() {
                         {d.currency ?? "$"} {d.amount.toFixed(2)}
                       </Badge>
                     )}
-                    {d.respondByDate && (
-                      <Badge variant={overdue ? "destructive" : "outline"}>
-                        {overdue
-                          ? "Overdue"
-                          : `Respond by ${fmtDate(d.respondByDate)}${
-                              days != null ? ` (${days}d)` : ""
-                            }`}
-                      </Badge>
-                    )}
+                    <DeadlineBadge respondBy={d.respondByDate} />
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Order {d.orderId ?? "—"}
@@ -483,7 +479,7 @@ function DisputesCard() {
                 {/* US-2227: a closed dispute keeps no actions — Accept refunds the
                     buyer, and Contest is meaningless once eBay has decided. */}
                 {!showClosed && (
-                <div className="flex shrink-0 gap-2">
+                <div className="flex flex-wrap gap-2">
                   <EvidenceUploader disputeId={d.paymentDisputeId} disabled={!!busy} />
                   {/* US-2707: the same review-before-send pack the returns list
                       offers. The rarer path is not the one where GradeThread
@@ -493,6 +489,7 @@ function DisputesCard() {
                     variant="outline"
                     disabled={!!busy}
                     aria-label={`Grade pack for order ${d.orderId ?? "unknown"}`}
+                    aria-expanded={packFor === d.paymentDisputeId}
                     onClick={() =>
                       setPackFor(
                         packFor === d.paymentDisputeId ? null : d.paymentDisputeId,
@@ -504,6 +501,7 @@ function DisputesCard() {
                     size="sm"
                     variant="outline"
                     disabled={!!busy}
+                    aria-label={`Contest the dispute on order ${orderLabel}`}
                     onClick={() => openContest(d)}
                   >
                     {busy === `${d.paymentDisputeId}:contest` ? (
@@ -517,6 +515,7 @@ function DisputesCard() {
                     size="sm"
                     variant="destructive"
                     disabled={!!busy}
+                    aria-label={`Accept and refund order ${orderLabel}`}
                     onClick={() => acceptDispute(d)}
                   >
                     {busy === `${d.paymentDisputeId}:accept` ? (
@@ -546,17 +545,29 @@ function DisputesCard() {
       <Dialog
         open={!!contestFor}
         onOpenChange={(open) => {
-          if (!open) setContestFor(null);
+          if (!open && !busy) setContestFor(null);
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Contest payment dispute</DialogTitle>
             <DialogDescription>
+              {contestFor?.orderId ? `Order ${contestFor.orderId}. ` : ""}
               Add a short note for eBay explaining why you're contesting this
               dispute. It's sent to eBay with your response.
             </DialogDescription>
           </DialogHeader>
+          {/* PS-13: the grade pack, in view while the seller writes the
+              argument it is evidence for. */}
+          {contestFor && (
+            <ReturnEvidencePanel
+              caseId={contestFor.paymentDisputeId}
+              orderId={contestFor.orderId}
+              kind="dispute"
+              initialComplaint={contestFor.reason ?? ""}
+              autoCheck={isNotAsDescribed(contestFor.reason)}
+            />
+          )}
           <div className="space-y-2">
             <Label htmlFor="contest-note">Note to eBay</Label>
             <Textarea
@@ -568,10 +579,15 @@ function DisputesCard() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setContestFor(null)}>
+            <Button variant="outline" disabled={!!busy} onClick={() => setContestFor(null)}>
               Cancel
             </Button>
-            <Button onClick={submitContest}>Contest dispute</Button>
+            <Button disabled={!!busy} onClick={submitContest}>
+              {busy?.endsWith(":contest") ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : null}
+              Contest dispute
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1066,6 +1082,7 @@ function ReturnsCard() {
                     useful outcome of this feature is often "do not fight". */}
                 <Button
                 aria-label={`Evidence for ${r.reason?.replace(/_/g, " ") ?? "the return"}`}
+                  aria-expanded={evidenceFor === r.returnId}
                   size="sm"
                   variant="outline"
                   disabled={!!busy}
@@ -1297,11 +1314,12 @@ function CancellationsCard() {
               </div>
               {/* US-2227: no Approve/Reject on a cancellation eBay has settled. */}
               {!showClosed && (
-              <div className="flex shrink-0 gap-2">
+              <div className="flex shrink-0 flex-wrap gap-2">
                 <Button
                   size="sm"
                   variant="outline"
                   disabled={!!busy}
+                  aria-label={`Reject the cancellation on order ${ca.orderId ?? ca.cancelId}`}
                   onClick={() => act(ca, "reject")}
                 >
                   {busy === `${ca.cancelId}:reject` ? (
@@ -1315,6 +1333,7 @@ function CancellationsCard() {
                   size="sm"
                   variant="destructive"
                   disabled={!!busy}
+                  aria-label={`Approve and cancel order ${ca.orderId ?? ca.cancelId}`}
                   onClick={() => act(ca, "approve")}
                 >
                   {busy === `${ca.cancelId}:approve` ? (
@@ -1750,10 +1769,11 @@ function CasesCard() {
           kind="eBay cases"
         >
           {visible.map((kase) => (
+            // PS-13: stacked, like returns and disputes.
             <div
               key={kase.caseId}
               data-focus-id={kase.caseId}
-              className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none"
+              className="flex flex-col gap-3 rounded-md border p-3 data-[focused=true]:ring-2 data-[focused=true]:ring-primary focus-visible:outline-none"
             >
               <div className="min-w-0 space-y-2">
                 <div className="flex items-center gap-2">
@@ -1807,6 +1827,7 @@ function CasesCard() {
                       our own report agrees with the buyer. */}
                   <Button
                     aria-label={`Grade evidence for case ${kase.caseId}`}
+                    aria-expanded={evidenceFor === kase.caseId}
                     size="sm"
                     variant="outline"
                     disabled={!!busy}
@@ -1823,12 +1844,10 @@ function CasesCard() {
                     onClick={() => {
                       // PS-02: case B must not open with case A's argument.
                       setAppealText("");
+                      // The appeal argument IS the evidence. PS-13: the pack
+                      // opens inside the Appeal dialog, not under it.
+                      setEvidenceFor(null);
                       setAppealFor(kase);
-                      // The appeal argument IS the evidence. Open the pack with
-                      // the dialog rather than making the seller find it.
-                      if (isNotAsDescribed(kase.reason) && kase.orderId) {
-                        setEvidenceFor(kase.caseId);
-                      }
                     }}
                   >
                     <Gavel className="mr-1 h-4 w-4" />
@@ -1878,15 +1897,25 @@ function CasesCard() {
           }
         }}
       />
-      <Dialog open={!!appealFor} onOpenChange={(v) => !v && closeAppeal()}>
-        <DialogContent>
+      <Dialog open={!!appealFor} onOpenChange={(v) => !v && !busy && closeAppeal()}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Appeal this case</DialogTitle>
             <DialogDescription>
+              {appealFor?.orderId ? `Order ${appealFor.orderId}. ` : ""}
               eBay rejects an appeal with no argument, so say what it got wrong and
               point at the evidence. The appeal window is short.
             </DialogDescription>
           </DialogHeader>
+          {appealFor && (
+            <ReturnEvidencePanel
+              caseId={appealFor.caseId}
+              orderId={appealFor.orderId}
+              kind="case"
+              initialComplaint={appealFor.reason ?? ""}
+              autoCheck={isNotAsDescribed(appealFor.reason)}
+            />
+          )}
           <Textarea
             aria-label="Your appeal argument"
             value={appealText}
@@ -1895,7 +1924,7 @@ function CasesCard() {
             placeholder="Tracking shows delivered on 12 August, signed for."
           />
           <DialogFooter>
-            <Button variant="outline" onClick={closeAppeal}>
+            <Button variant="outline" disabled={!!busy} onClick={closeAppeal}>
               Cancel
             </Button>
             <Button
