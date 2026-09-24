@@ -76,3 +76,35 @@ describe("Scout scan cost and cap", () => {
     expect(host.textContent).toContain("Uses up to 8 AI actions, 10 left this month");
   });
 });
+
+describe("Scout cached grades", () => {
+  it("says how many rows came from earlier scans", async () => {
+    mocks.data = {
+      scanned: 3,
+      considered: 20,
+      graded: 3,
+      cachedGrades: 2,
+      candidates: [
+        {
+          itemId: "1",
+          title: "Fleece",
+          imageUrl: null,
+          itemWebUrl: null,
+          askingCents: 2000,
+          shadowGrade: 8,
+          gradeConfidence: 0.9,
+          valueLowCents: null,
+          valueMedianCents: null,
+          valueHighCents: null,
+          estMarginCents: null,
+          estMarginPct: null,
+          underpriced: false,
+          actionable: false,
+          reason: "",
+        },
+      ],
+    };
+    await render();
+    expect(host.textContent).toContain("2 from earlier scans, no AI used");
+  });
+});

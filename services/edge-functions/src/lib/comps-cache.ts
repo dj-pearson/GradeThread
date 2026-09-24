@@ -16,7 +16,7 @@
 // comps for one query is not merely a lower hit rate — it is the same seller
 // getting two prices for one jacket, which is how a number stops being trusted.
 
-import { createSharedJsonCache } from "./coherent-cache.ts";
+import { createSharedJsonCache, type SharedCacheStore } from "./coherent-cache.ts";
 import { type BrowseCompsArgs, type BrowseCompsResult, searchBrowseComps } from "./ebay-client.ts";
 import { gradeToConditionId } from "./repricing.ts";
 import {
@@ -139,3 +139,68 @@ export async function cachedValueAtGrade(
   const live = valueRangeFromStats(result.stats, gradeValue, result.stats.currency);
   return await applyMeasuredCurve(item, gradeValue, live);
 }
+
+// ── SRC-7: shadow grades, per owner and listing ──────────────────────────────
+//
+// A scan reserved an AI action and graded every queued listing, even one graded
+// minutes earlier, and the margin filter runs AFTER grading, so tweaking one
+// filter re-spent up to eight actions on the same eight photos.
+//
+// THE ONE CACHE IN THIS FILE THAT IS KEYED BY TENANT, ON PURPOSE. Comps above
+// are public market data. A shadow grade is PRIVATE to the tenant who paid for
+// it (US-620): it is never published and never shared. So the owner id leads
+// the key and owner B can never be served owner A's grade. The image URL is in
+// the key too (hashed), so a seller who swaps the listing photo gets a fresh
+// grade rather than one of a different picture.
+
+/** A day: long enough to cover re-scans of one search, short enough to re-grade relisted items. */
+export const SCOUT_SHADOW_TTL_MS = 24 * 60 * 60 * 1000;
+
+export interface CachedShadowGrade {
+  overallScore: number;
+  confidence: number;
+}
+
+/** FNV-1a, 32-bit, hex. Not security: only to keep a long URL out of the key. */
+function shortHash(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+export function scoutShadowKey(ownerId: string, itemId: string, imageUrl: string): string {
+  return `o=${ownerId}|i=${itemId}|h=${shortHash(imageUrl)}`;
+}
+
+export interface ScoutShadowCache {
+  lookup(ownerId: string, itemId: string, imageUrl: string): Promise<CachedShadowGrade | null>;
+  remember(ownerId: string, itemId: string, imageUrl: string, grade: CachedShadowGrade): Promise<void>;
+}
+
+export function createScoutShadowCache(store?: SharedCacheStore): ScoutShadowCache {
+  const cache = createSharedJsonCache<CachedShadowGrade>({
+    namespace: "scout-shadow",
+    ttlMs: SCOUT_SHADOW_TTL_MS,
+    store,
+  });
+  return {
+    async lookup(ownerId, itemId, imageUrl) {
+      const hit = await cache.peek(scoutShadowKey(ownerId, itemId, imageUrl));
+      if (!hit || typeof hit.overallScore !== "number" || typeof hit.confidence !== "number") {
+        return null;
+      }
+      return hit;
+    },
+    remember(ownerId, itemId, imageUrl, grade) {
+      return cache.put(scoutShadowKey(ownerId, itemId, imageUrl), {
+        overallScore: grade.overallScore,
+        confidence: grade.confidence,
+      });
+    },
+  };
+}
+
+export const scoutShadowCache = createScoutShadowCache();

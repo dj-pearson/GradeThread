@@ -63,6 +63,8 @@ export interface ScoutScanResult {
   queued?: number;
   /** Grades that failed and were refunded. */
   failed?: number;
+  /** SRC-7: rows scored from an earlier scan's grade, with no AI spent. */
+  cachedGrades?: number;
 }
 
 /** SRC-3: the most AI actions one scan can use (MAX_CANDIDATES on the edge). */
@@ -113,6 +115,7 @@ export function useScoutScan() {
         capReached: data.capReached,
         queued: data.queued,
         failed: data.failed,
+        cachedGrades: data.cachedGrades,
       };
     },
     // SRC-3: no success toast. The results render inline right under the

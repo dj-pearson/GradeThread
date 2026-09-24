@@ -522,6 +522,9 @@ export function FlipdeskScoutPage() {
                   {result.considered != null
                     ? `Looked at ${result.considered} listing${result.considered === 1 ? "" : "s"}, graded ${result.graded ?? result.scanned}`
                     : `Scanned ${result.scanned} listing${result.scanned === 1 ? "" : "s"}`}
+                  {result.cachedGrades
+                    ? ` (${result.cachedGrades} from earlier scans, no AI used)`
+                    : ""}
                   {" · "}
                   {candidates.length} shown
                 </p>

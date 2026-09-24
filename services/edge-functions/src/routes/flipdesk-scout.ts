@@ -54,7 +54,11 @@ import {
   SPECULATIVE_CONDITION_ID,
 } from "../lib/comp-speculation.ts";
 import { whichRefusal } from "../lib/gate-order.ts";
-import { cachedSearchBrowseComps, cachedValueAtGrade } from "../lib/comps-cache.ts";
+import {
+  cachedSearchBrowseComps,
+  cachedValueAtGrade,
+  scoutShadowCache,
+} from "../lib/comps-cache.ts";
 import {
   pickVisualImageIndex,
   planProspectIdentification,
@@ -339,6 +343,13 @@ export interface ShadowGradeDeps<C> {
   /** Value and score a graded listing. No AI. */
   score: (cand: C, grade: ShadowGrade) => Promise<ScoutScored>;
   concurrency: number;
+  /**
+   * SRC-7: a grade from an earlier scan, or null. Checked BEFORE reserve(), so
+   * a hit costs no AI action. Must not throw.
+   */
+  cached?: (cand: C) => Promise<ShadowGrade | null>;
+  /** SRC-7: keep a fresh grade for the next scan. Must not throw. */
+  remember?: (cand: C, grade: ShadowGrade) => Promise<void>;
   /** Called when a grade throws, for logging. */
   onError?: (cand: C, err: unknown) => void;
 }
@@ -351,6 +362,8 @@ export interface ShadowGradeRun {
   failed: number;
   /** How many listings were queued for grading. */
   queued: number;
+  /** SRC-7: rows scored from an earlier scan's grade, with no AI spent. */
+  cachedGrades: number;
 }
 
 /**
@@ -368,6 +381,7 @@ export async function runShadowGrades<C>(
   const pending = [...queue];
   const scored: ScoutScored[] = [];
   let failed = 0;
+  let cachedGrades = 0;
   // Set when the AI cap refuses a reservation. Every worker checks it, so one
   // refusal stops the whole scan instead of each worker discovering the cap
   // separately and burning a round trip to do it.
@@ -378,6 +392,20 @@ export async function runShadowGrades<C>(
       while (!capReached) {
         const cand = pending.shift();
         if (!cand) return;
+
+        // SRC-7: a listing graded by an earlier scan is scored again without
+        // reserving anything. Only the value lookup runs.
+        const earlier = deps.cached ? await deps.cached(cand) : null;
+        if (earlier) {
+          try {
+            scored.push(await deps.score(cand, earlier));
+            cachedGrades += 1;
+          } catch (err) {
+            failed += 1;
+            deps.onError?.(cand, err);
+          }
+          continue;
+        }
 
         // US-619: atomically reserve one AI action; stop cleanly when the cap is
         // hit. The reservation is atomic, so concurrent workers cannot together
@@ -390,6 +418,7 @@ export async function runShadowGrades<C>(
 
         try {
           const grade = await deps.grade(cand);
+          await deps.remember?.(cand, grade);
           scored.push(await deps.score(cand, grade));
         } catch (err) {
           failed += 1;
@@ -401,7 +430,7 @@ export async function runShadowGrades<C>(
     }),
   );
 
-  return { scored, capReached, failed, queued: queue.length };
+  return { scored, capReached, failed, queued: queue.length, cachedGrades };
 }
 
 flipdeskScoutRoutes.post("/", async (c) => {
@@ -560,6 +589,8 @@ flipdeskScoutRoutes.post("/", async (c) => {
     reserve: () => reserveAiActionSafe(userId, quota),
     refund: () => refundAiAction(userId),
     concurrency: SCAN_CONCURRENCY,
+    cached: (cand) => scoutShadowCache.lookup(userId, cand.itemId, cand.imageUrl),
+    remember: (cand, grade) => scoutShadowCache.remember(userId, cand.itemId, cand.imageUrl, grade),
     // US-616: PRIVATE shadow grade from the listing's own photo.
     grade: (cand) =>
       quickGrade({
@@ -614,7 +645,10 @@ flipdeskScoutRoutes.post("/", async (c) => {
     return true;
   });
 
-  recordMetric("scout.scan", graded, { actionable: String(cleared.filter((s) => s.actionable).length) });
+  recordMetric("scout.scan", graded, {
+    actionable: String(cleared.filter((s) => s.actionable).length),
+    cachedGrades: String(run.cachedGrades),
+  });
 
   return c.json({
     // `scanned` is what phase two actually graded, unchanged from before so no
@@ -630,6 +664,8 @@ flipdeskScoutRoutes.post("/", async (c) => {
     capReached: run.capReached,
     queued: run.queued,
     failed: run.failed,
+    // SRC-7: rows scored from an earlier scan's grade, with no AI spent.
+    cachedGrades: run.cachedGrades,
     // US-620: be explicit about what this is.
     disclaimer:
       "Shadow grades are private estimates from the listing's photos — not a GradeThread certificate, and not visible to the seller. Verify condition before buying.",

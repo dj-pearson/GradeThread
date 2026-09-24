@@ -147,6 +147,14 @@ export interface SharedJsonCache<T> {
    * rate in production instead of inferring it.
    */
   get(key: string, load: () => Promise<T>): Promise<{ value: T; hit: boolean }>;
+  /**
+   * SRC-7: read without loading. Null on a miss, an expired row, an unparsable
+   * row or a store outage; never throws. For callers whose "load" has a side
+   * effect (a reservation) that must not run inside the cache.
+   */
+  peek(key: string): Promise<T | null>;
+  /** Store a value. Never throws: a failed write only costs a future miss. */
+  put(key: string, value: T): Promise<void>;
 }
 
 export function createSharedJsonCache<T>(opts: {
@@ -187,6 +195,22 @@ export function createSharedJsonCache<T>(opts: {
         // Could not persist. The caller still gets its value.
       }
       return { value, hit: false };
+    },
+    async peek(key) {
+      try {
+        const row = await store.readValue(`${opts.namespace}:${key}`);
+        if (!row || (row.expiresAt != null && row.expiresAt <= now())) return null;
+        return JSON.parse(row.value) as T;
+      } catch {
+        return null;
+      }
+    },
+    async put(key, value) {
+      try {
+        await store.writeValue(`${opts.namespace}:${key}`, JSON.stringify(value), now() + opts.ttlMs);
+      } catch {
+        // Could not persist. The next scan grades again, which is the old cost.
+      }
     },
   };
 }
