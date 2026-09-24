@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import {
   Search,
   Loader2,
@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
+  SCOUT_MAX_AI_ACTIONS,
   useScoutScan,
   type ScoutBuyingOption,
   type ScoutScanInput,
@@ -31,6 +32,7 @@ import {
   SourcingTargetSetting,
 } from "@/components/flipdesk/sourcing-target-setting";
 import { useSourcingSettings } from "@/hooks/use-sourcing-settings";
+import { usePlanUsage } from "@/hooks/use-plan-usage";
 import { ForecastCard } from "@/components/flipdesk/forecast-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ValueBasisNote } from "@/components/value/value-basis-note";
@@ -224,6 +226,13 @@ export function FlipdeskScoutPage() {
 
   const scan = useScoutScan();
   const result = scan.data;
+  // SRC-3: what a scan costs, said before the click rather than after the cap.
+  const { aiActions } = usePlanUsage();
+  const actionsLeft = aiActions.unlimited
+    ? null
+    : aiActions.limit > 0
+    ? Math.max(0, aiActions.limit - aiActions.used)
+    : null;
 
   const canSearch = (keyword.trim() || brand.trim()) && categoryId.trim();
 
@@ -428,6 +437,10 @@ export function FlipdeskScoutPage() {
               <span className="ml-3 text-xs text-muted-foreground">
                 Default category 11450 covers all apparel; narrow it for sharper comps.
               </span>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Uses up to {SCOUT_MAX_AI_ACTIONS} AI actions
+                {actionsLeft != null ? `, ${actionsLeft} left this month` : ""}.
+              </p>
             </div>
           </form>
         </CardContent>
@@ -474,61 +487,78 @@ export function FlipdeskScoutPage() {
           </CardContent>
         </Card>
       ) : result ? (
-        result.candidates.length === 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">No candidates found</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              {result.note ?? "No listings matched that search. Try broader terms or a different category."}
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-muted-foreground">
-                {/* US-3098: the denominator. "Graded 8" alone is a number a
-                    seller cannot judge; "looked at 42, graded 8" says the scan
-                    searched wider than the eight rows in front of them. */}
-                {result.considered != null
-                  ? `Looked at ${result.considered} listing${result.considered === 1 ? "" : "s"}, graded ${result.graded ?? result.scanned}`
-                  : `Scanned ${result.scanned} listing${result.scanned === 1 ? "" : "s"}`}
-                {" · "}
-                {candidates.length} shown
-              </p>
-              <div className="flex items-center gap-2 text-xs">
-                <label className="flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    checked={actionableOnly}
-                    onChange={(e) => setActionableOnly(e.target.checked)}
-                  />
-                  Actionable only
-                </label>
-                <select
-                  className="rounded-md border bg-background px-2 py-1"
-                  value={sortKey}
-                  onChange={(e) => setSortKey(e.target.value as SortKey)}
-                  aria-label="Sort candidates"
-                >
-                  <option value="margin">Sort: margin</option>
-                  <option value="grade">Sort: grade</option>
-                  <option value="confidence">Sort: confidence</option>
-                </select>
+        <>
+          {result.capReached ? (
+            /* SRC-3: a scan the cap stopped says so, instead of telling the
+               seller to broaden a search that was fine. */
+            <p
+              role="status"
+              className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+            >
+              {result.note ?? "AI limit reached before every listing was graded."}{" "}
+              <Link to="/dashboard/billing" className="font-medium underline">
+                See plans
+              </Link>
+            </p>
+          ) : null}
+          {result.candidates.length === 0 ? (
+            result.capReached ? null : (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">No candidates found</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm text-muted-foreground">
+                  {result.note ?? "No listings matched that search. Try broader terms or a different category."}
+                </CardContent>
+              </Card>
+            )
+          ) : (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-muted-foreground">
+                  {/* US-3098: the denominator. "Graded 8" alone is a number a
+                      seller cannot judge; "looked at 42, graded 8" says the scan
+                      searched wider than the eight rows in front of them. */}
+                  {result.considered != null
+                    ? `Looked at ${result.considered} listing${result.considered === 1 ? "" : "s"}, graded ${result.graded ?? result.scanned}`
+                    : `Scanned ${result.scanned} listing${result.scanned === 1 ? "" : "s"}`}
+                  {" · "}
+                  {candidates.length} shown
+                </p>
+                <div className="flex items-center gap-2 text-xs">
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={actionableOnly}
+                      onChange={(e) => setActionableOnly(e.target.checked)}
+                    />
+                    Actionable only
+                  </label>
+                  <select
+                    className="rounded-md border bg-background px-2 py-1"
+                    value={sortKey}
+                    onChange={(e) => setSortKey(e.target.value as SortKey)}
+                    aria-label="Sort candidates"
+                  >
+                    <option value="margin">Sort: margin</option>
+                    <option value="grade">Sort: grade</option>
+                    <option value="confidence">Sort: confidence</option>
+                  </select>
+                </div>
               </div>
+              {candidates.map((c) => (
+                <CandidateRow key={c.itemId} c={c} />
+              ))}
+              {/* US-3042: the strongest attribution case in the app and the one
+                  that was missing. Every row above is ANOTHER seller's live eBay
+                  listing - their photo, their title, their asking price, deep
+                  linked to their item page. The comps panel carried this notice
+                  and Scout did not, which is the difference between "this surface
+                  needs no notice" and "this surface was forgotten". */}
+              <EbayAttribution what="Listing data" />
             </div>
-            {candidates.map((c) => (
-              <CandidateRow key={c.itemId} c={c} />
-            ))}
-            {/* US-3042: the strongest attribution case in the app and the one
-                that was missing. Every row above is ANOTHER seller's live eBay
-                listing - their photo, their title, their asking price, deep
-                linked to their item page. The comps panel carried this notice
-                and Scout did not, which is the difference between "this surface
-                needs no notice" and "this surface was forgotten". */}
-            <EbayAttribution what="Listing data" />
-          </div>
-        )
+          )}
+        </>
       ) : (
         <Card>
           <CardHeader>

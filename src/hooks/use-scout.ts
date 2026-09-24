@@ -1,5 +1,4 @@
 import { useMutation } from "@tanstack/react-query";
-import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import type { ValueBasis } from "@/components/value/value-basis-note";
@@ -55,7 +54,19 @@ export interface ScoutScanResult {
   considered?: number;
   /** How many phase two actually shadow-graded. Equals `scanned`. */
   graded?: number;
+  /**
+   * SRC-3: the AI cap stopped the scan early. An empty list with this set is
+   * "you ran out of actions", not "nothing matched".
+   */
+  capReached?: boolean;
+  /** How many listings phase two meant to grade. */
+  queued?: number;
+  /** Grades that failed and were refunded. */
+  failed?: number;
 }
+
+/** SRC-3: the most AI actions one scan can use (MAX_CANDIDATES on the edge). */
+export const SCOUT_MAX_AI_ACTIONS = 8;
 
 /** US-3098: eBay's three buying options, as the route validates them. */
 export type ScoutBuyingOption = "FIXED_PRICE" | "AUCTION" | "BEST_OFFER";
@@ -99,14 +110,13 @@ export function useScoutScan() {
         note: data.note,
         considered: data.considered,
         graded: data.graded,
+        capReached: data.capReached,
+        queued: data.queued,
+        failed: data.failed,
       };
     },
-    onSuccess: (r) => {
-      const actionable = r.candidates.filter((c) => c.actionable).length;
-      toast.success(
-        `Scanned ${r.scanned} listing${r.scanned === 1 ? "" : "s"} — ${actionable} deal${actionable === 1 ? "" : "s"} worth a look.`,
-      );
-    },
+    // SRC-3: no success toast. The results render inline right under the
+    // button, and a toast saying the same thing covers them on a phone.
     onError: (err) => toastError(err),
   });
 }

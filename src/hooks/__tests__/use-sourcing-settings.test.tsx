@@ -51,7 +51,7 @@ vi.mock("@/hooks/use-workspace", () => ({
 vi.mock("sonner", () => ({ toast: { error: mocks.toastError, success: vi.fn() } }));
 vi.mock("@/components/flipdesk/forecast-card", () => ({ ForecastCard: () => null }));
 vi.mock("@/hooks/use-plan-usage", () => ({
-  usePlanUsage: () => ({ data: undefined, isLoading: false }),
+  usePlanUsage: () => ({ aiActions: { used: 0, limit: 50, pct: 0, unlimited: false } }),
 }));
 
 const { SourcingTargetSetting } = await import(

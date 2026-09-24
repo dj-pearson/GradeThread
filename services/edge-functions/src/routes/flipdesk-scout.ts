@@ -262,6 +262,87 @@ export function rankByRoughValue(
   });
 }
 
+/** A shadow grade: what the AI said about one listing's photo. */
+export interface ShadowGrade {
+  overallScore: number;
+  confidence: number;
+}
+
+export interface ShadowGradeDeps<C> {
+  /** Atomically reserve one AI action. False means the cap refused it. */
+  reserve: () => Promise<boolean>;
+  /** Return a reserved action after a failed grade, so it is not billed. */
+  refund: () => Promise<void>;
+  /** The paid step: grade one listing's photo. */
+  grade: (cand: C) => Promise<ShadowGrade>;
+  /** Value and score a graded listing. No AI. */
+  score: (cand: C, grade: ShadowGrade) => Promise<ScoutScored>;
+  concurrency: number;
+  /** Called when a grade throws, for logging. */
+  onError?: (cand: C, err: unknown) => void;
+}
+
+export interface ShadowGradeRun {
+  scored: ScoutScored[];
+  /** True when the AI cap refused a reservation and the run stopped early. */
+  capReached: boolean;
+  /** Grades that threw (and were refunded). */
+  failed: number;
+  /** How many listings were queued for grading. */
+  queued: number;
+}
+
+/**
+ * Phase two: shadow-grade the queue with bounded concurrency.
+ *
+ * SRC-3: pulled out of the route so a cap hit and an all-failed run have tests.
+ * Both used to come back as `candidates: []` with no flag, and the page told
+ * the seller to broaden a search that was fine. The run now says which one it
+ * was.
+ */
+export async function runShadowGrades<C>(
+  queue: readonly C[],
+  deps: ShadowGradeDeps<C>,
+): Promise<ShadowGradeRun> {
+  const pending = [...queue];
+  const scored: ScoutScored[] = [];
+  let failed = 0;
+  // Set when the AI cap refuses a reservation. Every worker checks it, so one
+  // refusal stops the whole scan instead of each worker discovering the cap
+  // separately and burning a round trip to do it.
+  let capReached = false;
+
+  await Promise.all(
+    Array.from({ length: Math.min(deps.concurrency, pending.length) }, async () => {
+      while (!capReached) {
+        const cand = pending.shift();
+        if (!cand) return;
+
+        // US-619: atomically reserve one AI action; stop cleanly when the cap is
+        // hit. The reservation is atomic, so concurrent workers cannot together
+        // reserve past the cap.
+        const reserved = await deps.reserve();
+        if (reserved !== true) {
+          capReached = true;
+          return;
+        }
+
+        try {
+          const grade = await deps.grade(cand);
+          scored.push(await deps.score(cand, grade));
+        } catch (err) {
+          failed += 1;
+          // Refund the reserved action on failure so a transient error isn't billed.
+          await deps.refund();
+          deps.onError?.(cand, err);
+        }
+      }
+    }),
+  );
+
+  return { scored, capReached, failed, queued: queue.length };
+}
+
 flipdeskScoutRoutes.post("/", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
@@ -403,56 +484,46 @@ flipdeskScoutRoutes.post("/", async (c) => {
     .filter((cand): cand is ScoutCandidate & { imageUrl: string } => Boolean(cand.imageUrl))
     .slice(0, limit);
 
-  const scored: ScoutScored[] = [];
-  let graded = 0;
-  // Set when the AI cap refuses a reservation. Every worker checks it, so one
-  // refusal stops the whole scan instead of each worker discovering the cap
-  // separately and burning a round trip to do it.
-  let capHit = false;
+  const run = await runShadowGrades(queue, {
+    reserve: () => reserveAiActionSafe(userId, quota),
+    refund: () => refundAiAction(userId),
+    concurrency: SCAN_CONCURRENCY,
+    // US-616: PRIVATE shadow grade from the listing's own photo.
+    grade: (cand) =>
+      quickGrade({
+        images: [{ url: cand.imageUrl, type: "front" }],
+        garment: { brand: brand ?? null, title: cand.title },
+      }),
+    score: async (cand, grade) => {
+      // US-610: condition-adjusted value at that grade, same search identity.
+      // Through the cache: the only field that varies across candidates here
+      // is the condition the grade maps to, and there are about five of those,
+      // so a scan asks eBay a handful of questions rather than one per
+      // candidate.
+      const value = await cachedValueAtGrade({ categoryId, q, brand }, grade.overallScore);
+      // US-617: score by condition-adjusted margin.
+      return scoreCandidate(cand, grade.overallScore, grade.confidence, value, {
+        targetRoi,
+        costs: scanCosts,
+      });
+    },
+    onError: (cand, err) =>
+      captureException(err, { level: "warn", route: "scout.grade", extra: { itemId: cand.itemId } }),
+  });
+  const scored = run.scored;
+  const graded = scored.length;
 
-  await Promise.all(
-    Array.from({ length: Math.min(SCAN_CONCURRENCY, queue.length) }, async () => {
-      while (!capHit) {
-        const cand = queue.shift();
-        if (!cand) return;
-
-        // US-619: atomically reserve one AI action; stop cleanly when the cap is
-        // hit. The reservation is atomic, so concurrent workers cannot together
-        // reserve past the cap.
-        const reserved = await reserveAiActionSafe(userId, quota);
-        if (reserved !== true) {
-          capHit = true;
-          return;
-        }
-
-        try {
-          // US-616: PRIVATE shadow grade from the listing's own photo.
-          const grade = await quickGrade({
-            images: [{ url: cand.imageUrl, type: "front" }],
-            garment: { brand: brand ?? null, title: cand.title },
-          });
-          // US-610: condition-adjusted value at that grade, same search
-          // identity. Through the cache: the only field that varies across
-          // candidates here is the condition the grade maps to, and there are
-          // about five of those, so a scan asks eBay a handful of questions
-          // rather than one per candidate.
-          const value = await cachedValueAtGrade({ categoryId, q, brand }, grade.overallScore);
-          // US-617: score by condition-adjusted margin.
-          scored.push(
-            scoreCandidate(cand, grade.overallScore, grade.confidence, value, {
-              targetRoi,
-              costs: scanCosts,
-            }),
-          );
-          graded += 1;
-        } catch (err) {
-          // Refund the reserved action on failure so a transient error isn't billed.
-          await refundAiAction(userId);
-          captureException(err, { level: "warn", route: "scout.grade", extra: { itemId: cand.itemId } });
-        }
-      }
-    }),
-  );
+  // SRC-3: nothing graded because every grade threw (an Anthropic outage, not
+  // the search) is a failure, not an empty result. The actions were refunded.
+  if (graded === 0 && run.failed > 0 && !run.capReached) {
+    return failSafe(
+      c,
+      502,
+      `Couldn't grade any of the ${run.queued} listings right now. Try again shortly.`,
+      new Error(`scout: ${run.failed} of ${run.queued} shadow grades failed`),
+      "scout.grade-all-failed",
+    );
+  }
 
   // US-3098: the margin bar, applied AFTER scoring because the margin is only
   // known once the shadow grade and the condition-adjusted value are.
@@ -482,10 +553,19 @@ flipdeskScoutRoutes.post("/", async (c) => {
     considered: consideredCount,
     graded,
     candidates: rankCandidates(cleared),
+    // SRC-3: why the list may be short. A client that ignores these still
+    // gets the note below.
+    capReached: run.capReached,
+    queued: run.queued,
+    failed: run.failed,
     // US-620: be explicit about what this is.
     disclaimer:
       "Shadow grades are private estimates from the listing's photos — not a GradeThread certificate, and not visible to the seller. Verify condition before buying.",
-    ...(cleared.length === 0 && scored.length > 0
+    ...(run.capReached
+      ? {
+        note: `AI limit reached after grading ${graded} of ${run.queued}. Upgrade or wait for the reset.`,
+      }
+      : cleared.length === 0 && scored.length > 0
       ? {
         note: `Graded ${graded} of ${consideredCount} listings; none of them cleared your margin filter.`,
       }
