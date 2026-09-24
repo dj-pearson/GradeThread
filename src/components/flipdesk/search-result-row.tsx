@@ -16,7 +16,8 @@ import { cn } from "@/lib/utils";
 // The row is a listbox OPTION, so it holds no link or button of its own: an
 // option's children are presentational, and a focusable child inside one is an
 // axe nested-interactive failure. The option opens on click; the copy-SKU
-// button sits beside it, outside the option.
+// button sits beside it, outside the option, and is aria-hidden because the
+// listbox may own nothing but options.
 
 function money(n: number | null | undefined): string | null {
   if (n == null || Number.isNaN(n)) return null;
@@ -112,6 +113,11 @@ export const SearchResultRow = memo(function SearchResultRow({
         // this only covers an option that was clicked into focus.
         tabIndex={-1}
         onClick={(e) => onOpen(group, e)}
+        // A middle click never fires onClick; it arrives as auxclick. The
+        // page's open handler sends button 1 to a new tab.
+        onAuxClick={(e) => {
+          if (e.button === 1) onOpen(group, e);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") onOpen(group, e);
         }}
@@ -185,9 +191,13 @@ export const SearchResultRow = memo(function SearchResultRow({
         />
       </div>
       {sku && (
+        // A button inside a listbox is an axe aria-required-children failure,
+        // so this mouse shortcut is hidden from assistive tech. The SKU itself
+        // is read out as part of the option.
         <button
           type="button"
           tabIndex={-1}
+          aria-hidden="true"
           onClick={() => void copySku()}
           aria-label={`Copy SKU ${sku}`}
           title="Copy SKU"

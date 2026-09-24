@@ -116,5 +116,8 @@ describe("display helpers", () => {
     expect(formatRecentCount(1)).toBe("1 result");
     expect(formatRecentCount(12)).toBe("12 results");
     expect(formatRecentCount(51)).toBe("50+ results");
+    // After Show 200: an uncapped count is exact, a capped one is 200+.
+    expect(formatRecentCount(120)).toBe("120 results");
+    expect(formatRecentCount(201)).toBe("200+ results");
   });
 });

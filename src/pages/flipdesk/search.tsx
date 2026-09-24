@@ -84,8 +84,12 @@ export function FlipdeskSearchPage() {
   const [scope, setScope] = useState<SearchScope>(() =>
     normalizeScope(searchParams.get("scope")),
   );
-  // U2: the RPC stops at 50. "Show 200" raises it to the RPC's own ceiling.
-  const [limit, setLimit] = useState(DEFAULT_LIMIT);
+  // U2: the RPC stops at 50. "Show 200" raises it to the RPC's own ceiling for
+  // THAT search only; a new term or tab goes back to 50 rather than every later
+  // search quietly asking for four times the rows.
+  const [expandedFor, setExpandedFor] = useState<string | null>(null);
+  const expandKey = `${scope}|${normalizeQuery(input)}`;
+  const limit = expandedFor === expandKey ? MAX_LIMIT : DEFAULT_LIMIT;
   // US-2517: keyboard cursor over the result list.
   const [activeIdx, setActiveIdx] = useState(0);
   // F7: a separate cursor over recent searches. It starts on nothing, so the
@@ -219,13 +223,23 @@ export function FlipdeskSearchPage() {
   }, [activeIdx]);
 
   function remember(term: string, result: SearchResult | undefined) {
-    // A capped search is stored as limit + 1 so it reads back as "50+".
+    // A capped search is stored as the limit it ran at + 1 (51, or 201 after
+    // Show 200), so it reads back as "50+" or "200+" (formatRecentCount).
+    // p_limit is one more than the rows shown, except at the RPC's ceiling.
+    const shown = result
+      ? result.args.p_limit >= MAX_LIMIT
+        ? MAX_LIMIT
+        : result.args.p_limit - 1
+      : DEFAULT_LIMIT;
     const resultCount = result
       ? result.capped
-        ? limit + 1
+        ? shown + 1
         : result.hits.length
       : null;
-    void recordSearch(term, { scope, resultCount }).then(() =>
+    void recordSearch(term, {
+      scope: result?.args.p_scope ?? scope,
+      resultCount,
+    }).then(() =>
       qc.invalidateQueries({ queryKey: recentKey }),
     );
   }
@@ -351,6 +365,12 @@ export function FlipdeskSearchPage() {
         }
         return;
       }
+      // F7: Delete forgets the highlighted term, so removal needs no mouse.
+      if (e.key === "Delete" && recent[recentIdx]) {
+        e.preventDefault();
+        forget(recent[recentIdx]!);
+        return;
+      }
       const next = moveCursor(e.key, recentIdx, recent.length);
       if (next != null) {
         e.preventDefault();
@@ -367,7 +387,10 @@ export function FlipdeskSearchPage() {
       // under the cursor would open the wrong garment. Resolve the current
       // text first and open ITS best row. D2 pins an exact SKU first, so a
       // scanned tag opens its own garment.
-      if (isStale || isFetching || !data) {
+      // Only staleness counts. A background refetch of the SAME args (window
+      // focus) leaves the rows current, and the row under the cursor is the one
+      // the seller chose.
+      if (isStale || !data) {
         const fresh = await flush().catch(() => null);
         if (!fresh) return;
         const first = groupHitsByItem(fresh.hits)[0];
@@ -542,7 +565,7 @@ export function FlipdeskSearchPage() {
                   className="divide-y rounded-md border"
                 >
                   {recent.map((r, i) => {
-                    const count = formatRecentCount(r.resultCount, DEFAULT_LIMIT);
+                    const count = formatRecentCount(r.resultCount);
                     const age = formatRecentAge(r.updatedAt);
                     return (
                       <li key={r.query} role="none" className="flex items-stretch">
@@ -550,6 +573,7 @@ export function FlipdeskSearchPage() {
                           id={`recent-${i}`}
                           role="option"
                           aria-selected={i === recentIdx}
+                          aria-keyshortcuts="Delete"
                           tabIndex={-1}
                           onClick={() => runRecent(r)}
                           onKeyDown={(e) => {
@@ -576,9 +600,13 @@ export function FlipdeskSearchPage() {
                             {[count, age].filter(Boolean).join(" · ")}
                           </span>
                         </div>
+                        {/* Hidden from assistive tech: a listbox may own only
+                            options (axe aria-required-children). Keyboard and
+                            screen-reader users remove with Delete. */}
                         <button
                           type="button"
                           tabIndex={-1}
+                          aria-hidden="true"
                           onClick={() => forget(r)}
                           aria-label={`Remove ${r.query} from recent searches`}
                           className="flex w-10 flex-shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
@@ -625,7 +653,7 @@ export function FlipdeskSearchPage() {
                       variant="link"
                       size="sm"
                       className="h-auto p-0 text-xs"
-                      onClick={() => setLimit(MAX_LIMIT)}
+                      onClick={() => setExpandedFor(expandKey)}
                     >
                       Show {MAX_LIMIT}
                     </Button>

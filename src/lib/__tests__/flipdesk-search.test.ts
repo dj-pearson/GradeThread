@@ -221,10 +221,21 @@ describe("summarizeHits (U2)", () => {
     expect(s.byType).toEqual({ item: 2, listing: 1, sale: 1 });
   });
 
-  it("says 50+ and marks the split as the top 50 when capped", () => {
-    const s = summarizeHits(rows, true, 50);
+  it("says 50+ and marks the split as the top 50 when a full page is capped", () => {
+    const full = Array.from({ length: 50 }, (_, i) =>
+      hit({ result_type: "item", result_id: `i${i}` }),
+    );
+    const s = summarizeHits(full, true, 50);
     expect(s.headline).toBe("50+ results, showing the best 50");
-    expect(s.breakdown).toBe("2 items, 1 listing, 1 sale in the top 50");
+    expect(s.breakdown).toBe("50 items in the top 50");
+  });
+
+  it("never claims 'the best 50' when the workspace filter left fewer", () => {
+    // The RPC hit its cap, but most rows were another workspace's.
+    const s = summarizeHits(rows, true, 50);
+    expect(s.headline).toBe("4 results shown, there may be more");
+    expect(s.headline).not.toMatch(/best 50/);
+    expect(s.breakdown).toBe("2 items, 1 listing, 1 sale");
   });
 
   it("handles one and none", () => {

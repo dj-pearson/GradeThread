@@ -220,15 +220,15 @@ export function formatRecentAge(iso: string, now: number = Date.now()): string {
 }
 
 /**
- * A remembered result count for display. A capped search is stored as
- * limit + 1, so it reads "50+" rather than claiming exactly fifty.
+ * A remembered result count for display. A capped search is stored as its
+ * limit + 1: 51 for the default page and 201 after "Show 200". So 51 reads
+ * "50+", anything past 200 reads "200+", and every other number is exact (an
+ * uncapped 120 from a Show 200 search is 120 results, not "50+").
  */
-export function formatRecentCount(
-  n: number | null,
-  limit: number = DEFAULT_LIMIT,
-): string | null {
+export function formatRecentCount(n: number | null): string | null {
   if (n == null) return null;
-  if (n > limit) return `${limit}+ results`;
+  if (n > MAX_LIMIT) return `${MAX_LIMIT}+ results`;
+  if (n === DEFAULT_LIMIT + 1) return `${DEFAULT_LIMIT}+ results`;
   return `${n} result${n === 1 ? "" : "s"}`;
 }
 
@@ -267,14 +267,20 @@ export function summarizeHits(
   const byType: Record<ResultType, number> = { item: 0, listing: 0, sale: 0 };
   for (const h of hits) byType[h.result_type] += 1;
   const total = hits.length;
-  const headline = capped
-    ? `${limit}+ results, showing the best ${limit}`
-    : `${total} result${total === 1 ? "" : "s"}`;
+  const plural = `${total} result${total === 1 ? "" : "s"}`;
+  // The cap is counted before the workspace filter and the exact-code de-dup,
+  // so a capped answer can show fewer than `limit`. Only a full page may claim
+  // "the best 50"; a short one says what it shows and that more may exist.
+  const headline = !capped
+    ? plural
+    : total >= limit
+      ? `${limit}+ results, showing the best ${limit}`
+      : `${plural} shown, there may be more`;
   const parts = TYPE_ORDER.filter((t) => byType[t] > 0).map(
     (t) => `${byType[t]} ${TYPE_PLURAL[t][byType[t] === 1 ? 0 : 1]}`,
   );
   const breakdown = parts.length
-    ? `${parts.join(", ")}${capped ? ` in the top ${limit}` : ""}`
+    ? `${parts.join(", ")}${capped && total >= limit ? ` in the top ${limit}` : ""}`
     : "";
   return { total, byType, headline, breakdown };
 }

@@ -85,10 +85,28 @@ vi.mock("@/lib/recent-searches", () => ({
   clearRecentSearches: () => Promise.resolve(),
 }));
 
-vi.mock("@/stores/auth-store", () => ({
-  useAuthStore: (sel: (s: unknown) => unknown) =>
-    sel({ user: { id: "owner-1" }, activeWorkspaceOwnerId: null }),
-}));
+// A tiny subscribable store, so a test can switch workspace mid-page.
+let authState = { user: { id: "owner-1" }, activeWorkspaceOwnerId: null as string | null };
+const authListeners = new Set<() => void>();
+function setActiveOwner(id: string | null) {
+  authState = { ...authState, activeWorkspaceOwnerId: id };
+  authListeners.forEach((l) => l());
+}
+vi.mock("@/stores/auth-store", async () => {
+  const { useSyncExternalStore } = await import("react");
+  return {
+    useAuthStore: (sel: (s: unknown) => unknown) =>
+      sel(
+        useSyncExternalStore(
+          (l) => {
+            authListeners.add(l);
+            return () => authListeners.delete(l);
+          },
+          () => authState,
+        ),
+      ),
+  };
+});
 
 const { FlipdeskSearchPage } = await import("@/pages/flipdesk/search");
 
@@ -190,6 +208,7 @@ function item(id: string, extra: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  authState = { user: { id: "owner-1" }, activeWorkspaceOwnerId: null };
   rpcCalls.length = 0;
   recorded.length = 0;
   recentRows = [];
@@ -370,6 +389,29 @@ describe("recent searches (F7)", () => {
     expect(rpcCalls.some((c) => c.p_query === "jane doe")).toBe(true);
   });
 
+  it("Delete forgets the highlighted term with no mouse", async () => {
+    mount();
+    await until(() => text().includes("jane doe"));
+    await press("ArrowDown");
+    await press("Delete");
+    await settle(10);
+    expect(text()).not.toContain("jane doe");
+    expect(text()).toContain("levis");
+  });
+
+  it("has no serious axe violations with recent searches on screen", async () => {
+    mount();
+    await until(() => text().includes("jane doe"));
+    await press("ArrowDown");
+    const results = await axe.run(container!, {
+      rules: { "color-contrast": { enabled: false } },
+    });
+    const bad = results.violations.filter(
+      (v) => v.id.startsWith("aria") || v.impact === "serious" || v.impact === "critical",
+    );
+    expect(bad.map((v) => `${v.id}: ${v.help} ${v.nodes.map((n) => n.html).join(" ")}`)).toEqual([]);
+  });
+
   it("each term can be removed", async () => {
     mount();
     await until(() => text().includes("jane doe"));
@@ -385,6 +427,8 @@ describe("recent searches (F7)", () => {
 
 describe("the field and list are a combobox (U1)", () => {
   it("has no serious axe violations with results on screen", async () => {
+    // With a SKU, so each row carries its copy button too.
+    itemRows = [item("levis-1", { item_number: "J0001" }), item("levis-2", { item_number: "J0002" })];
     mount();
     await type("levis");
     await until(() => text().includes("Title levis-2"));
@@ -462,6 +506,57 @@ describe("exact codes are pinned (D2)", () => {
     const first = document.querySelector('#search-results [role="option"]');
     expect(first?.textContent).toContain("In bin A3");
     expect(first?.textContent).toContain("Wool scarf");
+  });
+});
+
+describe("honest counts (U2)", () => {
+  function fill(n: number, prefix: string) {
+    return Array.from({ length: n }, (_, i) => row(`${prefix}${i}`));
+  }
+
+  it("Show 200 applies to that search only, and a short capped page never says 'the best 50'", async () => {
+    // Every term fills its page: 51 rows at 50, 200 at 200.
+    rpcImpl = (a) => Promise.resolve({ data: fill(a.p_limit, a.p_query), error: null });
+    itemRows = [
+      ...Array.from({ length: 200 }, (_, i) => item(`levis${i}`)),
+      // Only 10 of nike's rows are this workspace's; the rest are another's.
+      ...Array.from({ length: 10 }, (_, i) => item(`nike${i}`)),
+    ];
+    mount();
+    await type("levis");
+    await until(() => text().includes("showing the best 50"));
+    const more = [...document.querySelectorAll("button")].find((b) => b.textContent === "Show 200");
+    await act(async () => more!.click());
+    await until(() => rpcCalls.some((c) => c.p_query === "levis" && c.p_limit === 200));
+
+    await type("nike");
+    await until(() => text().includes("Title nike0"));
+    expect(rpcCalls.filter((c) => c.p_query === "nike").map((c) => c.p_limit)).toEqual([51]);
+    expect(text()).toContain("10 results shown, there may be more");
+    expect(text()).not.toContain("showing the best 50");
+  });
+});
+
+describe("a workspace switch never shows the last workspace's rows (S2)", () => {
+  it("drops the previous owner's results instead of showing them as current", async () => {
+    itemRows = [item("nike-1"), { ...item("nike-2"), user_id: "client-9" }];
+    rpcImpl = () => Promise.resolve({ data: [row("nike-1"), row("nike-2")], error: null });
+    let release: () => void = () => {};
+    mount("/dashboard/flipdesk/search?q=nike");
+    await until(() => text().includes("Title nike-1"));
+    expect(text()).not.toContain("Title nike-2");
+
+    rpcImpl = () =>
+      new Promise((r) => {
+        release = () => r({ data: [row("nike-1"), row("nike-2")], error: null });
+      });
+    await act(async () => setActiveOwner("client-9"));
+    await settle(10);
+    // In flight for client-9: owner-1's row must not be on screen.
+    expect(text()).not.toContain("Title nike-1");
+    await act(async () => release());
+    await until(() => text().includes("Title nike-2"));
+    expect(text()).not.toContain("Title nike-1");
   });
 });
 

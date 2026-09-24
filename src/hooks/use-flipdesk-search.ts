@@ -108,7 +108,11 @@ export function useFlipdeskSearch({
     placeholderData: keepPreviousData,
   });
 
-  const data = args ? query.data : undefined;
+  // keepPreviousData would carry the last workspace's rows across a workspace
+  // switch, where the args are unchanged and nothing would read as stale. Data
+  // filtered to another owner is never shown.
+  const data =
+    args && query.data?.ownerId === ownerId ? query.data : undefined;
   // Stale = the data on screen answers a different request than the one the
   // field and tabs describe right now, debounce included. A scanner that types
   // a SKU and sends Enter inside the debounce sees this as true.

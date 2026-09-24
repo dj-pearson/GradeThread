@@ -134,6 +134,9 @@ export async function fetchExactMatches(
     .select(ITEM_LIST_SELECT)
     .eq("user_id", ownerId)
     .or(fields.map((f) => `${CODE_COLUMN[f]}.ilike.${pattern}`).join(","))
+    // Ascending puts "J0042" before "J00420", so an exact code is never pushed
+    // out of the ten by longer codes that share its prefix.
+    .order(CODE_COLUMN[fields[0]!], { ascending: true })
     .limit(EXACT_LIMIT);
   if (signal) q = q.abortSignal(signal);
   const { data, error } = await q;
@@ -174,6 +177,8 @@ function exactHit(row: ItemListRow, kind: MatchKind): MappedHit {
 export interface SearchResult {
   /** The args this data answers. Compared against the live input for staleness. */
   args: SearchArgs;
+  /** The workspace owner this data was filtered to. */
+  ownerId: string;
   /** Hits for the active owner only, in rank order. */
   hits: MappedHit[];
   /** The RPC returned more rows than `limit`: there are more than shown. */
@@ -252,6 +257,7 @@ export async function runFlipdeskSearch(
   const covers = new Map([...allCovers].filter(([id]) => items.has(id)));
   return {
     args,
+    ownerId,
     hits,
     capped,
     items,
