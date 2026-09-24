@@ -361,8 +361,12 @@ describe("FlipDesk P&L and fee allocation", () => {
   });
 
   it("flags fee + shipping anomalies for operator review", () => {
+    // Money M9: fees are checked against the marketplace's own schedule, not
+    // a flat 15%. Mercari is 10% of item plus shipping: $10 on a $100 sale.
     const highFees = makeSale({ sale_price: 100, platform_fees: 18 });
-    expect(detectDiscrepancies(highFees).join(" ")).toMatch(/exceed 15%/i);
+    expect(detectDiscrepancies(highFees, "mercari").join(" ")).toMatch(
+      /expected about \$/i,
+    );
 
     const underwaterShipping = makeSale({
       sale_price: 40,
@@ -375,10 +379,10 @@ describe("FlipDesk P&L and fee allocation", () => {
 
     const clean = makeSale({
       sale_price: 100,
-      platform_fees: 13,
+      platform_fees: 10,
       shipping_collected: 8,
       shipping_cost: 8,
     });
-    expect(detectDiscrepancies(clean)).toEqual([]);
+    expect(detectDiscrepancies(clean, "mercari")).toEqual([]);
   });
 });

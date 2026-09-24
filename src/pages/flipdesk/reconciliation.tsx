@@ -53,7 +53,12 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useItemsList } from "@/hooks/use-items-full";
-import { detectDiscrepancies } from "@/lib/pnl";
+import {
+  FEE_GAP_RED,
+  detectFeeDiscrepancy,
+  salePlatform,
+  type FeeDiscrepancy,
+} from "@/lib/pnl";
 import {
   useImportPayoutsCsv,
   usePayoutImports,
@@ -209,13 +214,34 @@ export function ReconciliationPayoutsTab() {
     for (const it of items) m.set(it.id, it.item_title);
     return m;
   }, [items]);
+  const platformByItem = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const it of items) m.set(it.id, it.listing_platform ?? null);
+    return m;
+  }, [items]);
 
+  // Completed sales only, and each one against its own marketplace's fee
+  // schedule. A cancelled or refunded sale is never checked; a sale on a
+  // platform we have no schedule for skips the fee rule rather than guessing.
   const flagged = useMemo(
     () =>
       sales
-        .map((s) => ({ sale: s, issues: detectDiscrepancies(s) }))
-        .filter((r) => r.issues.length > 0),
-    [sales],
+        .filter((s) => s.status === "completed")
+        .map((s) => {
+          const fee = detectFeeDiscrepancy(
+            s,
+            salePlatform(s, platformByItem.get(s.inventory_item_id)),
+          );
+          const shippingOver =
+            (s.shipping_cost ?? 0) > (s.shipping_collected ?? 0) + 2;
+          return { sale: s, fee, shippingOver };
+        })
+        .filter((r) => r.fee !== null || r.shippingOver),
+    [sales, platformByItem],
+  );
+  const possibleOvercharge = flagged.reduce(
+    (sum, r) => sum + (r.fee?.overBy ?? 0),
+    0,
   );
 
   return (
@@ -375,13 +401,12 @@ export function ReconciliationPayoutsTab() {
                 Fee &amp; shipping discrepancies
               </CardTitle>
               <CardDescription>
-                Sales where marketplace fees exceed 15% of the sale price, or
-                shipping cost runs more than $2 over what the buyer paid.
+                Completed sales where the fees charged are more than each
+                marketplace&apos;s own schedule says they should be, or where
+                postage cost more than $2 over what the buyer paid.
               </CardDescription>
             </div>
-            <Badge variant={flagged.length > 0 ? "destructive" : "outline"}>
-              {flagged.length}
-            </Badge>
+            <Badge variant="outline">{flagged.length}</Badge>
           </div>
         </CardHeader>
         <CardContent>
@@ -406,25 +431,27 @@ export function ReconciliationPayoutsTab() {
               No discrepancies. Fees and shipping look clean.
             </div>
           ) : (
-            <ul className="space-y-2">
-              {flagged.map(({ sale, issues }) => (
-                <li key={sale.id} className="rounded-md bg-destructive/10 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-medium">
-                      {titleById.get(sale.inventory_item_id) ?? "Item"}
-                    </div>
-                    <div className="font-mono text-xs tabular-nums text-muted-foreground">
-                      Sold ${(sale.sale_price ?? 0).toFixed(2)}
-                    </div>
-                  </div>
-                  {issues.map((d, i) => (
-                    <div key={i} className="mt-1 text-xs text-destructive">
-                      • {d}
-                    </div>
-                  ))}
-                </li>
-              ))}
-            </ul>
+            <div className="space-y-3">
+              {possibleOvercharge > 0 && (
+                <p className="text-sm">
+                  Possible overcharges:{" "}
+                  <span className="font-semibold tabular-nums">
+                    ${possibleOvercharge.toFixed(2)}
+                  </span>
+                </p>
+              )}
+              <ul className="space-y-2">
+                {flagged.map(({ sale, fee, shippingOver }) => (
+                  <FlaggedSaleRow
+                    key={sale.id}
+                    title={titleById.get(sale.inventory_item_id) ?? "Item"}
+                    sale={sale}
+                    fee={fee}
+                    shippingOver={shippingOver}
+                  />
+                ))}
+              </ul>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -459,6 +486,57 @@ export function ReconciliationPayoutsTab() {
       {/* eBay sync history — stats from each background pull, newest first. */}
       <SyncHistoryCard />
     </div>
+  );
+}
+
+/** One flagged sale. Amber means "check this"; red means the fee gap is
+ *  over $5, which is worth raising with the marketplace. */
+function FlaggedSaleRow({
+  title,
+  sale,
+  fee,
+  shippingOver,
+}: {
+  title: string;
+  sale: SaleRow;
+  fee: FeeDiscrepancy | null;
+  shippingOver: boolean;
+}) {
+  const red = (fee?.overBy ?? 0) > FEE_GAP_RED;
+  return (
+    <li
+      className={
+        red
+          ? "rounded-md bg-destructive/10 p-3"
+          : "rounded-md bg-amber-500/10 p-3"
+      }
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="font-medium">{title}</div>
+        <div className="text-xs tabular-nums text-muted-foreground">
+          Sold ${(sale.sale_price ?? 0).toFixed(2)}
+        </div>
+      </div>
+      {fee && (
+        <div
+          className={
+            red
+              ? "mt-1 text-xs text-destructive"
+              : "mt-1 text-xs text-amber-900 dark:text-amber-200"
+          }
+        >
+          Charged ${fee.charged.toFixed(2)} in fees, expected about $
+          {fee.expected.toFixed(2)}.
+        </div>
+      )}
+      {shippingOver && (
+        <div className="mt-1 text-xs text-amber-900 dark:text-amber-200">
+          Postage cost ${(sale.shipping_cost ?? 0).toFixed(2)}, which is more
+          than $2 over the ${(sale.shipping_collected ?? 0).toFixed(2)} the
+          buyer paid.
+        </div>
+      )}
+    </li>
   );
 }
 
