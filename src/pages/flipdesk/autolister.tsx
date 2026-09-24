@@ -58,7 +58,9 @@ import {
 } from "@/lib/autolister-virtual-grid";
 import { useWindowVirtualAnchor } from "@/hooks/use-window-virtual-anchor";
 import {
+  mergeAutoTagResult,
   movePhotosToGroup,
+  pruneDeletedPhotos,
   reorderWithinGroup,
 } from "@/lib/autolister-group-edits";
 import {
@@ -426,6 +428,10 @@ function AutolisterWorkbench() {
   );
   const [staged, setStaged] = useState<StagedPhoto[]>(initialLocal.staged);
   const [groups, setGroups] = useState<Group[]>(initialLocal.groups);
+  // AL-09: the latest groups/staged for code that runs after an await.
+  const liveGroupsRef = useRef(groups);
+  liveGroupsRef.current = groups;
+  const stagedByIdRef = useRef<ReadonlyMap<string, StagedPhoto>>(new Map());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   // US-1550: shift-click range selection anchor (id of the last plain click).
@@ -562,6 +568,7 @@ function AutolisterWorkbench() {
     () => new Map(staged.map((p) => [p.id, p])),
     [staged],
   );
+  stagedByIdRef.current = stagedById;
   const groupedIds = useMemo(
     () => new Set(groups.flatMap((g) => g.photoIds)),
     [groups],
@@ -865,29 +872,9 @@ function AutolisterWorkbench() {
       }
     }
     setStaged((prev) => prev.filter((p) => !idSet.has(p.id)));
-    setGroups((prev) =>
-      prev
-        .map((g) => {
-          const photoIds = g.photoIds.filter((pid) => !idSet.has(pid));
-          if (photoIds.length === g.photoIds.length) return g;
-          return {
-            ...g,
-            photoIds,
-            coverId: idSet.has(g.coverId) ? (photoIds[0] ?? g.coverId) : g.coverId,
-            roles: g.roles
-              ? Object.fromEntries(
-                  Object.entries(g.roles).filter(([pid]) => !idSet.has(pid)),
-                )
-              : undefined,
-            photoRoles: g.photoRoles
-              ? Object.fromEntries(
-                  Object.entries(g.photoRoles).filter(([pid]) => !idSet.has(pid)),
-                )
-              : undefined,
-          };
-        })
-        .filter((g) => g.photoIds.length > 0),
-    );
+    setGroups((prev) => pruneDeletedPhotos(prev, idSet));
+    // AL-09: the undo snapshot must not resurrect deleted photos.
+    if (undoGroupsRef.current) undoGroupsRef.current = pruneDeletedPhotos(undoGroupsRef.current, idSet);
     setSelected((prev) => {
       const next = new Set(prev);
       for (const id of ids) next.delete(id);
@@ -1219,9 +1206,14 @@ function AutolisterWorkbench() {
     apply: (prev: Group[]) => Group[],
     kind?: GroupEditKind,
   ): boolean {
-    const next = apply(groups);
-    if (next === groups) return false;
-    undoGroupsRef.current = groups;
+    // AL-09: read LIVE groups. An async pass (propose, verify) calls this
+    // after awaits, and the render closure would overwrite edits made while
+    // it ran and give Undo a stale snapshot.
+    const prev = liveGroupsRef.current;
+    const next = apply(prev);
+    if (next === prev) return false;
+    undoGroupsRef.current = prev;
+    liveGroupsRef.current = next;
     setGroups(next);
     // US-1908: measure how much sellers correct the auto-grouper.
     if (kind) trackGroupEdit(kind);
@@ -1426,7 +1418,8 @@ function AutolisterWorkbench() {
         const grouped = new Set(prev.flatMap((g) => g.photoIds));
         const created: Group[] = [];
         for (const run of runs) {
-          const ids = run.photoIds.filter((id) => !grouped.has(id));
+          // AL-09: skip photos deleted while the proposal was running.
+          const ids = run.photoIds.filter((id) => !grouped.has(id) && stagedByIdRef.current.has(id));
           if (ids.length === 0) continue;
           for (const id of ids) grouped.add(id);
           created.push({
@@ -1944,7 +1937,7 @@ function AutolisterWorkbench() {
   // result. Returns true on success. edgeFetch surfaces the 402 upgrade dialog
   // for locked plans, so we don't handle gating here.
   async function autoTagGroup(groupId: string): Promise<boolean> {
-    const g = groups.find((x) => x.id === groupId);
+    const g = liveGroupsRef.current.find((x) => x.id === groupId);
     if (!g) return false;
     const photos = g.photoIds
       // US-1549: never send seller-reference (internal) photos to the vision
@@ -1971,32 +1964,17 @@ function AutolisterWorkbench() {
         toast.error(json.error || "Could not auto-tag photos.");
         return false;
       }
-      const cover =
-        typeof json.cover_id === "string" && g.photoIds.includes(json.cover_id)
-          ? json.cover_id
-          : g.coverId;
-      // US-1549/US-1551: the AI only assigns the basic five roles, so any role
-      // outside that set (internal, measurements, interior, …) was hand-picked
-      // by the seller — re-apply those over the AI result instead of letting the
-      // pass demote them to "detail".
-      // US-2461: a QUALIFIED photo counts as hand-picked too. The AI emits bare
-      // types, so "Fabric close-up" comes back as `detail` and would otherwise
-      // survive as a type while its role was silently dropped below.
-      const preservedManual = Object.fromEntries(
-        Object.entries(g.roles ?? {}).filter(
-          ([pid, role]) =>
-            !AI_ASSIGNABLE_ROLES.has(role) || !!g.photoRoles?.[pid],
-        ),
-      ) as Record<string, PhotoRole>;
-      const roles = { ...(json.roles ?? {}), ...preservedManual };
-      // Drop a qualifier the AI just retyped away from under (the seller's
-      // "Size tag" reclassified as a defect keeps no `size` role).
-      const photoRoles = Object.fromEntries(
-        Object.entries(g.photoRoles ?? {}).filter(
-          ([pid]) => pid in preservedManual && roles[pid] !== "front",
-        ),
-      );
-      updateGroup(groupId, { coverId: cover, roles, photoRoles });
+      // AL-09: merge into the group as it is NOW (the seller may have moved
+      // photos or retyped roles while the request ran). US-1549/US-1551/
+      // US-2461's hand-picked-role rule lives in mergeAutoTagResult.
+      setGroups((prev) => {
+        const merged = mergeAutoTagResult(
+          prev.find((x) => x.id === groupId),
+          { coverId: json.cover_id, roles: json.roles },
+          AI_ASSIGNABLE_ROLES,
+        );
+        return merged ? prev.map((x) => (x.id === groupId ? merged : x)) : prev;
+      });
       return true;
     } catch (err) {
       toastError(err, "Auto-tag failed.");
@@ -2018,8 +1996,10 @@ function AutolisterWorkbench() {
     setTaggingAll(true);
     try {
       let ok = 0;
-      for (const g of groups) {
-        if (await autoTagGroup(g.id)) ok++;
+      // AL-09: ids snapshotted from the live list; a group removed mid-run
+      // is skipped by autoTagGroup's own live lookup.
+      for (const id of liveGroupsRef.current.map((g) => g.id)) {
+        if (await autoTagGroup(id)) ok++;
       }
       if (ok > 0) {
         toast.success(`Auto-tagged ${ok} listing${ok === 1 ? "" : "s"}.`);

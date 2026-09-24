@@ -123,3 +123,72 @@ export function reorderWithinGroup<T extends EditableGroup>(
     g.id === groupId ? { ...g, photoIds, manualOrder: true } : g
   );
 }
+
+/**
+ * AL-09: remove deleted photos from every group: cover repaired to the next
+ * member, role and qualifier entries pruned, emptied groups dropped. Used for
+ * the live groups AND the undo snapshot, so an Undo after a delete never
+ * brings back ghost photos. Returns the same array when nothing changed.
+ */
+export function pruneDeletedPhotos<
+  T extends EditableGroup & { photoRoles?: Record<string, string> },
+>(groups: T[], deleted: ReadonlySet<string>): T[] {
+  let changed = false;
+  const out: T[] = [];
+  for (const g of groups) {
+    const photoIds = g.photoIds.filter((pid) => !deleted.has(pid));
+    if (photoIds.length === g.photoIds.length) {
+      out.push(g);
+      continue;
+    }
+    changed = true;
+    if (photoIds.length === 0) continue;
+    const keep = <V>(m: Record<string, V> | undefined) =>
+      m ? Object.fromEntries(Object.entries(m).filter(([pid]) => !deleted.has(pid))) : undefined;
+    out.push({
+      ...g,
+      photoIds,
+      coverId: deleted.has(g.coverId) ? photoIds[0]! : g.coverId,
+      roles: keep(g.roles),
+      photoRoles: keep(g.photoRoles),
+    });
+  }
+  return changed ? out : groups;
+}
+
+/**
+ * AL-09: fold an auto-tag answer into the group AS IT IS NOW, not as it was
+ * when the request left. Roles are kept only for photos still in the group,
+ * roles the seller set by hand (outside `aiRoles`, or qualified) survive over
+ * the AI's, and the AI's cover is accepted only if that photo is still a
+ * member. Returns null when the group no longer exists.
+ */
+export function mergeAutoTagResult<
+  T extends EditableGroup & { photoRoles?: Record<string, string> },
+>(
+  live: T | undefined,
+  answer: { coverId?: string; roles?: Record<string, string> },
+  aiAssignable: ReadonlySet<string>,
+): T | null {
+  if (!live) return null;
+  const members = new Set(live.photoIds);
+  const preservedManual = Object.fromEntries(
+    Object.entries(live.roles ?? {}).filter(
+      ([pid, role]) => members.has(pid) && (!aiAssignable.has(role) || !!live.photoRoles?.[pid]),
+    ),
+  );
+  const aiRoles = Object.fromEntries(
+    Object.entries(answer.roles ?? {}).filter(([pid]) => members.has(pid)),
+  );
+  const roles = { ...aiRoles, ...preservedManual };
+  // Drop a qualifier the AI just retyped away from under (the seller's "Size
+  // tag" reclassified as a defect keeps no `size` role).
+  const photoRoles = Object.fromEntries(
+    Object.entries(live.photoRoles ?? {}).filter(
+      ([pid]) => pid in preservedManual && roles[pid] !== "front",
+    ),
+  );
+  const coverId =
+    answer.coverId && members.has(answer.coverId) ? answer.coverId : live.coverId;
+  return { ...live, coverId, roles, photoRoles };
+}
