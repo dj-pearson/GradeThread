@@ -1249,17 +1249,28 @@ function CancellationsCard() {
 // shared is the copy: the whole reason a case is not "a return with a different
 // state" is that the seller has to know eBay decides it.
 
-/** Add-tracking dialog. The action that settles most INR inquiries and cases. */
+/**
+ * Add-tracking dialog. The action that settles most INR inquiries and cases.
+ *
+ * PS-02: callers mount it with a `key` per case. Its fields are local state,
+ * and one instance kept mounted across cases opened the next inquiry with the
+ * last order's tracking already typed in and Send enabled.
+ */
 function TrackingDialog({
   open,
   onOpenChange,
   onSubmit,
   busy,
+  orderId,
+  itemTitle,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onSubmit: (carrier: string, trackingNumber: string, comments: string) => void;
   busy: boolean;
+  /** Which parcel this is for, so the seller can check before sending. */
+  orderId: string | null;
+  itemTitle: string | null;
 }) {
   const [carrier, setCarrier] = useState("");
   const [tracking, setTracking] = useState("");
@@ -1271,6 +1282,9 @@ function TrackingDialog({
         <DialogHeader>
           <DialogTitle>Send tracking to eBay</DialogTitle>
           <DialogDescription>
+            {orderId
+              ? `For order ${orderId}${itemTitle ? `: ${itemTitle}` : ""}. `
+              : ""}
             eBay accepts this as proof the parcel is on its way. It is what closes
             most item-not-received cases without a refund.
           </DialogDescription>
@@ -1504,9 +1518,14 @@ function InquiriesCard() {
         </QueueBody>
       </CardContent>
       <TrackingDialog
+        key={trackingFor ? trackingFor.inquiryId : "none"}
         open={!!trackingFor}
         onOpenChange={(v) => !v && setTrackingFor(null)}
         busy={!!busy}
+        orderId={trackingFor?.orderId ?? null}
+        itemTitle={trackingFor
+          ? caseItems?.get(caseItemKey(trackingFor) ?? "")?.title ?? null
+          : null}
         onSubmit={(carrier, trackingNumber, comments) => {
           if (trackingFor) {
             void run(trackingFor, "shipment", { carrier, trackingNumber, comments });
@@ -1541,6 +1560,11 @@ function CasesCard() {
   const { data: caseItems } = useCaseItems(
     cases.map((k) => ({ orderId: k.orderId, itemId: k.itemId })),
   );
+
+  function closeAppeal() {
+    setAppealFor(null);
+    setAppealText("");
+  }
 
   async function run(
     kase: EbayCase,
@@ -1694,6 +1718,8 @@ function CasesCard() {
                     variant="outline"
                     disabled={!!busy}
                     onClick={() => {
+                      // PS-02: case B must not open with case A's argument.
+                      setAppealText("");
                       setAppealFor(kase);
                       // The appeal argument IS the evidence. Open the pack with
                       // the dialog rather than making the seller find it.
@@ -1735,16 +1761,21 @@ function CasesCard() {
         </QueueBody>
       </CardContent>
       <TrackingDialog
+        key={trackingFor ? trackingFor.caseId : "none"}
         open={!!trackingFor}
         onOpenChange={(v) => !v && setTrackingFor(null)}
         busy={!!busy}
+        orderId={trackingFor?.orderId ?? null}
+        itemTitle={trackingFor
+          ? caseItems?.get(caseItemKey(trackingFor) ?? "")?.title ?? null
+          : null}
         onSubmit={(carrier, trackingNumber, comments) => {
           if (trackingFor) {
             void run(trackingFor, "shipment", { carrier, trackingNumber, comments });
           }
         }}
       />
-      <Dialog open={!!appealFor} onOpenChange={(v) => !v && setAppealFor(null)}>
+      <Dialog open={!!appealFor} onOpenChange={(v) => !v && closeAppeal()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Appeal this case</DialogTitle>
@@ -1761,7 +1792,7 @@ function CasesCard() {
             placeholder="Tracking shows delivered on 12 August, signed for."
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAppealFor(null)}>
+            <Button variant="outline" onClick={closeAppeal}>
               Cancel
             </Button>
             <Button
