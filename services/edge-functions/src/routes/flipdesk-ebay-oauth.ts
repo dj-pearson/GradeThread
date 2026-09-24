@@ -109,6 +109,17 @@ flipdeskEbayRoutes.get("/oauth/start", async (c) => {
 // eBay redirects the browser here. We verify the state token, exchange the
 // code for tokens, store them encrypted, then redirect the user back into
 // the app (or to /dashboard/flipdesk/marketplaces by default).
+// MP-12: standard OAuth consent-error codes the web and iOS both have a line
+// for. Everything else becomes provider_error.
+const PASSTHROUGH_CONSENT_ERRORS = new Set([
+  "invalid_scope",
+  "invalid_request",
+  "unauthorized_client",
+  "unsupported_response_type",
+  "server_error",
+  "temporarily_unavailable",
+]);
+
 flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -168,10 +179,12 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
     console.error(
       `[flipdesk-ebay] consent error: ${ebayError} — ${ebayErrorDesc ?? "(no description)"}`
     );
-    // MP-12: every other code (invalid_scope, server_error, ...) is one status
-    // the app knows how to word. Passing eBay's raw code through sent the
-    // seller back to the page with no message at all.
-    return finish(ebayError === "access_denied" ? "cancelled" : "provider_error");
+    // MP-12: a standard OAuth code the apps already word (iOS maps each of
+    // these to its own line in EbayConnectionTypes.swift) passes through;
+    // anything else collapses to provider_error, which the web words as a
+    // generic failure. The raw value is never reflected.
+    if (ebayError === "access_denied") return finish("cancelled");
+    return finish(PASSTHROUGH_CONSENT_ERRORS.has(ebayError) ? ebayError : "provider_error");
   }
   if (!code || !state) {
     return finish("cancelled");

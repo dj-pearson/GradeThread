@@ -1,6 +1,6 @@
-// MP-12: every eBay consent error other than a cancel comes back as one status
-// the app words. Unknown codes (invalid_scope, server_error) used to be passed
-// through raw, and the page had no message for them.
+// MP-12: a cancel is "cancelled", a standard OAuth code the apps word
+// (invalid_scope, server_error) passes through so iOS keeps its specific line,
+// and anything else is provider_error. The raw value is never reflected.
 //
 //   deno test --allow-net --allow-env --allow-read src/tests/ebay-oauth-callback-errors_test.ts
 
@@ -35,8 +35,11 @@ function app() {
 
 for (const [code, expected] of [
   ["access_denied", "ebay=cancelled"],
-  ["invalid_scope", "ebay=provider_error"],
-  ["server_error", "ebay=provider_error"],
+  ["invalid_scope", "ebay=invalid_scope"],
+  ["server_error", "ebay=server_error"],
+  ["temporarily_unavailable", "ebay=temporarily_unavailable"],
+  ["made_up_code", "ebay=provider_error"],
+  ["%3Cscript%3E", "ebay=provider_error"],
 ]) {
   Deno.test(`MP-12: consent error ${code} redirects with ${expected}`, async () => {
     const res = await app().request(`/oauth/callback?error=${code}`);

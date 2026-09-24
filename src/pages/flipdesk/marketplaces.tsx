@@ -235,6 +235,19 @@ const CALLBACK_MESSAGES: Record<
     type: "error",
     message: "Could not complete eBay sign-in. Please retry, and contact support if it persists.",
   },
+  // MP-12: standard OAuth codes the edge passes through (iOS words them too).
+  invalid_scope: {
+    type: "error",
+    message: "eBay turned down the permissions FlipDesk asked for. Please try again.",
+  },
+  server_error: {
+    type: "error",
+    message: "eBay is having trouble right now. Try again in a few minutes.",
+  },
+  temporarily_unavailable: {
+    type: "error",
+    message: "eBay is having trouble right now. Try again in a few minutes.",
+  },
 };
 
 // MP-12: any code neither map knows (provider_error, or a code from an older

@@ -797,11 +797,20 @@ describe("Marketplaces page: safe disconnect (MP-12)", () => {
   });
 
   it("an unknown eBay callback code still tells the seller something", async () => {
-    state.entry = "/dashboard/flipdesk/marketplaces?ebay=invalid_scope";
+    state.entry = "/dashboard/flipdesk/marketplaces?ebay=provider_error";
     render();
     await settle();
     expect(state.toastErrors).toContain(
       "eBay sign-in didn't finish. Try again, and contact support if it keeps happening.",
+    );
+  });
+
+  it("a passed-through OAuth code gets its own line", async () => {
+    state.entry = "/dashboard/flipdesk/marketplaces?ebay=invalid_scope";
+    render();
+    await settle();
+    expect(state.toastErrors).toContain(
+      "eBay turned down the permissions FlipDesk asked for. Please try again.",
     );
   });
 });
