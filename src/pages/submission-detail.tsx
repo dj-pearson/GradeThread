@@ -17,6 +17,7 @@ import {
   Eye,
   ShieldCheck,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRealtimeSubmission } from "@/hooks/use-realtime-submission";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { GradeRangeNote } from "@/components/grading/grade-range-note";
@@ -93,6 +94,11 @@ import { ShowcaseConsentPanel } from "@/components/showcase/showcase-consent-pan
 import { RepairTriagePanel } from "@/components/grade/repair-triage-panel";
 import { DetectedIssues } from "@/components/grade/detected-issues";
 import { DISPUTE_KIND_LABEL } from "@/lib/dispute-kind";
+import {
+  detailPollDelay,
+  isPollableStatus,
+  releaseRefetchDelay,
+} from "@/lib/detail-poll";
 import { DisputeEvidencePicker } from "@/components/grade/dispute-evidence-picker";
 import {
   prepareEvidence,
@@ -187,6 +193,69 @@ function LoadingSkeleton() {
       </div>
     </div>
   );
+}
+
+// SUB-11: the page's secondary reads, as functions so each section's retry
+// re-runs only its own read rather than the whole page load.
+
+type LinkedItemRead = { ok: true; item: LinkedItemView | null } | { ok: false };
+
+async function readLinkedItem(submissionId: string): Promise<LinkedItemRead> {
+  const { data, error } = await supabase
+    .from("inventory_items")
+    .select(LINKED_ITEM_COLUMNS)
+    .eq("submission_id", submissionId)
+    .maybeSingle();
+  if (error) return { ok: false };
+  return { ok: true, item: data ? (data as LinkedItemView) : null };
+}
+
+/** Signed URLs by image id, or null when any photo could not be signed. */
+async function signImages(
+  images: readonly SubmissionImageView[],
+): Promise<Record<string, string> | null> {
+  if (images.length === 0) return {};
+  // One request for every path (US-276: private bucket, TTL <= 900s).
+  const { data: signed, error } = await supabase.storage
+    .from("submission-images")
+    .createSignedUrls(
+      images.map((img) => img.storage_path),
+      900,
+    );
+  if (error || !signed || signed.some((entry) => entry.error)) return null;
+  const idByPath = new Map(images.map((img) => [img.storage_path, img.id]));
+  const urls: Record<string, string> = {};
+  for (const entry of signed) {
+    const imageId = entry.path ? idByPath.get(entry.path) : undefined;
+    if (imageId && entry.signedUrl) urls[imageId] = entry.signedUrl;
+  }
+  return urls;
+}
+
+type PhotosRead =
+  | { ok: true; images: SubmissionImageView[]; urls: Record<string, string> }
+  | { ok: false };
+
+async function readPhotos(
+  listed: PromiseLike<{ data: unknown; error: unknown }>,
+): Promise<PhotosRead> {
+  const { data, error } = await listed;
+  if (error) return { ok: false };
+  const images = [...((data ?? []) as SubmissionImageView[])].sort(
+    (a, b) => a.display_order - b.display_order,
+  );
+  const urls = await signImages(images);
+  // US-3433: a photo we cannot sign is a photo the seller cannot see, and it
+  // is the same answer as one we could not list.
+  if (!urls) return { ok: false };
+  return { ok: true, images, urls };
+}
+
+function listPhotos(submissionId: string) {
+  return supabase
+    .from("submission_images")
+    .select(SUBMISSION_IMAGE_COLUMNS)
+    .eq("submission_id", submissionId);
 }
 
 function getDisputeStatusBadge(status: string) {
@@ -291,6 +360,9 @@ export function SubmissionDetailPage() {
   const [disputeCheckFailed, setDisputeCheckFailed] = useState(false);
   // SUB-04: the authenticity appeal on this report, kept apart from `dispute`.
   const [appeal, setAppeal] = useState<DisputeView | null>(null);
+  // SUB-11: the page renders before the dispute read lands, so the action
+  // waits for it rather than offering to file against an unknown.
+  const [disputesLoaded, setDisputesLoaded] = useState(false);
   const [linkedItem, setLinkedItem] = useState<LinkedItemView | null>(null);
   /**
    * US-3428: the linked-inventory lookup failed, so we do not know whether this
@@ -335,29 +407,37 @@ export function SubmissionDetailPage() {
   const refetchData = useCallback(async () => {
     if (!id) return;
     try {
-      const { data: sub, error: subError } = await supabase
-        .from("submissions")
-        .select(SUBMISSION_DETAIL_COLUMNS)
-        .eq("id", id)
-        .single();
-      // A refetch (realtime handler or the 5s interval) can still be in flight
-      // when the route param changes A→B; without this guard its resolution would
+      // SUB-11: both reads together.
+      const [subRes, reportRes] = await Promise.all([
+        supabase.from("submissions").select(SUBMISSION_DETAIL_COLUMNS).eq("id", id).single(),
+        supabase
+          .from("grade_reports")
+          .select(GRADE_REPORT_OWNER_SELECT)
+          // US-479: a regraded submission keeps superseded history; fetch only
+          // the active report so maybeSingle resolves to one row.
+          .eq("submission_id", id)
+          .is("superseded_at", null)
+          .maybeSingle(),
+      ]);
+      // A refetch (realtime handler or the poll) can still be in flight when
+      // the route param changes A→B; without this guard its resolution would
       // setState the previous submission's data over B. Drop stale writes.
       if (currentIdRef.current !== id) return;
-      if (subError) throw subError;
-
-      const { data: reportData, error: reportError } = await supabase
-        .from("grade_reports")
-        .select(GRADE_REPORT_OWNER_SELECT)
-        // US-479: a regraded submission keeps superseded history; fetch only the
-        // active report so .single() resolves to exactly one row.
-        .eq("submission_id", id)
-        .is("superseded_at", null)
-        .maybeSingle();
-      if (currentIdRef.current !== id) return;
-      if (reportError) throw reportError;
-      if (sub) setSubmission(sub);
-      setGradeReport(reportData ?? null);
+      if (subRes.error) throw subRes.error;
+      if (reportRes.error) throw reportRes.error;
+      const sub = subRes.data as SubmissionDetailView | null;
+      const report = (reportRes.data ?? null) as GradeReportOwnerView | null;
+      // SUB-11: a poll that finds nothing new must not re-render the page.
+      if (sub) {
+        setSubmission((prev) =>
+          prev && prev.updated_at === sub.updated_at && prev.status === sub.status
+            ? prev
+            : sub,
+        );
+      }
+      setGradeReport((prev) =>
+        JSON.stringify(prev) === JSON.stringify(report) ? prev : report,
+      );
       setRefreshError(false);
     } catch {
       if (currentIdRef.current === id) setRefreshError(true);
@@ -519,29 +599,40 @@ export function SubmissionDetailPage() {
     }
   }
 
-  // Re-fetch when submission status changes via realtime. We only care
-  // about `.status` here — read it into a local so the deps array is
-  // honest and we don't re-run on unrelated submission-row updates.
-  // Realtime (above) is the primary trigger; this 5s setInterval is a fallback
-  // while a grade is in flight. Gate it on tab visibility so a backgrounded tab
-  // stops polling every 5s, and refetch once on return to the foreground. (US-576)
+  // Realtime (above) is the primary trigger; this poll is the fallback while a
+  // grade is in flight. Gated on tab visibility so a backgrounded tab stops
+  // polling, with one refetch on return to the foreground (US-576).
+  //
+  // SUB-11: it only runs once a submission has loaded without error (it used
+  // to poll a not-found page forever), it no longer fires an immediate
+  // duplicate of the load that just happened, and pending_review backs off
+  // (detailPollDelay) instead of reading every 5s for a 12 to 48 hour review.
   const submissionStatus = submission?.status;
+  const pollable = Boolean(submission) && !error && !loading && isPollableStatus(submissionStatus);
+  const wasHiddenRef = useRef(false);
   useEffect(() => {
-    if (
-      visible &&
-      (!submissionStatus ||
-        submissionStatus === "processing" ||
-        submissionStatus === "pending" ||
-        // US-1628: keep polling while a grade awaits human review, so the
-        // "we'll let you know the moment it's official" banner resolves without
-        // a hard refresh even if the realtime event is missed.
-        submissionStatus === "pending_review")
-    ) {
-      refetchData();
-      const interval = setInterval(refetchData, 5000);
-      return () => clearInterval(interval);
+    if (!visible) {
+      wasHiddenRef.current = true;
+      return;
     }
-  }, [visible, submissionStatus, refetchData]);
+    if (!pollable || !isPollableStatus(submissionStatus)) return;
+    const status = submissionStatus;
+    if (wasHiddenRef.current) {
+      wasHiddenRef.current = false;
+      void refetchData();
+    }
+    let n = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      timer = setTimeout(() => {
+        void refetchData();
+        n++;
+        tick();
+      }, detailPollDelay(status, n));
+    };
+    tick();
+    return () => clearTimeout(timer);
+  }, [visible, pollable, submissionStatus, refetchData]);
 
   // US-1466: tick a clock while a grade is in flight so we can show elapsed time
   // and escalate to a "taking longer than expected" message — a long-but-normal
@@ -554,6 +645,54 @@ export function SubmissionDetailPage() {
       return () => clearInterval(t);
     }
   }, [submissionStatus]);
+
+  function applyLinkedItem(result: LinkedItemRead) {
+    if (!result.ok) {
+      // US-3428: withhold what this read feeds, not the grade report.
+      setLinkedItem(null);
+      setLinkedItemCheckFailed(true);
+    } else {
+      setLinkedItemCheckFailed(false);
+      setLinkedItem(result.item);
+    }
+  }
+
+  function applyPhotos(result: PhotosRead) {
+    if (!result.ok) {
+      // US-3433: withhold the photos, not the grade.
+      setImages([]);
+      setImageUrls({});
+      setPhotosUnavailable(true);
+      return;
+    }
+    setPhotosUnavailable(false);
+    setImages(result.images);
+    setImageUrls(result.urls);
+    resignedRef.current = false;
+  }
+
+  // SUB-11: retry buttons re-run only their own read.
+  async function retryLinkedItem() {
+    if (!id) return;
+    const result = await readLinkedItem(id);
+    if (currentIdRef.current === id) applyLinkedItem(result);
+  }
+  async function retryPhotos() {
+    if (!id) return;
+    const result = await readPhotos(listPhotos(id));
+    if (currentIdRef.current === id) applyPhotos(result);
+  }
+
+  // SUB-11: signed URLs last 15 minutes. A grid or lightbox image that fails
+  // to load re-signs every photo once; a second failure is left alone so a
+  // truly missing file cannot loop.
+  const resignedRef = useRef(false);
+  async function resignOnce() {
+    if (resignedRef.current || images.length === 0) return;
+    resignedRef.current = true;
+    const urls = await signImages(images);
+    if (urls && currentIdRef.current === id) setImageUrls(urls);
+  }
 
   useEffect(() => {
     if (!id) return;
@@ -571,144 +710,81 @@ export function SubmissionDetailPage() {
       setGradeReport(null);
       setDispute(null);
       setAppeal(null);
+      setDisputesLoaded(false);
       setLinkedItem(null);
       setImages([]);
       setImageUrls({});
 
-      // Fetch submission
-      const { data: sub, error: subError } = await supabase
+      // SUB-11: the four reads start together instead of one after another.
+      // The page renders as soon as the two it is FOR have landed.
+      const subP = supabase
         .from("submissions")
         .select(SUBMISSION_DETAIL_COLUMNS)
         .eq("id", id!)
         .single();
-
-      if (cancelled) return;
-      if (subError || !sub) {
-        setError(subError && subError.code !== "PGRST116" ? "Couldn't load this submission. Please try again." : "Submission not found.");
-        setLoading(false);
-        return;
-      }
-      setSubmission(sub);
-
-      // Fetch grade report (US-479: active report only — a regraded submission
-      // keeps superseded history, which would break .single()).
-      const { data: reportData, error: reportError } = await supabase
+      // US-479: active report only — a regraded submission keeps superseded
+      // history, which would break .single().
+      const reportP = supabase
         .from("grade_reports")
         .select(GRADE_REPORT_OWNER_SELECT)
         .eq("submission_id", id!)
         .is("superseded_at", null)
         .maybeSingle();
+      const linkedP = readLinkedItem(id!);
+      const photosP = readPhotos(listPhotos(id!));
 
+      const [subRes, reportRes] = await Promise.all([subP, reportP]);
       if (cancelled) return;
-      // US-1632: a TRANSIENT error here (maybeSingle doesn't error on "no report
-      // yet", so this is a real DB/network failure) previously was swallowed,
-      // leaving a completed grade stuck on "Grade Report Pending" forever.
-      // Surface it so the user can retry.
-      if (reportError) {
+      const sub = subRes.data as SubmissionDetailView | null;
+      if (subRes.error || !sub) {
+        setError(subRes.error && subRes.error.code !== "PGRST116" ? "Couldn't load this submission. Please try again." : "Submission not found.");
+        setLoading(false);
+        return;
+      }
+      // US-1632: a TRANSIENT error here (maybeSingle doesn't error on "no
+      // report yet", so this is a real DB/network failure) previously was
+      // swallowed, leaving a completed grade stuck on "Grade Report Pending"
+      // forever. Surface it so the user can retry.
+      if (reportRes.error) {
         setError("Couldn't load the grade report. Please try again.");
         setLoading(false);
         return;
       }
-      if (reportData) {
-        setGradeReport(reportData);
-      }
+      const reportData = (reportRes.data ?? null) as GradeReportOwnerView | null;
+      setSubmission(sub);
+      setGradeReport(reportData);
+      setLoading(false);
 
-      // No linked item is valid; a failed lookup must not hide an existing one.
-      const { data: linkedItemData, error: linkedItemError } = await supabase
-        .from("inventory_items")
-        .select(LINKED_ITEM_COLUMNS)
-        .eq("submission_id", id!)
-        .maybeSingle();
-      if (cancelled) return;
-      if (linkedItemError) {
-        // US-3428: withhold what this read feeds, not the grade report.
-        setLinkedItem(null);
-        setLinkedItemCheckFailed(true);
-      } else {
-        setLinkedItemCheckFailed(false);
-        setLinkedItem(linkedItemData ? (linkedItemData as LinkedItemView) : null);
-      }
-
-      // Fetch submission images
-      const { data: imagesRaw, error: imagesError } = await supabase
-        .from("submission_images")
-        .select(SUBMISSION_IMAGE_COLUMNS)
-        .eq("submission_id", id!);
-
-      if (cancelled) return;
-      if (imagesError) {
-        // US-3433: withhold the photos, not the grade.
-        setImages([]);
-        setImageUrls({});
-        setPhotosUnavailable(true);
-        setLoading(false);
-        return;
-      }
-      setPhotosUnavailable(false);
-      const imagesData = (imagesRaw ?? []) as SubmissionImageView[];
-      if (imagesData.length > 0) {
-        const sorted = [...imagesData].sort(
-          (a, b) => a.display_order - b.display_order
-        );
-        setImages(sorted);
-
-        // Sign all image paths in ONE request rather than one awaited round-trip
-        // per image (a submission has 5-8 photos — that was 5-8 serial calls
-        // before any thumbnail rendered). Private bucket → short-lived signed
-        // URLs (US-276).
-        const urls: Record<string, string> = {};
-        const { data: signed, error: signingError } = await supabase.storage
-          .from("submission-images")
-          .createSignedUrls(
-            sorted.map((img) => img.storage_path),
-            900,
-          );
-        if (cancelled) return;
-        if (signingError || signed?.some((entry) => entry.error)) {
-          // US-3433: a photo we cannot sign is a photo the seller cannot see,
-          // and it is the same answer as one we could not list.
-          setImages([]);
-          setImageUrls({});
-          setPhotosUnavailable(true);
-          setLoading(false);
-          return;
-        }
-        if (signed) {
-          const idByPath = new Map(sorted.map((img) => [img.storage_path, img.id]));
-          for (const entry of signed) {
-            const id = entry.path ? idByPath.get(entry.path) : undefined;
-            if (id && entry.signedUrl) urls[id] = entry.signedUrl;
-          }
-        }
-        if (cancelled) return;
-        setImageUrls(urls);
-      }
-
-      // Fetch existing dispute for this grade report. US-1632: .maybeSingle() --
-      // the normal zero-dispute case is NOT an error (.single() threw PGRST116).
+      // Fetch existing disputes for this grade report. US-1632: .maybeSingle()
+      // -- the normal zero-dispute case is NOT an error.
       // SUB-04: grade disputes and authenticity appeals share the table (00489).
       // Without the kind filter an appeal read as a dispute (hiding Dispute
       // Grade), and a report carrying both made maybeSingle error forever.
-      if (reportData) {
-        const reportId = (reportData as GradeReportOwnerView).id;
-        const [gradeDisputeRes, appealRes] = await Promise.all([
-          supabase
-            .from("disputes")
-            .select(DISPUTE_VIEW_COLUMNS)
-            .eq("grade_report_id", reportId)
-            .eq("kind", "grade")
-            .maybeSingle(),
-          supabase
-            .from("disputes")
-            .select(DISPUTE_VIEW_COLUMNS)
-            .eq("grade_report_id", reportId)
-            .eq("kind", "authenticity")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-        ]);
+      const disputesP = reportData
+        ? Promise.all([
+            supabase
+              .from("disputes")
+              .select(DISPUTE_VIEW_COLUMNS)
+              .eq("grade_report_id", reportData.id)
+              .eq("kind", "grade")
+              .maybeSingle(),
+            supabase
+              .from("disputes")
+              .select(DISPUTE_VIEW_COLUMNS)
+              .eq("grade_report_id", reportData.id)
+              .eq("kind", "authenticity")
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle(),
+          ])
+        : Promise.resolve(null);
 
-        if (cancelled) return;
+      const [linked, photos, disputes] = await Promise.all([linkedP, photosP, disputesP]);
+      if (cancelled) return;
+      applyLinkedItem(linked);
+      applyPhotos(photos);
+      if (disputes) {
+        const [gradeDisputeRes, appealRes] = disputes;
         if (gradeDisputeRes.error) {
           // US-3427: withhold the dispute action, not the report. Clearing
           // `dispute` alongside the flag keeps the two from disagreeing on a
@@ -724,9 +800,7 @@ export function SubmissionDetailPage() {
           !appealRes.error && appealRes.data ? (appealRes.data as DisputeView) : null,
         );
       }
-
-      if (cancelled) return;
-      setLoading(false);
+      setDisputesLoaded(true);
     }
 
     void fetchData().catch(() => {
@@ -738,6 +812,27 @@ export function SubmissionDetailPage() {
       cancelled = true;
     };
   }, [id, loadAttempt]);
+
+  // SUB-11: a held grade has a known release time. Refetch once just after it
+  // instead of polling for the whole hold.
+  useEffect(() => {
+    const delay = releaseRefetchDelay(readyBy);
+    if (delay === null) return;
+    const t = setTimeout(() => void refetchData(), delay);
+    return () => clearTimeout(t);
+  }, [readyBy, refetchData]);
+
+  // SUB-11: the turnaround query is what knows a finished grade is being
+  // held. When the status moves on and there is no report to show, ask it
+  // again rather than serving the answer from before the grade finished.
+  const queryClient = useQueryClient();
+  const hasReport = Boolean(gradeReport);
+  useEffect(() => {
+    if (hasReport) return;
+    if (submissionStatus === "pending_review" || submissionStatus === "completed") {
+      void queryClient.invalidateQueries({ queryKey: ["grade-turnaround"] });
+    }
+  }, [submissionStatus, hasReport, queryClient]);
 
   // US-3427: split out so the withheld-action notice below can ask the same
   // question the button does. Everything except "do we know about an existing
@@ -755,7 +850,8 @@ export function SubmissionDetailPage() {
 
   // US-3427: `!disputeCheckFailed` is the load-bearing clause. Without it an
   // unresolved lookup reads as "no dispute exists" and offers to file a second.
-  const canDispute = disputeWindowOpen && !dispute && !disputeCheckFailed;
+  const canDispute =
+    disputeWindowOpen && disputesLoaded && !dispute && !disputeCheckFailed;
 
   /** The seller could dispute, but we could not find out whether they already have. */
   const disputeCheckUnavailable = disputeWindowOpen && disputeCheckFailed;
@@ -815,11 +911,22 @@ export function SubmissionDetailPage() {
       )
     );
     const flaggedSet = new Set<ImageType>(flaggedImageTypes);
-    const reusablePhotos = images
-      .filter((img) => !flaggedSet.has(img.image_type) && imageUrls[img.id])
+    // SUB-11: the page's URLs were signed when it loaded and last 15 minutes.
+    // A seller who reads the feedback for a while and then presses Retake
+    // would hand the new submission dead links, so sign fresh ones here.
+    const reusable = images.filter((img) => !flaggedSet.has(img.image_type));
+    const freshUrls = await signImages(reusable);
+    if (!freshUrls) {
+      toast.error(
+        "Couldn't prepare this submission's photos for a retake. Try again.",
+      );
+      return;
+    }
+    const reusablePhotos = reusable
+      .filter((img) => freshUrls[img.id])
       .map((img) => ({
         imageType: img.image_type,
-        signedUrl: imageUrls[img.id]!,
+        signedUrl: freshUrls[img.id]!,
       }));
 
     const retake: RetakeBridgeState = {
@@ -1941,7 +2048,7 @@ export function SubmissionDetailPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+              onClick={() => void retryLinkedItem()}
             >
               Try again
             </Button>
@@ -2002,7 +2109,7 @@ export function SubmissionDetailPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+                onClick={() => void retryPhotos()}
               >
                 Try again
               </Button>
@@ -2041,6 +2148,7 @@ export function SubmissionDetailPage() {
                         <img
                           src={imageUrls[img.id]}
                           alt={`${img.image_type} photo`}
+                          onError={() => void resignOnce()}
                           loading="lazy"
                           decoding="async"
                           className="h-full w-full object-cover"
@@ -2076,6 +2184,7 @@ export function SubmissionDetailPage() {
           index={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
+          onImageError={() => void resignOnce()}
         />
       )}
 
