@@ -14,6 +14,12 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { compressImage } from "@/lib/image-utils";
+import {
+  SNAP_COMPRESS,
+  SNAP_MAX_SOURCE_BYTES,
+  SNAP_MAX_UPLOAD_BYTES,
+  snapFileProblem,
+} from "@/lib/snap-format";
 import { useSnap, type SnapBridgeState } from "@/hooks/use-snap";
 import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
 import { SnapErrorCard } from "@/components/snap/snap-error-card";
@@ -123,14 +129,30 @@ export function SnapToValuePage() {
     // `state` (which browsers cap at ~1–2 MB), silently breaking the
     // snap→certified bridge. compressImage also decodes the file, so a
     // non-image is rejected here.
+    const problem = snapFileProblem(file);
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
     try {
-      const { blob } = await compressImage(file, 2400, 0.85);
+      // SNAP-08: JPEG, long edge 1600. The vision model downsamples to about
+      // 1568 anyway, 1600 is still above the certified bridge's 1200 minimum,
+      // and JPEG never comes back as a multi-MB PNG on Safari.
+      const { blob } = await compressImage(file, SNAP_COMPRESS);
+      if (blob.size > SNAP_MAX_UPLOAD_BYTES) {
+        toast.error("That photo is too large to check. Try a smaller photo.");
+        return;
+      }
       const reader = new FileReader();
       reader.onload = () =>
         setDataUri(typeof reader.result === "string" ? reader.result : null);
       reader.readAsDataURL(blob);
     } catch {
-      toast.error("Couldn't read that image — try a different photo.");
+      toast.error(
+        file.size > SNAP_MAX_SOURCE_BYTES
+          ? "That photo is too large to prepare on this device. Try a smaller photo."
+          : "Couldn't read that image. Try a different photo.",
+      );
     }
   }
 

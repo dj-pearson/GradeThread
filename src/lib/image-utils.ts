@@ -347,11 +347,62 @@ function computeDHash(source: CanvasImageSource): string {
   }
 }
 
+export interface CompressOptions {
+  /** Cap the LONGER side (SNAP-08). Wins over maxWidth when both are set. */
+  maxEdge?: number;
+  /** Cap the width only (the historical behavior). */
+  maxWidth?: number;
+  quality?: number;
+  /** Requested encoding. Defaults to PNG for a PNG input, WebP otherwise. */
+  outputType?: "image/webp" | "image/jpeg" | "image/png";
+}
+
+/** Target size for a decoded image. Pure; exported for tests. */
+export function scaledDimensions(
+  width: number,
+  height: number,
+  opts: { maxEdge?: number; maxWidth?: number },
+): { width: number; height: number } {
+  let ratio = 1;
+  if (opts.maxEdge && opts.maxEdge > 0) {
+    ratio = Math.min(1, opts.maxEdge / Math.max(width, height));
+  } else if (opts.maxWidth && width > opts.maxWidth) {
+    ratio = opts.maxWidth / width;
+  }
+  if (ratio >= 1) return { width, height };
+  return {
+    width: Math.max(1, Math.round(width * ratio)),
+    height: Math.max(1, Math.round(height * ratio)),
+  };
+}
+
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality: number,
+): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (b) => {
+        if (b) resolve(b);
+        else reject(new Error("Failed to compress image."));
+      },
+      type,
+      quality
+    );
+  });
+}
+
 export async function compressImage(
   file: File,
-  maxWidth = 2400,
+  maxWidthOrOptions: number | CompressOptions = 2400,
   quality = 0.85
 ): Promise<CompressResult> {
+  const opts: CompressOptions =
+    typeof maxWidthOrOptions === "number"
+      ? { maxWidth: maxWidthOrOptions, quality }
+      : { quality, ...maxWidthOrOptions };
+  const q = opts.quality ?? quality;
   const img = await loadImage(file);
 
   const canvas = document.createElement("canvas");
@@ -364,34 +415,27 @@ export async function compressImage(
   // orientation by default (image-orientation: from-image), so `img` is ALREADY
   // upright and naturalWidth/naturalHeight are the ORIENTED dimensions. The old
   // code then re-applied the EXIF transform (and re-swapped the dimensions),
-  // rotating every rotated photo a SECOND time — shipping sideways/upside-down
+  // rotating every rotated photo a SECOND time, shipping sideways/upside-down
   // garments. Trust the browser's orientation and just scale + draw.
-  let { naturalWidth: width, naturalHeight: height } = img;
-
-  // Scale down if wider than maxWidth
-  if (width > maxWidth) {
-    const ratio = maxWidth / width;
-    width = maxWidth;
-    height = Math.round(height * ratio);
-  }
+  //
+  // SNAP-08: `maxEdge` caps the LONG side. A width-only cap let a tall photo
+  // through at full size, and iOS canvas fails above about 16.7 MP.
+  const { width, height } = scaledDimensions(img.naturalWidth, img.naturalHeight, opts);
 
   canvas.width = width;
   canvas.height = height;
   ctx.drawImage(img, 0, 0, width, height);
 
-  // Convert to blob — prefer WebP, fall back to JPEG
   const outputType =
-    file.type === "image/png" ? "image/png" : "image/webp";
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (b) => {
-        if (b) resolve(b);
-        else reject(new Error("Failed to compress image."));
-      },
-      outputType,
-      quality
-    );
-  });
+    opts.outputType ?? (file.type === "image/png" ? "image/png" : "image/webp");
+  let blob = await canvasToBlob(canvas, outputType, q);
+  // SNAP-08: the JPEG fallback this comment used to promise. A browser that
+  // cannot encode the requested type (Safari with WebP) silently hands back a
+  // PNG, which is a multi-MB upload. Anything that is not what was asked for
+  // is re-encoded as JPEG at the same quality.
+  if (blob.type !== outputType) {
+    blob = await canvasToBlob(canvas, "image/jpeg", q);
+  }
 
   // Hash the orientation-corrected canvas (matches the pixels we actually
   // store) so reuse detection is stable across orientation/resize.
