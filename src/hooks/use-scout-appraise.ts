@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { inventoryItemHref } from "@/lib/scout-links";
 import { toast } from "sonner";
@@ -154,6 +154,7 @@ export interface ScoutBuyResult {
 
 export function useScoutBuy() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   return useMutation<ScoutBuyResult, Error, ScoutBuyInput>({
     mutationFn: async (input) => {
       const res = await edgeFetch("/api/flipdesk/scout/buy", {
@@ -168,12 +169,19 @@ export function useScoutBuy() {
     },
     // SRC-13: the toast carries the way to the new item, because a buy logged
     // from a Scout row has no Open item button of its own.
-    onSuccess: (r) =>
+    //
+    // Invalidated here rather than by each caller: a buy from a Scout row left
+    // the pipeline and the per-source counts stale, because only the Buy
+    // decision card refreshed them.
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: ["items_full"] });
+      void qc.invalidateQueries({ queryKey: ["inventory_items_source_counts"] });
       toast.success("Added to inventory at the “sourced” stage — it's now in your pipeline.", {
         action: r.id
           ? { label: "Open item", onClick: () => navigate(inventoryItemHref(r.id)) }
           : undefined,
-      }),
+      });
+    },
     onError: (err) => toastError(err),
   });
 }

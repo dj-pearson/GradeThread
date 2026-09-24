@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Camera,
@@ -128,7 +127,6 @@ function DecisionCard({
   sourceId: string | null;
   onNextItem: () => void;
 }) {
-  const qc = useQueryClient();
   const buy = useScoutBuy();
   const { decision, grade, value, sellThrough, ceiling } = result;
   const rec = REC_STYLES[decision.recommendation];
@@ -230,11 +228,6 @@ function DecisionCard({
                   gradeValue: grade.value ?? undefined,
                   gradeLabel: grade.tier ?? undefined,
                   sourceId: sourceId ?? undefined,
-                },
-                {
-                  onSuccess: () => {
-                    void qc.invalidateQueries({ queryKey: ["items_full"] });
-                  },
                 },
               )
             }
