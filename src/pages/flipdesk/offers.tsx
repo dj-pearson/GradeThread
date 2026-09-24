@@ -340,11 +340,11 @@ function SendOfferCard() {
       });
       const outcome = describeSendResult(res, requested.length);
       if (outcome.partial) {
-        toast.warning(outcome.message);
+        toast.warning(outcome.summary);
         setSelected(new Set(outcome.failedIds));
         return;
       }
-      toast.success(outcome.message);
+      toast.success(outcome.summary);
       setSelected(new Set());
       setMessage("");
     } catch (err) {

@@ -39,7 +39,8 @@ export function sendConfirmCopy(
 export interface SendOutcome {
   /** True when some listings went and some did not. */
   partial: boolean;
-  message: string;
+  /** Our own sentence for the toast. Never carries the edge's detail text. */
+  summary: string;
   /** The ids to keep selected so a retry resends only these. */
   failedIds: string[];
 }
@@ -54,12 +55,11 @@ export function describeSendResult(
   const failedIds = failed.flatMap((f) => f.ids);
   const plural = (n: number) => `${n} ${noun}${n === 1 ? "" : "s"}`;
   if (failedIds.length === 0) {
-    return { partial: false, message: `Offer sent on ${plural(res.count)}.`, failedIds };
+    return { partial: false, summary: `Offer sent on ${plural(res.count)}.`, failedIds };
   }
-  const why = failed[0]?.detail ? ` ${failed[0].detail}` : "";
   return {
     partial: true,
-    message: `Sent to ${res.count} of ${plural(requested)}. The rest are still selected.${why}`,
+    summary: `Sent to ${res.count} of ${plural(requested)}. eBay did not take the rest, so they are still selected. Try them again.`,
     failedIds,
   };
 }

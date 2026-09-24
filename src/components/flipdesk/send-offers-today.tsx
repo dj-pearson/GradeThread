@@ -96,7 +96,7 @@ export function SendOffersToday() {
           // OM-12: a partial multi-store send keeps only the failures ticked.
           const outcome = describeSendResult(res, ids.length, "item");
           if (outcome.partial) {
-            toast.warning(outcome.message);
+            toast.warning(outcome.summary);
             setPicked(new Set(outcome.failedIds));
             return;
           }
