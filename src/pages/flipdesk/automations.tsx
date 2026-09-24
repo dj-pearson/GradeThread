@@ -73,6 +73,7 @@ import {
 } from "@/hooks/use-automations";
 import { ErrorState } from "@/components/ui/error-state";
 import { platformLabel, statusLabel } from "./automation-labels";
+import { describeLadder, priceLadder } from "@/lib/price-ladder";
 import {
   automationFormError,
   SELF_ACTING_TRIGGERS,
@@ -1026,6 +1027,14 @@ function RuleDialog({
                 </div>
               </div>
             )}
+            {actionType === "price_drop_pct" && triggerNeedsDays && formError == null && (
+              <LadderPreview
+                dropPct={Number(actionPct)}
+                marginFloorPct={Math.max(0, Math.trunc(Number(marginFloorPct) || 0))}
+                firstDay={Math.trunc(Number(triggerDays))}
+                cooldownDays={Math.trunc(Number(cooldownDays))}
+              />
+            )}
             {actionType === "set_promo_rate_pct" && (
               <p className="text-xs text-muted-foreground">
                 Sets the listing's eBay Promoted Listings ad rate. A listing that
@@ -1104,6 +1113,66 @@ function RuleDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Price ladder ────────────────────────────────────────────────
+
+/**
+ * Where a recurring drop ends, before the rule is saved: "Day 30 $60.00, day 37
+ * $54.00, day 44 $48.60, stops at $30.80 (cost +10%)". The arithmetic is the
+ * planner's own (src/lib/price-ladder.ts, tested against planAction). The
+ * example price and cost are the seller's to change.
+ */
+function LadderPreview({
+  dropPct,
+  marginFloorPct,
+  firstDay,
+  cooldownDays,
+}: {
+  dropPct: number;
+  marginFloorPct: number;
+  firstDay: number;
+  cooldownDays: number;
+}) {
+  const [price, setPrice] = useState("60");
+  const [cost, setCost] = useState("28");
+  const startCents = Math.round(Number(price) * 100);
+  const costCents = cost.trim() === "" ? null : Math.round(Number(cost) * 100);
+  const valid = Number.isFinite(startCents) && startCents > 0 &&
+    (costCents == null || Number.isFinite(costCents));
+  const ladder = valid
+    ? priceLadder({ startCents, dropPct, marginFloorPct, costCents, firstDay, cooldownDays })
+    : null;
+  return (
+    <div className="space-y-1.5 rounded-md border bg-muted/30 p-2 text-sm">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+        For a $
+        <Input
+          type="number"
+          min={0.01}
+          step="0.01"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          className="h-7 w-20"
+          aria-label="Example listing price"
+        />
+        listing that cost $
+        <Input
+          type="number"
+          min={0}
+          step="0.01"
+          value={cost}
+          onChange={(e) => setCost(e.target.value)}
+          className="h-7 w-20"
+          placeholder="unknown"
+          aria-label="Example purchase price"
+        />
+      </div>
+      <p role="status">
+        {ladder ? describeLadder(ladder, marginFloorPct) : "Enter an example price to see the steps."}
+      </p>
+    </div>
   );
 }
 

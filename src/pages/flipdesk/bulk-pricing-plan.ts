@@ -152,3 +152,60 @@ export function remainingSelection(
 ): Set<string> {
   return new Set(results.filter((r) => !r.ok).map((r) => r.listing_id));
 }
+
+export interface ConfirmCopy {
+  title: string;
+  lines: string[];
+  confirmLabel: string;
+  /** When set, Apply stays off until the seller ticks this. */
+  ack: string | null;
+}
+
+/**
+ * What the confirm dialog says before a bulk change goes live. Quantity 0 is
+ * worded as what it does on eBay (out of stock), a quantity above 1 warns that
+ * a one-off garment can then sell twice, and a drop of more than half or a
+ * rise past 3x has to be acknowledged, not just clicked through.
+ */
+export function confirmCopy(
+  plan: Pick<BulkPlan, "updates" | "floored" | "noChange" | "hidden" | "bigMoves">,
+  op: { priceOp: string | null; roundTo99: boolean; quantity: number | undefined },
+): ConfirmCopy {
+  const n = plan.updates.length;
+  const listings = `${n} live eBay listing${n === 1 ? "" : "s"}`;
+  const outOfStock = op.quantity === 0 && op.priceOp == null;
+  const title = outOfStock
+    ? `Mark ${n} listing${n === 1 ? "" : "s"} out of stock on eBay?`
+    : `Apply changes to ${n} listing${n === 1 ? "" : "s"}?`;
+  const parts = [
+    op.priceOp,
+    op.priceOp && op.roundTo99 ? "round to .99" : null,
+    op.quantity === 0 ? "mark them out of stock" : op.quantity != null ? `set quantity to ${op.quantity}` : null,
+  ].filter(Boolean);
+  const lines = [`This will ${parts.join(", ")} on ${listings} immediately.`];
+  if (op.quantity != null && op.quantity > 1) {
+    lines.push(
+      `A quantity above 1 lets eBay sell the same garment ${op.quantity} times. Only do this for items you really have ${op.quantity} of.`,
+    );
+  }
+  if (plan.hidden > 0) {
+    lines.push(`${plan.hidden} of these ${plan.hidden === 1 ? "is" : "are"} hidden by your filters.`);
+  }
+  if (plan.floored.length > 0) {
+    const names = plan.floored.slice(0, 3).map((r) => r.title).join(", ");
+    const more = plan.floored.length > 3 ? ` and ${plan.floored.length - 3} more` : "";
+    lines.push(
+      `${plan.floored.length} will be skipped because the new price is below their floor: ${names}${more}.`,
+    );
+  }
+  if (plan.noChange > 0) lines.push(`${plan.noChange} would not change and will not be sent.`);
+  const ack = plan.bigMoves > 0
+    ? `I checked: ${plan.bigMoves} price${plan.bigMoves === 1 ? "" : "s"} will drop by more than half or rise above 3x.`
+    : null;
+  return {
+    title,
+    lines,
+    confirmLabel: outOfStock ? "Mark out of stock" : "Apply changes",
+    ack,
+  };
+}

@@ -14,7 +14,6 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Select,
   SelectContent,
@@ -27,7 +26,24 @@ import { fetchAllPages, READ_PAGE_SIZE } from "@/lib/paged-read";
 import { useEbayBulkPriceQuantity, useEbayConnection } from "@/hooks/use-ebay";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
-import { planBulk, remainingSelection, type PriceMode } from "./bulk-pricing-plan";
+import {
+  confirmCopy,
+  planBulk,
+  planSummary,
+  remainingSelection,
+  type ConfirmCopy,
+  type PriceMode,
+  type RowOutcome,
+} from "./bulk-pricing-plan";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface BulkRow {
   id: string;
@@ -73,7 +89,6 @@ function rawFloor(inv: RawListingRow["inventory_items"]): number | null {
 // US-1046 + US-2229: select active eBay listings and update price and/or
 // quantity in one bulk call, with search / filter / sort over the full set.
 export function FlipdeskBulkPricingPage() {
-  const confirm = useConfirm();
   const { embedded } = usePageHost();
   const { data: connection, isLoading: connLoading } = useEbayConnection();
   const connected = !!connection;
@@ -243,8 +258,13 @@ export function FlipdeskBulkPricingPage() {
     [rows, selected, visibleIds, priceActive, priceMode, priceNum, roundTo99, qtyActive, qtyNum],
   );
 
-  async function apply() {
-    const { updates, floored, noChange, hidden } = plan;
+  // The confirm is this page's own dialog, not the shared useConfirm: a price
+  // that halves or triples has to be ticked off, and the shared one has no box.
+  const [pending, setPending] = useState<ConfirmCopy | null>(null);
+  const [acked, setAcked] = useState(false);
+
+  function apply() {
+    const { updates, floored } = plan;
     if (updates.length === 0) {
       toast.info(
         floored.length > 0
@@ -253,7 +273,6 @@ export function FlipdeskBulkPricingPage() {
       );
       return;
     }
-
     const priceOp = !priceActive || priceNum == null
       ? null
       : priceMode === "set"
@@ -261,35 +280,19 @@ export function FlipdeskBulkPricingPage() {
         : priceMode === "reduce"
           ? `reduce the price by ${priceNum}%`
           : `increase the price by ${priceNum}%`;
-    const qtyOp = qtyActive ? `set quantity to ${qtyNum}` : null;
-    const roundOp = priceActive && roundTo99 ? "round to .99" : null;
-    const op = [priceOp, roundOp, qtyOp].filter(Boolean).join(", ");
-    const notes: string[] = [];
-    if (hidden > 0) {
-      notes.push(`${hidden} of these ${hidden === 1 ? "is" : "are"} hidden by your filters.`);
-    }
-    // US-3192: named in the confirm, before anything is sent, rather than in a
-    // toast the seller reads after the fact.
-    if (floored.length > 0) {
-      const names = floored.slice(0, 3).map((r) => r.title).join(", ");
-      const more = floored.length > 3 ? ` and ${floored.length - 3} more` : "";
-      notes.push(
-        `${floored.length} will be skipped because the new price is below their floor: ${names}${more}.`,
-      );
-    }
-    if (noChange > 0) {
-      notes.push(`${noChange} would not change and will not be sent.`);
-    }
-    const ok = await confirm({
-      title: `Apply changes to ${updates.length} listing${updates.length === 1 ? "" : "s"}?`,
-      description: [
-        `This will ${op} on ${updates.length} live eBay listing${updates.length === 1 ? "" : "s"} immediately.`,
-        ...notes,
-      ].join(" "),
-      confirmLabel: "Apply changes",
-    });
-    if (!ok) return;
+    setAcked(false);
+    setPending(
+      confirmCopy(plan, {
+        priceOp,
+        roundTo99: priceActive && roundTo99,
+        quantity: qtyActive ? qtyNum : undefined,
+      }),
+    );
+  }
 
+  async function send() {
+    setPending(null);
+    const { updates } = plan;
     try {
       const res = await bulk.mutateAsync({ updates });
       const failed = res.results.filter((r) => !r.ok);
@@ -458,6 +461,13 @@ export function FlipdeskBulkPricingPage() {
                 .join(" · ")}
             </p>
           )}
+          {/* What the selection will actually do, counted from the same plan
+              the Apply button sends. */}
+          {priceActive && selected.size > 0 && (
+            <p className="text-sm" role="status">
+              {planSummary(plan)}
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -622,7 +632,7 @@ export function FlipdeskBulkPricingPage() {
                       <p className="truncate text-xs text-destructive">{errors[row.id]}</p>
                     )}
                   </div>
-                  <Badge variant="secondary">${row.price.toFixed(2)}</Badge>
+                  <RowPrice row={row} outcome={plan.outcomes.get(row.id)} />
                   {row.quantity != null && (
                     <span className="text-xs text-muted-foreground">qty {row.quantity}</span>
                   )}
@@ -659,6 +669,67 @@ export function FlipdeskBulkPricingPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={pending != null} onOpenChange={(o) => !o && setPending(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{pending?.title}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                {pending?.lines.map((l) => <p key={l}>{l}</p>)}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {pending?.ack && (
+            <div className="flex items-start gap-2 text-sm">
+              <Checkbox
+                id="bulk-price-ack"
+                checked={acked}
+                onCheckedChange={(v) => setAcked(v === true)}
+              />
+              <Label htmlFor="bulk-price-ack">{pending.ack}</Label>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button onClick={() => void send()} disabled={pending?.ack != null && !acked}>
+              {pending?.confirmLabel ?? "Apply changes"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+  );
+}
+
+/**
+ * The row's price, and when a price change is set up, where it goes:
+ * "$42.00 -> $37.99", a "Below floor $40.00" badge for a row the floor will
+ * skip, or "no change".
+ */
+function RowPrice({ row, outcome }: { row: BulkRow; outcome: RowOutcome | undefined }) {
+  if (!outcome) return <Badge variant="secondary">${row.price.toFixed(2)}</Badge>;
+  if (outcome.kind === "no_change") {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Badge variant="secondary">${row.price.toFixed(2)}</Badge>
+        no change
+      </span>
+    );
+  }
+  return (
+    <span className="flex flex-wrap items-center justify-end gap-1.5 text-sm tabular-nums">
+      <span className="text-muted-foreground line-through">${outcome.from.toFixed(2)}</span>
+      <span aria-hidden="true" className="text-muted-foreground">→</span>
+      <span className="sr-only">to</span>
+      <span className={outcome.kind === "floor" ? "text-muted-foreground" : "font-medium"}>
+        ${outcome.to.toFixed(2)}
+      </span>
+      {outcome.kind === "floor" && (
+        <Badge variant="outline" className="text-xs">
+          Below floor ${outcome.floor.toFixed(2)}
+        </Badge>
+      )}
+    </span>
   );
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  confirmCopy,
   planBulk,
   planSummary,
   remainingSelection,
@@ -92,5 +93,40 @@ describe("remainingSelection", () => {
       { listing_id: "b", ok: false },
       { listing_id: "c", ok: true },
     ])]).toEqual(["b"]);
+  });
+});
+
+describe("confirmCopy", () => {
+  const base = { updates: [{ listing_id: "a" }], floored: [], noChange: 0, hidden: 0, bigMoves: 0 };
+
+  it("words quantity 0 as out of stock", () => {
+    const c = confirmCopy(base, { priceOp: null, roundTo99: false, quantity: 0 });
+    expect(c.title).toBe("Mark 1 listing out of stock on eBay?");
+    expect(c.confirmLabel).toBe("Mark out of stock");
+  });
+
+  it("warns that a quantity above 1 can oversell", () => {
+    const c = confirmCopy(base, { priceOp: null, roundTo99: false, quantity: 3 });
+    expect(c.lines.join(" ")).toMatch(/sell the same garment 3 times/);
+  });
+
+  it("asks for an acknowledgement when a price halves or triples", () => {
+    expect(confirmCopy(base, { priceOp: "x", roundTo99: false, quantity: undefined }).ack).toBeNull();
+    const big = confirmCopy({ ...base, bigMoves: 2 }, { priceOp: "x", roundTo99: false, quantity: undefined });
+    expect(big.ack).toMatch(/2 prices will drop by more than half or rise above 3x/);
+  });
+});
+
+describe("the summary counts match what is sent", () => {
+  it("changed equals the priced updates", () => {
+    const plan = planBulk(
+      rows,
+      new Set(["a", "b", "c", "d"]),
+      new Set(["a", "b", "c", "d"]),
+      { mode: "reduce", value: 10, roundTo99: false },
+      undefined,
+    );
+    expect(plan.changed).toBe(plan.updates.filter((u) => u.price != null).length);
+    expect(plan.changed + plan.floored.length + plan.noChange).toBe(4);
   });
 });
