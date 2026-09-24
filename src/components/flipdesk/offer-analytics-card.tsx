@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import { TrendingDown } from "lucide-react";
 import {
   Card,
@@ -10,6 +11,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { efficientDiscountPct } from "@/pages/flipdesk/send-offer-result";
 import {
   useOfferAnalytics,
   type OfferCurve as Curve,
@@ -35,7 +38,18 @@ function pct(v: number | null): string {
   return v == null ? "—" : `${(v * 100).toFixed(1)}%`;
 }
 
-function CurveTable({ curve, title, caption }: { curve: Curve; title: string; caption: string }) {
+function CurveTable({
+  curve,
+  title,
+  caption,
+  applyLink = false,
+}: {
+  curve: Curve;
+  title: string;
+  caption: string;
+  applyLink?: boolean;
+}) {
+  const useN = applyLink ? efficientDiscountPct(curve) : null;
   return (
     <div className="space-y-2">
       <div>
@@ -58,6 +72,14 @@ function CurveTable({ curve, title, caption }: { curve: Curve; title: string; ca
               <p className="mt-1 text-xs text-muted-foreground">
                 {curve.efficientDepth.explanation}
               </p>
+              {useN != null && (
+                <Link
+                  to={`?tab=send&discount=${useN}`}
+                  className="mt-1 inline-block text-xs font-medium underline underline-offset-2"
+                >
+                  Use {useN}% for today's offers
+                </Link>
+              )}
             </div>
           )}
           <div className="overflow-x-auto">
@@ -102,7 +124,7 @@ function CurveTable({ curve, title, caption }: { curve: Curve; title: string; ca
 
 export function OfferAnalyticsCard() {
   const [days, setDays] = useState<number>(180);
-  const { data, isLoading, isError } = useOfferAnalytics(days);
+  const { data, isLoading, isError, refetch, isFetching } = useOfferAnalytics(days);
 
   const nothing =
     !!data && data.sentOffers.totalOffers === 0 && data.counters.totalOffers === 0;
@@ -136,12 +158,14 @@ export function OfferAnalyticsCard() {
       <CardContent className="space-y-6">
         {isLoading ? (
           <Skeleton className="h-40 w-full" />
-        ) : isError ? (
-          <EmptyState
+        ) : isError && !data ? (
+          <ErrorState
             className="py-8"
-            icon={TrendingDown}
-            title="Couldn't build the numbers."
+            hideSupport
+            title="Couldn't build the numbers"
             description="Try again in a moment."
+            onRetry={() => refetch()}
+            retrying={isFetching}
           />
         ) : nothing ? (
           <EmptyState
@@ -161,6 +185,7 @@ export function OfferAnalyticsCard() {
                 curve={data.sentOffers}
                 title="Offers you sent"
                 caption="Unprompted discounts to buyers watching an item."
+                applyLink
               />
               <CurveTable
                 curve={data.counters}

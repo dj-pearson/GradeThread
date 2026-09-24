@@ -12,7 +12,7 @@ import {
 //
 // The point is the FIRST line, which a seller reads without clicking: "Offers
 // here are eBay only." An empty list then means what it says. The per-platform
-// reasons are folded away because they are reference, not news — but they are
+// reasons are folded away because they are reference, not news, but they are
 // there, because "why not Poshmark" is the immediate next question and the
 // answer is not "we could not be bothered".
 
@@ -66,7 +66,7 @@ export function PlatformCoverageNote({
                       <span className="font-medium text-foreground">
                         {p.label}
                       </span>
-                      {" — "}
+                      {": "}
                       {p.reason}
                     </li>
                   ))}

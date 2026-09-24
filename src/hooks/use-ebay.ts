@@ -3881,6 +3881,8 @@ export interface OfferDepthBucket {
 
 export interface OfferEfficientDepth {
   key: string;
+  /** Lower edge of the efficient bucket, in percent (OM-12 prefill). */
+  fromPct?: number;
   acceptRate: number;
   bestKey: string;
   bestAcceptRate: number;

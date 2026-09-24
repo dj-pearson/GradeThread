@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import { Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -15,6 +16,19 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { ErrorState } from "@/components/ui/error-state";
+import {
+  parseDiscountInput,
+  SEND_OFFER_MAX_PCT,
+  SEND_OFFER_MIN_PCT,
+  SEND_OFFER_RANGE_COPY,
+} from "@/lib/offer-limits";
+import { formatMoney } from "@/pages/flipdesk/offer-economics";
+import {
+  describeSendResult,
+  discountExposureCents,
+  sendConfirmCopy,
+} from "@/pages/flipdesk/send-offer-result";
 import { useEbaySendOffer, useEbaySendOffersToday } from "@/hooks/use-ebay";
 
 // US-2943: the morning list of watchers worth an offer.
@@ -38,17 +52,23 @@ import { useEbaySendOffer, useEbaySendOffersToday } from "@/hooks/use-ebay";
 // than rendering an error the seller can do nothing about.
 
 function money(cents: number | null | undefined): string {
-  return cents == null ? "—" : `$${(cents / 100).toFixed(2)}`;
+  return cents == null ? "-" : formatMoney(cents);
 }
 
 export function SendOffersToday() {
   const confirm = useConfirm();
-  const [discount, setDiscount] = useState("10");
+  const [searchParams] = useSearchParams();
+  // OM-12: ?discount= from the Insights link prefills the box.
+  const [discount, setDiscount] = useState(
+    () => String(parseDiscountInput(searchParams.get("discount") ?? "") ?? 10),
+  );
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
-  const pct = Math.min(Math.max(Number(discount) || 10, 1), 60);
+  // OM-12: one discount rule for both cards, and nothing substituted. This
+  // used to turn 0 into 10 and 75 into 60 without saying so.
+  const pct = parseDiscountInput(discount);
   // OM-04: tenant-keyed, and the discount is not part of the key.
-  const { data, isLoading } = useEbaySendOffersToday();
+  const { data, isLoading, isError, refetch, isFetching } = useEbaySendOffersToday();
   // OM-04: the shared hook, which also refreshes this list, the eligible list
   // and the analytics once an offer goes out.
   const send = useEbaySendOffer();
@@ -60,24 +80,26 @@ export function SendOffersToday() {
   // The worst case for the SELECTION, recomputed here rather than reusing the
   // whole-list figure the server sent — a seller who ticked four of forty items
   // must not be shown the exposure of all forty.
-  const selectedExposure = selected.every((c) => c.priceCents != null)
-    ? selected.reduce((sum, c) => sum + Math.round((c.priceCents ?? 0) * (pct / 100)), 0)
-    : null;
-
   async function sendSelected() {
-    if (selected.length === 0) return;
+    if (selected.length === 0 || pct == null) return;
+    const exposure = discountExposureCents(selected.map((c) => c.priceCents), pct);
     const ok = await confirm({
-      title: `Send ${pct}% off to ${selected.length} item${selected.length === 1 ? "" : "s"}?`,
-      description: selectedExposure == null
-        ? "Some of these have no price on record, so we can't total what this could cost. Offers go to everyone watching them and can be accepted immediately."
-        : `If every one is accepted this gives away ${money(selectedExposure)}. Offers go to everyone watching and can be accepted immediately.`,
+      ...sendConfirmCopy(selected.length, pct, exposure, "item"),
       confirmLabel: "Send offers",
     });
     if (!ok) return;
+    const ids = selected.map((c) => c.listingId);
     send.mutate(
-      { listingIds: selected.map((c) => c.listingId), discountPct: pct },
+      { listingIds: ids, discountPct: pct },
       {
         onSuccess: (res) => {
+          // OM-12: a partial multi-store send keeps only the failures ticked.
+          const outcome = describeSendResult(res, ids.length, "item");
+          if (outcome.partial) {
+            toast.warning(outcome.message);
+            setPicked(new Set(outcome.failedIds));
+            return;
+          }
           toast.success(
             `Offer sent to watchers on ${res.count} item${res.count === 1 ? "" : "s"}.`,
           );
@@ -100,6 +122,26 @@ export function SendOffersToday() {
       </Card>
     );
   }
+  // OM-12: a failed load says so. It used to render nothing, which reads as
+  // "no watchers worth an offer".
+  if (isError && !data) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Watchers worth an offer</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ErrorState
+            className="py-4"
+            hideSupport
+            title="Couldn't load today's candidates"
+            onRetry={() => refetch()}
+            retrying={isFetching}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
   if (!data) return null;
 
   // Gated, not broken. Say what is wrong and what to do instead, together.
@@ -114,9 +156,9 @@ export function SendOffersToday() {
           {data.fallback && (
             <p className="text-sm text-muted-foreground">
               {data.fallback.detail}{" "}
-              <a className="underline" href={data.fallback.href}>
+              <Link className="underline" to={data.fallback.href}>
                 Set up a sale
-              </a>
+              </Link>
               .
             </p>
           )}
@@ -125,7 +167,14 @@ export function SendOffersToday() {
     );
   }
 
-  if (data.candidates.length === 0 && data.suppressed.length === 0) return null;
+  if (data.candidates.length === 0 && data.suppressed.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No watchers to offer today. Listings with watchers and no recent offer show
+        up here.
+      </p>
+    );
+  }
 
   return (
     <Card>
@@ -144,21 +193,34 @@ export function SendOffersToday() {
           <Input
             id="offer-discount"
             type="number"
-            min={1}
-            max={60}
+            inputMode="numeric"
+            min={SEND_OFFER_MIN_PCT}
+            max={SEND_OFFER_MAX_PCT}
+            step={1}
             value={discount}
             onChange={(e) => setDiscount(e.target.value)}
+            aria-invalid={pct == null ? true : undefined}
+            aria-describedby={pct == null ? "offer-discount-range" : undefined}
             className="h-8 w-20"
           />
           %
+          {pct == null && (
+            <span id="offer-discount-range" className="text-xs font-medium text-destructive">
+              {SEND_OFFER_RANGE_COPY}
+            </span>
+          )}
           <Button
             size="sm"
             className="ml-auto"
-            disabled={selected.length === 0 || send.isPending}
+            disabled={selected.length === 0 || pct == null || send.isPending}
             onClick={sendSelected}
           >
             {send.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-            Send to {selected.length || "…"}
+            {selected.length === 0
+              ? "Pick items to send"
+              : pct == null
+                ? "Send offer"
+                : `Send ${pct}% off to ${selected.length}`}
           </Button>
         </div>
 
