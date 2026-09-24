@@ -39,6 +39,13 @@ export interface RepriceInput {
   // fire for a watched-but-unsold listing even before the 30-day age gate.
   impressions?: number;
   clickThroughRate?: number | null;
+  /**
+   * The lowest price this listing may be told to take, in cents: the higher of
+   * cost plus margin and the seller's floor on the garment. A downward nudge
+   * stops here, and a nudge the floor cancels is not a nudge. Null or absent
+   * means no floor is known.
+   */
+  floorCents?: number | null;
 }
 
 export interface RepriceSuggestion {
@@ -115,6 +122,11 @@ function fmt(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+/** Whole-percent cut from `from` to `to`, as the seller would read it. */
+function cutPct(from: number, to: number): number {
+  return from > 0 ? Math.round(((from - to) / from) * 100) : 0;
+}
+
 function confidenceFromCount(count: number): number {
   // 3 comps → 0.45, 12+ comps → 0.9.
   return Math.max(0, Math.min(0.9, 0.3 + count * 0.05));
@@ -122,6 +134,12 @@ function confidenceFromCount(count: number): number {
 
 export function computeSuggestion(input: RepriceInput): RepriceSuggestion {
   const { currentPriceCents, gradeValue, stats, listingAgeDays, watchers, views } = input;
+  const floorCents = typeof input.floorCents === "number" && Number.isFinite(input.floorCents) &&
+      input.floorCents > 0
+    ? Math.round(input.floorCents)
+    : null;
+  // Every downward suggestion goes through this: never below the floor.
+  const atLeastFloor = (cents: number) => floorCents != null ? Math.max(cents, floorCents) : cents;
   const compMedianCents = stats.median != null ? dollarsToCents(stats.median) : null;
 
   if (stats.count < MIN_COMPS || compMedianCents == null) {
@@ -152,7 +170,7 @@ export function computeSuggestion(input: RepriceInput): RepriceSuggestion {
       compCount: stats.count,
       deltaPct,
       reasonCode: "UNDERPRICED",
-      message: `Your ${gradeLabel} item is priced like a lower-grade one. Comparable items support ${fmt(positioned)} (now ${fmt(currentPriceCents)}) — raise it.`,
+      message: `Your ${gradeLabel} item is priced like a lower-grade one. Comparable items support ${fmt(positioned)} (now ${fmt(currentPriceCents)}), so raise it.`,
       confidence,
     };
   }
@@ -173,16 +191,17 @@ export function computeSuggestion(input: RepriceInput): RepriceSuggestion {
     hasBestOffer: false,
   });
   if (ageStale || engagementStale) {
-    const dropTarget = Math.min(
+    const dropTarget = atLeastFloor(Math.min(
       positioned,
       Math.round(currentPriceCents * (1 - STALE_DROP)),
-    );
+    ));
     if (dropTarget < currentPriceCents) {
-      const dropPct = Math.round(STALE_DROP * 100);
+      // The real cut, not the 8% default: positioned can sit far lower.
+      const dropPct = cutPct(currentPriceCents, dropTarget);
       // Tailor the copy to whichever signal fired so the nudge reads honestly.
       const message = engagementStale && watchers > STALE_MAX_WATCHERS
-        ? `${watchers} watchers but no sale yet. Drop ~${dropPct}% to ${fmt(dropTarget)} to convert the interest.`
-        : `Listed ${listingAgeDays} days with little interest. Drop ~${dropPct}% to ${fmt(dropTarget)} to move it.`;
+        ? `${watchers} watchers but no sale yet. Drop ${dropPct}% to ${fmt(dropTarget)} to convert the interest.`
+        : `Listed ${listingAgeDays} days with little interest. Drop ${dropPct}% to ${fmt(dropTarget)} to move it.`;
       return {
         suggestedPriceCents: dropTarget,
         compMedianCents,
@@ -197,13 +216,29 @@ export function computeSuggestion(input: RepriceInput): RepriceSuggestion {
 
   // Overpriced vs. condition-matched comps.
   if (positioned <= currentPriceCents * OVERPRICED_RATIO) {
+    const target = atLeastFloor(positioned);
+    // The floor sits at or above today's price: there is no cut to suggest.
+    if (target < currentPriceCents) {
+      const pct = cutPct(currentPriceCents, target);
+      return {
+        suggestedPriceCents: target,
+        compMedianCents,
+        compCount: stats.count,
+        deltaPct: (target - currentPriceCents) / currentPriceCents,
+        reasonCode: "OVERPRICED",
+        message: target > positioned
+          ? `Priced above comparable ${gradeLabel} items. Comps suggest ${fmt(positioned)}, but your floor is ${fmt(target)}. Drop ${pct}% to ${fmt(target)} (now ${fmt(currentPriceCents)}).`
+          : `Priced above comparable ${gradeLabel} items. Comps suggest ${fmt(positioned)}, ${pct}% below your ${fmt(currentPriceCents)}.`,
+        confidence,
+      };
+    }
     return {
-      suggestedPriceCents: positioned,
+      suggestedPriceCents: currentPriceCents,
       compMedianCents,
       compCount: stats.count,
-      deltaPct,
-      reasonCode: "OVERPRICED",
-      message: `Priced above comparable ${gradeLabel} items. Comps suggest ${fmt(positioned)} (now ${fmt(currentPriceCents)}).`,
+      deltaPct: 0,
+      reasonCode: "OK",
+      message: `Comps suggest ${fmt(positioned)}, but your floor keeps this at ${fmt(currentPriceCents)}.`,
       confidence,
     };
   }

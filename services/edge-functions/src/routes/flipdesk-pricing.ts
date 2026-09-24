@@ -191,6 +191,9 @@ async function computeListingSuggestion(
     // a markdown nudge even before the 30-day age gate.
     impressions: listing.impressions_7d ?? 0,
     clickThroughRate: listing.click_through_rate ?? null,
+    // The same floor the Apply paths enforce, so the queue never shows a price
+    // the server would then refuse.
+    floorCents: floorForListing(listing),
   });
 }
 
