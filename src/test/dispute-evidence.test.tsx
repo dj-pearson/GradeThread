@@ -86,9 +86,17 @@ describe("removing a photo (SUB-10)", () => {
     // was a span with a click handler.
     button!.focus();
     expect(document.activeElement).toBe(button);
+    // One labelled thumbnail per photo, drawn on a canvas: no file-input value
+    // is used as an <img src> (CodeQL js/xss-through-dom, PR 357).
+    const thumbs = container.querySelectorAll('canvas[role="img"]');
+    expect(Array.from(thumbs).map((t) => t.getAttribute("aria-label"))).toEqual([
+      "Evidence photo 1",
+      "Evidence photo 2",
+      "Evidence photo 3",
+    ]);
+    expect(container.querySelector("img[src]")).toBeNull();
     act(() => button!.click());
     expect(photos.map((p) => p.name)).toEqual(["a.jpg", "c.jpg"]);
-    expect(container.querySelector("img")?.getAttribute("src")).toMatch(/^blob:/);
   });
 });
 

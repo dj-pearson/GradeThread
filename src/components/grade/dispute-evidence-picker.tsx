@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Upload, X } from "lucide-react";
 import { addEvidenceFiles, MAX_DISPUTE_EVIDENCE } from "@/lib/dispute-evidence";
 
@@ -9,14 +9,60 @@ import { addEvidenceFiles, MAX_DISPUTE_EVIDENCE } from "@/lib/dispute-evidence";
 
 const PREVIEW_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-// A thumbnail src built from the picked file. Only an image type the picker
-// accepts gets one, and only a same-origin blob: URL is ever handed to <img>,
-// so nothing taken from the file input can reach the DOM as markup or a
-// script URL (CodeQL js/xss-through-dom on PR 357).
-function previewUrl(file: File): string {
-  if (!PREVIEW_TYPES.has(file.type)) return "";
-  const url = URL.createObjectURL(file);
-  return url.startsWith("blob:") ? url : "";
+// Thumbnails are drawn onto a canvas from the decoded image, so no value
+// taken from the file input is ever used as a URL or markup in the DOM
+// (CodeQL js/xss-through-dom on PR 357 flagged the old <img src> object URL,
+// and a blob: prefix check did not satisfy it). A file that is not an
+// accepted image type, or fails to decode, keeps the plain "Photo N" tile.
+function EvidenceThumb({ file, index }: { file: File; index: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const [drawn, setDrawn] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDrawn(false);
+    if (!PREVIEW_TYPES.has(file.type) || typeof createImageBitmap !== "function") return;
+    createImageBitmap(file)
+      .then((bitmap) => {
+        const canvas = ref.current;
+        const ctx = canvas?.getContext("2d");
+        if (cancelled || !canvas || !ctx) {
+          bitmap.close();
+          return;
+        }
+        // Cover-crop into the square tile, like object-cover.
+        const side = Math.min(bitmap.width, bitmap.height);
+        const sx = (bitmap.width - side) / 2;
+        const sy = (bitmap.height - side) / 2;
+        ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, canvas.width, canvas.height);
+        bitmap.close();
+        setDrawn(true);
+      })
+      .catch(() => {
+        /* undecodable: keep the text tile */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
+
+  return (
+    <>
+      <canvas
+        ref={ref}
+        width={128}
+        height={128}
+        role="img"
+        aria-label={`Evidence photo ${index + 1}`}
+        className={drawn ? "h-16 w-16 rounded-md border" : "hidden"}
+      />
+      {!drawn && (
+        <span className="flex h-16 w-16 items-center justify-center rounded-md border text-xs text-muted-foreground">
+          Photo {index + 1}
+        </span>
+      )}
+    </>
+  );
 }
 
 export function DisputeEvidencePicker({
@@ -32,9 +78,6 @@ export function DisputeEvidencePicker({
   const [refused, setRefused] = useState(0);
   const full = photos.length >= MAX_DISPUTE_EVIDENCE;
 
-  // One object URL per file, revoked when the file leaves the selection.
-  const urls = useMemo(() => photos.map(previewUrl), [photos]);
-  useEffect(() => () => urls.forEach((u) => u && URL.revokeObjectURL(u)), [urls]);
 
   function add(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -87,17 +130,7 @@ export function DisputeEvidencePicker({
         <ul className="flex flex-wrap gap-2" aria-label="Selected evidence photos">
           {photos.map((photo, i) => (
             <li key={`${photo.name}-${i}`} className="relative h-16 w-16">
-              {urls[i] ? (
-                <img
-                  src={urls[i]}
-                  alt={`Evidence photo ${i + 1}`}
-                  className="h-16 w-16 rounded-md border object-cover"
-                />
-              ) : (
-                <span className="flex h-16 w-16 items-center justify-center rounded-md border text-xs text-muted-foreground">
-                  Photo {i + 1}
-                </span>
-              )}
+              <EvidenceThumb file={photo} index={i} />
               <button
                 type="button"
                 aria-label={`Remove photo ${i + 1}`}
