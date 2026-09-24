@@ -29,6 +29,12 @@ export interface SearchArgs {
   p_limit: number;
 }
 
+/**
+ * Marks the Search page's field. The palette's "/" shortcut steps aside while
+ * one is on screen, so "/" focuses the page's own search instead.
+ */
+export const SEARCH_PAGE_FIELD_ATTR = "data-search-page-field";
+
 /** Tab order for the search surface — also the set of valid scopes. */
 export const SEARCH_SCOPES: { id: SearchScope; label: string }[] = [
   { id: "all", label: "All" },
@@ -134,6 +140,38 @@ export function parseSnippet(snippet: string): SnippetSegment[] {
     );
 }
 
+/**
+ * D1: the RPC builds item and listing snippets as `title + " <em dash> " + body`
+ * (00248), so a fragment from the start repeats the title the row already
+ * shows. Drop that leading echo; a fragment from further in is left alone.
+ */
+export function stripTitleEcho(
+  segments: SnippetSegment[],
+  title: string | null | undefined,
+): SnippetSegment[] {
+  const plain = segments.map((s) => s.text).join("");
+  const lead = plain.length - plain.trimStart().length;
+  // U+2014 is the separator the SQL writes; spelled as an escape here so the
+  // source stays ASCII.
+  const prefix = `${(title ?? "").trim()} \u2014`;
+  if (!plain.trimStart().startsWith(prefix.trimStart())) return segments;
+  let cut = lead + prefix.trimStart().length;
+  while (cut < plain.length && plain[cut] === " ") cut++;
+  const out: SnippetSegment[] = [];
+  for (const seg of segments) {
+    if (cut >= seg.text.length) {
+      cut -= seg.text.length;
+      continue;
+    }
+    out.push({ ...seg, text: seg.text.slice(cut) });
+    cut = 0;
+  }
+  return out;
+}
+
+/** How a hit was found, when it was not by the full-text RPC (D2). */
+export type MatchKind = "sku" | "bin";
+
 /** A search hit enriched with everything the UI needs to render one row. */
 export interface MappedHit extends SearchHit {
   /** Stable React key (result_type + id). */
@@ -144,6 +182,8 @@ export interface MappedHit extends SearchHit {
   segments: SnippetSegment[];
   /** Human label for the result type ("Item", "Listing", "Sale"). */
   typeLabel: string;
+  /** D2: pinned by an exact SKU or bin read rather than ranked by the RPC. */
+  matchKind?: MatchKind;
 }
 
 /** Map raw RPC rows to render-ready hits, preserving the RPC's rank order. */
@@ -152,7 +192,10 @@ export function mapHits(rows: SearchHit[] | null | undefined): MappedHit[] {
     ...h,
     key: `${h.result_type}-${h.result_id}`,
     link: deepLinkForHit(h),
-    segments: parseSnippet(h.snippet),
+    segments:
+      h.result_type === "sale"
+        ? parseSnippet(h.snippet)
+        : stripTitleEcho(parseSnippet(h.snippet), h.title),
     typeLabel: RESULT_TYPE_LABELS[h.result_type] ?? h.result_type,
   }));
 }
@@ -187,4 +230,125 @@ export function formatRecentCount(
   if (n == null) return null;
   if (n > limit) return `${limit}+ results`;
   return `${n} result${n === 1 ? "" : "s"}`;
+}
+
+/** Which result_type each tab shows. */
+export const SCOPE_RESULT_TYPE: Record<Exclude<SearchScope, "all">, ResultType> = {
+  items: "item",
+  listings: "listing",
+  sales: "sale",
+};
+
+const TYPE_ORDER: ResultType[] = ["item", "listing", "sale"];
+const TYPE_PLURAL: Record<ResultType, [string, string]> = {
+  item: ["item", "items"],
+  listing: ["listing", "listings"],
+  sale: ["sale", "sales"],
+};
+
+export interface HitSummary {
+  total: number;
+  byType: Record<ResultType, number>;
+  /** "12 results", or "50+ results, showing the best 50" when capped. */
+  headline: string;
+  /** "3 items, 2 listings" (+ " in the top 50" when capped), or "". */
+  breakdown: string;
+}
+
+/**
+ * U2: an honest count. The RPC stops at the limit, so a full page is "50+",
+ * never "50", and the per-type split is only of what came back.
+ */
+export function summarizeHits(
+  hits: readonly Pick<SearchHit, "result_type">[],
+  capped: boolean,
+  limit: number = DEFAULT_LIMIT,
+): HitSummary {
+  const byType: Record<ResultType, number> = { item: 0, listing: 0, sale: 0 };
+  for (const h of hits) byType[h.result_type] += 1;
+  const total = hits.length;
+  const headline = capped
+    ? `${limit}+ results, showing the best ${limit}`
+    : `${total} result${total === 1 ? "" : "s"}`;
+  const parts = TYPE_ORDER.filter((t) => byType[t] > 0).map(
+    (t) => `${byType[t]} ${TYPE_PLURAL[t][byType[t] === 1 ? 0 : 1]}`,
+  );
+  const breakdown = parts.length
+    ? `${parts.join(", ")}${capped ? ` in the top ${limit}` : ""}`
+    : "";
+  return { total, byType, headline, breakdown };
+}
+
+/** One garment in the result list, however many of its records matched (D1). */
+export interface HitGroup {
+  itemId: string;
+  /** The best-ranked hit for this garment; its link is where the row goes. */
+  best: MappedHit;
+  /** Every record type that matched, in item, listing, sale order. */
+  matchedIn: ResultType[];
+  hits: MappedHit[];
+  /** The best sale hit, for a "Sold to <buyer>" line. */
+  sale: MappedHit | null;
+}
+
+/**
+ * D1: one row per garment. A single jacket used to take three rows (the item,
+ * its eBay listing, its sale). Order follows the first appearance of each
+ * garment, which is rank order, with pinned exact matches first.
+ */
+export function groupHitsByItem(hits: readonly MappedHit[]): HitGroup[] {
+  const byItem = new Map<string, HitGroup>();
+  for (const h of hits) {
+    const id = h.inventory_item_id;
+    let g = byItem.get(id);
+    if (!g) {
+      g = { itemId: id, best: h, matchedIn: [], hits: [], sale: null };
+      byItem.set(id, g);
+    }
+    g.hits.push(h);
+    if (!g.matchedIn.includes(h.result_type)) g.matchedIn.push(h.result_type);
+    if (h.result_type === "sale" && !g.sale) g.sale = h;
+  }
+  for (const g of byItem.values()) {
+    g.matchedIn.sort((a, b) => TYPE_ORDER.indexOf(a) - TYPE_ORDER.indexOf(b));
+  }
+  return [...byItem.values()];
+}
+
+export type QueryClass =
+  | { kind: "text"; rpcQuery: string }
+  | { kind: "code"; term: string; fields: MatchKind[]; rpcQuery: string };
+
+const CODE_TOKEN = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * D2: is this a warehouse lookup? `sku:J0042` and `bin:A3` say so outright; a
+ * single token with a digit in it (J0042, A3, 2024-117) is treated as one too.
+ * Codes go to an exact prefix read on item_number and location_bin as well as
+ * the full-text RPC, because the RPC stems English and never searched bins.
+ */
+export function classifyQuery(raw: string): QueryClass {
+  const q = normalizeQuery(raw);
+  const prefixed = /^(sku|bin):\s*(\S+)$/i.exec(q);
+  if (prefixed) {
+    const term = prefixed[2]!;
+    if (CODE_TOKEN.test(term)) {
+      return {
+        kind: "code",
+        term,
+        fields: [prefixed[1]!.toLowerCase() as MatchKind],
+        rpcQuery: term,
+      };
+    }
+    return { kind: "text", rpcQuery: term };
+  }
+  if (!q.includes(" ") && /\d/.test(q) && CODE_TOKEN.test(q)) {
+    return { kind: "code", term: q, fields: ["sku", "bin"], rpcQuery: q };
+  }
+  return { kind: "text", rpcQuery: q };
+}
+
+/** Escape LIKE wildcards so a code matches literally before the trailing %. */
+export function escapeLike(term: string): string {
+  return term.replace(/[\\%_]/g, (c) => `\\${c}`);
 }

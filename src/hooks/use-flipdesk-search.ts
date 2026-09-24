@@ -35,15 +35,17 @@ export interface UseFlipdeskSearchOptions {
   limit?: number;
   /** Also read a cover thumbnail per item (the page does, the palette does not). */
   withCovers?: boolean;
+  /** D2: pin exact SKU/bin matches for a code-shaped query. */
+  withExact?: boolean;
   debounceMs?: number;
 }
 
 export function flipdeskSearchQueryKey(
   ownerId: string | undefined,
   args: SearchArgs | null,
-  withCovers: boolean,
+  opts: { withCovers: boolean; withExact: boolean },
 ) {
-  return ["flipdesk-search", ownerId, args, withCovers] as const;
+  return ["flipdesk-search", ownerId, args, opts] as const;
 }
 
 /** The workspace on screen: the active owner, else the caller. */
@@ -58,6 +60,7 @@ export function useFlipdeskSearch({
   scope,
   limit = DEFAULT_LIMIT,
   withCovers = false,
+  withExact = false,
   debounceMs = SEARCH_DEBOUNCE_MS,
 }: UseFlipdeskSearchOptions) {
   const ownerId = useSearchOwnerId();
@@ -84,18 +87,19 @@ export function useFlipdeskSearch({
 
   const optionsFor = useCallback(
     (a: SearchArgs | null) => ({
-      queryKey: flipdeskSearchQueryKey(ownerId, a, withCovers),
+      queryKey: flipdeskSearchQueryKey(ownerId, a, { withCovers, withExact }),
       queryFn: ({ signal }: { signal: AbortSignal }) =>
         runFlipdeskSearch({
           args: a!,
           limit,
           ownerId: ownerId!,
           withCovers,
+          withExact,
           signal,
         }),
       staleTime: 30_000,
     }),
-    [ownerId, withCovers, limit],
+    [ownerId, withCovers, withExact, limit],
   );
 
   const query = useQuery<SearchResult>({
