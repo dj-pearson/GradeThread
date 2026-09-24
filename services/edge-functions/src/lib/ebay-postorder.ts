@@ -10,8 +10,12 @@
 // `Bearer <token>` scheme the Sell APIs use — it requires `Authorization:
 // IAF <user access token>`. So it can't go through ebay-client's fetchAuthed;
 // this module has its own postOrderFetch built on the same getUserAccessToken.
-// It lives at apiHost()/post-order/v2 (api.ebay.com in prod). No extra OAuth
-// scope is required beyond the standard user grant.
+// It lives at apiHost()/post-order/v2 (api.ebay.com in prod). It adds no scope
+// of its own to the consent list. Which scope eBay checks here is NOT settled:
+// we believe sell.fulfillment covers it, but we have not confirmed that the
+// bare base scope (removed from our user grant by eBay ticket 260829-000039)
+// is not required. If returns/inquiries/cases start answering 401/403 for
+// newly connected sellers, this is the first suspect (vault ebay-oauth-scopes).
 //
 // Every route that calls these MUST tenant-scope first (resolve the local sale
 // and verify ownership) — these helpers take eBay-side ids only and perform no
