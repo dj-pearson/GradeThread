@@ -28,6 +28,7 @@ import {
   significantDrift,
   type MeasurementDrift,
 } from "@/lib/measurement-drift";
+import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
 
 // US-2827: your medium against everybody else's medium.
 //
@@ -44,7 +45,12 @@ const rate = (n: number | null): string =>
 
 export function MeasurementDriftSection() {
   const user = useAuthStore((s) => s.user);
-  const { data = EMPTY_DRIFT } = useQuery<MeasurementDrift>({
+  const {
+    data = EMPTY_DRIFT,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery<MeasurementDrift>({
     queryKey: ["items_full", "analytics", "measurement-drift", user?.id],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
@@ -99,6 +105,15 @@ export function MeasurementDriftSection() {
     );
   }
 
+  if (isError) {
+    return (
+      <AnalyticsCardError
+        title="Measurement drift"
+        onRetry={refetch}
+        retrying={isFetching}
+      />
+    );
+  }
   if (data.rows.length === 0) return null;
 
   return (

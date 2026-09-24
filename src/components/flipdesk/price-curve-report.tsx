@@ -42,6 +42,7 @@ import {
   type ConditionPriceCurve,
 } from "@/lib/condition-price-curve";
 import type { CurveDatum } from "@/components/flipdesk/condition-curve-chart";
+import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
 
 // US-2819: the Condition Price Curve tab.
 //
@@ -126,7 +127,13 @@ export function PriceCurveReport({
     queryFn: () => fetchSellThrough("category", null),
   });
 
-  const { data: curve = EMPTY_CURVE, isLoading } = useQuery<ConditionPriceCurve>({
+  const {
+    data: curve = EMPTY_CURVE,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery<ConditionPriceCurve>({
     queryKey: [
       "items_full",
       "analytics",
@@ -253,7 +260,15 @@ export function PriceCurveReport({
         </Button>
       </div>
 
-      {isCurveEmpty(curve) ? (
+      {/* A2: checked before the empty test. A failed read has no buckets,
+          and "No sales to draw yet" is a claim about the seller. */}
+      {isError ? (
+        <AnalyticsCardError
+          title="Condition price curve"
+          onRetry={refetch}
+          retrying={isFetching}
+        />
+      ) : isCurveEmpty(curve) ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">No sales to draw yet</CardTitle>

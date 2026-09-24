@@ -19,6 +19,8 @@ import {
   type ScorecardMetric,
   returnSplitLine,
 } from "@/lib/seller-scorecard";
+import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
+import { ScorecardSkeleton } from "@/components/flipdesk/scorecard-skeleton";
 
 // US-2822: five percentiles and one sentence, at the top of Analytics.
 //
@@ -39,7 +41,13 @@ export function SellerScorecardCard({
   periodStart: string | null;
 }) {
   const user = useAuthStore((s) => s.user);
-  const { data = EMPTY_SCORECARD } = useQuery<Scorecard>({
+  const {
+    data = EMPTY_SCORECARD,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery<Scorecard>({
     queryKey: ["items_full", "analytics", "scorecard", user?.id, periodStart],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
@@ -75,6 +83,16 @@ export function SellerScorecardCard({
     );
   }
 
+  if (isLoading) return <ScorecardSkeleton />;
+  if (isError) {
+    return (
+      <AnalyticsCardError
+        title="Your scorecard"
+        onRetry={refetch}
+        retrying={isFetching}
+      />
+    );
+  }
   if (metrics.length === 0) return null;
 
   return (

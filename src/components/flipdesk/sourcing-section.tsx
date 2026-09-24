@@ -33,6 +33,7 @@ import {
   type VelocityGroupKey,
 } from "@/lib/capital-velocity";
 import { splitPlaceholderBrandRows } from "@/lib/placeholder-brand";
+import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
 
 // US-2824 + US-2825: the two "what should I buy more of" reports, on the
 // Sell-through tab.
@@ -54,7 +55,12 @@ export function SourceYieldCard({
   periodStart: string | null;
 }) {
   const user = useAuthStore((s) => s.user);
-  const { data = EMPTY_SOURCE_YIELD } = useQuery<SourceYieldReport>({
+  const {
+    data = EMPTY_SOURCE_YIELD,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery<SourceYieldReport>({
     queryKey: ["items_full", "analytics", "source-yield", user?.id, periodStart],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
@@ -66,6 +72,15 @@ export function SourceYieldCard({
 
   const finding = useMemo(() => sourceFinding(data), [data]);
 
+  if (isError) {
+    return (
+      <AnalyticsCardError
+        title="Source yield"
+        onRetry={refetch}
+        retrying={isFetching}
+      />
+    );
+  }
   if (data.rows.length === 0) {
     if (data.itemsWithoutPurchaseDate === 0) return null;
     return (
@@ -211,7 +226,12 @@ export function CapitalVelocityCard({
 }: {
   groupKey: VelocityGroupKey;
 }) {
-  const { data: items = [] } = useItemsList();
+  const {
+    data: items = [],
+    isError,
+    isFetching,
+    refetch,
+  } = useItemsList();
 
   // Aged against today, passed in rather than read inside the pure module so
   // the module stays deterministic in a test.
@@ -231,6 +251,15 @@ export function CapitalVelocityCard({
   const ranked = useMemo(() => rankedGroups(report), [report]);
   const dead = useMemo(() => deadestCapital(report), [report]);
 
+  if (isError) {
+    return (
+      <AnalyticsCardError
+        title="Capital velocity"
+        onRetry={refetch}
+        retrying={isFetching}
+      />
+    );
+  }
   if (ranked.length === 0 && !dead) return null;
 
   const best = ranked[0];

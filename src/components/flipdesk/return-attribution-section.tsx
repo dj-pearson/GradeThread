@@ -29,6 +29,7 @@ import {
   type ReturnAttribution,
 } from "@/lib/return-attribution";
 import { defectLabel } from "@/lib/defect-cost";
+import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
 
 // US-2823: "What actually predicts your returns", under the grade bands.
 //
@@ -45,7 +46,12 @@ export function ReturnAttributionSection({
   periodStart: string | null;
 }) {
   const user = useAuthStore((s) => s.user);
-  const { data = EMPTY_ATTRIBUTION } = useQuery<ReturnAttribution>({
+  const {
+    data = EMPTY_ATTRIBUTION,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery<ReturnAttribution>({
     queryKey: [
       "items_full",
       "analytics",
@@ -65,6 +71,15 @@ export function ReturnAttributionSection({
   const defect = useMemo(() => worstUndisclosedDefect(data), [data]);
   const nothing = useMemo(() => hasNoFindings(data), [data]);
 
+  if (isError) {
+    return (
+      <AnalyticsCardError
+        title="What actually predicts your returns"
+        onRetry={refetch}
+        retrying={isFetching}
+      />
+    );
+  }
   if (data.overall.fulfilled === 0) return null;
 
   // US-2829 AC6: one export per TABLE, headers matching that table's own

@@ -67,6 +67,8 @@ import {
 import { ChartSkeleton, LoadingRegion } from "@/components/ui/skeletons";
 import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
+import { ScorecardSkeleton } from "@/components/flipdesk/scorecard-skeleton";
 
 // Lazy-load the Recharts bar chart at the chart boundary so the route-entry
 // chunk stays light and the page shell + table paint before Recharts streams
@@ -285,7 +287,7 @@ export function FlipdeskAnalyticsPage() {
       />
 
       {/* US-2822: one diagnosis above five tabs of numbers. */}
-      <Suspense fallback={null}>
+      <Suspense fallback={<ScorecardSkeleton />}>
         <ScorecardHost />
       </Suspense>
 
@@ -471,7 +473,12 @@ function SellThroughReport() {
   // US-2234 (AC1): revenue + net-profit trend over the selected period. Reuses
   // the finances_dashboard RPC's time_series (the only server-side time series we
   // have) rather than adding a second one; shares the same cache key prefix.
-  const { data: trend = [] } = useQuery({
+  const {
+    data: trend = [],
+    isError: trendFailed,
+    isFetching: trendFetching,
+    refetch: refetchTrend,
+  } = useQuery({
     queryKey: ["items_full", "analytics", "trend", user?.id, preset],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
@@ -584,7 +591,13 @@ function SellThroughReport() {
         <PriceGapCard periodStart={periodStart} />
       </Suspense>
 
-      {trend.length > 1 && (
+      {trendFailed ? (
+        <AnalyticsCardError
+          title="Revenue & net profit over time"
+          onRetry={refetchTrend}
+          retrying={trendFetching}
+        />
+      ) : trend.length > 1 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">

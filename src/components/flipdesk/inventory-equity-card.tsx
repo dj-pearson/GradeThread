@@ -21,6 +21,7 @@ import {
 import { edgeFetch } from "@/lib/edge-fetch";
 import { EQUITY_ESTIMATE_DISCLOSURE } from "@/lib/inventory-equity-disclosure";
 import { cn } from "@/lib/utils";
+import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
 
 interface EquityBucket {
   cents: number;
@@ -140,7 +141,7 @@ function Breakdown({
 }
 
 export function InventoryEquityCard() {
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["flipdesk-equity"],
     queryFn: async (): Promise<EquityResponse | null> => {
       const res = await edgeFetch("/api/flipdesk/equity");
@@ -166,8 +167,19 @@ export function InventoryEquityCard() {
     enabled: !!data,
   });
 
-  // Feature off, or a transient error — stay quiet rather than shout.
-  if (data === null || isError) return null;
+  // A2: a failed read says so. Only the kill-switch 404 (data === null) is
+  // allowed to render nothing; hiding an error made an outage look like a
+  // seller with no graded stock.
+  if (isError) {
+    return (
+      <AnalyticsCardError
+        title="Inventory Equity"
+        onRetry={refetch}
+        retrying={isFetching}
+      />
+    );
+  }
+  if (data === null) return null;
 
   return (
     <Card>
