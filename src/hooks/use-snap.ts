@@ -16,6 +16,12 @@ export interface SnapValue {
   category_name?: string | null;
 }
 
+export interface SnapUsage {
+  used: number;
+  cap: number | null;
+  resets_at: string;
+}
+
 export interface SnapResult {
   grade: {
     overall_score: number;
@@ -30,6 +36,8 @@ export interface SnapResult {
     screenshot_detected?: boolean;
   };
   value: SnapValue | null;
+  /** SNAP-09: the owner's monthly snap usage after this one. cap null = unlimited. */
+  usage?: SnapUsage | null;
   // US-952: best-effort AI-detected garment type/category from the snap photo,
   // used to prefill the certified-grade form on upgrade. null when undetected.
   garment?: { type: string | null; category: string | null } | null;
