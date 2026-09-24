@@ -71,8 +71,9 @@ import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
 import { ScorecardSkeleton } from "@/components/flipdesk/scorecard-skeleton";
 import { pctTick, SERIES, usdTick } from "@/lib/chart-theme";
 import { useTenantKey } from "@/hooks/use-tenant-key";
-import { isPreset, presetStart, RANGE_LABEL, type Preset } from "@/lib/analytics-range";
+import { presetStart, RANGE_LABEL, type Preset } from "@/lib/analytics-range";
 import { ANALYTICS_TABS, RANGE_TABS, tabFromPath, tabHref, type AnalyticsTabId } from "@/lib/analytics-tabs";
+import { usePresetParam } from "@/hooks/use-preset-param";
 
 // Lazy-load the Recharts bar chart at the chart boundary so the route-entry
 // chunk stays light and the page shell + table paint before Recharts streams
@@ -170,24 +171,6 @@ const usd = (n: number | null | undefined): string =>
 const pct = (n: number | null | undefined): string =>
   n == null || !Number.isFinite(n) ? "—" : `${Math.round(n * 100)}%`;
 
-// US-2234: persist the period preset in the URL so an analytics view is
-// shareable and survives a refresh, instead of resetting to all-time.
-function usePresetParam(): [Preset, (p: Preset) => void] {
-  const [sp, setSp] = useSearchParams();
-  const raw = sp.get("preset");
-  const preset: Preset = isPreset(raw) ? raw : "all";
-  const setPreset = (p: Preset) =>
-    setSp(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (p === "all") next.delete("preset");
-        else next.set("preset", p);
-        return next;
-      },
-      { replace: true },
-    );
-  return [preset, setPreset];
-}
 
 // US-2234: the sell-through grouping (category/brand/source) also lives in the
 // URL so the whole view is deep-linkable.

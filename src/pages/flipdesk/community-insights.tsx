@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   Users,
@@ -51,12 +52,24 @@ import {
   type CommunityBenchmarkFilters,
   MIN_COHORT_SELLERS,
   communityBenchmarksKey,
+  communityErrorMessage,
+  filtersFromParams,
+  filtersToParams,
+  priceRangeInvalid,
+  sameBenchmarkFilters,
 } from "@/lib/community-benchmarks";
-import { deriveRecommendations } from "@/lib/community-recommendations";
+import {
+  deriveRecommendations,
+  loadDismissedRecs,
+  saveDismissedRecs,
+} from "@/lib/community-recommendations";
 import { RecommendationRow } from "@/components/flipdesk/community-insights-widget";
 import { ordinalSuffix } from "@/lib/utils";
 import { useTenantKey } from "@/hooks/use-tenant-key";
 import { presetStart, type Preset } from "@/lib/analytics-range";
+import { usePresetParam } from "@/hooks/use-preset-param";
+import { ErrorState } from "@/components/ui/error-state";
+import { captureException } from "@/lib/sentry";
 
 const pct = (n: number | null | undefined): string =>
   n == null || !Number.isFinite(n) ? "—" : `${Math.round(n * 100)}%`;
@@ -78,28 +91,22 @@ const monthLabel = (key: string): string => {
 };
 
 
-// US-2235: dismissed recommendations persist across refreshes (keyed by rec id,
-// which is stable for a given cohort signal). Best-effort — a storage failure
-// just means nothing is remembered, never a crash.
-const DISMISSED_RECS_KEY = "flipdesk.community.dismissedRecs";
 const RECS_PREVIEW_COUNT = 6;
 
-function loadDismissedRecs(): Set<string> {
-  try {
-    const raw = localStorage.getItem(DISMISSED_RECS_KEY);
-    const arr = raw ? (JSON.parse(raw) as unknown) : [];
-    return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function saveDismissedRecs(ids: Set<string>): void {
-  try {
-    localStorage.setItem(DISMISSED_RECS_KEY, JSON.stringify([...ids]));
-  } catch {
-    // ignore — dismissal simply won't persist
-  }
+/** "-brand-nike-pmin-20" for a CSV filename, or "" with no filters. */
+function filterSlug(f: Required<CommunityBenchmarkFilters>): string {
+  const parts: string[] = [];
+  const add = (k: string, v: string | number | null) => {
+    if (v == null) return;
+    const clean = String(v).toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/^-|-$/g, "");
+    if (clean) parts.push(k, clean);
+  };
+  add("brand", f.brand);
+  add("category", f.category);
+  add("size", f.size);
+  add("pmin", f.priceMin);
+  add("pmax", f.priceMax);
+  return parts.length ? `-${parts.join("-")}` : "";
 }
 
 /** US-2161: `embedded` — see FlipdeskListingPerformancePage for the contract. */
@@ -107,14 +114,27 @@ export function FlipdeskCommunityInsightsPage(
   { embedded = false }: { embedded?: boolean } = {},
 ) {
   const tenantKey = useTenantKey();
-  const [preset, setPreset] = useState<Preset>("12mo");
+  // A10: embedded, the tab reads the page's ?preset= like every other tab, so
+  // the scorecard above and these numbers cover the same window under ONE
+  // control. Standalone keeps its own select.
+  const [pagePreset] = usePresetParam();
+  const [localPreset, setLocalPreset] = useState<Preset>("12mo");
+  const preset = embedded ? pagePreset : localPreset;
   const periodStart = presetStart(preset);
+  const [searchParams, setSearchParams] = useSearchParams();
   // US-2235 AC1. Two pieces of state, not one, and the split is the point: the
   // DRAFT is what the inputs hold while someone is typing, and `filters` is what
   // has actually been submitted. Firing the query per keystroke would re-run a
   // platform-wide aggregate over every reseller's inventory on every character.
-  const [draft, setDraft] = useState<CommunityBenchmarkFilters>({});
-  const [filters, setFilters] = useState<CommunityBenchmarkFilters>({});
+  // A10: the submitted filters live in the URL, so a filtered view reloads and
+  // shares as itself; the draft starts from them.
+  const filters = useMemo(
+    () => filtersFromParams(searchParams),
+    [searchParams],
+  );
+  const [draft, setDraft] = useState<CommunityBenchmarkFilters>(filters);
+  const setFilters = (f: CommunityBenchmarkFilters) =>
+    setSearchParams((prev) => filtersToParams(prev, f), { replace: true });
   // US-2235: recommendations are dismissible + expandable beyond the preview.
   const [dismissedRecs, setDismissedRecs] = useState<Set<string>>(loadDismissedRecs);
   const [showAllRecs, setShowAllRecs] = useState(false);
@@ -131,12 +151,19 @@ export function FlipdeskCommunityInsightsPage(
   // Normalized into the key as well as the call, so "Nike" and " nike " are one
   // cache entry rather than two identical queries.
   const activeFilters = useMemo(() => normalizeBenchmarkFilters(filters), [filters]);
-  const { data, isLoading, isError, error } = useQuery({
+  const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
     queryKey: communityBenchmarksKey(tenantKey, periodStart, activeFilters),
     queryFn: () => fetchCommunityBenchmarks(periodStart, activeFilters),
     enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
   });
+
+  // A10: the raw error goes to Sentry; the screen gets plain copy.
+  useEffect(() => {
+    if (isError && error) {
+      captureException(error, { tags: { surface: "community-insights" } });
+    }
+  }, [isError, error]);
 
   // US-2829 AC1/AC6: the two TABLES on this page, exportable with the same
   // headers they show.
@@ -154,24 +181,35 @@ export function FlipdeskCommunityInsightsPage(
   // sparklines whose on-screen form has no columns to match, and inventing
   // headers for them would be the decoder AC6 exists to avoid.
   const csvDate = () => new Date().toISOString().slice(0, 10);
+  // A10: the file names its window and filters, so two exports of different
+  // views cannot be mistaken for one another.
+  const csvName = (what: string) =>
+    `gradethread-community-${what}-${preset}${filterSlug(activeFilters)}-${csvDate()}.csv`;
+  // Percent columns hold what the table shows (53), not the 0-1 fraction.
+  const pctCell = (n: number | null | undefined) =>
+    n == null || !Number.isFinite(n) ? "" : Math.round(n * 100);
 
   function exportBrandsCsv() {
     if (!data) return;
     downloadCsv(
-      `gradethread-community-brands-${csvDate()}.csv`,
+      csvName("brands"),
       [
         "Brand",
-        "Sell-through",
+        "Sell-through (%)",
+        "Sold",
+        "Listed",
         "Avg sale",
-        "Realization",
+        "Realization (%)",
         "Days to sell",
         "Sellers",
       ],
       data.topBrands.map((b) => [
         b.brand,
-        b.sellThrough ?? "",
+        pctCell(b.sellThrough),
+        b.sold,
+        b.listed,
         b.avgSalePrice ?? "",
-        b.medianRealization ?? "",
+        pctCell(b.medianRealization),
         b.medianDaysToSell ?? "",
         b.sellers,
       ]),
@@ -181,20 +219,24 @@ export function FlipdeskCommunityInsightsPage(
   function exportCategoriesCsv() {
     if (!data) return;
     downloadCsv(
-      `gradethread-community-categories-${csvDate()}.csv`,
+      csvName("categories"),
       [
         "Category",
-        "Sell-through",
+        "Sell-through (%)",
+        "Sold",
+        "Listed",
         "Avg sale",
-        "Realization",
+        "Realization (%)",
         "Days to sell",
         "Sellers",
       ],
       data.categories.map((c) => [
         c.category,
-        c.sellThrough ?? "",
+        pctCell(c.sellThrough),
+        c.sold,
+        c.listed,
         c.avgSalePrice ?? "",
-        c.medianRealization ?? "",
+        pctCell(c.medianRealization),
         c.medianDaysToSell ?? "",
         c.sellers,
       ]),
@@ -202,7 +244,10 @@ export function FlipdeskCommunityInsightsPage(
   }
 
   const filtersActive = hasActiveFilters(activeFilters);
+  const priceInvalid = priceRangeInvalid(draft);
+  const canApply = !priceInvalid && !sameBenchmarkFilters(draft, filters);
   function applyFilters() {
+    if (!canApply) return;
     setFilters(draft);
   }
   function clearFilters() {
@@ -216,7 +261,7 @@ export function FlipdeskCommunityInsightsPage(
           FlipdeskListingPerformancePage for the contract. */}
       {(() => {
         const actions = (
-          <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
+          <Select value={preset} onValueChange={(v) => setLocalPreset(v as Preset)}>
             <SelectTrigger className="w-[160px]" aria-label="Time period">
               <SelectValue />
             </SelectTrigger>
@@ -227,9 +272,8 @@ export function FlipdeskCommunityInsightsPage(
             </SelectContent>
           </Select>
         );
-        return embedded ? (
-          <div className="flex justify-end">{actions}</div>
-        ) : (
+        // A10: embedded, the page header's range control is the only one.
+        return embedded ? null : (
           <PageHeader
             icon={Users}
             title="Community Insights"
@@ -309,8 +353,15 @@ export function FlipdeskCommunityInsightsPage(
               />
             </div>
           </div>
+          {priceInvalid && (
+            <p role="alert" className="text-xs text-destructive sm:col-span-2 lg:col-span-5">
+              The minimum price is above the maximum.
+            </p>
+          )}
           <div className="flex items-end gap-2">
-            <Button onClick={applyFilters} className="flex-1">Apply</Button>
+            <Button onClick={applyFilters} className="flex-1" disabled={!canApply}>
+              Apply
+            </Button>
             {filtersActive ? (
               <Button variant="ghost" onClick={clearFilters}>Clear</Button>
             ) : null}
@@ -365,12 +416,13 @@ export function FlipdeskCommunityInsightsPage(
       })()}
 
       {isError ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-destructive">
-            Couldn&apos;t load community insights
-            {error instanceof Error ? `: ${error.message}` : "."}
-          </CardContent>
-        </Card>
+        <ErrorState
+          title="Couldn't load community insights"
+          description={communityErrorMessage(error)}
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+          hideSupport
+        />
       ) : isLoading || !data ? (
         <TableLoadingSkeleton rows={6} />
       ) : (
@@ -686,8 +738,28 @@ export function FlipdeskCommunityInsightsPage(
                     </p>
                   );
                 }
+                // A10: one summary for screen readers instead of twelve
+                // unlabelled divs, and a hidden month drawn as a dashed stub
+                // with a legend rather than as an empty gap that reads as zero.
+                const shownMonths = series.filter((m) => m.sold != null);
+                const hiddenMonths = series.length - shownMonths.length;
+                const peak = shownMonths.reduce(
+                  (a, m) => ((m.sold ?? 0) > (a.sold ?? 0) ? m : a),
+                  shownMonths[0]!,
+                );
+                const summary = `Community items sold per month, ${series.length} months. Peak ${monthLabel(peak.month)} with ${peak.sold} sold.${
+                  hiddenMonths > 0
+                    ? ` ${hiddenMonths} ${hiddenMonths === 1 ? "month is" : "months are"} hidden below the privacy threshold.`
+                    : ""
+                }`;
                 return (
-                  <div className="flex items-end gap-1.5" style={{ height: 120 }}>
+                  <>
+                  <div
+                    role="img"
+                    aria-label={summary}
+                    className="flex items-end gap-1.5"
+                    style={{ height: 120 }}
+                  >
                     {series.map((m) => {
                       const h = m.sold == null ? 0 : Math.round((m.sold / max) * 100);
                       return (
@@ -701,10 +773,14 @@ export function FlipdeskCommunityInsightsPage(
                           }
                         >
                           <div className="flex h-[100px] w-full items-end">
-                            <div
-                              className="w-full rounded-t bg-brand-navy/80"
-                              style={{ height: `${h}%` }}
-                            />
+                            {m.sold == null ? (
+                              <div className="h-3 w-full rounded-t border border-dashed border-muted-foreground/60" />
+                            ) : (
+                              <div
+                                className="w-full rounded-t bg-brand-navy/80 dark:bg-[#3B72D9]"
+                                style={{ height: `${h}%` }}
+                              />
+                            )}
                           </div>
                           <span className="text-[10px] text-muted-foreground">
                             {monthLabel(m.month)}
@@ -713,6 +789,16 @@ export function FlipdeskCommunityInsightsPage(
                       );
                     })}
                   </div>
+                  {hiddenMonths > 0 && (
+                    <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                      <span
+                        aria-hidden="true"
+                        className="inline-block h-2.5 w-3 rounded-sm border border-dashed border-muted-foreground/60"
+                      />
+                      Hidden: fewer sellers than the privacy threshold that month.
+                    </p>
+                  )}
+                  </>
                 );
               })()}
             </CardContent>

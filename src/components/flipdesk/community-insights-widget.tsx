@@ -29,14 +29,17 @@ import {
 } from "@/lib/community-benchmarks";
 import {
   deriveRecommendations,
+  loadDismissedRecs,
   type ConfidenceLevel,
   type Recommendation,
 } from "@/lib/community-recommendations";
 import { useTenantKey } from "@/hooks/use-tenant-key";
 import { presetStart } from "@/lib/analytics-range";
 
-// US-2161: Community Insights is an Analytics tab now.
-const COMMUNITY_ROUTE = "/dashboard/flipdesk/analytics/community";
+// US-2161: Community Insights is an Analytics tab now. A10: it reads the
+// page's ?preset=, so the link names the widget's own 12-month window and the
+// tab opens on the same numbers (and the same cached fetch).
+const COMMUNITY_ROUTE = "/dashboard/flipdesk/analytics/community?preset=12mo";
 
 // Widget always uses the trailing-12-months window — the most decision-relevant
 // horizon for "what should I be sourcing now". A8: the same presetStart and key
@@ -130,7 +133,13 @@ export function CommunityInsightsWidget({ limit = 3 }: { limit?: number }) {
   // Don't take up dashboard space on error — it's a non-critical surface.
   if (isError) return null;
 
-  const recs = data ? deriveRecommendations(data).slice(0, limit) : [];
+  // A10: a recommendation dismissed on the Community tab stays dismissed here.
+  const dismissed = loadDismissedRecs();
+  const recs = data
+    ? deriveRecommendations(data)
+        .filter((r) => !dismissed.has(r.id))
+        .slice(0, limit)
+    : [];
 
   // Once loaded, if there's nothing to recommend, stay out of the way.
   if (!isLoading && recs.length === 0) return null;

@@ -185,3 +185,29 @@ export function deriveRecommendations(
   }
   return recs.sort((a, b) => b.score - a.score);
 }
+
+// US-2235: dismissed recommendations persist across refreshes (keyed by rec id,
+// which is stable for a given cohort signal). Best-effort: a storage failure
+// just means nothing is remembered, never a crash. A10: moved here from the
+// page so the Overview widget hides the same dismissed ones.
+const DISMISSED_RECS_KEY = "flipdesk.community.dismissedRecs";
+
+export function loadDismissedRecs(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DISMISSED_RECS_KEY);
+    const arr = raw ? (JSON.parse(raw) as unknown) : [];
+    return new Set(
+      Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveDismissedRecs(ids: Set<string>): void {
+  try {
+    localStorage.setItem(DISMISSED_RECS_KEY, JSON.stringify([...ids]));
+  } catch {
+    // ignore: dismissal simply won't persist
+  }
+}

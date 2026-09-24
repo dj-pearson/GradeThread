@@ -33,7 +33,7 @@ export const ANALYTICS_TABS: readonly AnalyticsTab[] = [
   { id: "price-curve", label: "Price curve", shortLabel: "Price", path: `${BASE}/price-curve`, usesRange: true },
   { id: "returns", label: "Return reduction", shortLabel: "Returns", path: `${BASE}/returns`, usesRange: true },
   { id: "performance", label: "Listing performance", shortLabel: "Listings", path: `${BASE}/performance`, usesRange: false },
-  { id: "community", label: "Community", shortLabel: "Community", path: `${BASE}/community`, usesRange: false },
+  { id: "community", label: "Community", shortLabel: "Community", path: `${BASE}/community`, usesRange: true },
   // US-3019: the Team tab windows on the same preset as everything else.
   { id: "team", label: "Team", shortLabel: "Team", path: `${BASE}/team`, usesRange: true },
 ];
