@@ -139,6 +139,48 @@ describe("post-sale ?focus=", () => {
       .toBe(false);
   });
 
+  it("lets the seller pick another tab after landing on the item", async () => {
+    // ?focus= used to stay in the URL and the tab effect re-ran on every tab
+    // change, pulling the seller straight back to the focused item's tab.
+    const router = await renderAt("/dashboard/flipdesk/post-sale?focus=c-2");
+    await vi.waitFor(() =>
+      expect(new URLSearchParams(router.state.location.search).get("tab")).toBe(
+        "cancellations",
+      )
+    );
+    const returnsTab = [...container.querySelectorAll<HTMLElement>('[role="tab"]')]
+      .find((el) => /returns/i.test(el.textContent ?? ""));
+    expect(returnsTab).toBeTruthy();
+    await act(async () => {
+      returnsTab!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+      returnsTab!.click();
+    });
+    await vi.waitFor(() => {
+      const params = new URLSearchParams(router.state.location.search);
+      expect(params.get("tab")).toBe("returns");
+      expect(params.get("focus")).toBeNull();
+    });
+  });
+
+  it("does not call an item gone when one of the queues failed", async () => {
+    const mod = await import("@/hooks/use-needs-you");
+    const spy = vi.spyOn(mod, "useNeedsYou");
+    spy.mockReturnValue({
+      items: state.items,
+      queues: {},
+      pending: [],
+      isLoading: false,
+      isError: false,
+      isPartial: true,
+      isFetching: false,
+      refetch: () => {},
+    } as unknown as ReturnType<typeof mod.useNeedsYou>);
+    await renderAt("/dashboard/flipdesk/post-sale?tab=cancellations&focus=gone");
+    await act(async () => {});
+    expect(container.textContent).not.toContain("This case is no longer open");
+    spy.mockRestore();
+  });
+
   it("says so when the item is no longer open", async () => {
     await renderAt("/dashboard/flipdesk/post-sale?tab=cancellations&focus=gone");
     await vi.waitFor(() =>

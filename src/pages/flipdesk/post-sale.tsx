@@ -188,9 +188,12 @@ function PostSaleTabs() {
   const needsYou = useNeedsYou();
   const counts = postSaleTabCounts(needsYou.items);
 
-  function setTab(next: PostSaleTabId) {
+  function setTab(next: PostSaleTabId, keepFocus = false) {
     const params = new URLSearchParams(searchParams);
     params.set("tab", next);
+    // A tab the seller picks drops ?focus=: the link's job is done, and a
+    // focus left in the URL would keep pulling them back to its tab.
+    if (!keepFocus) params.delete("focus");
     // replace: tabbing is looking around, not navigation. Twelve taps through
     // the tabs should not mean twelve presses of the back button to leave.
     setSearchParams(params, { replace: true });
@@ -205,7 +208,7 @@ function PostSaleTabs() {
     : null;
   const focusTab = focusItem ? tabForKind(focusItem.kind) : null;
   useEffect(() => {
-    if (focusTab && focusTab !== tab) setTab(focusTab);
+    if (focusTab && focusTab !== tab) setTab(focusTab, true);
     // setTab is recreated each render; the tab it moves to is the dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusTab, tab]);
@@ -215,7 +218,10 @@ function PostSaleTabs() {
     // Only once its tab is showing, so the row exists to be found.
     known: focusItem != null && (focusTab == null || focusTab === tab),
   });
-  const focusMissing = !!focusParam && queuesLoaded && focusItem == null;
+  // Not while a queue failed: the item may be in the queue that did not
+  // answer, and "no longer open" would be a guess stated as fact.
+  const focusMissing = !!focusParam && queuesLoaded && !needsYou.isPartial &&
+    focusItem == null;
 
   return (
     <>

@@ -31,6 +31,7 @@ import {
   EyeOff,
   GripVertical,
   Plus,
+  RefreshCw,
   RotateCcw,
   Settings2,
   type LucideIcon,
@@ -551,7 +552,20 @@ export function CustomizableWidgetBoard({
             {/* Hidden while editing, like lead and the rail: the range picker
                 lives here, and the draft belongs to the board, not the range. */}
             {editing ? null : actions}
-            {editing ? null : (
+            {editing ? null : saved.isError && !saved.isFromServer ? (
+              // The read failed, so there is no layout to edit safely. Say so
+              // and offer the retry, instead of a Customize button that spins
+              // forever over a request that already gave up.
+              <Button
+                type="button"
+                variant="outline"
+                onClick={saved.refetch}
+                title="Your saved layout did not load, so it cannot be edited yet."
+              >
+                <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+                Reload layout
+              </Button>
+            ) : (
               <Button
                 type="button"
                 variant="outline"

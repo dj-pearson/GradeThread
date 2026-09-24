@@ -223,7 +223,12 @@ export function AttentionRail(
   const updatedLabel = relativeTime(updatedAt, now);
   const loading = sources.some((q) => q.isLoading) ||
     ((isFlipdesk || (isGrading && hasFlipdesk)) && ebay.isLoading) ||
-    ((isFlipdesk || crossNeedsYou) && needsYou.isLoading);
+    // Every needs-you queue, not just the first to answer: useNeedsYou stops
+    // reporting isLoading once ANY queue lands (so its widget can render the
+    // rows it has), and a rail that settled then would say "All clear" while
+    // the returns and cases reads were still in flight.
+    ((isFlipdesk || crossNeedsYou) &&
+      (needsYou.isLoading || needsYou.pending.length > 0));
   const refreshing = sources.some((q) => q.isFetching) ||
     ((isFlipdesk || crossNeedsYou) && needsYou.isFetching);
 

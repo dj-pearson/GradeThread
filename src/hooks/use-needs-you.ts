@@ -245,15 +245,21 @@ export function useNeedsYou(enabled = true, ebayEnabled = true): NeedsYouState {
     ],
   );
 
+  // refetch() runs a query even when it is disabled, so the eBay six are
+  // only retried when they are enabled. Otherwise Retry on a seller with no
+  // eBay connection fires six calls that each 502, and turns a clean board
+  // into "one of your eBay queues did not answer".
   const refetch = useCallback(() => {
-    void returns.refetch();
-    void cancellations.refetch();
-    void inquiries.refetch();
-    void cases.refetch();
-    void disputes.refetch();
-    void offers.refetch();
-    void shipments.refetch();
-  }, [returns, cancellations, inquiries, cases, disputes, offers, shipments]);
+    if (ebay) {
+      void returns.refetch();
+      void cancellations.refetch();
+      void inquiries.refetch();
+      void cases.refetch();
+      void disputes.refetch();
+      void offers.refetch();
+    }
+    if (enabled) void shipments.refetch();
+  }, [ebay, enabled, returns, cancellations, inquiries, cases, disputes, offers, shipments]);
 
   const states = Object.values(queues);
   const answered = [

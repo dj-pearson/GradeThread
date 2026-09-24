@@ -19,6 +19,8 @@ const LAYOUT: LayoutEntry[] = registry.slice(0, 3).map((w) => ({
 
 const state = vi.hoisted(() => ({
   isFromServer: true,
+  isError: false,
+  refetch: vi.fn(),
   mutateAsync: vi.fn(),
 }));
 
@@ -34,8 +36,8 @@ vi.mock("@/hooks/use-dashboard-layout", async () => {
       context: {},
       isLoading: false,
       isFromServer: state.isFromServer,
-      isError: false,
-      refetch: () => {},
+      isError: state.isError,
+      refetch: state.refetch,
     }),
     useSaveDashboardLayout: () => ({
       mutateAsync: state.mutateAsync,
@@ -78,6 +80,8 @@ let router: ReturnType<typeof createMemoryRouter>;
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   state.isFromServer = true;
+  state.isError = false;
+  state.refetch = vi.fn();
   state.mutateAsync = vi.fn().mockResolvedValue(LAYOUT);
   container = document.createElement("div");
   document.body.append(container);
@@ -142,6 +146,15 @@ describe("CustomizableWidgetBoard (DASH-4)", () => {
     state.isFromServer = false;
     await render();
     expect(button("Customize").disabled).toBe(true);
+  });
+
+  it("offers Reload layout, not a forever-spinning Customize, when the read failed", async () => {
+    state.isFromServer = false;
+    state.isError = true;
+    await render();
+    expect(container.textContent).not.toContain("Customize");
+    await click(button("Reload layout"));
+    expect(state.refetch).toHaveBeenCalledTimes(1);
   });
 
   it("Done with no change makes no write and leaves edit mode", async () => {

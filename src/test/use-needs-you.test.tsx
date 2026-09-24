@@ -13,6 +13,7 @@ type Q = { data?: unknown; isLoading?: boolean; isError?: boolean };
 const state = vi.hoisted(() => ({
   queues: {} as Record<string, Q>,
   enabledSeen: {} as Record<string, boolean[]>,
+  refetched: [] as string[],
   connection: {} as { data?: unknown; isLoading?: boolean; isError?: boolean },
 }));
 
@@ -25,7 +26,9 @@ function queryHook(name: string) {
       isLoading: enabled ? (q.isLoading ?? false) : false,
       isError: enabled ? (q.isError ?? false) : false,
       isFetching: false,
-      refetch: vi.fn(),
+      refetch: vi.fn(() => {
+        state.refetched.push(name);
+      }),
     };
   };
 }
@@ -72,6 +75,7 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   state.queues = {};
   state.enabledSeen = {};
+  state.refetched = [];
   state.connection = { data: { id: "c" } };
   container = document.createElement("div");
   document.body.append(container);
@@ -93,6 +97,24 @@ describe("useNeedsYou", () => {
     expect(state.enabledSeen.shipments!.every((e) => e === true)).toBe(true);
     expect(captured!.isPartial).toBe(false);
     expect(captured!.isLoading).toBe(false);
+  });
+
+  it("retries only shipments when eBay is off", async () => {
+    // refetch() runs a disabled query anyway. Retrying all seven for a seller
+    // with no eBay connection fires six calls that each 502.
+    state.queues.shipments = { data: [] };
+    await act(async () => root.render(<Probe ebay={false} />));
+    act(() => captured!.refetch());
+    expect(state.refetched).toEqual(["shipments"]);
+  });
+
+  it("retries all seven when eBay is on", async () => {
+    state.queues.shipments = { data: [] };
+    await act(async () => root.render(<Probe ebay />));
+    act(() => captured!.refetch());
+    expect(state.refetched.sort()).toEqual(
+      ["cancellations", "cases", "disputes", "inquiries", "offers", "returns", "shipments"],
+    );
   });
 
   it("is not loading once any queue has answered, and names the rest", async () => {

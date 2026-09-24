@@ -137,8 +137,12 @@ export function BestOffersPanel() {
   const focusId = searchParams.get("focus");
   const focusIndex = focusId ? rows.findIndex((o) => o.bestOfferId === focusId) : -1;
   const focusPage = focusIndex >= 0 ? Math.floor(focusIndex / PAGE_SIZE) : null;
+  // Once per focus id. Re-running on every focusPage change would yank the
+  // seller back to the offer each time they sort, search or page away.
+  const turnedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (focusPage == null || !focusId) return;
+    if (focusPage == null || !focusId || turnedFor.current === focusId) return;
+    turnedFor.current = focusId;
     setPage(focusPage);
     setExpanded(focusId);
   }, [focusPage, focusId]);

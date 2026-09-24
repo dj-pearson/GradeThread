@@ -107,6 +107,7 @@ function cleanNeedsYou(over: Record<string, unknown> = {}) {
     items: [],
     queues: {},
     isLoading: false,
+    pending: [],
     isError: false,
     isPartial: false,
     isFetching: false,
@@ -195,6 +196,15 @@ describe("AttentionRail: a failed source is never All clear", () => {
     await render("flipdesk");
     expect(container.textContent).toContain("Could not check");
     expect(container.textContent).not.toContain("All clear");
+  });
+
+  it("is not All clear while an eBay queue is still in flight", async () => {
+    // useNeedsYou drops isLoading once ANY queue answers (shipments first,
+    // usually). Returns and cases still pending is not zero.
+    state.needsYou = cleanNeedsYou({ isLoading: false, pending: ["returns", "cases"] });
+    await render("flipdesk");
+    expect(container.textContent).not.toContain("All clear");
+    expect(container.textContent).toContain("Checking what needs you");
   });
 
   it("wraps the chips in a polite live region", async () => {
