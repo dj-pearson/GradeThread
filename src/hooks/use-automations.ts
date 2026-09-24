@@ -415,7 +415,7 @@ export function useRunAutomations() {
       return data;
     },
     onSuccess: (r) => {
-      if (r.skipped && r.reason !== "already_running") {
+      if (r.skipped && r.reason !== "already_running" && r.reason !== "lock_unavailable") {
         toast.info("Automations are temporarily disabled.");
         return;
       }

@@ -376,7 +376,11 @@ export function useRepriceRules() {
 export interface RunRulesResult {
   applied: number;
   errors: number;
-  /** "already_running" when another run for this seller held the lock. */
+  /**
+   * "already_running" when another run for this seller held the lock,
+   * "lock_unavailable" when the run could not take one, "feature_disabled"
+   * when the repricing kill switch is on.
+   */
   reason?: string;
 }
 
@@ -445,6 +449,31 @@ export function useUpdateRepriceRule() {
   });
 }
 
+/**
+ * Pause or resume a repricing rule through PATCH, which changes only `enabled`.
+ * The PUT re-validates every field, so a rule saved before the ranges tightened
+ * could not be switched off through it.
+ */
+export function useToggleRepriceRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { id: string; enabled: boolean }): Promise<RepriceRule> => {
+      const res = await edgeFetch(`/api/flipdesk/pricing/rules/${args.id}`, {
+        method: "PATCH",
+        json: { enabled: args.enabled },
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        rule?: RepriceRule;
+        error?: string;
+      };
+      if (!res.ok || !data.rule) throw new Error(data.error ?? "Couldn't update the rule.");
+      return data.rule;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repricing_rules"] }),
+    onError: (err: Error) => toastError(err),
+  });
+}
+
 export function useDeleteRepriceRule() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -464,6 +493,8 @@ export function useDeleteRepriceRule() {
 
 export interface RepriceAction {
   id: string;
+  /** Null for a change a person made (Apply, bulk apply, Undo, a typed price). */
+  rule_id: string | null;
   listing_id: string | null;
   old_price_cents: number | null;
   new_price_cents: number | null;

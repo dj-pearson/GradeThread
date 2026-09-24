@@ -31,6 +31,7 @@ vi.mock("@/hooks/use-repricing", async (importOriginal) => ({
   useRunRepriceRules: () => idle,
   useCreateRepriceRule: () => idle,
   useUpdateRepriceRule: () => idle,
+  useToggleRepriceRule: () => idle,
   useDeleteRepriceRule: () => idle,
 }));
 

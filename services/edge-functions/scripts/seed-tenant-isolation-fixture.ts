@@ -285,6 +285,20 @@ async function main(): Promise<void> {
   });
   out.TEST_USER_A_LISTING_ID = listingId;
 
+  // A repricing nudge on A's listing, so the apply / dismiss / restore case
+  // has an id of A's to be refused on. Without it that case is always ignored.
+  out.TEST_USER_A_SUGGESTION_ID = await insert("repricing_suggestions", {
+    user_id: aId,
+    inventory_item_id: itemId,
+    listing_id: listingId,
+    current_price_cents: 4200,
+    suggested_price_cents: 3900,
+    comp_count: 5,
+    reason_code: "OVERPRICED",
+    message: "Tenant-A fixture nudge",
+    status: "pending",
+  });
+
   // US-2961: a standing line on A's account. The apply-to-drafts route is keyed
   // on the SNIPPET id rather than on a listing, so proving the listing cases
   // hold says nothing about this one — it needs an id of A's to be refused.

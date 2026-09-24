@@ -913,7 +913,7 @@ interface RuleListingRow {
 
 export interface RuleRunResult {
   /** Set when another run for this owner held the lock; nothing was done. */
-  reason?: "already_running";
+  reason?: "already_running" | "lock_unavailable";
   rules_evaluated: number;
   listings_scanned: number;
   applied: number;
@@ -952,7 +952,10 @@ export async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> 
   const lock = await acquireJobLock(`reprice-rules:${ownerId}`, 600);
   if (!lock.acquired) {
     return {
-      reason: "already_running",
+      // Only a held lock means another run is going. A lock-table error or a
+      // draining process also refuses (fail-safe), and saying "already
+      // running" then would send the seller looking for a run that isn't there.
+      reason: lock.reason === "locked" ? "already_running" : "lock_unavailable",
       rules_evaluated: 0,
       listings_scanned: 0,
       applied: 0,
@@ -1253,6 +1256,34 @@ flipdeskPricingRoutes.put("/rules/:id", async (c) => {
     .select(RULE_COLUMNS)
     .maybeSingle();
   if (error) return failSafe(c, 500, "Couldn't update the rule.", error, "repricing.rules.update");
+  if (!data) return jsonError(c, 404, "Rule not found");
+  return c.json({ rule: data });
+});
+
+// ── PATCH /rules/:id ──────────────────────────────────────────────
+// Pause or resume a rule, and nothing else. The PUT above re-validates the
+// whole rule, and since the ranges became strict a rule saved before them (an
+// interval past 90 days, a confidence under 0.5) could not even be switched
+// off through it. Scoped by id AND user_id (US-268).
+flipdeskPricingRoutes.patch("/rules/:id", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const id = c.req.param("id");
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  const enabled = ((body ?? {}) as Record<string, unknown>).enabled;
+  if (typeof enabled !== "boolean") return jsonError(c, 400, "enabled must be a boolean");
+  const { data, error } = await supabaseAdmin
+    .from("repricing_rules")
+    .update({ enabled })
+    .eq("id", id)
+    .eq("user_id", ownerId)
+    .select(RULE_COLUMNS)
+    .maybeSingle();
+  if (error) return failSafe(c, 500, "Couldn't update the rule.", error, "repricing.rules.patch");
   if (!data) return jsonError(c, 404, "Rule not found");
   return c.json({ rule: data });
 });

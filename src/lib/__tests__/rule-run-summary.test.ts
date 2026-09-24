@@ -9,6 +9,18 @@ describe("ruleRunToast", () => {
     });
   });
 
+  it("does not claim a run is going when the lock could not be taken", () => {
+    const t = ruleRunToast({ reason: "lock_unavailable", applied: 0 });
+    expect(t.kind).toBe("warning");
+    expect(t.text).not.toMatch(/already/i);
+  });
+
+  it("says nothing ran when repricing is switched off, not zero applied", () => {
+    const t = ruleRunToast({ reason: "feature_disabled" });
+    expect(t.text).not.toMatch(/applied/);
+    expect(t.text).toMatch(/nothing ran/);
+  });
+
   it("reports failures next to what applied", () => {
     expect(ruleRunToast({ applied: 3, errors: 12 })).toEqual({
       kind: "warning",

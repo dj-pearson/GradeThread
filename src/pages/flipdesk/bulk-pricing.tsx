@@ -260,7 +260,11 @@ export function FlipdeskBulkPricingPage() {
 
   // The confirm is this page's own dialog, not the shared useConfirm: a price
   // that halves or triples has to be ticked off, and the shared one has no box.
-  const [pending, setPending] = useState<ConfirmCopy | null>(null);
+  // The updates are captured with the copy: a background refetch while the
+  // dialog is open would otherwise send a plan the seller never read.
+  const [pending, setPending] = useState<(ConfirmCopy & { updates: typeof plan.updates }) | null>(
+    null,
+  );
   const [acked, setAcked] = useState(false);
 
   function apply() {
@@ -281,18 +285,20 @@ export function FlipdeskBulkPricingPage() {
           ? `reduce the price by ${priceNum}%`
           : `increase the price by ${priceNum}%`;
     setAcked(false);
-    setPending(
-      confirmCopy(plan, {
+    setPending({
+      ...confirmCopy(plan, {
         priceOp,
         roundTo99: priceActive && roundTo99,
         quantity: qtyActive ? qtyNum : undefined,
       }),
-    );
+      updates,
+    });
   }
 
   async function send() {
+    if (!pending) return;
+    const { updates } = pending;
     setPending(null);
-    const { updates } = plan;
     try {
       const res = await bulk.mutateAsync({ updates });
       const failed = res.results.filter((r) => !r.ok);

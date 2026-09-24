@@ -786,7 +786,7 @@ export interface AutomationRunResult {
   errors: number;
   /** Set when another run for this owner held the lock; nothing was done. */
   skipped?: boolean;
-  reason?: "already_running";
+  reason?: "already_running" | "lock_unavailable";
 }
 
 /**
@@ -1289,7 +1289,10 @@ export async function runRulesForOwner(ownerId: string): Promise<AutomationRunRe
       applied: 0,
       errors: 0,
       skipped: true,
-      reason: "already_running",
+      // Only a held lock means another run is going. A lock-table error or a
+      // draining process also refuses (fail-safe), and saying "already
+      // running" then would send the seller looking for a run that isn't there.
+      reason: lock.reason === "locked" ? "already_running" : "lock_unavailable",
     };
   }
   try {

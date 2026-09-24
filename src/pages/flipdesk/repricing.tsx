@@ -42,10 +42,9 @@ import {
   useRepriceRules,
   useRunRepriceRules,
   useCreateRepriceRule,
-  useUpdateRepriceRule,
+  useToggleRepriceRule,
   useDeleteRepriceRule,
   useRepriceActions,
-  ruleToInput,
   type ReasonCode,
   type RepriceRule,
   type RepriceRuleInput,
@@ -467,8 +466,10 @@ function RepriceActionsFeed() {
   if (actions.length === 0) return null;
   return (
     <div className="mt-3 border-t pt-3">
+      {/* Rules and the seller's own Apply / Undo share this log, so the
+          heading does not call every row automatic and each row says who. */}
       <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-        Recent automatic changes
+        Recent price changes
       </p>
       <ul className="space-y-1">
         {actions.slice(0, 5).map((a) => (
@@ -489,6 +490,8 @@ function RepriceActionsFeed() {
                 <span className="ml-1 font-medium">{money(a.new_price_cents)}</span>
               )}
               <span className="ml-1 text-muted-foreground">
+                {a.rule_id ? "by a rule" : a.reason === "undo" ? "undone by you" : "by you"}
+                {" · "}
                 {new Date(a.created_at).toLocaleDateString()}
               </span>
             </span>
@@ -502,7 +505,7 @@ function RepriceActionsFeed() {
 function RepriceRulesCard() {
   const { data: rules = [], isLoading, isError, refetch, isFetching } = useRepriceRules();
   const run = useRunRepriceRules();
-  const update = useUpdateRepriceRule();
+  const toggle = useToggleRepriceRule();
   const del = useDeleteRepriceRule();
   const confirm = useConfirm();
 
@@ -586,11 +589,9 @@ function RepriceRulesCard() {
                 <div className="flex shrink-0 items-center gap-2">
                   <Switch
                     checked={r.enabled}
-                    disabled={update.isPending}
-                    aria-label={r.enabled ? "Pause rule" : "Enable rule"}
-                    onCheckedChange={(v) =>
-                      update.mutate({ id: r.id, input: { ...ruleToInput(r), enabled: v } })
-                    }
+                    disabled={toggle.isPending}
+                    aria-label={r.enabled ? `Pause rule: ${r.name}` : `Enable rule: ${r.name}`}
+                    onCheckedChange={(v) => toggle.mutate({ id: r.id, enabled: v })}
                   />
                   <Button
                     size="icon"

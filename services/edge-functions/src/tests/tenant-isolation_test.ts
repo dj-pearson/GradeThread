@@ -175,7 +175,6 @@ const KNOWN_UNSEEDED: Record<string, string> = {
   // script — moved out of this list, which the stale-check requires.
   // These remain because they need more than a plain insert:
   TEST_USER_A_PHOTO_ID: "needs an uploaded item photo in storage",
-  TEST_USER_A_SUGGESTION_ID: "produced by a repricing run — needs pipeline execution",
   TEST_USER_A_BUYER_PURCHASE_ID: "needs a completed buyer purchase",
   TEST_USER_A_CERT_ID: "needs a certified grade report (published, certificate_id set)",
   TEST_PRIVATE_REPORT_ID: "needs an uncertified/private report",
@@ -1347,7 +1346,7 @@ Deno.test({
 Deno.test({
   // US-672: repricing rules CRUD is scoped by user_id. B's PUT/DELETE on A's
   // rule are scoped, so they hit 0 rows and return 404.
-  name: "B cannot update or delete A's repricing rule",
+  name: "B cannot update, pause or delete A's repricing rule",
   ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_RULE_ID"),
   fn: async () => {
     const id = Deno.env.get("TEST_USER_A_RULE_ID")!;
@@ -1358,6 +1357,15 @@ Deno.test({
     });
     await put.body?.cancel();
     assertDenied(put.status, "PUT repricing rule");
+
+    // The pause/resume PATCH is its own route and must hold the same line.
+    const patch = await fetch(`${BASE}/api/flipdesk/pricing/rules/${id}`, {
+      method: "PATCH",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ enabled: false }),
+    });
+    await patch.body?.cancel();
+    assertDenied(patch.status, "PATCH repricing rule");
 
     const del = await fetch(`${BASE}/api/flipdesk/pricing/rules/${id}`, {
       method: "DELETE",

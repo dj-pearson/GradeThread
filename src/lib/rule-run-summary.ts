@@ -21,6 +21,14 @@ export function ruleRunToast(r: RuleRunOutcome, noun = "price change"): RuleRunT
   if (r.reason === "already_running") {
     return { kind: "info", text: "A run is already in progress." };
   }
+  // The server refused to start (lock table unreachable, or restarting).
+  if (r.reason === "lock_unavailable") {
+    return { kind: "warning", text: "The rules could not start just now. Try again in a minute." };
+  }
+  // The repricing kill switch is on: nothing ran, so "0 applied" would be wrong.
+  if (r.reason === "feature_disabled") {
+    return { kind: "info", text: "Automated repricing is paused right now, so nothing ran." };
+  }
   const applied = r.applied ?? 0;
   const errors = r.errors ?? 0;
   const scanned = r.listings_scanned != null
