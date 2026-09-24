@@ -33,7 +33,6 @@ const KNOWN: Record<string, string> = {
   // Predate MP-05 and are off the Marketplaces page. Migrate, then delete.
   ebay_sync_runs: "keyed on user.id, not the workspace owner",
   ebay_promotable_listings: "keyed on user.id, not the workspace owner",
-  ebay_listings: "keyed on user.id; SKU match",
   ebay_ad_spend: "untenanted; ad spend card",
 };
 
