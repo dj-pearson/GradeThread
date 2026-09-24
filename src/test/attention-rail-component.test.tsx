@@ -288,3 +288,49 @@ describe("AttentionRail: the Updated label advances (DASH-12)", () => {
     }
   });
 });
+
+describe("AttentionRail: cross-surface chip (DASH-14)", () => {
+  it("shows grading items on the FlipDesk rail", async () => {
+    state.gradingRows = [{ status: "disputed" }, { status: "needs_photos" }, { status: "pending_review" }];
+    await render("flipdesk");
+    await vi.waitFor(() => expect(container.textContent).toContain("grading items need you"));
+    const chip = [...container.querySelectorAll("a")].find((a) =>
+      a.textContent?.includes("grading items need you")
+    )!;
+    // pending_review waits on staff, so it is not counted as the seller's.
+    expect(chip.textContent).toContain("2");
+    expect(chip.getAttribute("href")).toBe("/dashboard?view=grading");
+  });
+
+  it("shows FlipDesk items on the grading rail when eBay is connected", async () => {
+    state.needsYou = cleanNeedsYou({ items: [{ id: "r1", kind: "return", deadline: null }] });
+    await render("grading");
+    await vi.waitFor(() => expect(container.textContent).toContain("FlipDesk item needs you"));
+  });
+
+  it("does not read FlipDesk queues on grading without an eBay connection", async () => {
+    state.ebay = { data: null, isLoading: false, isError: false };
+    await render("grading");
+    expect(state.needsYouArgs.every((a) => a[0] === false)).toBe(true);
+  });
+
+  it("counts a failed cross-surface read as a source it could not check", async () => {
+    state.gradingError = true;
+    await render("flipdesk");
+    await vi.waitFor(() => expect(container.textContent).toContain("Could not check"));
+    expect(container.textContent).not.toContain("All clear");
+  });
+
+  it("renders nothing on a surface that is not an Overview board", async () => {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <MemoryRouter>
+            <AttentionRail surface="ios-home" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      )
+    );
+    expect(container.innerHTML).toBe("");
+  });
+});

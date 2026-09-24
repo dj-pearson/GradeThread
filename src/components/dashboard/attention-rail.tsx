@@ -30,7 +30,10 @@ import {
   RAIL_QUERY_KEYS,
   railState,
   type AttentionChip,
+  type AttentionSurface,
 } from "@/lib/attention-rail";
+import { personaOf } from "@/lib/dashboard-layout";
+import { availableOverviewViews } from "@/lib/overview-view";
 
 // US-3079: one line above both overviews saying what needs the seller now.
 //
@@ -120,30 +123,58 @@ export interface AttentionRailProps {
 export function AttentionRail(
   { surface, range = DEFAULT_OVERVIEW_RANGE, className }: AttentionRailProps,
 ) {
-  const isFlipdesk = surface === "flipdesk";
+  // The rail renders on the two Overview boards. Any other surface (ios-home
+  // is a layout the iOS app reads, never a web board) gets no rail, decided
+  // here rather than by falling through to the grading branch.
+  const railSurface: AttentionSurface | null =
+    surface === "flipdesk" ? "flipdesk" : surface === "grading" ? "grading" : null;
+  const isFlipdesk = railSurface === "flipdesk";
+  const isGrading = railSurface === "grading";
   const queryClient = useQueryClient();
+
+  // Which halves of the Overview this account has, for the cross-surface chip.
+  const useCase = useAuthStore((s) => s.profile?.use_case);
+  const views = availableOverviewViews(personaOf(useCase));
+  const hasGrading = views.some((v) => v.id === "grading");
+  const hasFlipdesk = views.some((v) => v.id === "flipdesk");
 
   // The six eBay queues each 502 for a seller with no eBay connection, which
   // would read as "Could not check eBay queues" on every load. Ask eBay only
   // when there is a connection (or when the connection read itself failed).
   const ebay = useEbayConnection();
   const ebayOn = isFlipdesk && !ebay.isLoading && (ebay.isError || !!ebay.data);
-  const needsYou = useNeedsYou(isFlipdesk, ebayOn);
+  // DASH-14: on the grading view, a seller with FlipDesk and a live eBay
+  // connection also gets the needs-you total, for one trailing chip.
+  const crossNeedsYou = isGrading && hasFlipdesk && !!ebay.data;
+  const needsYou = useNeedsYou(isFlipdesk || crossNeedsYou, ebayOn || crossNeedsYou);
   // Gated like every other FlipDesk read here: the grading view must not fire
   // the aggregate RPC and a 500-row conflicts read it never shows.
   const conflicts = useSyncConflicts(isFlipdesk);
   const queue = useExtensionQueue(isFlipdesk);
   const drafts = useAutolisterDrafts(isFlipdesk);
   const overview = useFlipdeskOverview(range, isFlipdesk);
-  const grading = useGradingAttentionCounts(!isFlipdesk);
+  // On FlipDesk this is the cross-surface read: one grouped select.
+  const crossGrading = isFlipdesk && hasGrading;
+  const grading = useGradingAttentionCounts(isGrading || crossGrading);
 
   const chips = useMemo<AttentionChip[]>(() => {
     // The soonest deadline is the FIRST item's, because useNeedsYou returns the
     // list already ranked deadline-first. Re-sorting here would be a second
     // ranking rule to keep in step with the first.
     const soonest = needsYou.items[0]?.deadline ?? null;
+    // The other half of the Overview. On FlipDesk, the grading statuses that
+    // wait on the SELLER (pending_review waits on staff, so it is left out).
+    const otherSide = isFlipdesk && crossGrading
+      ? {
+        count: (grading.data?.needsPhotos ?? 0) + (grading.data?.failed ?? 0) +
+          (grading.data?.disputed ?? 0),
+      }
+      : crossNeedsYou
+      ? { count: needsYou.items.length }
+      : null;
     return buildAttentionChips({
       surface: isFlipdesk ? "flipdesk" : "grading",
+      otherSide,
       flipdesk: isFlipdesk
         ? {
           needsYouCount: needsYou.items.length,
@@ -172,6 +203,8 @@ export function AttentionRail(
     });
   }, [
     isFlipdesk,
+    crossGrading,
+    crossNeedsYou,
     needsYou.items,
     drafts.data,
     conflicts.data,
@@ -181,15 +214,18 @@ export function AttentionRail(
   ]);
 
   const sources = isFlipdesk
-    ? [conflicts, queue, drafts, overview]
+    ? crossGrading
+      ? [conflicts, queue, drafts, overview, grading]
+      : [conflicts, queue, drafts, overview]
     : [grading];
   const updatedAt = oldestUpdatedAt(sources.map((q) => q.dataUpdatedAt ?? 0));
   const now = useNow(30_000);
   const updatedLabel = relativeTime(updatedAt, now);
   const loading = sources.some((q) => q.isLoading) ||
-    (isFlipdesk && (ebay.isLoading || needsYou.isLoading));
+    ((isFlipdesk || (isGrading && hasFlipdesk)) && ebay.isLoading) ||
+    ((isFlipdesk || crossNeedsYou) && needsYou.isLoading);
   const refreshing = sources.some((q) => q.isFetching) ||
-    (isFlipdesk && needsYou.isFetching);
+    ((isFlipdesk || crossNeedsYou) && needsYou.isFetching);
 
   // A source that failed is UNKNOWN, not zero. Its count above falls back to 0
   // so the other chips still render, and this list is what stops the rail
@@ -204,14 +240,18 @@ export function AttentionRail(
     if (drafts.isError) failed.push("drafts");
     if (overview.isError) failed.push("inventory");
     if (needsYou.isError || needsYou.isPartial) failed.push("eBay queues");
-  } else if (grading.isError) {
-    failed.push("submissions");
+    if (crossGrading && grading.isError) failed.push("grading submissions");
+  } else if (isGrading) {
+    if (grading.isError) failed.push("submissions");
+    if (crossNeedsYou && (needsYou.isError || needsYou.isPartial)) {
+      failed.push("FlipDesk queues");
+    }
   }
   const state = railState({
     chips,
     failed,
     loading,
-    partial: isFlipdesk && needsYou.isPartial,
+    partial: (isFlipdesk || crossNeedsYou) && needsYou.isPartial,
   });
 
   /**
@@ -229,11 +269,13 @@ export function AttentionRail(
     for (const p of prefixes) {
       void queryClient.invalidateQueries({ queryKey: [p] });
     }
-    if (isFlipdesk) needsYou.refetch();
+    if (isFlipdesk || crossNeedsYou) needsYou.refetch();
     // The rail's own reads are not registry widgets, so a failed one is
     // retried directly; the "Could not check" chip's Retry depends on it.
     for (const q of sources) if (q.isError) void q.refetch();
   };
+
+  if (!railSurface) return null;
 
   return (
     <div

@@ -294,3 +294,46 @@ describe("buildAttentionChips: extension and draft states (DASH-7)", () => {
     expect(exact[0]!.countLabel).toBeUndefined();
   });
 });
+
+describe("buildAttentionChips: the other side of the Overview (DASH-14)", () => {
+  it("adds a trailing grading chip on FlipDesk when grading has items", () => {
+    const chips = buildAttentionChips({
+      surface: "flipdesk",
+      flipdesk: FLIPDESK_ALL,
+      otherSide: { count: 3 },
+    });
+    const last = chips[chips.length - 1]!;
+    expect(last.id).toBe("grading-side");
+    expect(last.label).toBe("grading items need you");
+    expect(last.href).toBe("/dashboard?view=grading");
+  });
+
+  it("adds a trailing FlipDesk chip on grading when FlipDesk has items", () => {
+    const chips = buildAttentionChips({
+      surface: "grading",
+      grading: { needsPhotos: 1, inReview: 0, failed: 0, disputed: 0 },
+      otherSide: { count: 1 },
+    });
+    expect(chips.map((c) => c.id)).toEqual(["needs-photos", "flipdesk-side"]);
+    expect(chips[1]!.label).toBe("FlipDesk item needs you");
+    expect(chips[1]!.href).toBe("/dashboard?view=flipdesk");
+  });
+
+  it("adds nothing when the other side has zero", () => {
+    const chips = buildAttentionChips({
+      surface: "flipdesk",
+      flipdesk: FLIPDESK_NONE,
+      otherSide: { count: 0 },
+    });
+    expect(chips).toEqual([]);
+  });
+
+  it("adds nothing for an account without the other side", () => {
+    const chips = buildAttentionChips({
+      surface: "grading",
+      grading: { inReview: 0, failed: 1, disputed: 0 },
+      otherSide: null,
+    });
+    expect(chips.map((c) => c.id)).toEqual(["failed"]);
+  });
+});

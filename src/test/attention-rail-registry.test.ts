@@ -132,7 +132,7 @@ describe("DASH-6: rail chips point at the pages that show what they count", () =
       "utf8",
     );
     for (const call of [
-      "useNeedsYou(isFlipdesk, ebayOn)",
+      "useNeedsYou(isFlipdesk || crossNeedsYou, ebayOn || crossNeedsYou)",
       "useSyncConflicts(isFlipdesk)",
       "useExtensionQueue(isFlipdesk)",
       "useAutolisterDrafts(isFlipdesk)",

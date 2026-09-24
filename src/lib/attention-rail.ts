@@ -76,6 +76,12 @@ export interface AttentionInputs {
   surface: AttentionSurface;
   flipdesk?: FlipdeskAttentionInput | null;
   grading?: GradingAttentionInput | null;
+  /**
+   * DASH-14: what the OTHER half of the Overview has waiting, for one trailing
+   * chip. Null when the account does not have the other half, or when it is
+   * not read (grading view with no eBay connection).
+   */
+  otherSide?: { count: number } | null;
 }
 
 /**
@@ -101,6 +107,8 @@ export const ATTENTION_HREF = {
   stale: "/dashboard/flipdesk/analytics/performance",
   needsPhotos: "/dashboard/submissions?status=needs_photos",
   inReview: "/dashboard/submissions?status=pending_review",
+  gradingSide: "/dashboard?view=grading",
+  flipdeskSide: "/dashboard?view=flipdesk",
   failed: "/dashboard/submissions?status=failed",
   disputed: "/dashboard/submissions?status=disputed",
 } as const;
@@ -191,6 +199,28 @@ export function buildAttentionChips(inputs: AttentionInputs): AttentionChip[] {
     push("failed", "failed", g.failed, ATTENTION_HREF.failed);
     push("disputed", "disputed", g.disputed, ATTENTION_HREF.disputed);
     push("in-review", "being finalized", g.inReview, ATTENTION_HREF.inReview);
+  }
+
+  // DASH-14: last, whatever it holds. The view choice is remembered, so a
+  // reseller who lives on FlipDesk would otherwise never see a disputed grade,
+  // and a grader never an eBay deadline. One chip, not the other side's list.
+  const other = inputs.otherSide;
+  if (other) {
+    if (inputs.surface === "flipdesk") {
+      push(
+        "grading-side",
+        other.count === 1 ? "grading item needs you" : "grading items need you",
+        other.count,
+        ATTENTION_HREF.gradingSide,
+      );
+    } else {
+      push(
+        "flipdesk-side",
+        other.count === 1 ? "FlipDesk item needs you" : "FlipDesk items need you",
+        other.count,
+        ATTENTION_HREF.flipdeskSide,
+      );
+    }
   }
 
   return out;
