@@ -28,7 +28,9 @@ function nf(n: number): string {
 
 export function RewardsWidget() {
   const { rewards, isLoading, isError } = useRewards();
-  const { quests } = useQuests();
+  // The quests read scans cross-user standings; a seller with no XP yet gets no
+  // widget below, so there is nothing to spend it on.
+  const { quests } = useQuests({ enabled: (rewards?.level.xp_total ?? 0) > 0 });
 
   // The celebration runner is mounted even when the card below renders nothing.
   // A brand-new seller has no widget to show, but they DO need their baseline

@@ -12,9 +12,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Link } from "react-router";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { lastPeriodLine, useQuests, type Challenge, type Quest } from "@/hooks/use-quests";
 import { cn } from "@/lib/utils";
 
@@ -101,7 +102,7 @@ function QuestRow({ quest }: { quest: Quest }) {
 function ChallengeCard({ challenge }: { challenge: Challenge }) {
   const Icon = ICONS[challenge.icon] ?? Trophy;
   return (
-    <div className="rounded-xl bg-muted/60 p-4">
+    <div className="py-4 first:pt-0 last:pb-0">
       <div className="flex items-start gap-3">
         <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand-navy text-white">
           <Icon className="h-4 w-4" aria-hidden="true" />
@@ -161,7 +162,47 @@ function ChallengeCard({ challenge }: { challenge: Challenge }) {
 }
 
 export function QuestsPanel() {
-  const { quests } = useQuests();
+  const { quests, isLoading, isError, refetch } = useQuests();
+
+  // Returning nothing while loading, or on a failed read, left the season tab
+  // looking like there were no quests at all.
+  if (isLoading) {
+    return (
+      <Card className="shadow-none">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Target className="h-5 w-5 text-primary" />
+            Quests
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div role="status" aria-label="Loading your quests" className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card className="shadow-none">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Target className="h-5 w-5 text-primary" />
+            Quests
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">Couldn't load this week's quests.</p>
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+            Try again
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (!quests.enabled || (quests.quests.length === 0 && quests.challenges.length === 0)) {
     return null;
@@ -203,11 +244,10 @@ export function QuestsPanel() {
               Community challenges
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              Time-boxed, everyone against the same clock.{" "}
-              <Badge variant="secondary" className="text-xs">Ends and stays ended</Badge>
+              Time-boxed, everyone against the same clock. Scores reset when it ends.
             </p>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="divide-y">
             {quests.challenges.map((ch) => (
               <ChallengeCard key={`${ch.key}:${ch.period_key}`} challenge={ch} />
             ))}
