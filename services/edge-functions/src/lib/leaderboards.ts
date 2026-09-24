@@ -163,6 +163,23 @@ export function parseLeaderboardQuery(params: URLSearchParams): LeaderboardQuery
   return { metric, period, brandSlug: brand, category, limit };
 }
 
+// ─── Cohort chunking ─────────────────────────────────────────────────────────
+
+/**
+ * How many user ids go into one `.in(...)` filter on a board read. A quoted
+ * UUID costs ~37 URL characters, so 200 is ~7.4k: inside the ~15.6k at which
+ * prod Kong answers 414, with room for the rest of the query string.
+ */
+export const COHORT_IN_CHUNK = 200;
+
+/** Split a list into consecutive slices of at most `size`. Pure. */
+export function chunk<T>(arr: readonly T[], size: number): T[][] {
+  const step = Math.max(1, Math.floor(size));
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += step) out.push(arr.slice(i, i + step));
+  return out;
+}
+
 // ─── Public identity ─────────────────────────────────────────────────────────
 
 export const LEADERBOARD_ALIAS_MAX = 40;

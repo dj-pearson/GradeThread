@@ -227,3 +227,60 @@ Deno.test("standings are capped at the requested board size", () => {
   assertEquals(rankStandings(rows, null).standings.length, 10);
   assertEquals(rankStandings(rows, null, 3).standings.length, 3);
 });
+
+// ─── R3: challenge boards take the leaderboard opt-in ───────────────────────
+
+Deno.test("R3: a Verified seller who has not joined the boards is scored but not named", async () => {
+  const { installFakePostgrest } = await import("./_fake-postgrest.ts");
+  const { loadChallengeStandings } = await import("../lib/rewards-quests.ts");
+  const db = installFakePostgrest();
+  try {
+    const optedOut = crypto.randomUUID();
+    const optedIn = crypto.randomUUID();
+    const aliasOnly = crypto.randomUUID();
+    const at = "2026-08-05T12:00:00.000Z";
+    const e = (user_id: string) => ({
+      id: crypto.randomUUID(),
+      user_id,
+      event_type: "coverage_completed",
+      occurred_at: at,
+      verified: true,
+      metadata: { paid: true },
+    });
+    db.reset({
+      reputation_events: [e(optedOut), e(optedOut), e(optedOut), e(optedIn), e(aliasOnly)],
+      users: [
+        {
+          id: optedOut,
+          leaderboard_opt_in: false,
+          verified_enabled: true,
+          verified_handle: "public-but-off",
+          verified_display_name: "Public But Off",
+        },
+        {
+          id: optedIn,
+          leaderboard_opt_in: true,
+          verified_enabled: true,
+          verified_handle: "joined",
+          verified_display_name: "Joined Seller",
+        },
+        { id: aliasOnly, leaderboard_opt_in: true, leaderboard_alias: "Alias Only" },
+      ],
+    });
+    const q = quest({ quest_type: "community" });
+    const w = questWindow(q, Date.parse(at), TZ)!;
+
+    const board = await loadChallengeStandings(q, w, optedOut);
+    const names = board.standings.map((s) => s.display_name);
+    assert(!names.includes("Public But Off"), "an opted-out seller must never be named");
+    assert(!board.standings.some((s) => s.handle === "public-but-off"));
+    assertEquals(names.sort(), ["Alias Only", "Joined Seller"]);
+    assertEquals(board.viewerListed, false, "the opted-out viewer is scored, not listed");
+    assertEquals(board.viewerRank, null);
+
+    const mine = await loadChallengeStandings(q, w, optedIn);
+    assertEquals(mine.viewerListed, true);
+  } finally {
+    db.restore();
+  }
+});

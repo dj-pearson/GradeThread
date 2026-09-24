@@ -2,6 +2,7 @@
 // challenges, and the two things that must never leak out of it.
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 
 import { useQuests, type QuestsState } from "@/hooks/use-quests";
 import { QuestsPanel, questTimeLeft } from "@/components/rewards/quests-panel";
@@ -64,7 +65,11 @@ function mount(s: QuestsState): string {
     isError: false,
     refetch: vi.fn(),
   } as unknown as ReturnType<typeof useQuests>);
-  return renderToStaticMarkup(<QuestsPanel />);
+  return renderToStaticMarkup(
+    <MemoryRouter>
+      <QuestsPanel />
+    </MemoryRouter>,
+  );
 }
 
 describe("QuestsPanel (US-1852)", () => {
@@ -106,7 +111,10 @@ describe("QuestsPanel (US-1852)", () => {
         challenges: [{ ...CHALLENGE, your_rank: null, you_are_listed: false }],
       }),
     );
-    expect(html).toContain("only public Verified profiles are named");
+    // R3: the board takes the leaderboard opt-in, so the way onto it is the
+    // Perks tab's boards panel, not the Verified profile.
+    expect(html).toContain("Join the boards to be named here.");
+    expect(html).toContain('href="/dashboard/rewards?tab=perks#leaderboard"');
     expect(html).not.toContain("ranked #");
   });
 });

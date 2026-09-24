@@ -29,6 +29,12 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { isFeatureEnabled } from "./feature-flags.ts";
+import {
+  chunk,
+  COHORT_IN_CHUNK,
+  leaderboardIdentity,
+  type LeaderboardIdentitySource,
+} from "./leaderboards.ts";
 import { notifyUser } from "./notify.ts";
 import {
   clampQuestXp,
@@ -244,9 +250,9 @@ export interface Standing {
 /**
  * Rank challenge participants. Pure.
  *
- * ONLY sellers with a public GradeThread Verified profile are listed — a
- * challenge board is a public surface, and being counted in a challenge is not
- * consent to be named on one. Everyone's events still count toward their OWN
+ * ONLY sellers who opted into the leaderboards are listed (the caller resolves
+ * their public name through leaderboardIdentity) — a challenge board is a public
+ * surface, and being counted in a challenge is not consent to be named on one. Everyone's events still count toward their OWN
  * score; publicity decides whether the name is shown, and therefore whether a
  * rank among the shown names exists for them.
  *
@@ -493,29 +499,44 @@ export async function loadChallengeStandings(
   }
   if (scores.size === 0) return empty;
 
-  // Public identity only. A seller who never turned on their Verified profile is
-  // scored but not named.
-  const { data: profiles, error: profErr } = await supabaseAdmin
-    .from("users")
-    .select("id, verified_handle, verified_display_name")
-    .in("id", [...scores.keys()])
-    .eq("verified_enabled", true)
-    .not("verified_handle", "is", null);
-  if (profErr) {
-    console.error("[rewards-quests] standings profile load failed:", profErr.message);
-    return empty;
+  // Public identity only, and only for sellers who JOINED the boards. A
+  // challenge board is the same kind of public surface as the leaderboards, so
+  // it takes the same consent (the 00547 opt-in) and resolves the same name
+  // through leaderboardIdentity(). A Verified profile alone is not consent to be
+  // ranked here: a seller who switched the boards off on the Perks tab stays off
+  // this one too. Everyone is still scored; the opt-in decides who is named.
+  const inputs: StandingInput[] = [];
+  const ids = [...scores.keys()];
+  const pages = await Promise.all(
+    chunk(ids, COHORT_IN_CHUNK).map((slice) =>
+      supabaseAdmin
+        .from("users")
+        .select(
+          "id, leaderboard_opt_in, leaderboard_alias, verified_enabled, verified_handle, " +
+            "verified_display_name, referral_display_name, rewards_display_name",
+        )
+        .in("id", slice)
+        .eq("leaderboard_opt_in", true)
+    ),
+  );
+  for (const { data: profiles, error: profErr } of pages) {
+    if (profErr) {
+      console.error("[rewards-quests] standings profile load failed:", profErr.message);
+      return empty;
+    }
+    for (const p of (profiles ?? []) as unknown as Array<LeaderboardIdentitySource & { id: string }>) {
+      const who = leaderboardIdentity(p);
+      if (!who) continue;
+      inputs.push({
+        userId: p.id,
+        // The public key a row is sorted and keyed by: the Verified handle when
+        // the seller has a public one, otherwise the board alias they chose.
+        handle: who.handle ?? who.alias,
+        displayName: who.alias,
+        score: scores.get(p.id) ?? 0,
+      });
+    }
   }
-
-  const inputs: StandingInput[] = ((profiles ?? []) as Array<{
-    id: string;
-    verified_handle: string | null;
-    verified_display_name: string | null;
-  }>).map((p) => ({
-    userId: p.id,
-    handle: p.verified_handle,
-    displayName: p.verified_display_name,
-    score: scores.get(p.id) ?? 0,
-  }));
 
   const { standings, viewerRank } = rankStandings(inputs, viewerId);
   return {

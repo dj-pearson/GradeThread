@@ -11,6 +11,7 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import { Link } from "react-router";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -24,11 +25,11 @@ import { cn } from "@/lib/utils";
 // point of the card is "here is what this week looked like", and a list that
 // empties itself as you succeed reads as though nothing happened.
 //
-// Community challenges show a leaderboard of PUBLIC profiles only. Being counted
-// in a challenge is not consent to be named on one, so a seller with no public
-// Verified profile still scores and still sees their own progress — they are
-// just not on the board, and the card says so plainly instead of silently
-// omitting them.
+// Community challenges name only sellers who joined the leaderboards (the same
+// opt-in as the Perks tab boards). Being counted in a challenge is not consent
+// to be named on one, so a seller who has not joined still scores and still
+// sees their own progress — they are just not on the board, and the card says
+// so plainly instead of silently omitting them.
 
 const ICONS: Record<string, LucideIcon> = {
   Camera,
@@ -146,8 +147,13 @@ function ChallengeCard({ challenge }: { challenge: Challenge }) {
 
       {!challenge.you_are_listed && (
         <p className="mt-3 text-xs text-muted-foreground">
-          Your score counts, but only public Verified profiles are named on the board. Turn
-          your profile on to appear here.
+          Your score counts.{" "}
+          <Link
+            to="/dashboard/rewards?tab=perks#leaderboard"
+            className="font-medium text-foreground underline underline-offset-2"
+          >
+            Join the boards to be named here.
+          </Link>
         </p>
       )}
     </div>

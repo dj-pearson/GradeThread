@@ -268,7 +268,11 @@ Four rules constrain a quest:
   `quest:<key>:<period>`, is what makes two tabs award once.
 
 **A community challenge is time-boxed by definition** and its leaderboard names
-**public Verified profiles only** (`verified_enabled` + a handle). Being counted
+**only sellers who joined the leaderboards** (`leaderboard_opt_in`, the same
+00547 consent the public boards use), with the name resolved by
+`leaderboardIdentity()`. A Verified profile alone is not that consent: until
+2026-09-24 it was, and a seller who switched the boards off on the Perks tab
+still appeared on challenge boards by name and score. Being counted
 in a challenge is not consent to be named on one, so an unlisted seller still
 scores, still sees their own progress, and the card says why they are not on the
 board rather than silently omitting them. The standings scan is a deliberately
