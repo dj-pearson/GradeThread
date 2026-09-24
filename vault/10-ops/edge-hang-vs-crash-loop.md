@@ -11,12 +11,18 @@ code_refs:
   - scripts/ops/edge-watchdog.sh
   - scripts/ops/host-schedules.json
   - services/edge-functions/src/routes/jobs-watchdog-heartbeat.ts
-reviewed: 2026-09-22
+reviewed: 2026-09-24
 tags: [edge, incident, outage, ops]
 summary: Two edge failure modes with opposite signatures — a dying process that restarts itself, and a live process that never will. Telling them apart is the whole job; the hang recurred 2026-08-09 and ran far longer than the watchdog is meant to allow.
 ---
 
 # Edge hang versus edge crash-loop
+
+> **Re-reviewed 2026-09-24.** Drift flagged `main.ts` on c2e0769be (SRC-5): the
+> `/api/flipdesk/scout/*` limiter now skips `/scout/buy`, which gets its own
+> 30/min bucket. A middleware mount, not a boot step or a long-lived task; both
+> global handlers are still installed before `Deno.serve`, so nothing below
+> moves.
 
 > **Re-reviewed 2026-09-22.** Drift flagged `main.ts` on 3ec56ed3 (US-3453):
 > a new `/api/jobs/delist-nudge` mount. It adds a route, not a boot step or a
