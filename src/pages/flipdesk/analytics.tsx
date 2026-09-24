@@ -406,21 +406,32 @@ function PriceCurveTab() {
  * is drawn exactly like a failed one: a chart of zeros, which reads as "you
  * sold nothing" rather than "we could not ask". One card for all three.
  */
-function ReportLoadFailed({
+export interface RetryableQuery {
+  refetch: () => unknown;
+  isFetching: boolean;
+  isError: boolean;
+}
+
+export function ReportLoadFailed({
   what,
-  onRetry,
-  retrying,
+  queries,
 }: {
   what: string;
-  onRetry: () => void;
-  retrying: boolean;
+  /**
+   * Every query the report depends on. Retry refetches only the ones that
+   * failed: refetching the healthy one alone left the card stuck on screen
+   * while the broken one stayed broken.
+   */
+  queries: RetryableQuery[];
 }) {
   return (
     <ErrorState
       title={`Couldn't load ${what}`}
-      description="The numbers below would have been zeros rather than yours. Nothing in your data has changed."
-      onRetry={onRetry}
-      retrying={retrying}
+      description="We couldn't reach your data. Nothing has changed. Try again."
+      onRetry={() => {
+        for (const q of queries) if (q.isError) void q.refetch();
+      }}
+      retrying={queries.some((q) => q.isFetching)}
     />
   );
 }
@@ -476,8 +487,7 @@ function SellThroughReport() {
     return (
       <ReportLoadFailed
         what="your sell-through figures"
-        onRetry={() => void refetch()}
-        retrying={isFetching}
+        queries={[{ refetch, isFetching, isError }]}
       />
     );
   }
@@ -692,7 +702,7 @@ function SellThroughReport() {
   );
 }
 
-function GradingRoiReport() {
+export function GradingRoiReport() {
   const user = useAuthStore((s) => s.user);
   // US-2234 (AC3): honour the same period presets as the sibling tabs. The RPCs
   // now take p_period_start (migration 00505); periodStart flows into both.
@@ -714,6 +724,8 @@ function GradingRoiReport() {
     data: summary = null,
     isLoading: summaryLoading,
     isError: summaryFailed,
+    isFetching: summaryFetching,
+    refetch: refetchSummary,
   } = useQuery({
     queryKey: ["items_full", "analytics", "grading-roi-summary", user?.id, preset],
     enabled: !!user,
@@ -725,8 +737,18 @@ function GradingRoiReport() {
     return (
       <ReportLoadFailed
         what="your grading ROI figures"
-        onRetry={() => void refetchBuckets()}
-        retrying={bucketsFetching}
+        queries={[
+          {
+            refetch: refetchBuckets,
+            isFetching: bucketsFetching,
+            isError: bucketsFailed,
+          },
+          {
+            refetch: refetchSummary,
+            isFetching: summaryFetching,
+            isError: summaryFailed,
+          },
+        ]}
       />
     );
   }
@@ -1133,8 +1155,7 @@ function ReturnReductionReport() {
     return (
       <ReportLoadFailed
         what="your return figures"
-        onRetry={() => void refetch()}
-        retrying={isFetching}
+        queries={[{ refetch, isFetching, isError }]}
       />
     );
   }
