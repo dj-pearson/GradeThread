@@ -11,7 +11,13 @@ import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 // copy. This renders the real page with one list query rejected at a time and
 // requires the error line and a Retry that calls refetch once.
 
-type Q = { data?: unknown; isLoading?: boolean; isError?: boolean; isSuccess?: boolean };
+type Q = {
+  data?: unknown;
+  isLoading?: boolean;
+  isError?: boolean;
+  isSuccess?: boolean;
+  source?: string | null;
+};
 
 const state = vi.hoisted(() => ({
   queries: {} as Record<string, Q>,
@@ -40,6 +46,8 @@ vi.mock("@/hooks/use-ebay", () => {
       isLoading: q.isLoading ?? false,
       isError: q.isError ?? false,
       isSuccess: q.isSuccess ?? false,
+      source: q.source ?? null,
+      dataUpdatedAt: Date.parse("2026-09-24T09:05:00"),
       refetch: vi.fn(() => {
         state.refetches[name] = (state.refetches[name] ?? 0) + 1;
       }),
@@ -156,5 +164,34 @@ describe("post-sale cards on a failed eBay read (PS-01)", () => {
     await renderTab("returns");
     expect(container.textContent).not.toContain("No open returns.");
     expect(container.textContent).not.toContain("Couldn't reach eBay");
+  });
+});
+
+describe("a saved copy is labelled (PS-12)", () => {
+  const ret = {
+    returnId: "r-1",
+    state: "RETURN_REQUESTED",
+    orderId: "O-1",
+    itemId: null,
+    reason: "NO_LONGER_NEED_ITEM",
+    creationDate: null,
+    respondBy: null,
+    buyerUsername: null,
+  };
+
+  it("shows the banner and the rows when the edge served cache_stale", async () => {
+    state.queries.returns = { data: [ret], isSuccess: true, source: "cache_stale" };
+    await renderTab("returns");
+    const text = container.textContent ?? "";
+    expect(text).toContain("eBay didn't answer. Showing a saved copy from");
+    expect(text).toContain("deadlines may have moved");
+    expect(container.querySelector('[data-focus-id="r-1"]')).toBeTruthy();
+  });
+
+  it("shows no banner on a live answer", async () => {
+    state.queries.returns = { data: [ret], isSuccess: true, source: "ebay" };
+    await renderTab("returns");
+    expect(container.textContent).not.toContain("saved copy");
+    expect(container.querySelector('[data-focus-id="r-1"]')).toBeTruthy();
   });
 });

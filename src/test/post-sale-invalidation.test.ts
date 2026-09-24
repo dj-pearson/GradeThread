@@ -21,6 +21,7 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("@/lib/supabase", () => ({ supabase: {} }));
 vi.mock("@/lib/auth-token", () => ({ getFreshAccessToken: async () => "t" }));
 vi.mock("@/lib/edge-api", () => ({ edgeApiUrl: () => "https://edge.test" }));
+vi.mock("@/hooks/use-tenant-key", () => ({ useTenantKey: () => "tenant-1" }));
 
 const hooks = await import("@/hooks/use-ebay");
 
@@ -74,4 +75,20 @@ describe("post-sale mutations invalidate the ship queue (PS-07)", () => {
       expect(has("ebay_order_total")).toBe(true);
     });
   }
+});
+
+describe("list hooks keep the edge's source (PS-12)", () => {
+  it("useEbayReturns reads items and source from the response", async () => {
+    vi.stubGlobal("fetch", () =>
+      Promise.resolve(
+        new Response(JSON.stringify({ returns: [{ returnId: "r1" }], source: "cache_stale" }), {
+          status: 200,
+        }),
+      ));
+    const q = hooks.useEbayReturns() as unknown as { queryFn: () => Promise<unknown> };
+    await expect(q.queryFn()).resolves.toEqual({
+      items: [{ returnId: "r1" }],
+      source: "cache_stale",
+    });
+  });
 });

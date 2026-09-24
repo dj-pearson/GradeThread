@@ -1,5 +1,6 @@
 import {
   type QueryClient,
+  type UseQueryResult,
   keepPreviousData,
   useMutation,
   useQuery,
@@ -2224,22 +2225,49 @@ export interface EbayReturn {
   sellerActions?: string[] | null;
 }
 
+/**
+ * PS-12: where a post-sale list came from. The edge answers "cache" (fresh
+ * enough), "ebay" (live) or "cache_stale" (eBay failed, so this is the last
+ * stored copy). The page labels the last one, instead of offering Refund and
+ * Accept on hours-old data with no warning.
+ */
+export type PostSaleSource = "cache" | "ebay" | "cache_stale";
+
+interface PostSaleList<T> {
+  items: T[];
+  source: PostSaleSource | null;
+}
+
+function listSource(raw: unknown): PostSaleSource | null {
+  return raw === "cache" || raw === "ebay" || raw === "cache_stale" ? raw : null;
+}
+
+/**
+ * Keep `data` the plain array every caller reads, and carry `source` beside
+ * it. Spreading the result reads every tracked field, which costs a re-render
+ * on any change; these lists are small and change rarely.
+ */
+function withSource<T>(query: UseQueryResult<PostSaleList<T>, Error>) {
+  return { ...query, data: query.data?.items, source: query.data?.source ?? null };
+}
+
 export function useEbayReturns(enabled = true) {
   // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
   // tenant's cases from cache.
   const tenantKey = useTenantKey();
-  return useQuery({
+  const query = useQuery({
     queryKey: ["ebay_returns", tenantKey],
     enabled: enabled && !!tenantKey,
-    queryFn: async (): Promise<EbayReturn[]> => {
+    queryFn: async (): Promise<PostSaleList<EbayReturn>> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/returns`, {
         headers: await ebayHeaders(),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Couldn't load returns.");
-      return (json.returns ?? []) as EbayReturn[];
+      return { items: (json.returns ?? []) as EbayReturn[], source: listSource(json.source) };
     },
   });
+  return withSource(query);
 }
 
 /**
@@ -2528,18 +2556,19 @@ export function useEbayInquiries(enabled = true) {
   // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
   // tenant's cases from cache.
   const tenantKey = useTenantKey();
-  return useQuery({
+  const query = useQuery({
     queryKey: ["ebay_inquiries", tenantKey],
     enabled: enabled && !!tenantKey,
-    queryFn: async (): Promise<EbayInquiry[]> => {
+    queryFn: async (): Promise<PostSaleList<EbayInquiry>> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/inquiries`, {
         headers: await ebayHeaders(),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Couldn't load inquiries.");
-      return (json.inquiries ?? []) as EbayInquiry[];
+      return { items: (json.inquiries ?? []) as EbayInquiry[], source: listSource(json.source) };
     },
   });
+  return withSource(query);
 }
 
 /**
@@ -2609,18 +2638,19 @@ export function useEbayCases(enabled = true) {
   // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
   // tenant's cases from cache.
   const tenantKey = useTenantKey();
-  return useQuery({
+  const query = useQuery({
     queryKey: ["ebay_cases", tenantKey],
     enabled: enabled && !!tenantKey,
-    queryFn: async (): Promise<EbayCase[]> => {
+    queryFn: async (): Promise<PostSaleList<EbayCase>> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/cases`, {
         headers: await ebayHeaders(),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Couldn't load cases.");
-      return (json.cases ?? []) as EbayCase[];
+      return { items: (json.cases ?? []) as EbayCase[], source: listSource(json.source) };
     },
   });
+  return withSource(query);
 }
 
 export function useEbayCaseAction() {
@@ -2663,18 +2693,19 @@ export function useEbayCancellations(enabled = true) {
   // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
   // tenant's cases from cache.
   const tenantKey = useTenantKey();
-  return useQuery({
+  const query = useQuery({
     queryKey: ["ebay_cancellations", tenantKey],
     enabled: enabled && !!tenantKey,
-    queryFn: async (): Promise<EbayCancellation[]> => {
+    queryFn: async (): Promise<PostSaleList<EbayCancellation>> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/cancellations`, {
         headers: await ebayHeaders(),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Couldn't load cancellations.");
-      return (json.cancellations ?? []) as EbayCancellation[];
+      return { items: (json.cancellations ?? []) as EbayCancellation[], source: listSource(json.source) };
     },
   });
+  return withSource(query);
 }
 
 export function useEbayDecideCancellation() {
@@ -2719,18 +2750,19 @@ export function useEbayPaymentDisputes(enabled = true) {
   // PS-11: keyed on the tenant, so a workspace switch cannot serve the last
   // tenant's cases from cache.
   const tenantKey = useTenantKey();
-  return useQuery({
+  const query = useQuery({
     queryKey: ["ebay_payment_disputes", tenantKey],
     enabled: enabled && !!tenantKey,
-    queryFn: async (): Promise<EbayPaymentDispute[]> => {
+    queryFn: async (): Promise<PostSaleList<EbayPaymentDispute>> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/payment-disputes`, {
         headers: await ebayHeaders(),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Couldn't load payment disputes.");
-      return (json.disputes ?? []) as EbayPaymentDispute[];
+      return { items: (json.disputes ?? []) as EbayPaymentDispute[], source: listSource(json.source) };
     },
   });
+  return withSource(query);
 }
 
 export function useEbayResolveDispute() {

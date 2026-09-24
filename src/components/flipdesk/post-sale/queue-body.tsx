@@ -22,7 +22,19 @@ export interface QueueBodyProps {
   emptyText: string;
   /** What the list holds, for the error line: "returns", "cases". */
   kind: string;
+  /** PS-12: "cache_stale" when eBay failed and the edge served its last copy. */
+  source?: string | null;
+  /** When that copy reached this page (react-query's dataUpdatedAt, ms). */
+  updatedAt?: number;
   children: ReactNode;
+}
+
+function clock(ms: number | undefined): string {
+  if (!ms) return "earlier";
+  const d = new Date(ms);
+  return Number.isNaN(d.getTime())
+    ? "earlier"
+    : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 // US-2541: these lists are the ones a seller checks to confirm NOTHING is
@@ -47,9 +59,19 @@ export function QueueBody({
   isEmpty,
   emptyText,
   kind,
+  source,
+  updatedAt,
   children,
 }: QueueBodyProps) {
   if (isLoading) return <Skeleton className="h-16 w-full" />;
+  // PS-12: rows from a saved copy still render, because they are the best
+  // answer there is, but the seller is told before pressing Refund on them.
+  const stale = !isError && source === "cache_stale" ? (
+    <InlineRetry
+      message={`eBay didn't answer. Showing a saved copy from ${clock(updatedAt)}; deadlines may have moved.`}
+      onRetry={() => void refetch()}
+    />
+  ) : null;
   if (isError) {
     // A background refetch can fail with rows already on screen. Keep them:
     // they are real, and hiding them would be a second wrong answer.
@@ -63,6 +85,18 @@ export function QueueBody({
       </>
     );
   }
-  if (isSuccess && isEmpty) return <EmptyRow text={emptyText} />;
-  return <>{children}</>;
+  if (isSuccess && isEmpty) {
+    return (
+      <>
+        {stale}
+        <EmptyRow text={emptyText} />
+      </>
+    );
+  }
+  return (
+    <>
+      {stale}
+      {children}
+    </>
+  );
 }

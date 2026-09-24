@@ -440,6 +440,8 @@ function DisputesCard() {
           isError={disputesQuery.isError}
           isSuccess={disputesQuery.isSuccess}
           refetch={disputesQuery.refetch}
+          source={disputesQuery.source}
+          updatedAt={disputesQuery.dataUpdatedAt}
           isEmpty={visible.length === 0}
           emptyText={showClosed ? "No closed payment disputes." : "No open payment disputes."}
           kind="payment disputes"
@@ -881,6 +883,8 @@ function ReturnsCard() {
           isError={returnsQuery.isError}
           isSuccess={returnsQuery.isSuccess}
           refetch={returnsQuery.refetch}
+          source={returnsQuery.source}
+          updatedAt={returnsQuery.dataUpdatedAt}
           isEmpty={visible.length === 0}
           emptyText={showClosed ? "No closed returns." : "No open returns."}
           kind="returns"
@@ -1257,6 +1261,8 @@ function CancellationsCard() {
           isError={cancellationsQuery.isError}
           isSuccess={cancellationsQuery.isSuccess}
           refetch={cancellationsQuery.refetch}
+          source={cancellationsQuery.source}
+          updatedAt={cancellationsQuery.dataUpdatedAt}
           isEmpty={visible.length === 0}
           emptyText={showClosed ? "No closed cancellation requests." : "No open cancellation requests."}
           kind="cancellation requests"
@@ -1533,6 +1539,8 @@ function InquiriesCard() {
           isError={inquiriesQuery.isError}
           isSuccess={inquiriesQuery.isSuccess}
           refetch={inquiriesQuery.refetch}
+          source={inquiriesQuery.source}
+          updatedAt={inquiriesQuery.dataUpdatedAt}
           isEmpty={visible.length === 0}
           emptyText={showClosed ? "No closed inquiries." : "No open item-not-received inquiries."}
           kind="item-not-received inquiries"
@@ -1735,6 +1743,8 @@ function CasesCard() {
           isError={casesQuery.isError}
           isSuccess={casesQuery.isSuccess}
           refetch={casesQuery.refetch}
+          source={casesQuery.source}
+          updatedAt={casesQuery.dataUpdatedAt}
           isEmpty={visible.length === 0}
           emptyText={showClosed ? "No closed cases." : "No open eBay cases."}
           kind="eBay cases"
