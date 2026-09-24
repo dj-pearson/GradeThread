@@ -147,6 +147,14 @@ export function groupQueue(items: readonly ExtensionQueueItem[]): QueueGroup[] {
   );
 }
 
+/**
+ * MP-15: poll every 10 seconds while the desktop is running a job, so "Running
+ * now" turns into a result without a reload. Off otherwise.
+ */
+export function queueRefetchInterval(data: QueueResponse | undefined): number | false {
+  return data?.pending.some((r) => r.status === "claimed") ? 10_000 : false;
+}
+
 export function useExtensionQueue(enabled = true) {
   // MP-05: tenant-keyed (US-1933). A prefix invalidate of ["extension_queue"]
   // still reaches it.
@@ -155,6 +163,7 @@ export function useExtensionQueue(enabled = true) {
     queryKey: ["extension_queue", tenantKey],
     enabled: enabled && !!tenantKey,
     staleTime: 60 * 1000,
+    refetchInterval: (query) => queueRefetchInterval(query.state.data),
     queryFn: async (): Promise<QueueResponse> => {
       const res = await edgeFetch("/api/flipdesk/extension-queue");
       if (!res.ok) throw new Error("Could not load your queued work.");

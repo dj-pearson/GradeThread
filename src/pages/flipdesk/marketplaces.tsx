@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 import { finishedRunNote, marketplaceLabel } from "@/lib/finished-queue-run";
+import {
+  drainNudgeSentence,
+  isListerAvailable,
+  requestDrainNow,
+} from "@/lib/lister-extension";
 import { LinkDuplicatesCard } from "@/components/flipdesk/link-duplicates-card";
 import {
   Plug,
@@ -1979,6 +1984,10 @@ function SoldSyncSection() {
  * identical blank screen. The first is fine and the second is a stalled seller
  * who will not find out until an item sells in two places.
  */
+// MP-15: how long a desktop can go without draining before pending work is
+// called out as stalled.
+const STALLED_DRAIN_MS = 24 * 60 * 60 * 1000;
+
 function QueueSummary({
   pending,
   lastDrainedAt,
@@ -1986,9 +1995,34 @@ function QueueSummary({
   pending: ExtensionQueueItem[];
   lastDrainedAt: string | null;
 }) {
+  const qc = useQueryClient();
   const groups = groupQueue(pending);
   const drained = lastDrainedAt ? new Date(lastDrainedAt) : null;
   const drainedValid = drained && !Number.isNaN(drained.getTime()) ? drained : null;
+  const [running, setRunning] = useState(false);
+  // MP-15: requestDrainNow() and the extension's GT_DRAIN_NOW already existed;
+  // the page that shows the queue had no button for them, so a seller waited
+  // for the 5-minute alarm.
+  const canRunNow = pending.length > 0 && isListerAvailable();
+  const stalled =
+    pending.length > 0 &&
+    (!drainedValid || Date.now() - drainedValid.getTime() > STALLED_DRAIN_MS);
+
+  const runNow = async () => {
+    setRunning(true);
+    try {
+      const result = await requestDrainNow();
+      const sentence = drainNudgeSentence(result);
+      if (result.state === "ok" || result.state === "empty" || result.state === "busy") {
+        toast.success(sentence);
+      } else {
+        toast.info(sentence);
+      }
+      await qc.invalidateQueries({ queryKey: ["extension_queue"] });
+    } finally {
+      setRunning(false);
+    }
+  };
 
   return (
     <div className="mb-3 rounded-lg border p-3">
@@ -1998,12 +2032,29 @@ function QueueSummary({
             ? "Nothing waiting for your desktop"
             : `${pending.length} job${pending.length === 1 ? "" : "s"} waiting for your desktop`}
         </p>
-        <p className="text-xs text-muted-foreground">
-          {drainedValid
-            ? `Last run ${drainedValid.toLocaleString()}`
-            : "Your extension has never run any of this"}
-        </p>
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground" title={drainedValid?.toLocaleString()}>
+            {drainedValid
+              ? `Last run ${formatAgo(drainedValid.toISOString())}`
+              : "Your extension has never run any of this"}
+          </span>
+          {canRunNow && (
+            <Button size="sm" variant="outline" onClick={() => void runNow()} disabled={running}>
+              {running && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Run now
+            </Button>
+          )}
+        </span>
       </div>
+
+      {stalled && (
+        <p role="status" className="mt-2 text-xs text-brand-red-text">
+          {drainedValid
+            ? `Your desktop has not picked up work since ${formatAgo(drainedValid.toISOString())}.`
+            : "Your desktop has never picked up work."}{" "}
+          Open Chrome with the extension.
+        </p>
+      )}
 
       {groups.length > 0 && (
         <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">

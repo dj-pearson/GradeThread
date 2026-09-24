@@ -46,6 +46,10 @@ const state = {
   toastErrors: [] as string[],
   entry: "/dashboard/flipdesk/marketplaces",
   poll: undefined as unknown,
+  toastInfos: [] as string[],
+  listerAvailable: false,
+  drainCalls: 0,
+  drainResult: { drained: true, state: "ok" } as unknown,
 };
 
 vi.mock("@/hooks/use-workspace", async () => {
@@ -59,10 +63,19 @@ vi.mock("@/hooks/use-workspace", async () => {
   };
 });
 
+vi.mock("@/lib/lister-extension", async (orig) => ({
+  ...(await orig<typeof import("@/lib/lister-extension")>()),
+  isListerAvailable: () => state.listerAvailable,
+  requestDrainNow: () => {
+    state.drainCalls++;
+    return Promise.resolve(state.drainResult);
+  },
+}));
+
 vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), {
     success: vi.fn(),
-    info: vi.fn(),
+    info: (msg: string) => state.toastInfos.push(msg),
     warning: vi.fn(),
     error: (msg: string) => state.toastErrors.push(msg),
     loading: vi.fn(),
@@ -282,6 +295,10 @@ beforeEach(() => {
     toastErrors: [],
     entry: "/dashboard/flipdesk/marketplaces",
     poll: undefined,
+    toastInfos: [],
+    listerAvailable: false,
+    drainCalls: 0,
+    drainResult: { drained: true, state: "ok" },
   });
 });
 
@@ -925,5 +942,86 @@ describe("Marketplaces page: sold-sync copy (MP-14)", () => {
     render();
     expect(document.body.textContent).toContain("Checking on a schedule");
     expect(document.body.textContent).not.toContain("Nothing is read on a schedule");
+  });
+});
+
+describe("Marketplaces page: run the queue now (MP-15)", () => {
+  const pendingJob = {
+    id: "p1",
+    kind: "delist",
+    platform: "poshmark",
+    inventory_item_id: "i1",
+    listing_id: null,
+    payload: {},
+    status: "queued",
+    attempts: 0,
+    source: "web",
+    claimed_at: null,
+    completed_at: null,
+    result: null,
+    created_at: new Date().toISOString(),
+    item_title: "Coat",
+  };
+
+  function runNow() {
+    return [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Run now",
+    );
+  }
+
+  it("with pending work and the extension installed, Run now asks the desktop to drain", async () => {
+    state.listerAvailable = true;
+    state.queue = {
+      pending: [pendingJob],
+      needsAttention: [],
+      finishedNeedsReview: [],
+      lastDrainedAt: new Date().toISOString(),
+    };
+    render();
+    expect(runNow()).toBeTruthy();
+    await act(async () => {
+      runNow()!.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(state.drainCalls).toBe(1);
+  });
+
+  it("no Run now without the extension", () => {
+    state.queue = {
+      pending: [pendingJob],
+      needsAttention: [],
+      finishedNeedsReview: [],
+      lastDrainedAt: null,
+    };
+    render();
+    expect(runNow()).toBeUndefined();
+  });
+
+  it("needs-consent says what to do", async () => {
+    state.listerAvailable = true;
+    state.drainResult = { drained: false, state: "needs-consent" };
+    state.queue = {
+      pending: [pendingJob],
+      needsAttention: [],
+      finishedNeedsReview: [],
+      lastDrainedAt: new Date().toISOString(),
+    };
+    render();
+    await act(async () => {
+      runNow()!.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(state.toastInfos.join(" ")).toContain("accept what it will do");
+  });
+
+  it("pending work and a desktop silent for 3 days is called out as stalled", () => {
+    state.queue = {
+      pending: [pendingJob],
+      needsAttention: [],
+      finishedNeedsReview: [],
+      lastDrainedAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+    };
+    render();
+    expect(document.body.textContent).toContain("Your desktop has not picked up work since 3 days ago");
   });
 });
