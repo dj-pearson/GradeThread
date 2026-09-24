@@ -71,7 +71,7 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
-## HELD: 00836_analytics_owner_scope.sql (INV-D1 - Analytics numbers blended every workspace, and a member saw their own figures as the workspace's)
+## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00836_analytics_owner_scope.sql (INV-D1 - Analytics numbers blended every workspace, and a member saw their own figures as the workspace's)
 
 **What it does.** Gives every RPC behind `/dashboard/flipdesk/analytics` a
 `p_owner_id uuid default null` (the workspace on screen), filtered where the rows
