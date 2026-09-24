@@ -15,6 +15,7 @@ import { supabase } from "@/lib/supabase";
 import { normaliseAgainst } from "@/lib/rpc-shape";
 import { ordinal } from "@/lib/utils";
 import { tabPath } from "@/lib/analytics-tabs";
+import { encodeQuery, type FilterQuery } from "@/lib/item-filter";
 
 export type ScorecardMetric =
   | "sell_through"
@@ -274,4 +275,96 @@ export async function fetchSellerScorecard(
   // sends for any unmatched RPC — passed straight through and took a whole
   // route down through the ErrorBoundary. normaliseAgainst forces the shape.
   return normaliseAgainst(EMPTY_SCORECARD, data);
+}
+
+// ─── A14: from diagnosis to a work queue ─────────────────────────────────────
+
+/** Where the inventory page opens for a filtered queue. */
+const INVENTORY = "/dashboard/flipdesk/inventory";
+/** Unsold stock, for the queues below. */
+const UNSOLD = "sold,shipped,completed,archived";
+
+function inventoryQueue(rules: FilterQuery["rules"]): string {
+  return `${INVENTORY}?filter=${encodeURIComponent(encodeQuery({ combinator: "and", rules }))}`;
+}
+
+export const FIX_LABEL: Record<ScorecardMetric, string> = {
+  sell_through: "See listings that aren't selling",
+  price_realization: "Review your pricing",
+  days_to_sell: "See your slowest stock",
+  return_rate: "See what predicts your returns",
+  grade_yield: "Compare your sources",
+};
+
+/**
+ * A14: the one place a weak metric can be worked on, as a real route with the
+ * filter already applied. `search` is the Analytics query string; it rides
+ * along only to links that stay inside Analytics, where it carries the range.
+ */
+export function fixThisHref(
+  metric: ScorecardMetric,
+  row: Pick<ScorecardRow, "cohortMedian"> | null,
+  search: string,
+): string {
+  switch (metric) {
+    case "price_realization":
+      return "/dashboard/flipdesk/pricing";
+    case "sell_through":
+      // Live listings that have sat 30+ days: the ones dragging the rate.
+      return inventoryQueue([
+        { id: "fix-status", field: "status", op: "eq", value: "listed" },
+        { id: "fix-age", field: "days_listed", op: "gte", value: "30" },
+      ]);
+    case "days_to_sell": {
+      // Older than the peer median, where one exists, else 30 days.
+      const median = row?.cohortMedian;
+      const days =
+        median != null && Number.isFinite(median) && median > 0
+          ? Math.round(median)
+          : 30;
+      return inventoryQueue([
+        { id: "fix-status", field: "status", op: "eq", value: "listed" },
+        { id: "fix-age", field: "days_listed", op: "gte", value: String(days) },
+      ]);
+    }
+    case "return_rate":
+      return `${tabPath("returns")}${search}#return-attribution`;
+    case "grade_yield":
+      return "/dashboard/flipdesk/sourcing?tab=sources";
+  }
+}
+
+/** A14: unsold, ungraded stock: the queue behind "grade these items". */
+export function ungradedStockHref(): string {
+  return inventoryQueue([
+    { id: "grade-none", field: "grade", op: "isnull", value: "" },
+    { id: "grade-unsold", field: "status", op: "nin", value: UNSOLD },
+  ]);
+}
+
+/**
+ * A14: "38% vs 45% peer median" for a ranked tile, or null. Only where the
+ * RPC returned a cohort median, and only where the tile is ranked: a median
+ * beside an unranked tile would be the comparison the floor withheld.
+ */
+export function medianCompareText(card: Scorecard, m: ScorecardRow): string | null {
+  if (rankedPercentile(card, m) == null) return null;
+  if (m.cohortMedian == null || !Number.isFinite(m.cohortMedian)) return null;
+  return `${formatMetricValue(m.metric, m.ownValue)} vs ${formatMetricValue(
+    m.metric,
+    m.cohortMedian,
+  )} peer median`;
+}
+
+/**
+ * A14: how many points fewer graded sales came back than ungraded ones, when
+ * both sides clear RETURN_SPLIT_MIN_SALES and graded is actually better.
+ * Null otherwise; a worse or thin number is never turned into a pitch.
+ */
+export function gradedReturnGapPoints(split: ReturnSplit): number | null {
+  const g = returnSplitLine(split.graded, "g");
+  const u = returnSplitLine(split.ungraded, "u");
+  if (g.kind !== "rate" || u.kind !== "rate") return null;
+  const pts = Math.round((u.rate - g.rate) * 100);
+  return pts >= 1 ? pts : null;
 }

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Link, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Gauge } from "lucide-react";
+import { ArrowRight, Download, Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { downloadCsv } from "@/lib/csv-export";
@@ -15,6 +15,11 @@ import {
   orderedMetrics,
   pickBiggestGap,
   rankedPercentile,
+  FIX_LABEL,
+  fixThisHref,
+  gradedReturnGapPoints,
+  medianCompareText,
+  ungradedStockHref,
   scorecardTileHref,
   tileRankText,
   type Scorecard,
@@ -61,6 +66,7 @@ export function SellerScorecardCard({
   const metrics = useMemo(() => orderedMetrics(data), [data]);
   const worst = useMemo(() => pickBiggestGap(data), [data]);
   const line = useMemo(() => diagnosisLine(data), [data]);
+  const returnGap = gradedReturnGapPoints(data.returnSplit);
 
   // US-2829: headers match the on-screen labels exactly (AC6), so a seller
   // mapping the file to their own sheet does not need a decoder.
@@ -136,6 +142,17 @@ export function SellerScorecardCard({
           )}
         </p>
 
+        {/* A14: the diagnosis opens the queue that fixes it, not only the
+            report that explains it. */}
+        {worst && line && (
+          <Button asChild size="sm" variant="outline">
+            <Link to={fixThisHref(worst.metric, worst, location.search)}>
+              Fix this: {FIX_LABEL[worst.metric]}
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        )}
+
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {metrics.map((m) => {
             const isWorst = worst?.metric === m.metric;
@@ -170,6 +187,11 @@ export function SellerScorecardCard({
                 >
                   {tileRankText(data, m)}
                 </p>
+                {medianCompareText(data, m) && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {medianCompareText(data, m)}
+                  </p>
+                )}
               </Link>
             );
           })}
@@ -189,6 +211,20 @@ export function SellerScorecardCard({
               {line.text}
             </p>
           ))}
+          {returnGap != null && (
+            <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>
+                Graded items came back {returnGap}{" "}
+                {returnGap === 1 ? "point" : "points"} less.
+              </span>
+              <Link
+                to={ungradedStockHref()}
+                className="font-medium underline underline-offset-2 hover:text-foreground"
+              >
+                Grade ungraded stock
+              </Link>
+            </p>
+          )}
         </div>
 
         <p className="text-xs text-muted-foreground">

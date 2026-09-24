@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Crosshair, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -71,6 +72,19 @@ export function ReturnAttributionSection({
   const defect = useMemo(() => worstUndisclosedDefect(data), [data]);
   const nothing = useMemo(() => hasNoFindings(data), [data]);
 
+  // A14: the scorecard's "Fix this" for return rate lands on this card. The
+  // router does not scroll to a hash, and the card only exists once its data
+  // has arrived, so it scrolls itself into view when it appears.
+  const { hash } = useLocation();
+  const shown = !isError && data.overall.fulfilled > 0;
+  useEffect(() => {
+    if (shown && hash === "#return-attribution") {
+      document
+        .getElementById("return-attribution")
+        ?.scrollIntoView?.({ block: "start" });
+    }
+  }, [shown, hash]);
+
   if (isError) {
     return (
       <AnalyticsCardError
@@ -135,7 +149,7 @@ export function ReturnAttributionSection({
     );
   }
   return (
-    <Card>
+    <Card id="return-attribution" className="scroll-mt-20">
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>

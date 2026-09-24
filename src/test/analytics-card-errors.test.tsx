@@ -115,10 +115,16 @@ describe("analytics cards show an error, not an empty state (A2)", () => {
       "/dashboard/flipdesk/analytics?preset=30d",
     );
     await settle();
-    const a = m.container.querySelector("a");
-    expect(a?.getAttribute("href")).toBe(
-      "/dashboard/flipdesk/analytics/returns?preset=30d",
+    const hrefs = Array.from(m.container.querySelectorAll("a")).map((a) =>
+      a.getAttribute("href"),
     );
+    // The tile.
+    expect(hrefs).toContain("/dashboard/flipdesk/analytics/returns?preset=30d");
+    // A14: the weakest metric's Fix this link, which also keeps the range.
+    expect(hrefs).toContain(
+      "/dashboard/flipdesk/analytics/returns?preset=30d#return-attribution",
+    );
+    expect(m.container.textContent).toContain("10% vs 8% peer median");
     expect(m.container.textContent).toContain("22nd percentile");
     expect(m.container.textContent).not.toContain("22th");
     expect(m.container.textContent).toContain("Your scorecard, last 30 days");

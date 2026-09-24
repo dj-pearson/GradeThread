@@ -259,3 +259,108 @@ describe("tile links keep the range (A5)", () => {
     });
   });
 });
+
+// ─── A14: Fix this, you vs median, graded-return pitch ───────────────────────
+
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { decodeQuery } from "@/lib/item-filter";
+import {
+  FIX_LABEL,
+  fixThisHref,
+  gradedReturnGapPoints,
+  medianCompareText,
+  ungradedStockHref,
+} from "@/lib/seller-scorecard";
+
+const ROUTES = readFileSync(resolve(process.cwd(), "src/routes/index.tsx"), "utf8");
+const registered = (href: string) => {
+  const path = href.split(/[?#]/)[0]!;
+  return ROUTES.includes(`path: "${path}"`);
+};
+const filterOf = (href: string) => {
+  const raw = new URL(href, "https://x.test").searchParams.get("filter");
+  return raw ? decodeQuery(raw) : null;
+};
+
+describe("fixThisHref (A14)", () => {
+  it.each(METRIC_ORDER.map((m) => [m]))("%s goes to a registered route", (metric) => {
+    const href = fixThisHref(metric, row(metric, 10), "?preset=30d");
+    expect(registered(href)).toBe(true);
+    expect(FIX_LABEL[metric].length).toBeGreaterThan(0);
+  });
+
+  it("sell-through opens live listings 30+ days old", () => {
+    const q = filterOf(fixThisHref("sell_through", null, ""));
+    expect(q?.rules.map((r) => [r.field, r.op, r.value])).toEqual([
+      ["status", "eq", "listed"],
+      ["days_listed", "gte", "30"],
+    ]);
+  });
+
+  it("days-to-sell uses the peer median as the age cut", () => {
+    const q = filterOf(fixThisHref("days_to_sell", { cohortMedian: 41.6 }, ""));
+    expect(q?.rules.find((r) => r.field === "days_listed")?.value).toBe("42");
+  });
+
+  it("return rate stays in Analytics, keeps the range and lands on the attribution card", () => {
+    expect(fixThisHref("return_rate", null, "?preset=30d")).toBe(
+      "/dashboard/flipdesk/analytics/returns?preset=30d#return-attribution",
+    );
+  });
+
+  it("price realization and grade yield go to pricing and sources", () => {
+    expect(fixThisHref("price_realization", null, "")).toBe("/dashboard/flipdesk/pricing");
+    expect(fixThisHref("grade_yield", null, "")).toBe("/dashboard/flipdesk/sourcing?tab=sources");
+  });
+
+  it("the grade-ungraded queue is unsold stock with no grade", () => {
+    const href = ungradedStockHref();
+    expect(registered(href)).toBe(true);
+    const q = filterOf(href);
+    expect(q?.rules.map((r) => [r.field, r.op])).toEqual([
+      ["grade", "isnull"],
+      ["status", "nin"],
+    ]);
+  });
+});
+
+describe("medianCompareText (A14)", () => {
+  it("prints you vs the peer median on a ranked tile", () => {
+    const c = card([row("sell_through", 30, { ownValue: 0.38, cohortMedian: 0.45 })]);
+    expect(medianCompareText(c, c.metrics[0]!)).toBe("38% vs 45% peer median");
+  });
+  it("stays silent on an unranked tile or with no median", () => {
+    const c = card([
+      row("sell_through", null, { cohortMedian: 0.45 }),
+      row("return_rate", 40, { cohortMedian: null }),
+    ]);
+    expect(medianCompareText(c, c.metrics[0]!)).toBeNull();
+    expect(medianCompareText(c, c.metrics[1]!)).toBeNull();
+  });
+});
+
+describe("gradedReturnGapPoints (A14)", () => {
+  it("counts points when graded returns less on real samples", () => {
+    expect(
+      gradedReturnGapPoints({
+        graded: { fulfilled: 40, returns: 2 },
+        ungraded: { fulfilled: 50, returns: 6 },
+      }),
+    ).toBe(7);
+  });
+  it("is null when graded is worse or a side is thin", () => {
+    expect(
+      gradedReturnGapPoints({
+        graded: { fulfilled: 40, returns: 8 },
+        ungraded: { fulfilled: 50, returns: 6 },
+      }),
+    ).toBeNull();
+    expect(
+      gradedReturnGapPoints({
+        graded: { fulfilled: 5, returns: 0 },
+        ungraded: { fulfilled: 50, returns: 6 },
+      }),
+    ).toBeNull();
+  });
+});
