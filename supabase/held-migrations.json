@@ -10,15 +10,7 @@
     "scripts/held-migrations-registry.test.mjs fails when this file and the HELD headings",
     "in PENDING_MIGRATIONS.md disagree, in either direction."
   ],
-  "held": [
-    {
-      "version": "00835",
-      "file": "00835_flipdesk_search_v2_owner_scope.sql",
-      "story": "INV-D1",
-      "held_since": "2026-09-24",
-      "what": "Search ranked every workspace before dropping other ones, so a small workspace got crowded out"
-    }
-  ],
+  "held": [],
   "parked": [
     {
       "version": "00794",
