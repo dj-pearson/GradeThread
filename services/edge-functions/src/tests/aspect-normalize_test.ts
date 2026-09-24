@@ -559,8 +559,8 @@ Deno.test("US-3471: spacing and hyphen variants land on eBay's spelling", () => 
 Deno.test("US-3471: curly quotes and zero-width characters in eBay's own values still match", () => {
   const bowTie = ["Kids’ Bow Tie", "Bow Tie"];
   assertEquals(normalizeAspectValue("Kids' Bow Tie", sel("Type", bowTie)), "Kids’ Bow Tie");
-  const brush = ["Cleaning​ Brush", "Shoe Horn"];
-  assertEquals(normalizeAspectValue("Cleaning Brush", sel("Type", brush)), "Cleaning​ Brush");
+  const brush = ["Cleaning\u200B Brush", "Shoe Horn"];
+  assertEquals(normalizeAspectValue("Cleaning Brush", sel("Type", brush)), "Cleaning\u200B Brush");
 });
 
 Deno.test("US-3471: a value holding a digit is never folded, so sizes cannot collide", () => {
