@@ -18,7 +18,12 @@
 // mid-session would come back to an empty screen and assume their evening's
 // work was gone.
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { getFreshAccessToken } from "@/lib/auth-token";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
@@ -27,6 +32,7 @@ import { ITEM_LIST_SELECT, type ItemListRow } from "@/lib/item-list-columns";
 import {
   candidatesFor,
   candidatesWithGates,
+  EXCLUDED_STATUSES,
   type GatedWork,
   type WorkCandidate,
 } from "@/lib/work-candidates";
@@ -278,13 +284,16 @@ export function toOverrideBook(json: {
   };
 }
 
+async function fetchOverrides(): Promise<OverrideBook> {
+  return toOverrideBook(await edgeJson("/api/flipdesk/planner/overrides"));
+}
+
 export function useWorkOverrides(enabled = true) {
   return useQuery<OverrideBook>({
     queryKey: ["planner_overrides"],
     enabled,
     staleTime: 60 * 1000,
-    queryFn: async () =>
-      toOverrideBook(await edgeJson("/api/flipdesk/planner/overrides")),
+    queryFn: fetchOverrides,
   });
 }
 
@@ -495,21 +504,58 @@ export interface PlanSuppressionNote {
  * photos -- pulling those for four hundred items to build a thirty-minute plan
  * would be several megabytes to decide what to do first.
  */
-export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
+export async function buildPlan(
+  args: BuildPlanArgs,
+  qc?: QueryClient,
+): Promise<PreparedPlan> {
   const { activeWorkspaceOwnerId, user } = useAuthStore.getState();
-  const ownerId = activeWorkspaceOwnerId ?? user?.id;
-  const { data, error } = await supabase
-    .from("items_full")
-    .select(ITEM_LIST_SELECT)
-    .eq("user_id", ownerId ?? "")
-    .order("updated_at", { ascending: false })
-    .limit(PLAN_ITEM_LIMIT);
+  const ownerId = activeWorkspaceOwnerId ?? user?.id ?? null;
+  // WMT-07: no owner is a signed-out seller, not an empty stock. `?? ""` used
+  // to run the read against no one and show "no unfinished work".
+  if (!ownerId) throw new Error("You must be signed in.");
+
+  // WMT-07: every input read at once. The page used to wait for the
+  // overrides refetch before the item read even started.
+  const [itemsRead, freshBook, freshLearned] = await Promise.all([
+    supabase
+      .from("items_full")
+      .select(ITEM_LIST_SELECT)
+      .eq("user_id", ownerId)
+      // Only rows that can be work. Without this, listed and archived stock
+      // filled the 400-row window before any sourced item was read.
+      .not("status", "in", `(${[...EXCLUDED_STATUSES].join(",")})`)
+      // Oldest first, so unfinished work that has waited longest is read
+      // before this week's.
+      .order("updated_at", { ascending: true })
+      .limit(PLAN_ITEM_LIMIT),
+    // A corrections read that FAILS rejects the build. Falling back to an
+    // empty book would bring back every job the seller dismissed.
+    args.book !== undefined || !qc
+      ? Promise.resolve(args.book)
+      : qc.fetchQuery({
+        queryKey: ["planner_overrides"],
+        queryFn: fetchOverrides,
+        staleTime: 0,
+      }),
+    // Learned pace is an improvement, not a safety net: without it every
+    // estimate is the labelled default, so a failed read degrades rather
+    // than refuses.
+    args.learned !== undefined || !qc
+      ? Promise.resolve(args.learned ?? null)
+      : qc.ensureQueryData({
+        queryKey: ["planner_learned_durations"],
+        queryFn: fetchLearned,
+        staleTime: LEARNED_STALE_MS,
+      }).catch(() => null),
+  ]);
+  const { data, error } = itemsRead;
   if (error) throw new Error(error.message);
   const items = (data ?? []) as unknown as ItemListRow[];
 
   const now = args.now ?? new Date().toISOString();
   const nowMs = Date.parse(now);
-  const book = args.book ?? emptyBook(now);
+  const book = freshBook ?? emptyBook(now);
+  const learnedResult = freshLearned ?? null;
 
   const { candidates: allCandidates, gated } = candidatesWithGates(items, {
     workContext: args.workContext,
@@ -547,7 +593,7 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
         action,
         overrideTypicalMinutes: minutesOverrideFor(book, itemId, String(action)),
         learned: learnedTypicalFor(
-          args.learned ?? undefined,
+          learnedResult ?? undefined,
           String(action),
           args.workContext,
         ) ?? null,
@@ -664,20 +710,24 @@ function toObservations(rows: readonly ObservationRow[]): RawObservation[] {
   return out;
 }
 
+async function fetchLearned(): Promise<LearningResult> {
+  const body = await edgeJson<{ observations: ObservationRow[] }>(
+    "/api/flipdesk/planner/observations",
+  );
+  return learnDurations(toObservations(body.observations ?? []));
+}
+
+// Longer than the session read: a median over twenty samples does not move
+// between two clicks of the picker, and re-reading the whole history on every
+// plan would be paying for an answer that cannot have changed.
+const LEARNED_STALE_MS = 10 * 60 * 1000;
+
 export function useLearnedDurations(enabled = true) {
   return useQuery<LearningResult>({
     queryKey: ["planner_learned_durations"],
     enabled,
-    // Longer than the session read: a median over twenty samples does not
-    // move between two clicks of the picker, and re-reading the whole history
-    // on every plan would be paying for an answer that cannot have changed.
-    staleTime: 10 * 60 * 1000,
-    queryFn: async () => {
-      const body = await edgeJson<{ observations: ObservationRow[] }>(
-        "/api/flipdesk/planner/observations",
-      );
-      return learnDurations(toObservations(body.observations ?? []));
-    },
+    staleTime: LEARNED_STALE_MS,
+    queryFn: fetchLearned,
   });
 }
 
@@ -808,8 +858,9 @@ export function useWorkOutcomes(enabled = true) {
 }
 
 export function useBuildPlan() {
+  const qc = useQueryClient();
   return useMutation<PreparedPlan, Error, BuildPlanArgs>({
-    mutationFn: buildPlan,
+    mutationFn: (args) => buildPlan(args, qc),
   });
 }
 

@@ -330,8 +330,15 @@ export function shipDeadlineOf(input: ShipDeadlineInput): ShipDeadline {
   };
 }
 
-/** Item statuses that are not work at all (AC4). */
-const EXCLUDED_STATUSES = new Set([
+/**
+ * Item statuses that are not work at all (AC4).
+ *
+ * EXPORTED (WMT-07) so the plan's item read can filter on the same list. The
+ * read used to take the 400 most recently updated rows of ANY status, so a
+ * seller with a busy listed catalogue filled the window with work that is not
+ * work and never saw their sourced stock.
+ */
+export const EXCLUDED_STATUSES: ReadonlySet<string> = new Set([
   // The seller took these out of the pipeline on purpose.
   "archived",
   "keeping",
@@ -347,6 +354,10 @@ const EXCLUDED_STATUSES = new Set([
   "listed",
   // Handed to the carrier; nothing physical left.
   "shipped",
+  // Back from a buyer. nextAction offers "relist or write off", which is a
+  // decision rather than work, so it never becomes a candidate anyway; listing
+  // it here keeps it out of the read too.
+  "returned",
 ]);
 
 /**

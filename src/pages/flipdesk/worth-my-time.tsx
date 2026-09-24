@@ -27,10 +27,8 @@ import {
   planToSessionTasks,
   useBuildPlan,
   useCurrentSession,
-  useLearnedDurations,
   useSaveWorkPreferences,
   useStartSession,
-  useWorkOverrides,
   useWorkPreferences,
   type PreparedPlan,
 } from "@/hooks/use-planner";
@@ -178,8 +176,6 @@ export function WorthMyTimePage() {
   const build = useBuildPlan();
   const currentSession = useCurrentSession();
   const startSession = useStartSession();
-  const overrides = useWorkOverrides();
-  const learned = useLearnedDurations();
   const [custom, setCustom] = useState("");
   const [plan, setPlan] = useState<PreparedPlan | null>(null);
   // Set only when a correction lands AFTER a plan was built. The plan on
@@ -188,6 +184,9 @@ export function WorthMyTimePage() {
   const [stalePlan, setStalePlan] = useState(false);
 
   const presets = prefs.data?.sessionMinutePresets ?? [15, 30, 60];
+  // WMT-07: a plan built before the setup loads would be built on the
+  // camera-only defaults. Wait for an answer, success or failure.
+  const prefsSettled = prefs.isSuccess || prefs.isError;
   const context = prefs.data?.workContext ?? "home";
   const tools = useMemo(() => prefs.data?.availableTools ?? ["camera"], [prefs.data]);
 
@@ -210,10 +209,9 @@ export function WorthMyTimePage() {
         hourlyTargetCents: prefs.data?.hourlyTargetAmount != null
           ? Math.round(prefs.data.hourlyTargetAmount * 100)
           : null,
-        // A fresh read, so a correction saved on this screen a moment ago is
-        // in the plan rather than one build behind it.
-        book: (await overrides.refetch()).data,
-        learned: learned.data,
+        // WMT-07: buildPlan reads the corrections (fresh, and a failure
+        // refuses the build) and the learned pace itself, in parallel with
+        // the items.
         sessionId: currentSession.data?.session?.id ?? null,
       });
       setStalePlan(false);
@@ -304,7 +302,7 @@ export function WorthMyTimePage() {
             <Button
               key={m}
               variant="outline"
-              disabled={build.isPending}
+              disabled={build.isPending || !prefsSettled}
               onClick={() => void generate(m)}
             >
               {m} minutes
@@ -324,7 +322,7 @@ export function WorthMyTimePage() {
                 onChange={(e) => setCustom(e.target.value)}
               />
               <Button
-                disabled={build.isPending || custom.trim() === ""}
+                disabled={build.isPending || !prefsSettled || custom.trim() === ""}
                 onClick={() => void generate(Number(custom))}
               >
                 {build.isPending

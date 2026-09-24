@@ -169,3 +169,74 @@ describe("tool-gated work is counted, and a paid parcel always shows (WMT-06)", 
     expect(built.plan.tasks.some((t) => t.key === "sold:pack_ship")).toBe(true);
   });
 });
+
+describe("the plan read (WMT-07)", () => {
+  it("reads only rows that can be work, oldest first", async () => {
+    await buildPlan({ ...BASE, book: book() });
+    const read = reads.find((r) => r.table === "items_full")!;
+    const not = read.calls.find(([m]) => m === "not")!;
+    expect(not[1][0]).toBe("status");
+    expect(not[1][1]).toBe("in");
+    const list = String(not[1][2]);
+    for (const s of ["listed", "archived", "completed", "shipped", "returned"]) {
+      expect(list).toContain(s);
+    }
+    expect(list).not.toContain("sourced");
+    expect(read.calls.find(([m]) => m === "order")![1]).toEqual([
+      "updated_at",
+      { ascending: true },
+    ]);
+    expect(read.calls.find(([m]) => m === "eq")![1]).toEqual(["user_id", "owner-1"]);
+  });
+
+  it("a signed-out seller is told so, not shown an empty stock", async () => {
+    authState = { activeWorkspaceOwnerId: null, user: null };
+    await expect(buildPlan({ ...BASE, book: book() })).rejects.toThrow("You must be signed in.");
+    expect(reads.length).toBe(0);
+  });
+
+  it("a failed corrections read REFUSES the build rather than un-dismissing jobs", async () => {
+    const { QueryClient } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    vi.stubGlobal("fetch", () =>
+      Promise.resolve({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: "down" }),
+      } as unknown as Response));
+    try {
+      await expect(buildPlan({ ...BASE }, qc)).rejects.toThrow("down");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("with a query client, the corrections are read fresh and used", async () => {
+    const { QueryClient } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", (url: string) => {
+      urls.push(String(url));
+      const body = String(url).includes("/overrides")
+        ? {
+          overrides: [],
+          suppressions: [{
+            id: "s", inventory_item_id: "item-1", action_key: null, kind: "dismiss",
+            session_id: null, until: null, created_at: NOW,
+          }],
+          now: NOW,
+        }
+        : { observations: [] };
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) } as unknown as Response);
+    });
+    try {
+      const built = await buildPlan({ ...BASE }, qc);
+      expect(urls.some((u) => u.endsWith("/api/flipdesk/planner/overrides"))).toBe(true);
+      expect(built.suppressed).toEqual([
+        { itemId: "item-1", actionKey: "photograph", reason: "dismiss" },
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
