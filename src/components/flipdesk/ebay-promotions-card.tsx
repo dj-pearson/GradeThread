@@ -26,6 +26,7 @@ import {
 } from "@/hooks/use-ebay";
 import { EbayPromotionDialog } from "@/components/flipdesk/ebay-promotion-dialog";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { InlineRetry } from "@/components/flipdesk/inline-retry";
 import { roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-1448 (chunk 1): surface the seller's eBay Promotions Manager item promotions
@@ -61,7 +62,7 @@ function statusVariant(s: string | null): "default" | "secondary" | "outline" {
 export function EbayPromotionsCard() {
   const { data: connection } = useEbayConnection();
   const connected = !!connection;
-  const { data, isLoading } = useEbayPromotions(connected);
+  const { data, isLoading, isError, refetch } = useEbayPromotions(connected);
   const del = useDeleteItemPromotion();
   // MP-02: create, edit and end need listing_manager on the edge.
   const { can } = useWorkspace();
@@ -73,8 +74,33 @@ export function EbayPromotionsCard() {
   const [confirmEnd, setConfirmEnd] = useState<{ id: string; name: string } | null>(null);
 
   if (!connected) return null;
-  if (isLoading || !data) return null;
-  if (data.access === false) return null;
+  if (isLoading) return null;
+  // MP-11: an error and a missing grant used to render nothing at all.
+  if (isError || !data || data.access === false) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Tag className="h-4 w-4" />
+            eBay promotions
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data?.access === false ? (
+            <p className="text-sm text-muted-foreground">
+              Reconnect eBay to manage promotions. Your current sign-in does not
+              include eBay&apos;s promotions permission.
+            </p>
+          ) : (
+            <InlineRetry
+              message="Couldn't load your eBay promotions."
+              onRetry={() => void refetch()}
+            />
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   const promotions = data.promotions ?? [];
 

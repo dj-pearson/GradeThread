@@ -15,6 +15,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useEbayMarketingSuggestions } from "@/hooks/use-ebay";
+import { InlineRetry } from "@/components/flipdesk/inline-retry";
 import { roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2946 + US-2947: eBay's own promotion suggestions, and the campaign
@@ -62,7 +63,8 @@ export function EbayCampaignCard() {
   const canCampaign = can("manage_campaign");
   const campaignTitle = canCampaign ? undefined : roleNeededTitle("manage_campaign");
 
-  const { data, isLoading } = useEbayMarketingSuggestions<SuggestionsResponse>();
+  const { data, isLoading, isError, refetch } =
+    useEbayMarketingSuggestions<SuggestionsResponse>();
 
   const act = useMutation<unknown, Error, { action: "start" | "pause" | "resume" | "end" }>({
     mutationFn: async ({ action }) => {
@@ -163,6 +165,11 @@ export function EbayCampaignCard() {
       <CardContent className="space-y-3">
         {isLoading ? (
           <Skeleton className="h-32 w-full" />
+        ) : isError ? (
+          <InlineRetry
+            message="Couldn't load eBay's suggestions."
+            onRetry={() => void refetch()}
+          />
         ) : !data ? (
           <p className="text-sm text-muted-foreground">
             No campaign to read yet.

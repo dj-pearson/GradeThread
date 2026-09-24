@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useEbayKeywords, useEbayKeywordSuggestions } from "@/hooks/use-ebay";
+import { InlineRetry } from "@/components/flipdesk/inline-retry";
 import { roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2945: keywords for Promoted Listings Advanced.
@@ -73,7 +74,7 @@ export function EbayKeywordsCard() {
   const canAds = can("manage_ads");
   const adsTitle = canAds ? undefined : roleNeededTitle("manage_ads");
 
-  const { data, isLoading, isError } = useEbayKeywords<KeywordsResponse>();
+  const { data, isLoading, isError, refetch } = useEbayKeywords<KeywordsResponse>();
   const { data: suggestions } = useEbayKeywordSuggestions<{ suggestions: string[] }>(
     showSuggestions,
   );
@@ -146,16 +147,18 @@ export function EbayKeywordsCard() {
     );
   }
   if (isError || !data) {
+    // MP-11: a failed read used to say "No cost-per-click campaign to read
+    // yet", which is a different fact.
     return (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Ad keywords</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">
-            No cost-per-click campaign to read yet. Keywords apply to Promoted
-            Listings Advanced only.
-          </p>
+          <InlineRetry
+            message="Couldn't load your eBay keywords."
+            onRetry={() => void refetch()}
+          />
         </CardContent>
       </Card>
     );

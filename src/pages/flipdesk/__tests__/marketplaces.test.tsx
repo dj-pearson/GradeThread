@@ -40,6 +40,7 @@ const state = {
   syncReviews: [] as unknown[],
   candidatesError: false,
   claim: vi.fn(),
+  overviewError: false,
 };
 
 vi.mock("@/hooks/use-workspace", async () => {
@@ -77,7 +78,13 @@ vi.mock("@/hooks/use-ebay", () => ({
   useCreateEbayPolicies: mutation,
   useSetDefaultPolicies: mutation,
   useSyncEbayPolicies: mutation,
-  useEbayPromotedOverview: () => ({ data: undefined, isLoading: false }),
+  useEbayPromotedOverview: () => ({
+    data: undefined,
+    isLoading: false,
+    isError: state.overviewError,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
   useEbaySyncPromoted: mutation,
 }));
 
@@ -237,6 +244,7 @@ beforeEach(() => {
     syncReviews: [],
     candidatesError: false,
     claim: vi.fn(),
+    overviewError: false,
   });
 });
 
@@ -677,5 +685,16 @@ describe("Marketplaces page: confirm a probable match (MP-09)", () => {
     expect(
       [...document.querySelectorAll("button")].some((b) => b.textContent?.trim() === "Link to an item"),
     ).toBe(false);
+  });
+});
+
+describe("Marketplaces page: promoted listings error (MP-11)", () => {
+  it("a failed overview read is an error, not 'No promoted listings yet'", async () => {
+    state.connection = CONNECTED;
+    state.overviewError = true;
+    render();
+    await openTab("Ads & promotions");
+    expect(document.body.textContent).toContain("Couldn't load promoted listings");
+    expect(document.body.textContent).not.toContain("No promoted listings yet");
   });
 });

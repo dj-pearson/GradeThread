@@ -17,6 +17,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useEbayEmailCampaigns } from "@/hooks/use-ebay";
+import { InlineRetry } from "@/components/flipdesk/inline-retry";
 import { roleNeededTitle } from "@/lib/workspace-permissions";
 
 // US-2953: the audience the seller already owns.
@@ -57,7 +58,7 @@ export function FollowerCampaignCard() {
   const { can } = useWorkspace();
   const canSend = can("manage_campaign");
 
-  const { data, isLoading } = useEbayEmailCampaigns<CampaignsResponse>();
+  const { data, isLoading, isError, refetch } = useEbayEmailCampaigns<CampaignsResponse>();
 
   const send = useMutation<unknown, Error, { campaignId: string }>({
     mutationFn: async ({ campaignId }) => {
@@ -103,7 +104,22 @@ export function FollowerCampaignCard() {
       </Card>
     );
   }
-  if (!data) return null;
+  if (isError || !data) {
+    // MP-11: this returned null on error, so the whole card vanished.
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Email your followers</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <InlineRetry
+            message="Couldn't load your eBay follower campaigns."
+            onRetry={() => void refetch()}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>

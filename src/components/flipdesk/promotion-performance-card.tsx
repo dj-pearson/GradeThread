@@ -18,6 +18,7 @@ import {
   useEbayStackCheck,
 } from "@/hooks/use-ebay";
 import { promotionPerformanceHasContent } from "@/components/flipdesk/promotion-performance";
+import { InlineRetry } from "@/components/flipdesk/inline-retry";
 
 // US-2949 + US-2951: did the sale sell more, and can the discounts stack below
 // cost?
@@ -95,8 +96,13 @@ function liftText(v: number | null): string {
 export function PromotionPerformanceCard() {
   const qc = useQueryClient();
 
-  const { data, isLoading } = useEbayPromotionPerformance<{ promotions: PromotionRow[] }>();
-  const { data: stack } = useEbayStackCheck<StackReport>();
+  const { data, isLoading, isError, refetch } =
+    useEbayPromotionPerformance<{ promotions: PromotionRow[] }>();
+  const {
+    data: stack,
+    isError: stackError,
+    refetch: refetchStack,
+  } = useEbayStackCheck<StackReport>();
 
   const sync = useMutation<{ stored: number }, Error, void>({
     mutationFn: async () => {
@@ -160,6 +166,13 @@ export function PromotionPerformanceCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* MP-11: a failed stack check is not "no breaches". */}
+        {stackError && (
+          <InlineRetry
+            message="Couldn't check discounts against your cost floor."
+            onRetry={() => void refetchStack()}
+          />
+        )}
         {/* The warning first: it is the one that costs money right now. */}
         {stack && stack.breaching.length > 0 && (
           <div className="space-y-1 rounded-md border border-brand-red/40 bg-brand-red/5 p-2">
@@ -191,6 +204,11 @@ export function PromotionPerformanceCard() {
 
         {isLoading ? (
           <Skeleton className="h-32 w-full" />
+        ) : isError ? (
+          <InlineRetry
+            message="Couldn't work out how your promotions did."
+            onRetry={() => void refetch()}
+          />
         ) : !data || data.promotions.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No promotions on record yet. Refresh from eBay to pull them in.

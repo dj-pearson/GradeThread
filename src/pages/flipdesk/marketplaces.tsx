@@ -1171,7 +1171,7 @@ function PromoStat({ label, value }: { label: string; value: string }) {
 
 function PromotedListingsSection() {
   const qc = useQueryClient();
-  const { data, isLoading } = useEbayPromotedOverview(true);
+  const { data, isLoading, isError, isFetching, refetch } = useEbayPromotedOverview(true);
   const sync = useEbaySyncPromoted();
 
   const refresh = async () => {
@@ -1225,6 +1225,16 @@ function PromotedListingsSection() {
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading promoted listings…
           </div>
+        ) : isError ? (
+          // MP-11: not "No promoted listings yet".
+          <ErrorState
+            className="py-6"
+            title="Couldn't load promoted listings"
+            description="This is a loading problem, not an empty list."
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+            hideSupport
+          />
         ) : listings.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No promoted listings yet. An ad is attached automatically when you

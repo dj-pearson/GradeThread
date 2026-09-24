@@ -505,12 +505,14 @@ flipdeskEbayRoutes.get("/promotions/performance", async (c) => {
     const sinceMs = Number.isFinite(earliest)
       ? earliest - 90 * 86_400_000
       : Date.now() - 180 * 86_400_000;
-    const { data: salesRows } = await supabaseAdmin
+    const { data: salesRows, error: salesErr } = await supabaseAdmin
       .from("sales")
       .select("sale_date, sale_price")
       .eq("user_id", ownerId)
       .gte("sale_date", new Date(sinceMs).toISOString())
       .limit(5000);
+    // MP-11: an unread sales table would report every promotion as -100%.
+    if (salesErr) throw salesErr;
     const sales = ((salesRows ?? []) as unknown as Array<{
       sale_date: string | null;
       sale_price: number | null;
@@ -608,7 +610,7 @@ flipdeskEbayRoutes.get("/promotions/stack-check", async (c) => {
       .map((p) => p.discountPct ?? 0)
       .reduce((a, b) => Math.max(a, b), 0) || null;
 
-    const { data: rows } = await supabaseAdmin
+    const { data: rows, error: rowsErr } = await supabaseAdmin
       .from("listings")
       .select(
         "id, listing_title, listing_price, best_offer_auto_accept_cents, " +
@@ -619,6 +621,8 @@ flipdeskEbayRoutes.get("/promotions/stack-check", async (c) => {
       .eq("listing_status", "active")
       .eq("inventory_items.user_id", ownerId)
       .limit(1000);
+    // MP-11: an unread listings table is not "no discount breaches".
+    if (rowsErr) throw rowsErr;
 
     const results = ((rows ?? []) as unknown as Array<{
       id: string;
@@ -1482,9 +1486,18 @@ flipdeskEbayRoutes.get("/marketing/ad-rate-suggestion", (c) => {
 // workspace's promoted listings (user-triggered "Refresh" on the promotions
 // surface). Tenant-scoped to the workspace owner inside the lib helper.
 flipdeskEbayRoutes.post("/marketing/promoted/sync", async (c) => {
+  // MP-11: the same guard and failSafe every other eBay route has. Before,
+  // an unconfigured server or a thrown read escaped as a bare 500.
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const result = await syncPromotedListingsForOwner(userId);
-  return c.json({ ok: true, ...result });
+  try {
+    const result = await syncPromotedListingsForOwner(userId);
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return failSafe(c, 502, "Couldn't refresh your promoted listings.", err, "ebay.promoted.sync");
+  }
 });
 
 // US-1044: read-only promotions overview — the seller's promoted listings plus
@@ -1495,7 +1508,7 @@ flipdeskEbayRoutes.post("/marketing/promoted/sync", async (c) => {
 // surfaced synchronously here.
 flipdeskEbayRoutes.get("/marketing/promoted/overview", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("listings")
     .select(
       "id, listing_title, listing_url, listing_price, listing_status, promo_status, promo_rate_pct, promo_ad_fees_cents, promo_synced_at",
@@ -1505,6 +1518,10 @@ flipdeskEbayRoutes.get("/marketing/promoted/overview", async (c) => {
     .not("promo_ad_id", "is", null)
     .order("promo_synced_at", { ascending: false, nullsFirst: false })
     .limit(200);
+  // MP-11: a failed read is not "no promoted listings yet".
+  if (error) {
+    return failSafe(c, 500, "Couldn't load promoted listings.", error, "ebay.promoted.overview");
+  }
   const listings = (data ?? []) as unknown as PromotedListingRow[];
   return c.json({ listings, summary: summarizePromotedListings(listings) });
 });

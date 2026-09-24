@@ -41,6 +41,22 @@ vi.mock("@/lib/edge-fetch", () => ({
   }),
 }));
 
+const promos = {
+  error: false,
+  data: { access: true, promotions: [] } as unknown,
+};
+vi.mock("@/hooks/use-ebay", async (orig) => ({
+  ...(await orig<typeof import("@/hooks/use-ebay")>()),
+  useEbayConnection: () => ({ data: { id: "c1" }, isLoading: false, isError: false }),
+  useEbayPromotions: () => ({
+    data: promos.error ? undefined : promos.data,
+    isLoading: false,
+    isError: promos.error,
+    refetch: vi.fn(),
+  }),
+  useDeleteItemPromotion: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 vi.mock("@/stores/auth-store", () => ({
   useAuthStore: (selector: (s: unknown) => unknown) =>
     selector({ user: { id: "owner-1" }, activeWorkspaceOwnerId: null }),
@@ -49,6 +65,10 @@ vi.mock("@/stores/auth-store", () => ({
 const { EbayCampaignCard } = await import("@/components/flipdesk/ebay-campaign-card");
 const { EbayKeywordsCard } = await import("@/components/flipdesk/ebay-keywords-card");
 const { FollowerCampaignCard } = await import("@/components/flipdesk/follower-campaign-card");
+const { EbayPromotionsCard } = await import("@/components/flipdesk/ebay-promotions-card");
+const { PromotionPerformanceCard } = await import(
+  "@/components/flipdesk/promotion-performance-card"
+);
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
@@ -94,6 +114,8 @@ const EMAILS = {
 };
 
 beforeEach(() => {
+  promos.error = false;
+  promos.data = { access: true, promotions: [] };
   state.role = "owner";
   state.calls = [];
   state.routes = {
@@ -210,5 +232,58 @@ describe("MP-03: no campaign means Start one, never a silent create", () => {
     await render(<EbayKeywordsCard />);
     expect(document.body.textContent).toContain("No cost-per-click campaign yet");
     expect(button("Start one")).toBeTruthy();
+  });
+});
+
+describe("MP-11: a failed read is an error with Retry, not an empty state", () => {
+  const fail = { status: 500, body: { error: "boom" } };
+
+  function hasRetry(): boolean {
+    return [...document.querySelectorAll("button")].some((b) => b.textContent?.trim() === "Retry");
+  }
+
+  it("campaign suggestions", async () => {
+    state.routes["/api/flipdesk/ebay/marketing/suggestions"] = fail;
+    await render(<EbayCampaignCard />);
+    expect(hasRetry()).toBe(true);
+    expect(document.body.textContent).not.toContain("No campaign to read yet");
+  });
+
+  it("keywords", async () => {
+    state.routes["/api/flipdesk/ebay/marketing/keywords"] = fail;
+    await render(<EbayKeywordsCard />);
+    expect(hasRetry()).toBe(true);
+    expect(document.body.textContent).not.toContain("No cost-per-click campaign");
+  });
+
+  it("follower campaigns", async () => {
+    state.routes["/api/flipdesk/ebay/marketing/email-campaigns"] = fail;
+    await render(<FollowerCampaignCard />);
+    expect(hasRetry()).toBe(true);
+    expect(document.body.textContent).not.toContain("No campaigns yet");
+  });
+
+  it("promotions", async () => {
+    promos.error = true;
+    await render(<EbayPromotionsCard />);
+    expect(hasRetry()).toBe(true);
+    expect(document.body.textContent).not.toContain("No promotions yet");
+  });
+
+  it("promotions without the grant say to reconnect", async () => {
+    promos.data = { access: false };
+    await render(<EbayPromotionsCard />);
+    expect(document.body.textContent).toContain("Reconnect eBay to manage promotions");
+  });
+
+  it("performance and stack check", async () => {
+    state.routes["/api/flipdesk/ebay/promotions/performance"] = fail;
+    state.routes["/api/flipdesk/ebay/promotions/stack-check"] = fail;
+    await render(<PromotionPerformanceCard />);
+    expect(document.body.textContent).toContain(
+      "Couldn't check discounts against your cost floor",
+    );
+    expect(document.body.textContent).not.toContain("No promotions on record yet");
+    expect(hasRetry()).toBe(true);
   });
 });

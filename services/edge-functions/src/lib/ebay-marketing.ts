@@ -1032,7 +1032,7 @@ export async function syncPromotedListingsForOwner(
   userId: string,
   limit = 200,
 ): Promise<PromotedSyncResult> {
-  const { data: rows } = await supabaseAdmin
+  const { data: rows, error: readErr } = await supabaseAdmin
     .from("listings")
     .select("id, platform_listing_id, promo_campaign_id")
     .eq("user_id", userId)
@@ -1040,6 +1040,8 @@ export async function syncPromotedListingsForOwner(
     .not("promo_ad_id", "is", null)
     .order("promo_synced_at", { ascending: true, nullsFirst: true })
     .limit(limit);
+  // MP-11: "refreshed 0 of 0" after a failed read is a false all-clear.
+  if (readErr) throw new Error(`promoted sync read failed: ${readErr.message}`);
 
   const promoted = (rows ?? []) as Array<{
     id: string;
@@ -1066,8 +1068,16 @@ export async function syncPromotedListingsForOwner(
         // The ad disappeared on eBay (deleted/ended) — reflect that locally.
         patch.promo_status = "ended";
       }
-      await supabaseAdmin.from("listings").update(patch).eq("id", row.id);
-      updated++;
+      const { error: writeErr } = await supabaseAdmin
+        .from("listings")
+        .update(patch)
+        .eq("id", row.id);
+      // MP-11: count a row only when its write landed.
+      if (writeErr) {
+        console.warn(`[ebay-marketing] promoted sync write for ${row.id} failed:`, writeErr.message);
+      } else {
+        updated++;
+      }
     } catch (err) {
       console.warn(
         `[ebay-marketing] promoted sync for listing ${row.id} failed:`,
