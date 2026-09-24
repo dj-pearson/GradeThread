@@ -19,6 +19,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { fetchRecentSearches, recordSearch } from "@/lib/recent-searches";
 import { useFlipdeskSearch } from "@/hooks/use-flipdesk-search";
+import { SnippetText } from "@/components/flipdesk/snippet-text";
 import {
   SEARCH_SCOPES,
   isSearchableQuery,
@@ -44,23 +45,6 @@ function ResultIcon({ type }: { type: string }) {
   const Icon = TYPE_ICONS[type] ?? FileSearch;
   return (
     <Icon className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
-  );
-}
-
-function Snippet({ hit }: { hit: MappedHit }) {
-  if (hit.segments.length === 0) return null;
-  return (
-    <span className="block text-xs text-muted-foreground">
-      {hit.segments.map((seg, i) =>
-        seg.highlight ? (
-          <mark key={i} className="bg-amber-200 dark:bg-amber-800/60">
-            {seg.text}
-          </mark>
-        ) : (
-          <span key={i}>{seg.text}</span>
-        ),
-      )}
-    </span>
   );
 }
 
@@ -344,7 +328,10 @@ export function FlipdeskSearchPage() {
                         {hit.typeLabel}
                       </Badge>
                     </span>
-                    <Snippet hit={hit} />
+                    <SnippetText
+                      segments={hit.segments}
+                      className="block text-xs text-muted-foreground"
+                    />
                   </span>
                   <CornerDownLeft
                     className={`mt-1 h-3 w-3 flex-shrink-0 text-muted-foreground group-hover:opacity-100 ${

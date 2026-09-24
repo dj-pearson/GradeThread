@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -11,7 +11,7 @@ import {
   ListChecks,
   Table2,
   Scale,
-  Clock,
+  ArrowUpDown,
   FileSearch,
   LayoutDashboard,
   FileText,
@@ -41,6 +41,7 @@ import type { ItemListRow } from "@/lib/item-list-columns";
 import { itemsListQueryKey } from "@/hooks/use-items-full";
 import { useFlipdeskSearch } from "@/hooks/use-flipdesk-search";
 import type { MappedHit } from "@/lib/flipdesk-search";
+import { SnippetText } from "@/components/flipdesk/snippet-text";
 import {
   PaletteShell,
   type PaletteSection,
@@ -75,7 +76,9 @@ type Entry =
   | { kind: "source"; id: string; source: SourceRow }
   | { kind: "submission"; id: string; sub: SubmissionLite }
   | { kind: "deep"; id: string; hit: MappedHit }
-  | { kind: "recentsearch"; id: string; term: string };
+  | { kind: "recentsearch"; id: string; term: string }
+  // F4: hand the term to the full Search page.
+  | { kind: "seeall"; id: string; term: string };
 
 interface Section {
   title: string;
@@ -83,22 +86,6 @@ interface Section {
 }
 
 const PER_SECTION = 8;
-
-// Render a ts_headline snippet: highlight <mark> spans, render the rest as
-// plain React text (so any raw HTML in user content is escaped, not executed).
-function renderSnippet(snippet: string): ReactNode {
-  const parts = snippet.split(/(<mark>.*?<\/mark>)/g);
-  return parts.map((p, i) => {
-    if (p.startsWith("<mark>") && p.endsWith("</mark>")) {
-      return (
-        <mark key={i} className="bg-amber-200 dark:bg-amber-800/60">
-          {p.slice(6, -7)}
-        </mark>
-      );
-    }
-    return <span key={i}>{p}</span>;
-  });
-}
 
 // US-2863: the palette was reachable only by Cmd/Ctrl-K or "/". A mouse user,
 // or anyone who had not opened the shortcuts sheet, would never find the
@@ -114,6 +101,11 @@ const PALETTE_EXAMPLES = [
   "a SKU or an eBay item number",
   "an action, like \"new item\" or \"connect eBay\"",
 ];
+
+// The platform shortcut, decided once, as the header does it. A wrong glyph is
+// cosmetic.
+const IS_MAC =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 export function CommandPalette() {
   const navigate = useNavigate();
@@ -169,6 +161,8 @@ export function CommandPalette() {
     if (open) {
       setQuery("");
       setSubmissionHits([]);
+      // F5: a failure from a previous open is not news about this one.
+      setSubsFailed(false);
       // US-1053: refresh recent searches each time the palette opens.
       // US-2517: shared with the Search page rather than duplicated.
       void fetchRecentSearches(8).then(setRecentSearches);
@@ -182,6 +176,8 @@ export function CommandPalette() {
     const q = query.trim();
     if (q.length < 2) {
       setSubmissionHits([]);
+      // F5: a search that never ran cannot have failed.
+      setSubsFailed(false);
       return;
     }
     // US-3223: clearTimeout cancels a PENDING search, not one already in
@@ -245,13 +241,18 @@ export function CommandPalette() {
   // and the palette's Recent section — which exists precisely for the empty
   // search box — silently had nothing to show. Typed searches still worked,
   // via the FTS RPC below, which is why it read as fine.
+  //
+  // F5: these used to be read once per ownerId, so a palette mounted before the
+  // list loaded kept empty Items and Recent sections for the whole session.
+  // Reading on each open picks up whatever the cache holds by then.
   const items = useMemo(
-    () => qc.getQueryData<ItemListRow[]>(itemsListQueryKey(ownerId)) ?? [],
-    [qc, ownerId],
+    () =>
+      open ? (qc.getQueryData<ItemListRow[]>(itemsListQueryKey(ownerId)) ?? []) : [],
+    [qc, ownerId, open],
   );
   const sources = useMemo(
-    () => qc.getQueryData<SourceRow[]>(["sources", user?.id]) ?? [],
-    [qc, user?.id],
+    () => (open ? (qc.getQueryData<SourceRow[]>(["sources", user?.id]) ?? []) : []),
+    [qc, user?.id, open],
   );
 
   const go = (to: string) => {
@@ -506,24 +507,18 @@ export function CommandPalette() {
           )
       : [];
 
-    // Deep matches from the FTS RPC — exclude items already in the Items
-    // section so we don't show duplicates.
+    // Deep matches from the FTS RPC. F4: only an ITEM hit can duplicate a row
+    // in the Items section. A listing or sale hit whose parent item also
+    // matched is a different thing (the buyer, the eBay listing) and stays.
     const shownItemIds = new Set(
       matchItems.map((e) => (e.kind === "item" ? e.item.id : "")),
     );
     const deepEntries: Entry[] = deepHits
       .filter(
-        (h) =>
-          !(h.inventory_item_id && shownItemIds.has(h.inventory_item_id)),
+        (h) => !(h.result_type === "item" && shownItemIds.has(h.result_id)),
       )
-      .map(
-        (h) =>
-          ({
-            kind: "deep",
-            id: `${h.result_type}-${h.result_id}`,
-            hit: h,
-          }) as Entry,
-      );
+      .slice(0, PER_SECTION)
+      .map((h) => ({ kind: "deep", id: h.key, hit: h }) as Entry);
 
     const out: Section[] = [];
     if (recentEntries.length > 0)
@@ -540,6 +535,14 @@ export function CommandPalette() {
       out.push({ title: "Sources", entries: matchSources });
     if (deepEntries.length > 0)
       out.push({ title: "Full-text matches", entries: deepEntries });
+    // F4: the palette shows the top few; the full page shows the rest. Only
+    // under real results, so "No matches." and the outage copy still show.
+    if (q.length >= 2 && out.length > 0) {
+      out.push({
+        title: "Search",
+        entries: [{ kind: "seeall", id: "see-all", term: query.trim() }],
+      });
+    }
     return out;
   }, [
     query,
@@ -560,20 +563,27 @@ export function CommandPalette() {
       inputRef.current?.focus();
       return;
     }
-    // Persist the term the user acted on so it becomes a future suggestion.
-    recordSearch(query);
+    // F4: an action picked by typing "set" is not a search, so only the
+    // branches that open a search result record the term.
     if (entry.kind === "action") {
       entry.run();
     } else if (entry.kind === "item") {
+      recordSearch(query);
       setOpen(false);
-      navigate(`/dashboard/flipdesk/items?focus=${entry.item.id}`);
+      navigate(`/dashboard/flipdesk/items/${entry.item.id}`);
     } else if (entry.kind === "submission") {
+      recordSearch(query);
       setOpen(false);
       navigate(`/dashboard/submissions/${entry.sub.id}`);
     } else if (entry.kind === "deep") {
+      recordSearch(query);
       setOpen(false);
-      const itemId = entry.hit.inventory_item_id ?? entry.hit.result_id;
-      navigate(`/dashboard/flipdesk/items?focus=${itemId}`);
+      // F4: the item itself (or its listing/sale tab), not /items?focus=,
+      // which redirected to an unfiltered Inventory that never read `focus`.
+      navigate(entry.hit.link);
+    } else if (entry.kind === "seeall") {
+      setOpen(false);
+      navigate(`/dashboard/flipdesk/search?q=${encodeURIComponent(entry.term)}`);
     } else {
       setOpen(false);
       navigate("/dashboard/flipdesk/sourcing?tab=sources");
@@ -642,10 +652,10 @@ export function CommandPalette() {
       footer={
         <div className="flex items-center gap-3 border-t px-3 py-2 text-[10px] text-muted-foreground">
           <span className="flex items-center gap-1">
-            <Clock className="h-3 w-3" /> ↑↓ navigate
+            <ArrowUpDown className="h-3 w-3" aria-hidden="true" /> navigate
           </span>
-          <span>↵ select</span>
-          <span className="ml-auto">⌘K to toggle</span>
+          <span>Enter to select</span>
+          <span className="ml-auto">{IS_MAC ? "⌘K" : "Ctrl K"} to toggle</span>
         </div>
       }
       renderEntry={(entry) => (
@@ -698,15 +708,24 @@ export function CommandPalette() {
               <FileSearch className="mt-0.5 h-4 w-4 flex-shrink-0 self-start text-muted-foreground" />
               <span className="flex-1 overflow-hidden">
                 <span className="block truncate font-medium">
-                  {entry.hit.title}
+                  {entry.hit.title || "Untitled"}
                 </span>
-                <span className="block truncate text-[11px] text-muted-foreground">
-                  {renderSnippet(entry.hit.snippet)}
-                </span>
+                <SnippetText
+                  segments={entry.hit.segments}
+                  className="block truncate text-[11px] text-muted-foreground"
+                />
               </span>
               <Badge variant="outline" className="text-[10px]">
-                {entry.hit.result_type}
+                {entry.hit.typeLabel}
               </Badge>
+            </>
+          )}
+          {entry.kind === "seeall" && (
+            <>
+              <Search className="h-4 w-4 text-muted-foreground" />
+              <span className="flex-1 truncate">
+                See all results for &quot;{entry.term}&quot;
+              </span>
             </>
           )}
         </>
