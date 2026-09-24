@@ -77,6 +77,8 @@ export function buildIntakeInsert(args: {
   /** Garment values the AI extractor returned, if any. */
   aiGarment: { garment_type: string | null; garment_category: string | null };
   measurements: Record<string, number | string>;
+  /** SNAP-13: a target price in dollars carried from a snap's median comp. */
+  targetPrice?: number | null;
   now?: Date;
 }): InventoryItemInsert {
   const { form, ownerId, sourceId, aiFields, aiMeta, aiGarment, measurements } = args;
@@ -121,6 +123,9 @@ export function buildIntakeInsert(args: {
     description: trimOrNull(form.description),
     condition_notes: trimOrNull(form.condition_notes),
     status: form.status,
+    ...(args.targetPrice != null && Number.isFinite(args.targetPrice) && args.targetPrice > 0
+      ? { target_price: args.targetPrice }
+      : {}),
     // US-2546 AC4: captured at intake rather than on a later visit to prep.
     measurements:
       Object.keys(measurements).length > 0 ? measurements : undefined,

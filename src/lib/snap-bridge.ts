@@ -62,3 +62,58 @@ export function inputsChangedSince(
   return (clean(submitted.brand) ?? "") !== (clean(brand) ?? "") ||
     (clean(submitted.keyword) ?? "") !== (clean(keyword) ?? "");
 }
+
+// ── SNAP-13: snap to a prefilled FlipDesk intake ─────────────────────────────
+//
+// "List it with FlipDesk" was a bare link that dropped everything the snap had
+// learned. This carries it to the intake form, which saves through its own
+// owner-scoped insert and uploads the photo through the shared item-photo
+// core, so there is no new write path.
+
+/** Navigation state for /dashboard/flipdesk/intake, under `snap`. */
+export interface SnapIntakeBridgeState {
+  brand?: string;
+  title?: string;
+  garmentType?: string;
+  garmentCategory?: string;
+  /** The median comp, when the snap priced the item. */
+  targetPriceCents?: number;
+  /** A plain-language record of the estimate, for the item's internal notes. */
+  conditionNote: string;
+  /** Snap confidence, 0..1, so the intake can mark the note as AI-derived. */
+  confidence: number;
+  imageDataUri: string | null;
+  /** What the seller said they would pay, when they entered it (SNAP-14). */
+  paidCents?: number;
+}
+
+function titleCase(v: string): string {
+  return v
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export function buildIntakeBridge(
+  result: SnapResult,
+  source: SnapResultSource,
+  paidCents?: number | null,
+): SnapIntakeBridgeState {
+  const base = buildSnapBridge(result, source);
+  const g = result.grade;
+  // The category ("jacket") names the garment better than the type ("outerwear").
+  const kind = base.garmentCategory ?? base.garmentType;
+  const typeWord = kind ? kind.replace(/_/g, " ") : undefined;
+  const title = base.title ?? ([base.brand, typeWord].filter(Boolean).join(" ") || undefined);
+  const median = result.value?.sufficient ? result.value.medianCents : null;
+  return {
+    brand: base.brand,
+    title,
+    garmentType: base.garmentType,
+    garmentCategory: base.garmentCategory,
+    ...(median != null && median > 0 ? { targetPriceCents: median } : {}),
+    conditionNote: `Snap estimate ${g.overall_score.toFixed(1)} (${titleCase(g.grade_tier)}), ${Math.round(g.confidence * 100)}% confidence`,
+    confidence: g.confidence,
+    imageDataUri: base.imageDataUri ?? null,
+    ...(paidCents != null && Number.isFinite(paidCents) && paidCents > 0 ? { paidCents } : {}),
+  };
+}

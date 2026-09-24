@@ -136,4 +136,11 @@ describe("snap page source (SNAP-10, SNAP-12)", () => {
     expect(src).toContain('{snap.isSuccess && <PwaInstallBanner variant="snap" />}');
     expect(src.indexOf("<PwaInstallBanner")).toBeGreaterThan(src.indexOf("Your estimate"));
   });
+
+  it("turns a yes into a FlipDesk intake with the snap carried over (SNAP-13)", () => {
+    expect(src).toContain('navigate("/dashboard/flipdesk/intake", { state: { snap: buildIntakeBridge(');
+    expect(src).toContain("Add to inventory");
+    expect(src).toContain("Bought it");
+    expect(src).not.toContain('<Link to="/dashboard/flipdesk">');
+  });
 });

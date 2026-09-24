@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  buildIntakeBridge,
   buildSnapBridge,
   inputsChangedSince,
   sourceHadCompQuery,
@@ -13,7 +14,7 @@ import type { SnapHistoryEntry } from "@/lib/snap-history";
 const RESULT: SnapResult = {
   grade: { overall_score: 7.4, grade_tier: "very_good", confidence: 0.82, factor_scores: {} },
   value: null,
-  garment: { type: "jacket", category: "outerwear" },
+  garment: { type: "outerwear", category: "jacket" },
   estimate: true,
   disclaimer: "d",
 };
@@ -39,8 +40,8 @@ describe("buildSnapBridge (SNAP-04)", () => {
       imageDataUri: "data:image/jpeg;base64,AAA",
       brand: "Arc'teryx",
       title: undefined,
-      garmentType: "jacket",
-      garmentCategory: "outerwear",
+      garmentType: "outerwear",
+      garmentCategory: "jacket",
     });
   });
 
@@ -76,5 +77,47 @@ describe("buildSnapBridge (SNAP-04)", () => {
     expect(src).toContain("buildSnapBridge(result, source)");
     expect(src).toContain("state={{ snap: bridge }");
     expect(src).not.toMatch(/snap: \{\s*imageDataUri: dataUri/);
+  });
+});
+
+describe("buildIntakeBridge (SNAP-13)", () => {
+  const priced: SnapResult = {
+    ...RESULT,
+    value: { lowCents: 1800, medianCents: 3200, highCents: 6400, sampleSize: 12, confidence: 0.6, sufficient: true, currency: "USD" },
+  };
+
+  it("carries the photo, brand, type, target price and a condition note", () => {
+    const src: SnapResultSource = { kind: "live", dataUri: "data:image/jpeg;base64,AAA", brand: "Patagonia", keyword: "Nano Puff", };
+    expect(buildIntakeBridge(priced, src, 800)).toEqual({
+      brand: "Patagonia",
+      title: "Nano Puff",
+      garmentType: "outerwear",
+      garmentCategory: "jacket",
+      targetPriceCents: 3200,
+      conditionNote: "Snap estimate 7.4 (Very Good), 82% confidence",
+      confidence: 0.82,
+      imageDataUri: "data:image/jpeg;base64,AAA",
+      paidCents: 800,
+    });
+  });
+
+  it("without a value there is no target price, and the title falls back to brand + type", () => {
+    const src: SnapResultSource = { kind: "live", dataUri: null, brand: "Patagonia", keyword: "" };
+    const b = buildIntakeBridge(RESULT, src);
+    expect(b.targetPriceCents).toBeUndefined();
+    expect(b.paidCents).toBeUndefined();
+    expect(b.title).toBe("Patagonia jacket");
+  });
+
+  it("a revisit carries no photo", () => {
+    const b = buildIntakeBridge(priced, { kind: "revisit", entry: entry() });
+    expect(b.imageDataUri).toBeNull();
+    expect(b.brand).toBe("Patagonia");
+    expect(b.targetPriceCents).toBe(3200);
+  });
+
+  it("an insufficient value is not a target price", () => {
+    const thin: SnapResult = { ...priced, value: { ...priced.value!, sufficient: false } };
+    expect(buildIntakeBridge(thin, { kind: "revisit", entry: entry() }).targetPriceCents).toBeUndefined();
   });
 });

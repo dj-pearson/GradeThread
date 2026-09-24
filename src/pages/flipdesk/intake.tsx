@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from "react";
-import { useNavigate, useSearchParams, Link } from "react-router";
+import { useLocation, useNavigate, useSearchParams, Link } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
@@ -95,6 +95,8 @@ import type { ItemStatus, ItemCategory } from "@/types/database";
 import { todayLocalDate } from "@/lib/local-date";
 import { garmentDescriptorFor } from "@/lib/measurement-templates";
 import { PageHelp } from "@/components/help/page-help";
+import { dataUriToFile } from "@/lib/image-utils";
+import type { SnapIntakeBridgeState } from "@/lib/snap-bridge";
 
 // Form fields the AI extractor can fill.
 const AI_FILLABLE_FIELDS = [
@@ -146,10 +148,61 @@ export function FlipdeskIntakePage() {
   const skuSequence = useSkuSequence(workspaceOwnerId ?? undefined);
   const { data: sources = [] } = useSources();
   const [params] = useSearchParams();
-  const [form, setForm] = useState<FormState>(INITIAL);
+  const location = useLocation();
+  // SNAP-13: a snap arrives as navigation state. Latched once, then removed
+  // from history below, so Back or a reload does not re-seed it.
+  const [snapIntake] = useState(
+    () => (location.state as { snap?: SnapIntakeBridgeState } | null)?.snap ?? null,
+  );
+  useEffect(() => {
+    if (!snapIntake) return;
+    navigate(location.pathname + location.search, { replace: true, state: null });
+    // Mount-once: the latched state above is what the form works from.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const [snapCarry, setSnapCarry] = useState(() =>
+    snapIntake
+      ? {
+          targetPrice:
+            snapIntake.targetPriceCents != null ? snapIntake.targetPriceCents / 100 : null,
+          garment: {
+            garment_type: snapIntake.garmentType ?? null,
+            garment_category: snapIntake.garmentCategory ?? null,
+          },
+        }
+      : null,
+  );
+  const [form, setForm] = useState<FormState>(() =>
+    snapIntake
+      ? {
+          ...INITIAL,
+          title: snapIntake.title ?? "",
+          brand: snapIntake.brand ?? "",
+          condition_notes: snapIntake.conditionNote ?? "",
+          purchase_price:
+            snapIntake.paidCents != null ? (snapIntake.paidCents / 100).toFixed(2) : "",
+          // Seen on the rack and bought: sourced, not yet cataloged.
+          status: "sourced",
+        }
+      : INITIAL,
+  );
   const [saving, setSaving] = useState(false);
   // US-2546 AC2: photos staged in memory until the item row exists.
-  const [stagedPhotos, setStagedPhotos] = useState<StagedPhoto[]>([]);
+  // SNAP-13: the snap photo is staged as the Front, so it goes up through the
+  // same uploadItemPhoto path after the owner-scoped insert.
+  const [stagedPhotos, setStagedPhotos] = useState<StagedPhoto[]>(() => {
+    const file = snapIntake?.imageDataUri
+      ? dataUriToFile(snapIntake.imageDataUri, "snap-front.jpg")
+      : null;
+    if (!file) return [];
+    let previewUrl = "";
+    try {
+      previewUrl = URL.createObjectURL(file);
+    } catch {
+      /* no preview; the upload still works */
+    }
+    return [{ id: "snap-front", file, previewUrl, photoType: "front", photoRole: null }];
+  });
   // US-9204: when the first photo was staged. With the file's own capture time
   // it is the start of "seconds from first photo to Approve" on the review
   // screen. Cleared with the photos, so a batch does not inherit its first item's.
@@ -176,10 +229,19 @@ export function FlipdeskIntakePage() {
   const aiExtractRuns = useLatestRun();
   const [aiResult, setAiResult] = useState<AiExtractResponse | null>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [aiFields, setAiFields] = useState<Set<string>>(new Set());
+  // SNAP-13: the snap's condition note is AI-derived and marked as such.
+  const [aiFields, setAiFields] = useState<Set<string>>(
+    () => new Set(snapIntake?.conditionNote ? ["condition_notes"] : []),
+  );
   const [aiMeta, setAiMeta] = useState<
     Record<string, { source: string; confidence: number }>
-  >({});
+  >(() => {
+    const meta: Record<string, { source: string; confidence: number }> = {};
+    if (snapIntake?.conditionNote) {
+      meta.condition_notes = { source: "snap", confidence: snapIntake.confidence ?? 0 };
+    }
+    return meta;
+  });
 
   // US-598: barcode/UPC scan-to-autofill.
   const productLookup = useProductLookup();
@@ -380,10 +442,15 @@ export function FlipdeskIntakePage() {
         aiFields,
         aiMeta,
         aiGarment: {
-          garment_type: aiResult?.suggestions?.garment_type?.value ?? null,
-          garment_category: aiResult?.suggestions?.garment_category?.value ?? null,
+          garment_type:
+            aiResult?.suggestions?.garment_type?.value ?? snapCarry?.garment.garment_type ?? null,
+          garment_category:
+            aiResult?.suggestions?.garment_category?.value ??
+            snapCarry?.garment.garment_category ??
+            null,
         },
         measurements,
+        targetPrice: snapCarry?.targetPrice ?? null,
       });
 
       // Offline: persist to the IndexedDB queue and flush on reconnect.
@@ -415,6 +482,7 @@ export function FlipdeskIntakePage() {
         setAiResult(null);
         setStagedPhotos([]);
         setMeasurements({});
+        setSnapCarry(null);
         return;
       }
 
@@ -494,6 +562,7 @@ export function FlipdeskIntakePage() {
         setAiResult(null);
         setStagedPhotos([]);
         setMeasurements({});
+        setSnapCarry(null);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -581,6 +650,19 @@ export function FlipdeskIntakePage() {
           </div>
         </div>
       ) : null}
+
+      {snapCarry && (
+        <div className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+          <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" aria-hidden="true" />
+          <p>
+            Filled in from your snap
+            {snapCarry.targetPrice != null
+              ? `, with a target price of $${snapCarry.targetPrice.toFixed(2)} from the median sold comp`
+              : ""}
+            . Check the details, then save.
+          </p>
+        </div>
+      )}
 
       {/* PWA install prompt — surfaces once when the app is installable. */}
       <PwaInstallBanner />

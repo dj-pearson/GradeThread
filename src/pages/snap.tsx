@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -52,6 +52,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { PageHelp } from "@/components/help/page-help";
 import {
+  buildIntakeBridge,
   buildSnapBridge,
   inputsChangedSince,
   sourceHadCompQuery,
@@ -73,7 +74,7 @@ function tierLabel(tier: string): string {
 function historyLabel(entry: SnapHistoryEntry): string {
   const typed = [entry.brand, entry.keyword].filter(Boolean).join(" ");
   if (typed) return typed;
-  const type = entry.result.garment?.type;
+  const type = entry.result.garment?.category ?? entry.result.garment?.type;
   return type ? `Unlabeled ${type.replace(/_/g, " ")}` : "Unlabeled snap";
 }
 
@@ -113,6 +114,7 @@ function readAsDataUri(blob: Blob): Promise<string> {
 }
 
 export function SnapToValuePage() {
+  const navigate = useNavigate();
   const [dataUri, setDataUri] = useState<string | null>(null);
   const [brand, setBrand] = useState("");
   const [keyword, setKeyword] = useState("");
@@ -306,6 +308,12 @@ export function SnapToValuePage() {
   }
 
   const bridge = result && source ? buildSnapBridge(result, source) : null;
+
+  // SNAP-13: a "yes" becomes a sourced FlipDesk item with the photo, brand,
+  // grade note and target price carried over.
+  function addToInventory(r: SnapResult, from: SnapResultSource) {
+    navigate("/dashboard/flipdesk/intake", { state: { snap: buildIntakeBridge(r, from) } });
+  }
   const value = result ? valueDisplay(result.value) : null;
   const lowConfidence = result ? isLowConfidence(result.grade) : false;
   const factors = result ? weakestFirst(result.grade.factor_scores) : [];
@@ -586,10 +594,8 @@ export function SnapToValuePage() {
                   {bridge.imageDataUri ? "Upgrade to certified grade" : "Start a certified grade"}
                 </Link>
               </Button>
-              <Button asChild variant="outline">
-                <Link to="/dashboard/flipdesk">
-                  <Store className="mr-2 h-4 w-4" aria-hidden="true" /> List it with FlipDesk
-                </Link>
+              <Button variant="outline" onClick={() => addToInventory(result, source)}>
+                <Store className="mr-2 h-4 w-4" aria-hidden="true" /> Add to inventory
               </Button>
             </div>
           </CardContent>
@@ -652,6 +658,13 @@ export function SnapToValuePage() {
                         {historyWhen(entry.at)}
                       </span>
                     </button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => addToInventory(entry.result, { kind: "revisit", entry })}
+                    >
+                      Bought it
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"
