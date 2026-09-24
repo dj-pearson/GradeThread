@@ -4337,6 +4337,9 @@ Deno.test({
     });
     const filedBody = await filed.json();
     assertEquals(filed.status, 200, `member filing: ${JSON.stringify(filedBody)}`);
+    // The route sends the alert without awaiting it, so give its claim a
+    // moment to land before asking again.
+    await new Promise((r) => setTimeout(r, 2000));
     const again = await fetch(`${BASE}/api/notifications/dispute-filed`, {
       method: "POST",
       headers,

@@ -2167,8 +2167,10 @@ gradeRoutes.post("/dispute", async (c) => {
   }
 
   // SUB-05: alert the admins from here, keyed on the OWNER the dispute was
-  // filed under. Never blocks or fails the filing.
-  await notifyAdminsDisputeFiled((dispute as { id: string }).id, ownerId, "grade").catch(
+  // filed under. Not awaited: the alert sends email, and a slow mail server
+  // must not hold up the seller's filing. The admin_alerted_at claim inside
+  // still makes it exactly one alert.
+  void notifyAdminsDisputeFiled((dispute as { id: string }).id, ownerId, "grade").catch(
     (err) => console.error("[grade.dispute] admin alert failed:", err),
   );
 
@@ -2288,12 +2290,16 @@ gradeRoutes.post("/authenticity-appeal", async (c) => {
   }
 
   // SUB-05: every appeal hides a public verdict until an admin acts, and until
-  // now nothing told an admin one existed.
-  await notifyAdminsDisputeFiled(
-    (appeal as { id: string }).id,
-    ownerId,
-    "authenticity",
-  ).catch((err) => console.error("[grade.authenticity_appeal] admin alert failed:", err));
+  // now nothing told an admin one existed. Sent after the hide below (the
+  // alert says the verdict is hidden) and not awaited, so a slow mail server
+  // cannot hold up the seller's response. Sent on both branches: an appeal
+  // whose hide failed still needs an admin.
+  const alertAdmins = () =>
+    void notifyAdminsDisputeFiled(
+      (appeal as { id: string }).id,
+      ownerId,
+      "authenticity",
+    ).catch((err) => console.error("[grade.authenticity_appeal] admin alert failed:", err));
 
   // Hide the verdict, then RESEAL — integrity v4 covers the verdict, so a
   // change without a reseal leaves a hash over something no longer displayed
@@ -2317,8 +2323,10 @@ gradeRoutes.post("/authenticity-appeal", async (c) => {
     captureException(uErr, { route: "grade.authenticity_appeal.hide", userId });
     // The appeal is on record even if hiding failed — better a visible verdict
     // with a filed appeal than a silent appeal nobody will action.
+    alertAdmins();
     return c.json({ appeal_id: appeal.id, hidden: false }, 201);
   }
 
+  alertAdmins();
   return c.json({ appeal_id: (appeal as { id: string }).id, hidden: true }, 201);
 });
