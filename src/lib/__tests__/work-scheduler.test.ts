@@ -8,7 +8,7 @@ import {
   SCHEDULER_VERSION,
   type ScheduleInput,
 } from "@/lib/work-scheduler";
-import type { RankedTask } from "@/lib/work-ranker";
+import { rankedDurationOf, type RankedTask } from "@/lib/work-ranker";
 import type { CandidateAction } from "@/lib/work-candidates";
 import { estimateDuration, isUnestimated } from "@/lib/work-duration";
 
@@ -28,6 +28,8 @@ function ranked(over: Partial<RankedTask> & { key: string; action: CandidateActi
     conflict: null,
     meetsHourlyTarget: null,
     version: 1,
+    // WMT-04: the scheduler reads the ranker's resolved duration.
+    duration: rankedDurationOf(estimateDuration({ action: over.action })),
     ...over,
   } as RankedTask;
 }

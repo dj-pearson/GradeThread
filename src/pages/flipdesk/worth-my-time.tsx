@@ -40,7 +40,6 @@ import { ResultsPanel } from "@/components/flipdesk/results-panel";
 import { SUPPRESSION_STATE_COPY } from "@/lib/work-overrides-copy";
 import { isUrgentCandidate } from "@/lib/work-ranker";
 import { itemHref } from "@/lib/session-links";
-import { estimateDuration, isUnestimated } from "@/lib/work-duration";
 import type { RankedTask } from "@/lib/work-ranker";
 import type { WorkCandidate } from "@/lib/work-candidates";
 import { UNKNOWN_BIN_LABEL } from "@/lib/work-batching";
@@ -101,7 +100,10 @@ function WhyThisTask({
 }) {
   const explanation = explainTask({
     task,
-    duration: estimateDuration({ action: task.action }),
+    // WMT-04: the duration the ranker resolved, override and learned pace
+    // included, rather than a fresh default.
+    duration: task.duration ??
+      { unestimated: true, reason: "No duration model for this step." },
     // The same estimator call the plan made, from the snapshot's own numbers.
     // It is rebuilt rather than stored because ValueResult is not carried on
     // the ranked task; the INPUTS are the snapshot's, which is what AC5 asks.
@@ -439,8 +441,9 @@ export function WorthMyTimePage() {
           <ol className="space-y-2">
             {scheduled.map((task, i) => {
               const r = rankedByKey.get(task.key);
-              const d = estimateDuration({ action: r?.action ?? "measure" });
-              const minutes = isUnestimated(d) ? null : d.typical;
+              // WMT-04: what the plan CHARGED for this row, so the rows plus
+              // their setup add up to the headline.
+              const minutes = task.activeMinutes;
               const low = money(r?.conservativeCents ?? null);
               const bin = plan.candidates.find((c) => c.itemId === task.itemId)?.bin;
               return (
@@ -459,7 +462,10 @@ export function WorthMyTimePage() {
                     <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1">
                         <Clock className="h-3 w-3" />
-                        about {minutes ?? "?"} min
+                        about {minutes} min
+                        {task.overheadMinutes > 0
+                          ? ` +${task.overheadMinutes} to set up`
+                          : ""}
                       </span>
                       <span className="inline-flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
@@ -492,6 +498,7 @@ export function WorthMyTimePage() {
                         itemId={r.itemId}
                         actionKey={r.action}
                         estimateMinutes={minutes}
+                        chargedMinutes={minutes}
                         book={plan.book}
                         remainingBudgetMinutes={Math.max(
                           0,

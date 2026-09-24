@@ -30,7 +30,12 @@
 // because missing it costs a defect rather than a margin.
 
 import type { CandidateAction, WorkCandidate, WorkContext, WorkTool } from "@/lib/work-candidates";
-import { estimateDuration, isUnestimated, type DurationResult } from "@/lib/work-duration";
+import {
+  estimateDuration,
+  isUnestimated,
+  type DurationEstimate,
+  type DurationResult,
+} from "@/lib/work-duration";
 import { isComplete, type ValueResult } from "@/lib/work-value";
 
 /** Bumped when the ORDERING changes, so two plans can be told apart. */
@@ -66,6 +71,27 @@ export interface RankConflict {
   message: string;
 }
 
+/**
+ * The ONE duration resolved for a task (WMT-04).
+ *
+ * Carried on the ranked task so the scheduler, the rows, the header, "Why
+ * this one?" and the session snapshot all read the same minutes the ranker
+ * ranked on. Before this each of them called estimateDuration({action}) with
+ * no override and no learned value, so a seller's corrected time never
+ * showed and the ranker's cannot_fit check used a different cost from the
+ * scheduler's. Null when nobody has estimated the step.
+ */
+export interface RankedDuration extends DurationEstimate {
+  /** How many of the seller's own jobs a learned figure came from. */
+  sampleCount: number | null;
+}
+
+/** A DurationResult as the ranked task carries it. */
+export function rankedDurationOf(d: DurationResult): RankedDuration | null {
+  if (isUnestimated(d)) return null;
+  return { ...d, sampleCount: d.learnedFrom?.sampleCount ?? null };
+}
+
 export interface RankedTask {
   key: string;
   itemId: string;
@@ -78,6 +104,8 @@ export interface RankedTask {
   score: number | null;
   /** Active minutes for everything this item still needs to be sale-ready. */
   chainMinutes: number;
+  /** This task's own resolved minutes (WMT-04). Null when unestimated. */
+  duration: RankedDuration | null;
   /** The conservative (low) end of the contribution, or null. */
   conservativeCents: number | null;
   dueAt: string | null;
@@ -313,6 +341,7 @@ export function rankWork(input: RankInput): RankedTask[] {
       tier,
       score,
       chainMinutes: chain ?? 0,
+      duration: rankedDurationOf(own),
       conservativeCents,
       dueAt: task.candidate.shipBy.at,
       prerequisiteKeys: task.candidate.prerequisiteKeys,

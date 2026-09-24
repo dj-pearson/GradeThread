@@ -8,7 +8,8 @@ import {
   type BatchInput,
 } from "@/lib/work-batching";
 import { schedulePlan } from "@/lib/work-scheduler";
-import type { RankedTask } from "@/lib/work-ranker";
+import { rankedDurationOf, type RankedTask } from "@/lib/work-ranker";
+import { estimateDuration } from "@/lib/work-duration";
 import type { CandidateAction } from "@/lib/work-candidates";
 
 // Worth My Time, R1 08/12 (US-3173).
@@ -43,6 +44,8 @@ function ranked(over: Partial<RankedTask> & { key: string; action: CandidateActi
     conflict: null,
     meetsHourlyTarget: null,
     version: 1,
+    // WMT-04: the scheduler reads the ranker's resolved duration.
+    duration: rankedDurationOf(estimateDuration({ action: over.action })),
     ...over,
   } as RankedTask;
 }

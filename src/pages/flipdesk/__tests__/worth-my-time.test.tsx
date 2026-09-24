@@ -99,6 +99,11 @@ function plan(over: Record<string, unknown> = {}) {
         tier: "valued_work",
         score: 100,
         chainMinutes: 5,
+        // WMT-04: the ranker's resolved duration, which every surface reads.
+        duration: {
+          low: 3, typical: 5, high: 9, family: "measure", setupMinutes: 2,
+          unattendedMinutes: 0, source: "default", version: 1, sampleCount: null,
+        },
         conservativeCents: 4800,
         dueAt: null,
         prerequisiteKeys: [],
@@ -412,9 +417,34 @@ describe("what the plan says (AC3)", () => {
       .find((li) => li.textContent?.includes("Carhartt Detroit jacket"))!;
     expect(row).toBeTruthy();
     expect(row.textContent).toContain("Measure");
-    expect(row.textContent).toContain("about 5 min");
+    // WMT-04: what the plan CHARGED, with the setup it paid, so the rows add
+    // up to the headline.
+    expect(row.textContent).toContain("about 9 min +2 to set up");
     expect(row.textContent).toContain("A-14");
     expect(row.textContent).toContain("Closest to being ready to sell");
+  });
+
+  it("WMT-04: the rows plus their setup add up to the headline", async () => {
+    buildMock.mockResolvedValue(plan({
+      plan: {
+        ...plan().plan,
+        tasks: [
+          { key: "item-1:measure", itemId: "item-1", family: "measure", activeMinutes: 9, overheadMinutes: 2, startsAtMinute: 0 },
+          { key: "item-2:measure", itemId: "item-2", family: "measure", activeMinutes: 9, overheadMinutes: 0, startsAtMinute: 11 },
+        ],
+        plannedMinutes: 20,
+      },
+    }));
+    renderPage();
+    await click("30 minutes");
+    const rows = Array.from(document.querySelectorAll("ol > li"));
+    const sum = rows.reduce((s, li) => {
+      const t = li.textContent ?? "";
+      const m = /about (\d+) min(?: \+(\d+) to set up)?/.exec(t);
+      return s + Number(m?.[1] ?? 0) + Number(m?.[2] ?? 0);
+    }, 0);
+    expect(sum).toBe(20);
+    expect(document.getElementById("wmt-plan")!.textContent).toContain("about 20 minutes");
   });
 
   // US-3448: this asserts the SHAPE of the link, and it once passed against a

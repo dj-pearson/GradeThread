@@ -24,13 +24,7 @@
 // what the ranker just decided. Bounded work is a side effect of the right
 // behaviour rather than a performance compromise.
 
-import {
-  setupCostFor,
-  switchCost,
-  estimateDuration,
-  isUnestimated,
-  type TaskFamily,
-} from "@/lib/work-duration";
+import { setupCostFor, switchCost, type TaskFamily } from "@/lib/work-duration";
 import type { RankedTask } from "@/lib/work-ranker";
 
 export const SCHEDULER_VERSION = 1;
@@ -131,14 +125,15 @@ export function proposeBudget(needs: number): number {
   return Math.min(MAX_BUDGET_MINUTES, Math.max(MIN_BUDGET_MINUTES, rounded));
 }
 
+// WMT-04: the ranker's resolved duration, never a fresh estimateDuration.
+// Re-estimating here dropped the seller's override and learned history, so
+// the plan fitted a different number from the one the ranker ranked on.
 function familyOf(task: RankedTask): TaskFamily | null {
-  const d = estimateDuration({ action: task.action });
-  return isUnestimated(d) ? null : d.family;
+  return task.duration?.family ?? null;
 }
 
 function highMinutesOf(task: RankedTask): number | null {
-  const d = estimateDuration({ action: task.action });
-  return isUnestimated(d) ? null : d.high;
+  return task.duration?.high ?? null;
 }
 
 /**

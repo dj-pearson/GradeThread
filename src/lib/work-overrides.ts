@@ -314,12 +314,20 @@ export function differenceFromOverride(args: {
   key: string;
   decision: MinutesDecision;
   remainingBudgetMinutes: number;
+  /**
+   * What the plan already charges this task (WMT-04). A task that is IN the
+   * plan has its minutes spent already, so only the growth has to fit in what
+   * is left: a 28-minute job in a 30-minute plan going to 29 still fits.
+   * Absent, the task is treated as not yet charged.
+   */
+  chargedMinutes?: number;
 }): PlanDifference {
+  const growth = args.decision.minutes - (args.chargedMinutes ?? 0);
   return {
     key: args.key,
     beforeMinutes: args.decision.withoutOverride,
     afterMinutes: args.decision.minutes,
-    nowDoesNotFit: args.decision.minutes > args.remainingBudgetMinutes,
+    nowDoesNotFit: growth > args.remainingBudgetMinutes,
   };
 }
 

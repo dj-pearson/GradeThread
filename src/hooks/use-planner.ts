@@ -925,14 +925,15 @@ export function planToSessionTasks(plan: PreparedPlan): Record<string, unknown>[
   return plan.plan.tasks.map((t) => {
     const r = ranked.get(t.key);
     const c = r ? candidates.get(r.itemId) : undefined;
-    const d = r ? estimateDuration({ action: r.action as never }) : null;
     return {
       inventory_item_id: r?.itemId ?? null,
       item_title: c?.itemTitle ?? null,
       action_key: r?.action ?? null,
       prerequisite_keys: r?.prerequisiteKeys ?? [],
       bin: c?.bin?.value ?? null,
-      estimate_minutes: d && !isUnestimated(d) ? d.typical : null,
+      // WMT-04: the ranker's resolved minutes, so a seller's correction or
+      // learned pace is what the session records, not the bare default.
+      estimate_minutes: r?.duration?.typical ?? null,
       estimate_value_cents: r?.conservativeCents ?? null,
       estimate_source: r?.tier ?? null,
     };
@@ -1010,8 +1011,3 @@ export function adviseOnCurrentItem(args: {
   });
 }
 
-/** Minutes a task is estimated at, for the row. Null when nobody knows. */
-export function taskMinutes(action: string): number | null {
-  const d = estimateDuration({ action: action as never });
-  return isUnestimated(d) ? null : d.typical;
-}

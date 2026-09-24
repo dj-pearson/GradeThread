@@ -112,6 +112,11 @@ export interface TaskCorrectionsProps {
   book: OverrideBook;
   /** Minutes still unspent in the plan on screen, for the fit warning. */
   remainingBudgetMinutes: number;
+  /**
+   * What the plan already charges this task (WMT-04), so the fit warning asks
+   * whether the GROWTH fits rather than the whole new number.
+   */
+  chargedMinutes?: number;
   /** The open session, so a skip applies to this sitting and no other. */
   sessionId?: string | null;
   /** True when the ranker calls this an urgent shipment (AC3). */
@@ -126,6 +131,7 @@ export function TaskCorrections({
   estimateMinutes,
   book,
   remainingBudgetMinutes,
+  chargedMinutes,
   sessionId,
   urgentShipping,
   onChanged,
@@ -169,6 +175,7 @@ export function TaskCorrections({
         defaultMinutes: estimateMinutes,
       }),
       remainingBudgetMinutes,
+      chargedMinutes,
     })
     : null;
 
