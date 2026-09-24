@@ -75,6 +75,34 @@ function Errors({ codes }: { codes: readonly string[] }) {
   );
 }
 
+/**
+ * The stored set-asides of one kind that are parking this task: item-wide or
+ * this step, and for a skip, this session only. Distinct by the two keys the
+ * reset route narrows on.
+ */
+function parkingRows(
+  book: OverrideBook,
+  args: {
+    itemId: string;
+    actionKey: string;
+    sessionId?: string | null;
+    kind: SuppressionKind;
+  },
+): Array<{ actionKey: string | null; sessionId: string | null }> {
+  const seen = new Set<string>();
+  const out: Array<{ actionKey: string | null; sessionId: string | null }> = [];
+  for (const s of book.suppressions) {
+    if (s.inventoryItemId !== args.itemId || s.kind !== args.kind) continue;
+    if (s.actionKey !== null && s.actionKey !== args.actionKey) continue;
+    if (s.kind === "skip_session" && s.sessionId !== (args.sessionId ?? null)) continue;
+    const key = `${s.actionKey ?? ""}|${s.sessionId ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ actionKey: s.actionKey, sessionId: s.sessionId });
+  }
+  return out;
+}
+
 export interface TaskCorrectionsProps {
   itemId: string;
   actionKey: string;
@@ -210,8 +238,25 @@ export function TaskCorrections({
   }
 
   async function putBack() {
+    if (!parked.suppressed) return;
+    const kind = parked.reason;
+    // WMT-02: undo the set-aside this panel SHOWS and no other. Each row that
+    // is parking this task under that kind is reset by its own action_key and
+    // session_id, so a skip on this step no longer takes the item-wide
+    // dismiss or another step's snooze with it.
+    const rows = parkingRows(book, { itemId, actionKey, sessionId, kind });
+    const targets = rows.length > 0
+      ? rows
+      : [{ actionKey: kind === "dismiss" ? null : actionKey, sessionId: null }];
     try {
-      await unsuppress.mutateAsync({ inventoryItemId: itemId });
+      for (const r of targets) {
+        await unsuppress.mutateAsync({
+          inventoryItemId: itemId,
+          kind,
+          actionKey: r.actionKey,
+          sessionId: r.sessionId,
+        });
+      }
       toast.success("Back on the list.");
       onChanged?.();
     } catch (err) {

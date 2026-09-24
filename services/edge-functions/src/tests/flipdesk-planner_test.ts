@@ -12,10 +12,16 @@
 
 import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
+import { Hono } from "hono";
+import { installFakePostgrest } from "./_fake-postgrest.ts";
 import {
+  flipdeskPlannerRoutes,
+  MAX_OVERRIDE_CENTS,
+  MAX_OVERRIDE_MINUTES,
   MAX_PLAN_TASKS,
   MAX_BUDGET_MINUTES,
   MIN_BUDGET_MINUTES,
+  originalOf,
   parsePlanTasks,
 } from "../routes/flipdesk-planner.ts";
 import {
@@ -386,4 +392,118 @@ Deno.test("US-3177: an unowned item drops its whole task, id and title", () => {
     "a refused plan must close the session row it already created",
   );
   assert(refusal.includes('.eq("user_id", ownerId)'), "US-268: and scope that close");
+});
+
+// ── WMT-02: scoped put-back, bounded corrections ────────────────────
+
+const OWNER = "11111111-1111-4111-8111-111111111111";
+const ITEM = "22222222-2222-4222-8222-222222222222";
+const SESSION = "33333333-3333-4333-8333-333333333333";
+
+function plannerApp() {
+  const a = new Hono<{ Variables: { userId: string; workspaceOwnerId: string } }>();
+  a.use("*", async (c, next) => {
+    c.set("userId", OWNER);
+    await next();
+  });
+  a.route("/", flipdeskPlannerRoutes);
+  return a;
+}
+
+async function send(method: string, path: string, body: unknown) {
+  const res = await plannerApp().request(path, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, json: await res.json() };
+}
+
+Deno.test("WMT-02: putting back a photograph skip leaves the item-wide dismiss", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset({
+      inventory_items: [{ id: ITEM, user_id: OWNER }],
+      flipdesk_work_suppressions: [
+        { id: "dismiss", owner_user_id: OWNER, inventory_item_id: ITEM, action_key: null, kind: "dismiss", session_id: null },
+        { id: "skip", owner_user_id: OWNER, inventory_item_id: ITEM, action_key: "photograph", kind: "skip_session", session_id: SESSION },
+        { id: "snooze", owner_user_id: OWNER, inventory_item_id: ITEM, action_key: "measure", kind: "snooze", session_id: null },
+        // Same kind, other step: a kind-only delete would take this too.
+        { id: "skip-measure", owner_user_id: OWNER, inventory_item_id: ITEM, action_key: "measure", kind: "skip_session", session_id: SESSION },
+      ],
+    });
+    const r = await send("POST", "/suppressions/reset", {
+      inventory_item_id: ITEM,
+      kind: "skip_session",
+      action_key: "photograph",
+      session_id: SESSION,
+    });
+    assertEquals(r.status, 200);
+    assertEquals(
+      db.tables.flipdesk_work_suppressions.map((x) => x.id).sort(),
+      ["dismiss", "skip-measure", "snooze"],
+    );
+
+    // And putting back the dismiss (action_key null) takes only the dismiss:
+    // a null key is "no key", not "any key".
+    await send("POST", "/suppressions/reset", {
+      inventory_item_id: ITEM,
+      kind: "dismiss",
+      action_key: null,
+    });
+    assertEquals(
+      db.tables.flipdesk_work_suppressions.map((x) => x.id).sort(),
+      ["skip-measure", "snooze"],
+    );
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("WMT-02: a 9,999-minute correction is refused and nothing is stored", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset({ inventory_items: [{ id: ITEM, user_id: OWNER }] });
+    const r = await send("PUT", "/overrides", {
+      inventory_item_id: ITEM,
+      kind: "task_minutes",
+      action_key: "photograph",
+      amount_minutes: 9999,
+    });
+    assertEquals(r.status, 400);
+    assert(String(r.json.error).includes("longer than a whole session"));
+    const cost = await send("PUT", "/overrides", {
+      inventory_item_id: ITEM,
+      kind: "remaining_cost",
+      amount_cents: MAX_OVERRIDE_CENTS + 1,
+    });
+    assertEquals(cost.status, 400);
+    assertEquals(db.writes("flipdesk_work_overrides").length, 0);
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("WMT-02: original_json keeps only the numbers it replaced", () => {
+  assertEquals(originalOf({ amount: 12, note: "x".repeat(10_000) }), { amount: 12 });
+  assertEquals(originalOf({ lowCents: 100, highCents: 200, extra: [1] }), {
+    lowCents: 100,
+    highCents: 200,
+  });
+  assertEquals(originalOf("a string"), null);
+  assertEquals(originalOf([1, 2]), null);
+  assertEquals(originalOf({ junk: true }), null);
+});
+
+Deno.test("WMT-02: the edge ceilings match the form's", () => {
+  const src = Deno.readTextFileSync(
+    new URL("../../../../src/lib/work-overrides.ts", import.meta.url),
+  );
+  const num = (name: string) => {
+    const m = new RegExp(`export const ${name} = ([0-9_]+);`).exec(src);
+    assert(m, `${name} is gone from src/lib/work-overrides.ts`);
+    return Number(m[1].replaceAll("_", ""));
+  };
+  assertEquals(MAX_OVERRIDE_MINUTES, num("MAX_OVERRIDE_MINUTES"));
+  assertEquals(MAX_OVERRIDE_CENTS, num("MAX_OVERRIDE_CENTS"));
 });

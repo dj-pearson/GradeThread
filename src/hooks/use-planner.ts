@@ -376,7 +376,17 @@ export function useResetSuppression() {
   return useMutation<
     unknown,
     PlannerError,
-    { inventoryItemId: string; kind?: SuppressionKind }
+    {
+      inventoryItemId: string;
+      kind?: SuppressionKind;
+      /**
+       * WMT-02: which set-aside to undo. Null is a real value (the item-wide
+       * row, or no session) and is sent as null; undefined is left out.
+       * Without these the server deleted every set-aside on the item.
+       */
+      actionKey?: string | null;
+      sessionId?: string | null;
+    }
   >({
     mutationFn: (a) =>
       edgeJson("/api/flipdesk/planner/suppressions/reset", {
@@ -384,6 +394,8 @@ export function useResetSuppression() {
         body: JSON.stringify({
           inventory_item_id: a.inventoryItemId,
           ...(a.kind ? { kind: a.kind } : {}),
+          ...(a.actionKey !== undefined ? { action_key: a.actionKey } : {}),
+          ...(a.sessionId !== undefined ? { session_id: a.sessionId } : {}),
         }),
       }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["planner_overrides"] }),

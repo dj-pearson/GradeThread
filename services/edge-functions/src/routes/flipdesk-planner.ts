@@ -508,6 +508,16 @@ flipdeskPlannerRoutes.post("/sessions", async (c) => {
 const OVERRIDE_KINDS = ["task_minutes", "value_range", "remaining_cost"] as const;
 const SUPPRESSION_KINDS = ["skip_session", "snooze", "dismiss"] as const;
 
+/**
+ * The same ceilings src/lib/work-overrides.ts refuses in the form (WMT-02).
+ * The edge cannot import the SPA module, so they are mirrored, and
+ * flipdesk-planner_test.ts fails if the two ever disagree. Without them a
+ * caller that is not the form could store a 9,999-minute task and every plan
+ * after it would have no room for anything else.
+ */
+export const MAX_OVERRIDE_MINUTES = 240;
+export const MAX_OVERRIDE_CENTS = 100_000_00;
+
 /** Bounded like every other list read here. */
 const MAX_OVERRIDE_ROWS = 500;
 
@@ -613,6 +623,18 @@ flipdeskPlannerRoutes.put("/overrides", async (c) => {
   if (kind === "value_range" && (low === null || high === null || low > high)) {
     return jsonError(c, 400, "A range needs a low and a high, with the low first.");
   }
+  // Same sentences as OVERRIDE_ERROR_COPY in src/lib/work-overrides-copy.ts.
+  if (kind === "task_minutes" && minutes !== null && minutes > MAX_OVERRIDE_MINUTES) {
+    return jsonError(c, 400, "That's longer than a whole session. Check the number.");
+  }
+  const centsInPlay = kind === "remaining_cost"
+    ? [cents]
+    : kind === "value_range"
+    ? [low, high]
+    : [];
+  if (centsInPlay.some((v) => v !== null && v > MAX_OVERRIDE_CENTS)) {
+    return jsonError(c, 400, "That looks like dollars typed as cents. Check the number.");
+  }
 
   const row = {
     inventory_item_id: itemId,
@@ -624,8 +646,9 @@ flipdeskPlannerRoutes.put("/overrides", async (c) => {
     high_cents: kind === "value_range" ? high : null,
     // WHAT IT REPLACED (AC2). Without it "reset to our estimate" has nothing
     // to reset to, and a seller who corrected a number in March has no way
-    // back. Stored as the client saw it, because that is what they overrode.
-    original_json: body.original ?? null,
+    // back. Stored as the client saw it, because that is what they overrode --
+    // but only the numbers (WMT-02), so a body cannot park an unbounded blob.
+    original_json: originalOf(body.original),
     source: "seller",
   };
 
@@ -645,6 +668,23 @@ flipdeskPlannerRoutes.put("/overrides", async (c) => {
   }
   return c.json({ override: data });
 });
+
+/**
+ * What a correction replaced, reduced to the shape the form sends:
+ * `{amount}` or `{lowCents, highCents}`. Anything else is dropped rather than
+ * stored as-is.
+ */
+export function originalOf(v: unknown): Record<string, number> | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const num = (x: unknown) => typeof x === "number" && Number.isFinite(x) ? x : null;
+  const amount = num(o.amount);
+  if (amount !== null) return { amount };
+  const lowCents = num(o.lowCents);
+  const highCents = num(o.highCents);
+  if (lowCents !== null && highCents !== null) return { lowCents, highCents };
+  return null;
+}
 
 /** Reset to our estimate (AC1). Deletes the correction, keeps nothing behind. */
 flipdeskPlannerRoutes.post("/overrides/reset", async (c) => {
@@ -745,6 +785,12 @@ flipdeskPlannerRoutes.post("/suppressions/reset", async (c) => {
   if (!(await ownsItem(ownerId, itemId))) return jsonError(c, 404, "Item not found.");
 
   // US-1552 again: equality predicates only, never .or() on a delete.
+  //
+  // WMT-02: scoped to the ONE set-aside the seller is undoing. "Put it back"
+  // on a photograph skip used to send only the item, and the delete took the
+  // item-wide dismiss and every snooze on other steps with it. When the body
+  // names action_key or session_id -- null included -- that key is a
+  // predicate: null matches null with .is(), never "any".
   const kind = str(body.kind);
   let q = supabaseAdmin
     .from("flipdesk_work_suppressions")
@@ -752,6 +798,14 @@ flipdeskPlannerRoutes.post("/suppressions/reset", async (c) => {
     .eq("owner_user_id", ownerId) // US-268
     .eq("inventory_item_id", itemId);
   if (kind !== null) q = q.eq("kind", kind);
+  if ("action_key" in body) {
+    const action = str(body.action_key);
+    q = action === null ? q.is("action_key", null) : q.eq("action_key", action);
+  }
+  if ("session_id" in body) {
+    const sessionId = str(body.session_id);
+    q = sessionId === null ? q.is("session_id", null) : q.eq("session_id", sessionId);
+  }
   const { error } = await q;
   if (error) {
     return failSafe(c, 500, "Couldn't undo that.", error, "planner.suppressions.reset");

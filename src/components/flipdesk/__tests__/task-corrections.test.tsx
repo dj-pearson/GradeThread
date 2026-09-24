@@ -326,7 +326,49 @@ describe("setting aside (AC3)", () => {
     });
     expect(body()).toContain("Set aside for a week.");
     await click("Put it back");
-    expect(unsuppressMutate.mock.calls[0]![0]).toEqual({ inventoryItemId: "item-1" });
+    // WMT-02: the reset names the row it undoes, so nothing else goes with it.
+    expect(unsuppressMutate.mock.calls[0]![0]).toEqual({
+      inventoryItemId: "item-1",
+      kind: "snooze",
+      actionKey: null,
+      sessionId: null,
+    });
+  });
+
+  it("putting back a skip leaves the item-wide dismiss and other steps alone", async () => {
+    // A skip on this step and a snooze on another. The panel shows the skip,
+    // and "Put it back" must reset only that one row.
+    render({
+      sessionId: "sess-1",
+      book: book({
+        suppressions: [
+          {
+            inventoryItemId: "item-1",
+            actionKey: "photograph",
+            kind: "skip_session",
+            sessionId: "sess-1",
+            until: null,
+            createdAt: NOW,
+          },
+          {
+            inventoryItemId: "item-1",
+            actionKey: "measure",
+            kind: "snooze",
+            sessionId: null,
+            until: daysFromNow(3),
+            createdAt: NOW,
+          },
+        ],
+      }),
+    });
+    await click("Put it back");
+    expect(unsuppressMutate).toHaveBeenCalledTimes(1);
+    expect(unsuppressMutate.mock.calls[0]![0]).toEqual({
+      inventoryItemId: "item-1",
+      kind: "skip_session",
+      actionKey: "photograph",
+      sessionId: "sess-1",
+    });
   });
 
   it("an expired snooze reads as expired rather than as nothing", () => {
