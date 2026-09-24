@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { formatReadyBy, useGradeTurnaround } from "@/hooks/use-grade-turnaround";
 import { toast } from "sonner";
@@ -25,7 +25,14 @@ import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { EmptyState } from "@/components/ui/empty-state";
 import { showExampleAction } from "@/lib/show-example";
 import { PageHeader } from "@/components/ui/page-header";
-import { statusFilterFromSearch } from "@/lib/dashboard-grading-queue";
+import { submissionHref } from "@/lib/dashboard-grading-queue";
+import {
+  clampedPage,
+  readListParams,
+  writeListParams,
+  type SortField,
+  type SubmissionsListParams,
+} from "@/lib/submissions-list-params";
 import { QueryBoundary } from "@/components/ui/query-boundary";
 import { ErrorState } from "@/components/ui/error-state";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +61,7 @@ import {
 } from "@/components/ui/table";
 import { ClickableRow } from "@/components/clickable-row";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { exportSubmissionsCsv } from "@/lib/submissions-export";
 import {
@@ -77,9 +85,6 @@ import type {
 import { DISPUTE_KIND_LABEL, disputeCountLabel } from "@/lib/dispute-kind";
 
 const PAGE_SIZE = 20;
-
-type SortField = "created_at" | "overall_score";
-type SortDirection = "asc" | "desc";
 
 function formatLabel(value: string): string {
   return value
@@ -159,42 +164,60 @@ export function SubmissionsPage() {
   // US-3328: finished grades held for their paid turnaround, and when each lands.
   const turnaround = useGradeTurnaround();
   const [exporting, setExporting] = useState(false);
-  const [page, setPage] = useState(0);
-  // US-3075 AC2: the dashboard grading-queue tiles link here with ?status=<s>,
-  // and until now this page ignored it: every tile landed on the same
-  // unfiltered table and the seller had to re-pick the status they had just
-  // clicked. Seeded ONCE, as a lazy initial value, so the URL sets where the
-  // page opens and the Status select owns it from then on. Re-reading the
-  // parameter on every render would fight the select instead.
-  const [searchParams] = useSearchParams();
-  const [statusFilter, setStatusFilter] = useState<string>(() =>
-    statusFilterFromSearch(searchParams),
-  );
+  // SUB-12: status, type, search, dates, sort and page live in the URL, so
+  // Back from a submission, refresh and open-in-new-tab keep them. Each is
+  // validated on read (readListParams); US-3075's ?status=<s> links from the
+  // dashboard tiles still land filtered, through statusFilterFromSearch.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const {
+    status: statusFilter,
+    garmentType: garmentTypeFilter,
+    search,
+    dateFrom,
+    dateTo,
+    sortField,
+    sortDirection,
+    page,
+  } = readListParams(searchParams);
+  function updateParams(
+    patch: Partial<SubmissionsListParams>,
+    opts?: { replace?: boolean },
+  ) {
+    setSearchParams((prev) => writeListParams(prev, patch), opts);
+  }
 
   // Press "n" to start a new submission.
   useKeyboardShortcuts([
     { key: "n", handler: () => navigate("/dashboard/submissions/new") },
   ]);
-  const [garmentTypeFilter, setGarmentTypeFilter] = useState<string>("all");
-  const [sortField, setSortField] = useState<SortField>("created_at");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   // US-2544 AC2: free-text search over title + brand, plus a date range. The
-  // draft is what the field shows; `search` is what the query runs on, 300ms
-  // behind it, so typing a nine-character brand does not fire nine queries.
-  const [searchDraft, setSearchDraft] = useState("");
-  const [search, setSearch] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  // draft is what the field shows; `search` (the URL's q) is what the query
+  // runs on, 300ms behind it, so typing a nine-character brand does not fire
+  // nine queries. The debounced write REPLACES the history entry, so Back is
+  // not a keystroke-by-keystroke undo.
+  const [searchDraft, setSearchDraft] = useState(search);
+  const lastWrittenSearch = useRef(search);
   // US-2544 AC4: ids picked for a partial export.
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const t = setTimeout(() => {
-      setSearch(searchDraft);
-      setPage(0);
+      if (searchDraft.trim() === search) return;
+      lastWrittenSearch.current = searchDraft.trim();
+      updateParams({ search: searchDraft, page: 0 }, { replace: true });
     }, 300);
     return () => clearTimeout(t);
-  }, [searchDraft]);
+    // updateParams only wraps setSearchParams, which is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchDraft, search]);
+
+  // Back/forward changed q under the field: follow it, but never clobber
+  // what the seller is typing with the value this page just wrote.
+  useEffect(() => {
+    if (search === lastWrittenSearch.current) return;
+    lastWrittenSearch.current = search;
+    setSearchDraft(search);
+  }, [search]);
 
   // The filters the query runs on, shared with the CSV export (SUB-07).
   const filters: SubmissionListFilters = {
@@ -207,13 +230,16 @@ export function SubmissionsPage() {
   const filtersActive = submissionFiltersActive({ ...filters, search: searchDraft });
 
   function clearFilters() {
-    setStatusFilter("all");
-    setGarmentTypeFilter("all");
     setSearchDraft("");
-    setSearch("");
-    setDateFrom("");
-    setDateTo("");
-    setPage(0);
+    lastWrittenSearch.current = "";
+    updateParams({
+      status: "all",
+      garmentType: "all",
+      search: "",
+      dateFrom: "",
+      dateTo: "",
+      page: 0,
+    });
   }
 
   const {
@@ -392,14 +418,20 @@ export function SubmissionsPage() {
   const totalCount = data?.totalCount ?? 0;
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
+  // SUB-12: a ?page= past the end (a stale link, rows deleted since) lands on
+  // the last real page instead of an empty table.
+  const pageOverflow = data ? clampedPage(page, totalCount, PAGE_SIZE) : null;
+  useEffect(() => {
+    if (pageOverflow !== null) updateParams({ page: pageOverflow }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageOverflow]);
+
   function toggleSort(field: SortField) {
     if (sortField === field) {
-      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+      updateParams({ sortDirection: sortDirection === "asc" ? "desc" : "asc", page: 0 });
     } else {
-      setSortField(field);
-      setSortDirection("desc");
+      updateParams({ sortField: field, sortDirection: "desc", page: 0 });
     }
-    setPage(0);
   }
 
   // US-2544 AC2: both headers used to render the same static ArrowUpDown, so
@@ -434,6 +466,7 @@ export function SubmissionsPage() {
 
   const allOnPageSelected =
     submissions.length > 0 && submissions.every((s) => selected.has(s.id));
+  const someOnPageSelected = submissions.some((s) => selected.has(s.id));
 
   function toggleSelectAll() {
     setSelected((prev) => {
@@ -515,8 +548,7 @@ export function SubmissionsPage() {
               <Select
                 value={statusFilter}
                 onValueChange={(v) => {
-                  setStatusFilter(v);
-                  setPage(0);
+                  updateParams({ status: v, page: 0 });
                 }}
               >
                 <SelectTrigger aria-label="Filter submissions by status">
@@ -537,8 +569,7 @@ export function SubmissionsPage() {
               <Select
                 value={garmentTypeFilter}
                 onValueChange={(v) => {
-                  setGarmentTypeFilter(v);
-                  setPage(0);
+                  updateParams({ garmentType: v, page: 0 });
                 }}
               >
                 <SelectTrigger aria-label="Filter submissions by garment type">
@@ -568,8 +599,7 @@ export function SubmissionsPage() {
                 max={dateTo || undefined}
                 className="w-40"
                 onChange={(e) => {
-                  setDateFrom(e.target.value);
-                  setPage(0);
+                  updateParams({ dateFrom: e.target.value, page: 0 });
                 }}
               />
               <Label htmlFor="date-to" className="text-xs text-muted-foreground">
@@ -582,8 +612,7 @@ export function SubmissionsPage() {
                 min={dateFrom || undefined}
                 className="w-40"
                 onChange={(e) => {
-                  setDateTo(e.target.value);
-                  setPage(0);
+                  updateParams({ dateTo: e.target.value, page: 0 });
                 }}
               />
             </div>
@@ -706,19 +735,20 @@ export function SubmissionsPage() {
               <ul className="space-y-2 md:hidden">
                 {submissions.map((sub) => (
                   <li key={sub.id}>
-                    <div className="flex items-start gap-3 rounded-lg border p-3">
-                      <input
-                        type="checkbox"
-                        className="mt-1 h-4 w-4 flex-shrink-0 cursor-pointer"
-                        checked={selected.has(sub.id)}
-                        onChange={() => toggleSelected(sub.id)}
-                        aria-label={`Select ${sub.title}`}
-                      />
-                      <button
-                        className="min-w-0 flex-1 space-y-1 text-left"
-                        onClick={() =>
-                          navigate(`/dashboard/submissions/${sub.id}`)
-                        }
+                    <div className="flex items-start gap-1 rounded-lg border p-1.5">
+                      {/* SUB-12: a 44px target on a phone, outside the link. */}
+                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center">
+                        <Checkbox
+                          checked={selected.has(sub.id)}
+                          onCheckedChange={() => toggleSelected(sub.id)}
+                          aria-label={`Select ${sub.title}`}
+                          className="relative after:absolute after:-inset-3.5 after:content-['']"
+                        />
+                      </div>
+                      {/* SUB-12: a real link, so it opens in a new tab. */}
+                      <Link
+                        to={submissionHref(sub.id)}
+                        className="min-w-0 flex-1 space-y-1 py-1.5 pr-1.5 text-left"
                       >
                         <p className="truncate font-medium">{sub.title}</p>
                         <p className="truncate text-xs text-muted-foreground">
@@ -758,7 +788,7 @@ export function SubmissionsPage() {
                             </span>
                           )}
                         </div>
-                      </button>
+                      </Link>
                     </div>
                   </li>
                 ))}
@@ -769,11 +799,15 @@ export function SubmissionsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-10">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 cursor-pointer"
-                          checked={allOnPageSelected}
-                          onChange={toggleSelectAll}
+                        <Checkbox
+                          checked={
+                            allOnPageSelected
+                              ? true
+                              : someOnPageSelected
+                                ? "indeterminate"
+                                : false
+                          }
+                          onCheckedChange={toggleSelectAll}
                           aria-label="Select all on this page"
                         />
                       </TableHead>
@@ -802,27 +836,28 @@ export function SubmissionsPage() {
                   </TableHeader>
                   <TableBody>
                     {submissions.map((sub) => (
-                      <ClickableRow
+                      // SUB-12: a plain row whose title is a real link, with a
+                      // stretched hit area over the whole row. Ctrl/cmd-click
+                      // opens a new tab and the table keeps its semantics
+                      // (the old role="button" <tr> had neither).
+                      <TableRow
                         key={sub.id}
-                        className="hover:bg-muted/50"
-                        onActivate={() =>
-                          navigate(`/dashboard/submissions/${sub.id}`)
-                        }
-                        activateLabel={`View submission ${sub.title}`}
+                        className="relative hover:bg-muted/50 focus-within:bg-muted/50"
                       >
-                        <TableCell>
-                          {/* ClickableRow already ignores clicks that start
-                              inside a nested input, so this does not navigate. */}
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 cursor-pointer"
+                        <TableCell className="relative z-10">
+                          <Checkbox
                             checked={selected.has(sub.id)}
-                            onChange={() => toggleSelected(sub.id)}
+                            onCheckedChange={() => toggleSelected(sub.id)}
                             aria-label={`Select ${sub.title}`}
                           />
                         </TableCell>
                         <TableCell className="font-medium">
-                          {sub.title}
+                          <Link
+                            to={submissionHref(sub.id)}
+                            className="after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:underline"
+                          >
+                            {sub.title}
+                          </Link>
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {sub.brand ?? "—"}
@@ -867,7 +902,7 @@ export function SubmissionsPage() {
                         <TableCell className="text-muted-foreground">
                           {new Date(sub.created_at).toLocaleDateString()}
                         </TableCell>
-                      </ClickableRow>
+                      </TableRow>
                     ))}
                   </TableBody>
                 </Table>
@@ -884,7 +919,7 @@ export function SubmissionsPage() {
                       variant="outline"
                       size="sm"
                       disabled={page === 0}
-                      onClick={() => setPage((p) => p - 1)}
+                      onClick={() => updateParams({ page: page - 1 })}
                     >
                       <ChevronLeft className="mr-1 h-4 w-4" />
                       Previous
@@ -893,7 +928,7 @@ export function SubmissionsPage() {
                       variant="outline"
                       size="sm"
                       disabled={page >= totalPages - 1}
-                      onClick={() => setPage((p) => p + 1)}
+                      onClick={() => updateParams({ page: page + 1 })}
                     >
                       Next
                       <ChevronRight className="ml-1 h-4 w-4" />

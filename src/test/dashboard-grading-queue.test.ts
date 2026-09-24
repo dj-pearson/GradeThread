@@ -118,12 +118,15 @@ describe("what the submissions list opens on", () => {
       resolve(process.cwd(), "src/pages/submissions.tsx"),
       "utf8",
     );
-    expect(page).toContain('statusFilterFromSearch } from "@/lib/dashboard-grading-queue"');
-    expect(page).toMatch(
-      /useState<string>\(\(\) =>\s*statusFilterFromSearch\(searchParams\),?\s*\)/,
+    // SUB-12: the whole list state moved into the URL. The status filter is
+    // read from it on every render through readListParams, which delegates
+    // `status` to statusFilterFromSearch.
+    expect(page).toContain("} = readListParams(searchParams);");
+    const params = readFileSync(
+      resolve(process.cwd(), "src/lib/submissions-list-params.ts"),
+      "utf8",
     );
-    // The garment-type filter still opens on "all" and should, so this is
-    // pinned to the status one rather than to the literal.
+    expect(params).toContain("status: statusFilterFromSearch(search),");
     expect(page).not.toMatch(/const \[statusFilter[\s\S]{0,40}useState<string>\("all"\)/);
   });
 });

@@ -46,7 +46,9 @@ describe("the list can be searched and dated (US-2544 AC2)", () => {
   it("debounces rather than querying every keystroke", () => {
     const src = page();
     expect(src).toMatch(/setSearchDraft/);
-    expect(src, "no debounce timer").toMatch(/setTimeout\(\s*\(\)\s*=>\s*\{[\s\S]{0,120}setSearch\(searchDraft\)/);
+    expect(src, "no debounce timer").toMatch(
+      /setTimeout\(\s*\(\)\s*=>\s*\{[\s\S]{0,200}updateParams\(\{ search: searchDraft, page: 0 \}, \{ replace: true \}\)/,
+    );
   });
 
   it("filters BOTH sort branches, not just the default one", () => {
@@ -123,8 +125,8 @@ describe("rows are selectable and exportable (US-2544 AC4)", () => {
   it("select-all covers the page, and selection survives paging", () => {
     const src = page();
     expect(src).toContain("allOnPageSelected");
-    expect(src, "selection must not be cleared by setPage").not.toMatch(
-      /setPage\([^)]*\);\s*setSelected\(new Set\(\)\)/,
+    expect(src, "selection must not be cleared by paging").not.toMatch(
+      /updateParams\(\{ page: [^}]*\}\);?\s*setSelected\(new Set\(\)\)/,
     );
   });
 });
@@ -206,5 +208,31 @@ describe("grades show on every row that has one (SUB-06)", () => {
     const src = page();
     expect(src).toContain("prevQuery?.queryKey[1] === ownerId ? keepPreviousData(prev) : undefined");
     expect(src).toContain("isFetching && isPlaceholderData");
+  });
+});
+
+describe("list state lives in the URL (SUB-12)", () => {
+  it("filters, sort and page are read from the search params, not useState", () => {
+    const src = page();
+    expect(src).toContain("} = readListParams(searchParams);");
+    for (const gone of ["setStatusFilter", "setGarmentTypeFilter", "setSortField", "setPage("]) {
+      expect(src, `${gone} is back`).not.toContain(gone);
+    }
+  });
+
+  it("rows are real links, not role=button rows", () => {
+    const src = page();
+    const table = src.slice(src.indexOf('className="hidden overflow-x-auto md:block"'));
+    const body = table.slice(0, table.indexOf("</Table>"));
+    expect(body).not.toContain("<ClickableRow");
+    expect(body).toContain("to={submissionHref(sub.id)}");
+    expect(body).toContain("after:absolute after:inset-0");
+    expect(body).toContain('<TableCell className="relative z-10">');
+    const cards = src.slice(src.indexOf('className="space-y-2 md:hidden"'));
+    expect(cards.slice(0, cards.indexOf("</ul>"))).toContain("<Link");
+  });
+
+  it("the header checkbox has an indeterminate state", () => {
+    expect(page()).toContain('? "indeterminate"');
   });
 });
