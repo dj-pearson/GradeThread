@@ -172,19 +172,45 @@ export function BatchSummaryBar({
  * US-957: pre-generation cover-QA advisory. Non-blocking on purpose — it never
  * disables Generate, it just nudges a reshoot to save AI quota.
  */
-export function CoverQualityAdvisory({ lowCoverCount }: { lowCoverCount: number }) {
-  if (lowCoverCount <= 0) return null;
+export function CoverQualityAdvisory({
+  lowCoverCount,
+  uncheckedCount = 0,
+  checking = false,
+  onCheck,
+}: {
+  lowCoverCount: number;
+  /** AL-10: covers not scored yet. Scoring is one AI action each, on request. */
+  uncheckedCount?: number;
+  checking?: boolean;
+  onCheck?: () => void;
+}) {
+  if (lowCoverCount <= 0 && (uncheckedCount <= 0 || !onCheck)) return null;
   return (
-    <Card className="flex items-start gap-2 border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+    <Card className="flex flex-wrap items-start gap-2 border-amber-500/40 bg-amber-500/5 p-3 text-sm">
       <Camera className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-      <p className="text-amber-800 dark:text-amber-200">
-        <span className="font-medium">
-          {lowCoverCount} item{lowCoverCount === 1 ? "" : "s"} could use a better
-          cover photo.
-        </span>{" "}
-        Reshoot the flagged covers below for sharper listings — or generate
-        anyway, this is only a suggestion.
+      <p className="min-w-0 flex-1 text-amber-800 dark:text-amber-200">
+        {lowCoverCount > 0 ? (
+          <>
+            <span className="font-medium">
+              {lowCoverCount} item{lowCoverCount === 1 ? "" : "s"} could use a better
+              cover photo.
+            </span>{" "}
+            Reshoot the flagged covers below for sharper listings — or generate
+            anyway, this is only a suggestion.
+          </>
+        ) : (
+          <>
+            {uncheckedCount} cover photo{uncheckedCount === 1 ? " hasn't" : "s haven't"} been
+            checked. A quick AI check can flag a weak one before you generate.
+          </>
+        )}
       </p>
+      {onCheck && uncheckedCount > 0 && (
+        <Button size="sm" variant="outline" onClick={onCheck} disabled={checking}>
+          {checking && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+          Check covers ({uncheckedCount} AI action{uncheckedCount === 1 ? "" : "s"})
+        </Button>
+      )}
     </Card>
   );
 }

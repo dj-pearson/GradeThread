@@ -314,3 +314,56 @@ export function ProposeConfirmDialog({
     </Dialog>
   );
 }
+
+/**
+ * AL-10: the confirm for a pass that spends one AI action per item (auto-tag
+ * every group, check every cover). Neither used to ask: cover QA ran on every
+ * grouping change, and Auto-tag all fired straight away.
+ */
+export function MeteredCountConfirmDialog({
+  open,
+  title,
+  what,
+  count,
+  aiActionsRemaining,
+  creditsInRemaining = 0,
+  confirmLabel,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  title: string;
+  /** What each action buys, e.g. "one per group". */
+  what: string;
+  count: number;
+  aiActionsRemaining: number | null;
+  creditsInRemaining?: number;
+  confirmLabel: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const over = overBudget(count, aiActionsRemaining);
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            Uses ~{count} AI action{count === 1 ? "" : "s"} ({what})
+            {remainingClause(aiActionsRemaining, creditsInRemaining)}.
+            {over ? " That's more than you have left — trim it or upgrade." : " You can stop part way."}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button onClick={onConfirm} disabled={over || count === 0}>
+            <Sparkles className="mr-2 h-4 w-4" />
+            {confirmLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

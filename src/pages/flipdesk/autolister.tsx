@@ -25,6 +25,7 @@ import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { useAutolisterPhoneCapture } from "./autolister/use-phone-capture";
 import { useWorkbenchPersistence } from "./autolister/use-workbench-persistence";
 import { aiActionBudget } from "./autolister/ai-budget";
+import { QUOTA_WALL_STATUSES, runMeteredWindows, trimTrailingPartialGroup } from "@/lib/metered-windows";
 import { usePhotoTools } from "./autolister/use-photo-tools";
 import { uploadActions } from "./autolister/upload-actions";
 import { Button } from "@/components/ui/button";
@@ -147,6 +148,7 @@ import {
 import { discardStagedObjects } from "./autolister/discard-staged-objects";
 import {
   GenerateConfirmDialog,
+  MeteredCountConfirmDialog,
   ProposeConfirmDialog,
   VerifyConfirmDialog,
 } from "./autolister/metered-confirm-dialogs";
@@ -498,6 +500,10 @@ function AutolisterWorkbench() {
   // US-533: groups currently running the AI cover/role pass.
   const [taggingGroups, setTaggingGroups] = useState<Set<string>>(new Set());
   const [taggingAll, setTaggingAll] = useState(false);
+  // AL-10: Auto-tag all and Check covers each confirm their spend first.
+  const [autoTagConfirmOpen, setAutoTagConfirmOpen] = useState(false);
+  const [coverCheckOpen, setCoverCheckOpen] = useState(false);
+  const autoTagCancelRef = useRef(false);
   // US-1544: AI group-boundary suggestions (merge/split/move). NEVER
   // auto-applied — rendered as dismissible chips on the affected groups.
   const [groupSuggestions, setGroupSuggestions] = useState<GroupSuggestionRow[]>([]);
@@ -708,39 +714,36 @@ function AutolisterWorkbench() {
   const gridRows = virtualItemsWithPin(gridVirtualizer, dragSourceRow);
   const groupRows = virtualItemsWithPin(groupsVirtualizer, dragSourceGroup);
 
-  // US-957: as photos get grouped, score each group's cover so a low-quality
-  // cover can be reshot before the (much pricier) AI generation runs. Each pass
-  // batches the not-yet-scored covers into a single request; the edge runs the
-  // vision calls with bounded concurrency, so this never stalls the intake UI.
-  // Advisory only — failures are swallowed and a score never blocks Generate.
-  useEffect(() => {
-    if (!entitled) return;
-    const pending: { id: string; storage_path: string }[] = [];
+  // US-957 / AL-10: covers not yet scored. Scoring costs one AI action per
+  // cover, so it runs only when the seller asks (it used to fire on every
+  // grouping change and bill with no disclosure). Advisory only: failures are
+  // swallowed and a score never blocks Generate.
+  const pendingCovers = useMemo(() => {
+    const out: { id: string; storage_path: string }[] = [];
     const seen = new Set<string>();
     for (const g of groups) {
       const cover = stagedById.get(g.coverId);
-      if (!cover || seen.has(cover.id)) continue;
+      if (!cover || seen.has(cover.id) || cover.id in coverScores) continue;
       seen.add(cover.id);
-      if (cover.id in coverScores) continue;
-      if (coverInFlight.current.has(cover.id)) continue;
-      pending.push({ id: cover.id, storage_path: cover.storagePath });
+      out.push({ id: cover.id, storage_path: cover.storagePath });
     }
-    if (pending.length === 0) return;
+    return out;
+  }, [groups, stagedById, coverScores]);
+  function checkCovers() {
+    const pending = pendingCovers.filter((p) => !coverInFlight.current.has(p.id));
+    if (!entitled || pending.length === 0) return;
     for (const p of pending) coverInFlight.current.add(p.id);
     // US-1911: the hook chunks `pending` to the server's ≤100-per-request cap
-    // and merges partials as each chunk resolves. onSettled clears in-flight for
-    // ALL pending covers — including any left unscored by a failed chunk — so a
-    // later intake pass (triggered when the grouping changes) retries them.
+    // and merges partials as each chunk resolves.
     coverQa.mutate(
       {
         covers: pending,
-        onPartial: (results) => {
+        onPartial: (results) =>
           setCoverScores((prev) => {
             const next = { ...prev };
             for (const r of results) next[r.cover_id] = r.score;
             return next;
-          });
-        },
+          }),
       },
       {
         onSettled: () => {
@@ -749,11 +752,7 @@ function AutolisterWorkbench() {
         },
       },
     );
-    // coverQa.mutate is referentially stable (react-query); the deps below cover
-    // every input the scan reads. Including `coverQa` itself would re-run every
-    // render (useMutation returns a fresh object each time).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups, stagedById, coverScores, entitled]);
+  }
 
   // US-3139: name each group off its tag photo instead of "Item 3". See ./autolister/tag-ocr.tsx.
   const { busy: tagOcrBusy } = useTagOcrWiring({ staged, groups, entitled, setGroups });
@@ -1006,13 +1005,13 @@ function AutolisterWorkbench() {
     setVerifyingGroups(true);
     verifyCancelRef.current = false;
     setVerifyProgress(multi ? { done: 0, total: totalGroups } : null);
-    const collected: GroupSuggestionRow[] = [];
     let done = 0;
-    let anyError = false;
     try {
-      for (const window of windows) {
-        if (verifyCancelRef.current) break;
-        try {
+      // AL-10: stops at a 402/403/429 instead of spending into the wall, and
+      // keeps failed windows so only those are offered for a retry.
+      const run = await runMeteredWindows(
+        windows,
+        async (window) => {
           const res = await edgeFetch("/api/flipdesk/autolister/verify-groups", {
             method: "POST",
             json: { groups: window.map((g) => ({ id: g.id, photos: g.photos })) },
@@ -1021,37 +1020,44 @@ function AutolisterWorkbench() {
             suggestions?: Array<Omit<GroupSuggestionRow, "id">>;
             error?: string;
           };
-          if (!res.ok) {
-            anyError = true;
-            if (!silent && !multi) toast.error(json.error || "Could not verify the grouping.");
-          } else {
-            for (const s of json.suggestions ?? []) {
-              collected.push({ ...s, id: crypto.randomUUID() });
-            }
-          }
-        } catch (err) {
-          anyError = true;
-          if (!silent && !multi) {
-            toastError(err, "Verify failed.");
-          }
-        }
-        done += window.length;
-        if (multi) setVerifyProgress({ done, total: totalGroups });
-      }
-
+          return res.ok
+            ? { ok: true as const, value: json.suggestions ?? [] }
+            : { ok: false as const, status: res.status, error: json.error ?? null };
+        },
+        {
+          isCancelled: () => verifyCancelRef.current,
+          onWindowDone: (w) => {
+            done += w.length;
+            if (multi) setVerifyProgress({ done, total: totalGroups });
+          },
+        },
+      );
+      const collected = run.completed.flatMap((c) =>
+        c.value.map((s) => ({ ...s, id: crypto.randomUUID() })),
+      );
+      const anyError = run.failed.length > 0 || run.wall != null;
       const deduped = dedupeSuggestions(collected);
       // Don't clobber existing chips if the whole pass errored with nothing to
       // show; otherwise the fresh result (even empty) replaces the old chips.
       if (!(anyError && deduped.length === 0)) setGroupSuggestions(deduped);
 
-      if (verifyCancelRef.current) {
+      if (run.wall) {
+        toast.error(run.wall.error || "Out of AI actions — stopped checking groups.", {
+          description: `Checked ${done} of ${totalGroups} groups.`,
+        });
+      } else if (run.cancelled) {
         if (!silent) toast.info(`Stopped — checked ${done} of ${totalGroups} groups.`);
       } else if (deduped.length > 0) {
         toast.info(
           `AI flagged ${deduped.length} possible grouping fix${deduped.length === 1 ? "" : "es"} — review the highlighted groups.`,
         );
       } else if (!silent && anyError) {
-        toast.error("Some groups couldn't be checked — try again.");
+        toast.error("Some groups couldn't be checked.", {
+          action: {
+            label: `Retry ${run.failed.length}`,
+            onClick: () => void runVerifyWindows(run.failed, false),
+          },
+        });
       } else if (!silent) {
         toast.success("The grouping looks right to the AI.");
       }
@@ -1138,16 +1144,15 @@ function AutolisterWorkbench() {
     proposeCancelRef.current = false;
     setProposeProgress(multi ? { done: 0, total: totalPhotos } : null);
     const pathById = new Map(ungroupedSorted.map((p) => [p.id, p.storagePath]));
-    const windowResults: ClientProposedGroup[][] = [];
-    let anyError = false;
     let done = 0;
     try {
-      for (const win of windows) {
-        if (proposeCancelRef.current) break;
-        const photos = win
-          .map((id) => ({ id, storage_path: pathById.get(id) ?? "" }))
-          .filter((p) => p.storage_path);
-        try {
+      // AL-10: stop at a quota wall; keep failed windows for a retry.
+      const run = await runMeteredWindows(
+        windows,
+        async (win) => {
+          const photos = win
+            .map((id) => ({ id, storage_path: pathById.get(id) ?? "" }))
+            .filter((p) => p.storage_path);
           const res = await edgeFetch("/api/flipdesk/autolister/propose-groups", {
             method: "POST",
             json: { photos },
@@ -1156,37 +1161,38 @@ function AutolisterWorkbench() {
             groups?: { photo_ids: string[]; confidence: number; reason: string }[];
             error?: string;
           };
-          if (!res.ok) {
-            anyError = true;
-            if (!multi) toast.error(json.error || "Could not propose groups.");
-          } else {
-            windowResults.push(
-              (json.groups ?? []).map((g) => ({
-                photoIds: g.photo_ids,
-                confidence: g.confidence,
-                reason: g.reason,
-              })),
-            );
-          }
-        } catch (err) {
-          anyError = true;
-          if (!multi) {
-            toastError(err, "Propose failed.");
-          }
-        }
-        done += win.length;
-        if (multi) setProposeProgress({ done, total: totalPhotos });
-      }
-
-      if (proposeCancelRef.current) {
-        toast.info(`Stopped — proposed over ${done} of ${totalPhotos} photos.`);
-        return;
-      }
+          if (!res.ok) return { ok: false as const, status: res.status, error: json.error ?? null };
+          return {
+            ok: true as const,
+            value: (json.groups ?? []).map((g): ClientProposedGroup => ({
+              photoIds: g.photo_ids,
+              confidence: g.confidence,
+              reason: g.reason,
+            })),
+          };
+        },
+        {
+          isCancelled: () => proposeCancelRef.current,
+          onWindowDone: (w) => {
+            done += w.length;
+            if (multi) setProposeProgress({ done, total: totalPhotos });
+          },
+        },
+      );
+      const stoppedEarly = run.cancelled || run.wall != null;
+      if (run.wall) toast.error(run.wall.error || "Out of AI actions — stopped proposing groups.");
+      else if (run.cancelled) toast.info(`Stopped — proposed over ${done} of ${totalPhotos} photos.`);
+      // AL-10: windows already paid for are kept on a stop, minus the last
+      // one's trailing group, which may run on into the window never sent.
+      const windowResults = trimTrailingPartialGroup(run.completed.map((c) => c.value), stoppedEarly);
       // A singleton stays a singleton; only multi-photo items are worth applying.
       const proposals = mergeProposalWindows(windowResults).filter((g) => g.photoIds.length >= 2);
       if (proposals.length === 0) {
-        if (anyError) toast.error("Some windows couldn't be proposed — try again.");
-        else toast.info("AI didn't find clear item boundaries — group these manually.");
+        if (run.failed.length > 0) {
+          toast.error("Some windows couldn't be proposed.", {
+            action: { label: `Retry ${run.failed.length}`, onClick: () => void runProposeWindows(run.failed) },
+          });
+        } else if (!stoppedEarly) toast.info("AI didn't find clear item boundaries — group these manually.");
         return;
       }
       const confident = proposals.filter((g) => g.confidence >= PROPOSE_APPLY_FLOOR);
@@ -1206,6 +1212,9 @@ function AutolisterWorkbench() {
       toast.success(
         `AI proposed ${confident.length} item${confident.length === 1 ? "" : "s"}` +
           (uncertain.length > 0 ? ` — ${uncertain.length} more to review below.` : "."),
+        run.failed.length > 0
+          ? { action: { label: `Retry ${run.failed.length} failed`, onClick: () => void runProposeWindows(run.failed) } }
+          : undefined,
       );
     } finally {
       setProposing(false);
@@ -1513,8 +1522,10 @@ function AutolisterWorkbench() {
     );
     // US-1544: sanity-check the freshly-created grouping (silent — only
     // speaks up when it finds something). Skipped in the degenerate branch
-    // above, where the user is being told to undo anyway.
-    void verifyGroups(true, [...groups, ...created]);
+    // above, where the user is being told to undo anyway. AL-10: the NEW
+    // groups plus one existing neighbour; the cheap single window used to go
+    // to the oldest groups, which this auto-group never touched.
+    void verifyGroups(true, [...groups.slice(-1), ...created]);
   }
 
   // US-1550: chunk the grid into fixed-size groups, in the grid's CURRENT
@@ -1631,7 +1642,7 @@ function AutolisterWorkbench() {
   // US-533: run the AI cover/role vision pass for one group and apply the
   // result. Returns true on success. edgeFetch surfaces the 402 upgrade dialog
   // for locked plans, so we don't handle gating here.
-  async function autoTagGroup(groupId: string): Promise<boolean> {
+  async function autoTagGroup(groupId: string, quiet = false): Promise<boolean | "wall"> {
     const g = liveGroupsRef.current.find((x) => x.id === groupId);
     if (!g) return false;
     const photos = g.photoIds
@@ -1656,8 +1667,10 @@ function AutolisterWorkbench() {
         error?: string;
       };
       if (!res.ok) {
-        toast.error(json.error || "Could not auto-tag photos.");
-        return false;
+        // AL-10: out of actions / not allowed / paced stops Auto-tag all.
+        const wall = QUOTA_WALL_STATUSES.has(res.status);
+        if (!quiet || wall) toast.error(json.error || "Could not auto-tag photos.");
+        return wall ? "wall" : false;
       }
       // AL-09: merge into the group as it is NOW (the seller may have moved
       // photos or retyped roles while the request ran). US-1549/US-1551/
@@ -1693,8 +1706,12 @@ function AutolisterWorkbench() {
       let ok = 0;
       // AL-09: ids snapshotted from the live list; a group removed mid-run
       // is skipped by autoTagGroup's own live lookup.
+      autoTagCancelRef.current = false;
       for (const id of liveGroupsRef.current.map((g) => g.id)) {
-        if (await autoTagGroup(id)) ok++;
+        if (autoTagCancelRef.current) break;
+        const r = await autoTagGroup(id, true);
+        if (r === "wall") break;
+        if (r) ok++;
       }
       if (ok > 0) {
         toast.success(`Auto-tagged ${ok} listing${ok === 1 ? "" : "s"}.`);
@@ -2085,7 +2102,14 @@ function AutolisterWorkbench() {
         />
       )}
 
-      {entitled && <CoverQualityAdvisory lowCoverCount={lowCoverCount} />}
+      {entitled && (
+        <CoverQualityAdvisory
+          lowCoverCount={lowCoverCount}
+          uncheckedCount={pendingCovers.length}
+          checking={coverQa.isPending}
+          onCheck={() => setCoverCheckOpen(true)}
+        />
+      )}
 
       {/* Premium gate (US-323) — shown when the plan doesn't include AutoLister.
           The server also enforces this; this is the in-app upsell. */}
@@ -2412,7 +2436,8 @@ function AutolisterWorkbench() {
                 verifyCancelRef.current = true;
               }}
               tagging={taggingAll || taggingGroups.size > 0}
-              onAutoTagAll={autoTagAllGroups}
+              onAutoTagAll={() => setAutoTagConfirmOpen(true)}
+              onStopAutoTag={taggingAll ? () => { autoTagCancelRef.current = true; } : undefined}
               collapsed={groupsCollapsed}
               onToggleCollapsed={() => setGroupsCollapsed((c) => !c)}
               onUngroupAll={ungroupAll}
@@ -2811,6 +2836,34 @@ function AutolisterWorkbench() {
         }}
       />
 
+      <MeteredCountConfirmDialog
+        open={autoTagConfirmOpen}
+        title={`Auto-tag all ${groups.length} items?`}
+        what="one per item"
+        count={groups.filter((g) => g.photoIds.length > 0).length}
+        aiActionsRemaining={aiActionsRemaining}
+        creditsInRemaining={creditsInRemaining}
+        confirmLabel="Auto-tag all"
+        onCancel={() => setAutoTagConfirmOpen(false)}
+        onConfirm={() => {
+          setAutoTagConfirmOpen(false);
+          void autoTagAllGroups();
+        }}
+      />
+      <MeteredCountConfirmDialog
+        open={coverCheckOpen}
+        title={`Check ${pendingCovers.length} cover photos?`}
+        what="one per cover"
+        count={pendingCovers.length}
+        aiActionsRemaining={aiActionsRemaining}
+        creditsInRemaining={creditsInRemaining}
+        confirmLabel="Check covers"
+        onCancel={() => setCoverCheckOpen(false)}
+        onConfirm={() => {
+          setCoverCheckOpen(false);
+          checkCovers();
+        }}
+      />
       <VerifyConfirmDialog
         confirm={verifyConfirm}
         onCancel={() => setVerifyConfirm(null)}
