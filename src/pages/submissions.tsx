@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { formatReadyBy, useGradeTurnaround } from "@/hooks/use-grade-turnaround";
 import { toast } from "sonner";
 import {
@@ -99,6 +99,16 @@ const SUBMISSION_LIST_COLUMNS = "id, title, brand, status, created_at";
 
 interface SubmissionWithGrade extends SubmissionListRow {
   grade_report?: Pick<GradeReportRow, "overall_score" | "grade_tier"> | null;
+}
+
+// SUB-06: a pending_review score is the AI's grade before a human finalizes
+// it. Show it, but say it may change.
+function PreliminaryLabel() {
+  return (
+    <span className="rounded border border-violet-300 px-1 text-[11px] font-medium text-violet-700 dark:border-violet-700 dark:text-violet-300">
+      Preliminary
+    </span>
+  );
 }
 
 function LoadingSkeleton() {
@@ -346,6 +356,7 @@ export function SubmissionsPage() {
     isLoading,
     isError,
     isFetching,
+    isPlaceholderData,
     refetch,
   } = useQuery({
     queryKey: [
@@ -472,9 +483,11 @@ export function SubmissionsPage() {
 
       const submissionRows = (submissions ?? []) as SubmissionListRow[];
 
-      const gradeMap = await fetchGradeMap(
-        submissionRows.filter((s) => s.status === "completed").map((s) => s.id)
-      );
+      // SUB-06: every row id, the same set the score branch passes. Filtering
+      // to "completed" hid the grade on disputed and pending_review rows under
+      // this sort only, and those are the rows a seller watches. RLS already
+      // hides a held grade_reports row until its release.
+      const gradeMap = await fetchGradeMap(submissionRows.map((s) => s.id));
 
       const merged: SubmissionWithGrade[] = submissionRows.map((s) => ({
         ...s,
@@ -484,6 +497,12 @@ export function SubmissionsPage() {
       return { submissions: merged, totalCount: count ?? 0 };
     },
     enabled: !!ownerId,
+    // SUB-06: keep the current page on screen while the next one loads, so
+    // paging and sorting dim the table instead of dropping to the skeleton.
+    // Only within one owner: a workspace switch must never show the previous
+    // tenant's rows, even dimmed.
+    placeholderData: (prev, prevQuery) =>
+      prevQuery?.queryKey[1] === ownerId ? keepPreviousData(prev) : undefined,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -789,7 +808,13 @@ export function SubmissionsPage() {
               )
             }
           >
-            <>
+            <div
+              className={cn(
+                "transition-opacity",
+                isFetching && isPlaceholderData && "pointer-events-none opacity-60",
+              )}
+              aria-busy={isFetching && isPlaceholderData}
+            >
               {/* US-2544 AC4: what the checkboxes are for. Only appears once
                   something is checked, so the toolbar stays quiet otherwise. */}
               {selected.size > 0 && (
@@ -879,6 +904,9 @@ export function SubmissionsPage() {
                               <span className="text-xs font-medium text-muted-foreground">
                                 {sub.grade_report.grade_tier}
                               </span>
+                              {sub.status === "pending_review" && (
+                                <PreliminaryLabel />
+                              )}
                             </span>
                           )}
                         </div>
@@ -980,6 +1008,9 @@ export function SubmissionsPage() {
                               <span className="text-xs font-medium text-muted-foreground">
                                 {sub.grade_report.grade_tier}
                               </span>
+                              {sub.status === "pending_review" && (
+                                <PreliminaryLabel />
+                              )}
                             </span>
                           ) : (
                             <span className="text-muted-foreground">—</span>
@@ -1022,7 +1053,7 @@ export function SubmissionsPage() {
                   </div>
                 </div>
               )}
-            </>
+            </div>
           </QueryBoundary>
         </CardContent>
       </Card>

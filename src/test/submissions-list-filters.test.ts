@@ -175,3 +175,27 @@ describe("every read is scoped to the effective owner (SUB-01)", () => {
     expect(src).toContain('queryKey: ["my-disputes", ownerId]');
   });
 });
+
+describe("grades show on every row that has one (SUB-06)", () => {
+  it("both sort branches pass every row id to fetchGradeMap", () => {
+    const src = page();
+    const calls = [...src.matchAll(/await fetchGradeMap\(([^;]*)\);/g)].map((m) =>
+      (m[1] ?? "").replace(/\s+/g, ""),
+    );
+    expect(calls).toEqual(["rows.map((s)=>s.id)", "submissionRows.map((s)=>s.id)"]);
+    expect(src, "a status filter crept back in").not.toMatch(
+      /fetchGradeMap\(\s*submissionRows\.filter/,
+    );
+  });
+
+  it("a pending_review score is labelled Preliminary", () => {
+    const src = page();
+    expect((src.match(/sub\.status === "pending_review" && \(\s*<PreliminaryLabel \/>/g) ?? []).length).toBe(2);
+  });
+
+  it("paging keeps the table mounted, within one owner only", () => {
+    const src = page();
+    expect(src).toContain("prevQuery?.queryKey[1] === ownerId ? keepPreviousData(prev) : undefined");
+    expect(src).toContain("isFetching && isPlaceholderData");
+  });
+});
