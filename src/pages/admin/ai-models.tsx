@@ -189,8 +189,8 @@ const DRY_RUN_ROWS: { label: string; get: (g: DryRunGrade) => string | number }[
 
 const TOOLTIP_STYLE = {
   contentStyle: {
-    backgroundColor: "hsl(var(--card))",
-    border: "1px solid hsl(var(--border))",
+    backgroundColor: "var(--card)",
+    border: "1px solid var(--border)",
     borderRadius: "8px",
     fontSize: "12px",
   },

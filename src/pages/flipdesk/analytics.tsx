@@ -69,6 +69,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
 import { ScorecardSkeleton } from "@/components/flipdesk/scorecard-skeleton";
+import { pctTick, SERIES, usdTick } from "@/lib/chart-theme";
 
 // Lazy-load the Recharts bar chart at the chart boundary so the route-entry
 // chunk stays light and the page shell + table paint before Recharts streams
@@ -912,7 +913,11 @@ export function GradingRoiReport() {
           </CardHeader>
           <CardContent>
             <Suspense fallback={<ChartSkeleton />}>
-              <AnalyticsBarChart data={liftChart} unit="$" label="Profit lift" />
+              <AnalyticsBarChart
+                data={liftChart}
+                formatter={usdTick}
+                label="Profit lift"
+              />
             </Suspense>
           </CardContent>
         </Card>
@@ -1343,10 +1348,9 @@ function ReturnReductionReport() {
                   <Suspense fallback={<ChartSkeleton />}>
                     <AnalyticsBarChart
                       data={bandChart}
-                      unit="%"
-                      color="#E94560"
+                      formatter={pctTick}
+                      color={SERIES.negative}
                       label="Return rate"
-                      domain={[0, "auto"]}
                     />
                   </Suspense>
                 </CardContent>

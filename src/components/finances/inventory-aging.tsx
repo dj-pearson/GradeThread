@@ -39,8 +39,8 @@ const BRACKET_COLORS: Record<string, string> = {
 };
 
 const TOOLTIP_STYLE = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
+  backgroundColor: "var(--card)",
+  border: "1px solid var(--border)",
   borderRadius: "var(--radius)",
   fontSize: 12,
 };

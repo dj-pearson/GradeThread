@@ -7,13 +7,8 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { CHART_TOOLTIP_STYLE, SERIES } from "@/lib/chart-theme";
 
-const TOOLTIP_STYLE = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: "var(--radius)",
-  fontSize: 12,
-};
 
 export interface SellThroughDatum {
   name: string;
@@ -54,10 +49,10 @@ export function SellThroughChart({ data }: { data: SellThroughDatum[] }) {
           axisLine={false}
         />
         <Tooltip
-          contentStyle={TOOLTIP_STYLE}
+          contentStyle={CHART_TOOLTIP_STYLE}
           formatter={(value) => [`${value ?? 0}%`, "Sell-through"]}
         />
-        <Bar dataKey="rate" fill="#0F3460" radius={[0, 4, 4, 0]} />
+        <Bar dataKey="rate" fill={SERIES.primary} radius={[0, 4, 4, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );
