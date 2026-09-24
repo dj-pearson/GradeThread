@@ -2369,7 +2369,7 @@ function AutolisterWorkbench() {
                     aria-label={`Delete ${photoName}`}
                     onClick={() => removePhotos([p.id])}
                     disabled={processing}
-                    className="absolute left-1 top-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 hover:bg-red-600 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30"
+                    className="absolute left-1 top-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 hover:bg-red-600 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:grid [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-8 [@media(pointer:coarse)]:place-items-center"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -2380,7 +2380,7 @@ function AutolisterWorkbench() {
                       title="Undo background removal"
                       aria-label={`Undo background removal on ${photoName}`}
                       onClick={() => undoBg(p.id)}
-                      className="absolute bottom-1 left-1 z-10 inline-flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                      className="absolute bottom-1 left-1 z-10 inline-flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
                     >
                       <Undo2 className="h-3 w-3" />
                       Undo
@@ -2393,7 +2393,7 @@ function AutolisterWorkbench() {
                       aria-label={`Clean the background of ${photoName}`}
                         onClick={() => applyBgToPhoto(p.id, bgMode)}
                         disabled={processing || bgBusy}
-                        className="absolute bottom-1 left-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        className="absolute bottom-1 left-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:grid [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-8 [@media(pointer:coarse)]:place-items-center"
                       >
                         <Eraser className="h-3 w-3" />
                       </button>
@@ -2403,7 +2403,7 @@ function AutolisterWorkbench() {
                       aria-label={`Auto-enhance ${photoName}`}
                         onClick={() => void enhancePhoto(p.id)}
                         disabled={processing || enhanceBusy}
-                        className="absolute bottom-1 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        className="absolute bottom-1 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:grid [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-8 [@media(pointer:coarse)]:place-items-center"
                       >
                         <WandSparkles className="h-3 w-3" />
                       </button>
@@ -2416,7 +2416,7 @@ function AutolisterWorkbench() {
                     aria-label={`Edit ${photoName}`}
                     onClick={() => setEditingPhotoId(p.id)}
                     disabled={processing}
-                    className="absolute bottom-1 right-1 z-10 rounded-full bg-black/50 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30"
+                    className="absolute bottom-1 right-1 z-10 rounded-full bg-black/50 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:grid [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-8 [@media(pointer:coarse)]:place-items-center"
                   >
                     <Pencil className="h-3 w-3" />
                   </button>
@@ -2598,7 +2598,8 @@ function AutolisterWorkbench() {
             >
             <GroupDropZone groupId={g.id}>
             <Card className="p-3">
-              <div className="mb-2 flex items-center gap-2">
+              {/* AL-14: wraps at 375px; the actions drop to their own row below sm. */}
+              <div className="mb-2 flex flex-wrap items-center gap-2">
                 <input
                   type="checkbox"
                   checked={selectedGroups.has(g.id)}
@@ -2616,7 +2617,7 @@ function AutolisterWorkbench() {
                 <Input
                   value={g.name}
                   onChange={(e) => updateGroup(g.id, { name: e.target.value })}
-                  className="h-8 max-w-xs"
+                  className="h-8 min-w-0 flex-1 sm:max-w-xs"
                   aria-label={`Item name for ${groupName}`}
                   placeholder="Item name"
                 />
@@ -2647,7 +2648,7 @@ function AutolisterWorkbench() {
                     </Badge>
                   );
                 })()}
-                <div className="ml-auto flex items-center gap-1">
+                <div className="flex w-full flex-wrap items-center gap-1 sm:ml-auto sm:w-auto">
                   {/* US-2621: generate THIS item without touching the rest of
                       the session. The only way to run one used to be the page
                       header's Generate, which takes the whole batch — so a
@@ -2744,7 +2745,7 @@ function AutolisterWorkbench() {
                           "absolute left-1 top-1 rounded-full p-0.5",
                           isCover
                             ? "bg-brand-red text-white"
-                            : "bg-black/40 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                            : "bg-black/40 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
                         )}
                       >
                         <Star className="h-3 w-3" />
@@ -2754,7 +2755,7 @@ function AutolisterWorkbench() {
                         title="Remove from group"
                         aria-label={`Remove from this group: ${photoName}`}
                         onClick={() => removePhotoFromGroup(g.id, pid)}
-                        className="absolute right-1 top-1 rounded-full bg-black/40 p-0.5 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        className="absolute right-1 top-1 rounded-full bg-black/40 p-0.5 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:grid [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-8 [@media(pointer:coarse)]:place-items-center"
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -2773,7 +2774,7 @@ function AutolisterWorkbench() {
                         title="Edit photo"
                         aria-label={`Edit ${photoName}`}
                         onClick={() => setEditingPhotoId(pid)}
-                        className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 p-1.5 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 p-1.5 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:grid [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-8 [@media(pointer:coarse)]:place-items-center"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
