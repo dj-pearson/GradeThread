@@ -9,7 +9,6 @@ import {
   Globe,
   Library,
   ListChecks,
-  Loader2,
   Lock,
   Search,
   Share2,
@@ -22,6 +21,7 @@ import {
 import { useEffect } from "react";
 import { useLocation, useSearchParams } from "react-router";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrivalMoment } from "@/components/rewards/arrival-moment";
 import { ErrorState } from "@/components/ui/error-state";
@@ -157,10 +157,42 @@ export function RewardsPage() {
     el?.scrollIntoView?.({ block: "start" });
   }, [ready, hash, tab]);
 
+  const header = (
+    <PageHeader
+      title="Rewards"
+      subtitle="Your level is yours to keep. Seasons give you something to chase each quarter."
+      icon={Trophy}
+      actions={<PageHelp slug="rewards-and-credit" />}
+    />
+  );
+
   if (isLoading) {
+    // R8: the header renders at once and the level card and tab shells hold
+    // their place, so the page does not jump when the read lands.
     return (
-      <div className="flex justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      <div className="mx-auto max-w-3xl space-y-6">
+        {header}
+        <div role="status" aria-label="Loading your rewards" className="space-y-6">
+          <Card className="shadow-none">
+            <CardContent className="space-y-4 py-5">
+              <div className="flex items-center gap-4">
+                <Skeleton className="h-14 w-14 rounded-2xl" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-5 w-32" />
+                  <Skeleton className="h-4 w-56" />
+                </div>
+                <Skeleton className="h-8 w-10" />
+              </div>
+              <Skeleton className="h-2 w-full" />
+            </CardContent>
+          </Card>
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-24" />
+            <Skeleton className="h-9 w-28" />
+            <Skeleton className="h-9 w-32" />
+          </div>
+          <Skeleton className="h-40 w-full rounded-xl" />
+        </div>
       </div>
     );
   }
@@ -196,12 +228,7 @@ export function RewardsPage() {
         ? <ArrivalMoment arrival={arrival} tierName={level.tier.name} />
         : <RewardCelebrations />}
 
-      <PageHeader
-        title="Rewards"
-        subtitle="Your level is yours to keep. Seasons give you something to chase each quarter."
-        icon={Trophy}
-              actions={<PageHelp slug="rewards-and-credit" />}
-      />
+      {header}
 
       {/* Level — the identity. Never decreases. */}
       <Card>

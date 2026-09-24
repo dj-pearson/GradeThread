@@ -538,7 +538,7 @@ Deno.test("a failed on-demand sweep still stamps and still returns null", async 
 
 Deno.test("the rewards screen never fails on a sweep problem", async () => {
   const src = await Deno.readTextFile(new URL("../routes/rewards.ts", import.meta.url));
-  assert(src.includes("await sweepOnDemand(userId, nowMs)"), "state load must sweep on demand");
+  assert(src.includes("sweepOnDemand(userId, nowMs)"), "state load must sweep on demand");
   // Scoped to the authenticated caller, never to a workspace owner: XP is a
   // personal standing (the reason rewards.ts uses c.get("userId") throughout).
   assert(!src.includes("sweepOnDemand(workspaceOwnerId"), "sweep must use the caller id");
@@ -899,4 +899,29 @@ Deno.test("R2 / US-1552: the sweep claim uses sequential updates, never .or()", 
   assert(!body.includes(CALL("or")), "no logical operator on the claim mutation");
   assert(body.includes('.is("last_pipeline_sweep_at", null)'));
   assert(body.includes('.lt("last_pipeline_sweep_at", staleIso)'));
+});
+
+// ── R8: /state is three phases, not six ──────────────────────────────────────
+
+Deno.test("R8: /state sweeps first, then reads in parallel, recaps after the rollover", async () => {
+  const src = await Deno.readTextFile(new URL("../routes/rewards.ts", import.meta.url));
+  const handler = src.slice(src.indexOf('rewardsRoutes.get("/state"'));
+  const body = handler.slice(0, handler.indexOf("\n});\n"));
+  // The badge, integrity and loyalty reads no longer wait on readRewardState.
+  assert(
+    /Promise\.all\(\[\s*finalizeCompletedSeason\(userId, tz, nowMs\)\.then\(\(\) => loadSeasonRecaps\(userId\)\),\s*readRewardState\(userId\),[\s\S]*?loadBadgeShelf\(userId\),\s*loadSellerIntegrityStanding\(userId\),\s*loadLoyaltyStanding\(userId, nowMs\),/
+      .test(body),
+    "phase B must run the rollover beside the independent reads",
+  );
+  assertEquals((body.match(/await /g) ?? []).length, 3, "three awaited phases");
+});
+
+Deno.test("R8: the /quests doc comment sits on the /quests handler", async () => {
+  const src = await Deno.readTextFile(new URL("../routes/rewards.ts", import.meta.url));
+  const at = src.indexOf('rewardsRoutes.get("/quests"');
+  const before = src.slice(Math.max(0, at - 1200), at);
+  assert(before.includes("// GET /api/rewards/quests"), "doc comment must precede its handler");
+  const share = src.indexOf("// POST /api/rewards/share");
+  const quests = src.indexOf("// GET /api/rewards/quests");
+  assert(share < quests || share > at, "the comment is not stranded above /share");
 });

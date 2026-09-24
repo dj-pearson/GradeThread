@@ -65,65 +65,62 @@ rewardsRoutes.get("/state", async (c) => {
   const nowMs = Date.now();
 
   try {
-    const tz = await loadSeasonTimezone();
+    // Phase A. US-2972: bring pipeline XP up to date before reading it, so a
+    // seller who just finished listing sees that work on this load rather than
+    // tomorrow. Throttled to one sweep per SWEEP_THROTTLE_MS and internally
+    // best-effort — it returns null when throttled OR when it failed, and either
+    // way the screen renders from whatever state is already stored. A sweep
+    // problem must not cost the seller their rewards screen. The timezone read
+    // is independent of it, so the two run together.
+    const [tz] = await Promise.all([loadSeasonTimezone(), sweepOnDemand(userId, nowMs)]);
 
-    // US-2972: bring pipeline XP up to date before reading it, so a seller who
-    // just finished listing sees that work on this load rather than tomorrow.
-    // Throttled to one sweep per SWEEP_THROTTLE_MS and internally best-effort —
-    // it returns null when throttled OR when it failed, and either way the
-    // screen renders from whatever state is already stored. A sweep problem
-    // must not cost the seller their rewards screen.
+    // Phase B. Everything that only needs the swept ledger, together.
     //
-    // ⚠ The sweep runs BEFORE the rollover below, not after. Pipeline XP is
+    // ⚠ The rollover runs AFTER the sweep, not beside it. Pipeline XP is
     // backdated to when the work happened, so an item listed on the last day of
     // a quarter and swept on the first day of the next one belongs to the
     // quarter that just ended. Finalizing first wrote the recap without it, and
-    // the recap row is write-once.
-    await sweepOnDemand(userId, nowMs);
-
-    // Roll over the season that just ended, if it hasn't been recapped yet.
-    // Lazy + idempotent (UNIQUE(user_id, season_key), 00542) — see
+    // the recap row is write-once. The recaps list is read after the rollover
+    // (chained on it) so a quarter that just closed appears on this load.
+    //
+    // Rollover: lazy + idempotent (UNIQUE(user_id, season_key), 00542) — see
     // finalizeCompletedSeason for why this isn't a quarterly cron. Best-effort:
     // a rollover problem must not take down the whole screen.
-    await finalizeCompletedSeason(userId, tz, nowMs);
-
-    const [state, season, recaps] = await Promise.all([
+    //
+    // US-1857: the badge shelf rides along on this read rather than getting an
+    // endpoint of its own. US-1912 AC1/AC4: so does the Grade Integrity
+    // standing — cheap, part of the same "where do I stand" answer, and what the
+    // US-1857 celebration diff watches for a tier change. US-1914 AC1: tenure
+    // too — it is the one standing here that has nothing to do with what the
+    // seller did, which is exactly why it must not be a second request that can
+    // fail on its own and leave the page implying their history is gone. All are
+    // internally best-effort, so none can take the screen down.
+    const [recaps, state, season, badges, integrity, standing] = await Promise.all([
+      finalizeCompletedSeason(userId, tz, nowMs).then(() => loadSeasonRecaps(userId)),
       readRewardState(userId),
       loadSeasonProgress(userId, tz, nowMs),
-      loadSeasonRecaps(userId),
+      loadBadgeShelf(userId),
+      loadSellerIntegrityStanding(userId),
+      loadLoyaltyStanding(userId, nowMs),
     ]);
 
     // A user with no rewardable action yet has no state row. That is level 0 /
     // Thrifter, not an error — everyone starts on the ladder.
     const progress = levelProgress(state?.xpPeak ?? 0, state?.xpTotal ?? 0);
 
-    // US-1857: the badge shelf and the tangible ladder ride along on this read
-    // rather than getting endpoints of their own. Both are cheap, both derive
-    // from the same XP total the level card shows, and splitting them would let
-    // the widget render a level the "next reward" bar disagrees with. Both are
-    // internally best-effort, so neither can take the screen down.
-    // US-1912 AC1/AC4: the seller's Grade Integrity standing rides this read for
-    // the same reason the badge shelf does — it is cheap, it is part of the same
-    // "where do I stand" answer, and it is what the US-1857 celebration diff
-    // watches for a tier change. Internally best-effort (it degrades to the
-    // pre-floor standing), so it cannot take the screen down.
-    // US-1914 AC1: tenure rides the same read. It is the one standing on this
-    // page that has nothing to do with what the seller did — which is exactly
-    // why it must not be a second request that can fail on its own and leave the
-    // page implying their history is gone.
-    const [badges, milestones, integrity, standing] = await Promise.all([
-      loadBadgeShelf(userId),
-      loadMilestoneProgress(userId, progress.xpTotal),
-      loadSellerIntegrityStanding(userId),
-      loadLoyaltyStanding(userId, nowMs),
-    ]);
-
+    // Phase C. The two reads that need the level. The tangible ladder derives
+    // from the same XP total the level card shows, so splitting it out would let
+    // the widget render a level the "next reward" bar disagrees with.
+    //
     // US-2973: the one-time arrival moment, decided SERVER-side. The
     // client-side celebration diff cannot carry this: it returns nothing when
     // the previous snapshot is null, that snapshot lives in localStorage, and a
     // seller who has never opened this page is precisely who the backfill is
     // for. Best-effort — a missing celebration must not cost them the screen.
-    const arrival = await loadArrival(userId, progress.level, badges?.earned?.length ?? 0);
+    const [milestones, arrival] = await Promise.all([
+      loadMilestoneProgress(userId, progress.xpTotal),
+      loadArrival(userId, progress.level, badges?.earned?.length ?? 0),
+    ]);
 
     return c.json({
       arrival,
@@ -199,19 +196,6 @@ rewardsRoutes.get("/state", async (c) => {
   }
 });
 
-// GET /api/rewards/quests — personal quests + live community challenges.
-//
-// Split from /state rather than folded into it because it is the expensive half:
-// a community challenge scans cross-user events for its standings, and the level
-// card should not wait on a leaderboard. Same personal scoping as /state — a
-// quest belongs to the human, never to the workspace they are acting inside.
-//
-// This read EVALUATES: progress is recomputed from the ledger and a quest that
-// has just been finished is claimed and paid here. That is deliberate and it is
-// the season-rollover pattern (finalizeCompletedSeason) — a weekly boundary
-// touches every user at one instant, and a cron fanning out across the whole
-// user base to write one row each is a worse failure surface than writing it the
-// next time they look. Idempotent by claim, so a refresh pays nothing twice.
 // POST /api/rewards/share — record a tracked share of a graded find (US-1854).
 //
 // Pays NOTHING. It writes the row the share loop is measured against and banks
@@ -524,6 +508,19 @@ rewardsRoutes.put("/leaderboard", async (c) => {
   });
 });
 
+// GET /api/rewards/quests — personal quests + live community challenges.
+//
+// Split from /state rather than folded into it because it is the expensive half:
+// a community challenge scans cross-user events for its standings, and the level
+// card should not wait on a leaderboard. Same personal scoping as /state — a
+// quest belongs to the human, never to the workspace they are acting inside.
+//
+// This read EVALUATES: progress is recomputed from the ledger and a quest that
+// has just been finished is claimed and paid here. That is deliberate and it is
+// the season-rollover pattern (finalizeCompletedSeason) — a weekly boundary
+// touches every user at one instant, and a cron fanning out across the whole
+// user base to write one row each is a worse failure surface than writing it the
+// next time they look. Idempotent by claim, so a refresh pays nothing twice.
 rewardsRoutes.get("/quests", async (c) => {
   const userId = c.get("userId");
   try {

@@ -102,3 +102,19 @@ describe("Rewards tabs follow ?tab= (R6)", () => {
     expect(has("leaderboard-panel")).toBe(true);
   });
 });
+
+describe("Rewards loading state (R8)", () => {
+  it("renders the header and a labelled skeleton, not a bare spinner", () => {
+    mocked.mockReturnValue({
+      rewards: null,
+      isLoading: true,
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useRewards>);
+    mount("/dashboard/rewards");
+    expect(container!.textContent).toContain("Rewards");
+    const status = container!.querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-label")).toBe("Loading your rewards");
+    expect(container!.querySelector(".animate-spin")).toBeNull();
+  });
+});
