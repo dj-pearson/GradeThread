@@ -290,24 +290,30 @@ export function FlipdeskAutolisterDraftsPage() {
   // US-548: a draft is "ready" to publish when it isn't flagged for review,
   // carries a real price + category, and isn't already on a schedule. Bulk
   // publish-all only touches these (the per-item pre-flight is still the gate).
+  // AL-06: a row this session already published (or is publishing) is not
+  // ready again, even before the refetch drops it.
   const readyDrafts = useMemo(
     () =>
-      sorted.filter(
-        (d) =>
+      sorted.filter((d) => {
+        const sent = bulkPublish.results[d.inventory_item_id]?.status;
+        return (
+          sent !== "success" &&
+          sent !== "publishing" &&
           !d.needs_review &&
           (d.listing_price ?? 0) > 0 &&
           !!d.platform_category_id &&
-          !d.scheduled_publish_at,
-      ),
-    [sorted],
+          !d.scheduled_publish_at
+        );
+      }),
+    [sorted, bulkPublish.results],
   );
 
   async function publishReady() {
     if (readyDrafts.length === 0) return;
+    // AL-06: useBulkPublish chunks at the server's cap and owns the toast.
     await bulkPublish.run(
       readyDrafts.map((d) => ({ itemId: d.inventory_item_id, listingId: d.id })),
     );
-    toast.success("Publish finished — see per-row status.");
   }
 
   // US-549: keyboard-first review. j/k move the active row, e expands an inline
@@ -459,6 +465,26 @@ export function FlipdeskAutolisterDraftsPage() {
     });
   }, [sorted]);
 
+  // AL-06: every bulk action works on the selected drafts VISIBLE under the
+  // current search, so every label counts those, not selectedIds.size.
+  const selectedVisible = useMemo(
+    () => sorted.filter((d) => selectedIds.has(d.id)),
+    [sorted, selectedIds],
+  );
+  const hiddenSelected = selectedIds.size - selectedVisible.length;
+  const hiddenNote = hiddenSelected > 0 ? ` (${hiddenSelected} hidden by search)` : "";
+
+  // AL-06: drop ids that are no longer drafts (published, deleted, reviewed)
+  // whenever the list refetches, so a stale id can't ride into a bulk action.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const live = new Set(drafts.map((d) => d.id));
+      const next = new Set([...prev].filter((id) => live.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [drafts]);
+
   // The AI works on inventory items; a draft row is the listing attached to one.
   const selectedItemIds = useMemo(
     () =>
@@ -475,7 +501,7 @@ export function FlipdeskAutolisterDraftsPage() {
   // US-3046: one call per selected draft, sequential. A failure on one draft
   // is reported and the loop moves on; the ones that succeeded stay filled.
   async function fillKitForSelected() {
-    const chosen = sorted.filter((d) => selectedIds.has(d.id));
+    const chosen = selectedVisible;
     if (chosen.length === 0) return;
     const platforms = kitPlatformsFor(chosenChannels);
     setKitFilling({ done: 0, total: chosen.length });
@@ -494,6 +520,7 @@ export function FlipdeskAutolisterDraftsPage() {
       setKitFilling(null);
     }
     const ok = chosen.length - failed;
+    if (failed === 0) setSelectedIds(new Set());
     if (ok > 0) {
       toast.success(
         `Cross-list copy written for ${ok} draft${ok === 1 ? "" : "s"}` +
@@ -506,18 +533,19 @@ export function FlipdeskAutolisterDraftsPage() {
   // everything else through one cross-push-bulk request. The server skips a
   // channel a draft is already on, so a second press mints nothing twice.
   async function crossListSelected(choice: BulkCrossListChoice) {
-    const chosen = sorted.filter((d) => selectedIds.has(d.id));
+    const chosen = selectedVisible;
     if (chosen.length === 0) {
       toast.error("Select drafts first (press x on a row).");
       return;
     }
     let ebayPublished: number | null = null;
+    let ebayOk = false;
     if (choice.platforms.includes("ebay")) {
       if (!ebayConnection) {
         toast.error("Connect eBay first on the Marketplaces page.");
         return;
       }
-      await bulkPublish.run(
+      ebayOk = await bulkPublish.run(
         chosen.map((d) => ({ itemId: d.inventory_item_id, listingId: d.id })),
       );
       ebayPublished = chosen.length;
@@ -525,6 +553,7 @@ export function FlipdeskAutolisterDraftsPage() {
     const others = choice.platforms.filter((p) => p !== "ebay");
     if (others.length === 0) {
       setCrossListOpen(false);
+      if (ebayOk) setSelectedIds(new Set());
       return;
     }
     try {
@@ -540,13 +569,14 @@ export function FlipdeskAutolisterDraftsPage() {
       else toast.error(report.title, opts);
       if (res.summary.queued > 0) void requestDrainNow();
       setCrossListOpen(false);
+      if (report.tone === "success") setSelectedIds(new Set());
     } catch (err) {
       toastError(err, "Bulk cross-listing failed.");
     }
   }
 
   async function publishSelected() {
-    const chosen = sorted.filter((d) => selectedIds.has(d.id));
+    const chosen = selectedVisible;
     if (chosen.length === 0) {
       toast.error("Select drafts first (press x on a row).");
       return;
@@ -555,24 +585,25 @@ export function FlipdeskAutolisterDraftsPage() {
       toast.error("Connect eBay first on the Marketplaces page.");
       return;
     }
-    await bulkPublish.run(
+    // AL-06: useBulkPublish owns the one summary toast.
+    const ok = await bulkPublish.run(
       chosen.map((d) => ({ itemId: d.inventory_item_id, listingId: d.id })),
     );
-    toast.success("Publish finished — see per-row status.");
+    if (ok) setSelectedIds(new Set());
   }
 
   // AL-05: what the "p" confirm reports. Only drafts visible under the current
   // search are sent, so the count is of those.
   const publishPreview = useMemo(() => {
-    const chosen = sorted.filter((d) => selectedIds.has(d.id));
+    const chosen = selectedVisible;
     const ready = new Set(readyDrafts.map((d) => d.id));
     return {
       count: chosen.length,
       blocked: chosen.filter((d) => !ready.has(d.id)).length,
       totalValue: chosen.reduce((sum, d) => sum + (d.listing_price ?? 0), 0),
-      hiddenBySearch: selectedIds.size - chosen.length,
+      hiddenBySearch: hiddenSelected,
     };
-  }, [sorted, selectedIds, readyDrafts]);
+  }, [selectedVisible, hiddenSelected, readyDrafts]);
 
   // Global key handler for the cockpit. Typing in the search/editor inputs is
   // respected; only the documented shortcuts are intercepted.
@@ -768,14 +799,14 @@ export function FlipdeskAutolisterDraftsPage() {
                 </SelectContent>
               </Select>
               {/* US-2817: re-run identification over the selected drafts. */}
-              {selectedIds.size > 0 && (
+              {selectedVisible.length > 0 && (
                 <Button
                   variant="outline"
                   onClick={() => setReidentifyOpen(true)}
                   title="Read the photos again with the current AI and correct what it got wrong before. Values you typed are kept."
                 >
                   <Sparkles className="mr-2 h-4 w-4" />
-                  Re-run AI on {selectedIds.size}
+                  Re-run AI on {selectedVisible.length}{hiddenNote}
                 </Button>
               )}
               {/* US-3046: fill the cross-list kit for the selected drafts (a
@@ -783,7 +814,7 @@ export function FlipdeskAutolisterDraftsPage() {
                   channels were narrowed). Each item is one AI action, the same
                   as the kit's own button, so it runs one at a time and reports
                   as it goes. */}
-              {selectedIds.size > 0 && (
+              {selectedVisible.length > 0 && (
                 <Button
                   variant="outline"
                   onClick={() => void fillKitForSelected()}
@@ -797,11 +828,11 @@ export function FlipdeskAutolisterDraftsPage() {
                   )}
                   {kitFilling
                     ? `Filling kit ${kitFilling.done}/${kitFilling.total}`
-                    : `Fill copy kit for ${selectedIds.size}`}
+                    : `Fill copy kit for ${selectedVisible.length}${hiddenNote}`}
                 </Button>
               )}
               {/* US-3456: the selected drafts to every marketplace at once. */}
-              {selectedIds.size > 0 && (
+              {selectedVisible.length > 0 && (
                 <Button
                   variant="outline"
                   onClick={() => setCrossListOpen(true)}
@@ -809,11 +840,11 @@ export function FlipdeskAutolisterDraftsPage() {
                   title="List the selected drafts on the marketplaces you pick, in one go."
                 >
                   <Layers className="mr-2 h-4 w-4" />
-                  Cross-list {selectedIds.size}
+                  Cross-list {selectedVisible.length}{hiddenNote}
                 </Button>
               )}
               {/* US-549: publish the keyboard-selected subset. */}
-              {selectedIds.size > 0 && (
+              {selectedVisible.length > 0 && (
                 <Button
                   variant="outline"
                   onClick={() => void publishSelected()}
@@ -829,7 +860,7 @@ export function FlipdeskAutolisterDraftsPage() {
                   ) : (
                     <Rocket className="mr-2 h-4 w-4" />
                   )}
-                  Publish {selectedIds.size} selected
+                  Publish {selectedVisible.length} selected{hiddenNote}
                 </Button>
               )}
               {/* US-548: publish-all from the cockpit (ready drafts only). */}
@@ -1341,7 +1372,7 @@ export function FlipdeskAutolisterDraftsPage() {
       <BulkCrossListDialog
         open={crossListOpen}
         onOpenChange={setCrossListOpen}
-        itemCount={selectedIds.size}
+        itemCount={selectedVisible.length}
         ebayConnected={!!ebayConnection}
         running={bulkPublish.running || crossPushBulk.isPending}
         onConfirm={(choice) => void crossListSelected(choice)}
