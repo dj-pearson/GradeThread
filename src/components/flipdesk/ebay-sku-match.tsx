@@ -25,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { ErrorState } from "@/components/ui/error-state";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
@@ -194,8 +195,16 @@ export function EbaySkuMatch() {
   const [bulkCreating, setBulkCreating] = useState(false);
   const [quickLinkBusyId, setQuickLinkBusyId] = useState<string | null>(null);
 
-  const { data: listings = [], isLoading: listingsLoading } = useEbayListings();
-  const { data: items = [], isLoading: itemsLoading } = useItemsList();
+  const listingsQuery = useEbayListings();
+  const itemsQuery = useItemsList();
+  const { data: listings = [], isLoading: listingsLoading } = listingsQuery;
+  const { data: items = [], isLoading: itemsLoading } = itemsQuery;
+  // A failed items read leaves `items` empty, which turns every listing into a
+  // "mismatch" and arms Create all to duplicate the whole catalog. A failed
+  // listings read says "nothing imported". Neither may render as a result.
+  const readFailed = listingsQuery.isError || itemsQuery.isError;
+  const readBusy = listingsQuery.isFetching || itemsQuery.isFetching;
+  const writesLocked = readFailed || readBusy;
 
   const buckets = useMemo(
     () => reconcile(listings, items),
@@ -414,9 +423,18 @@ export function EbaySkuMatch() {
   // Bulk: create FlipDesk items for every orphan in one go. Errors per-row
   // are aggregated so one bad row doesn't sink the rest.
   async function createAllUnmatched() {
-    if (bulkCreating) return;
+    if (bulkCreating || writesLocked) return;
     const orphans = buckets.unmatched.map((u) => u.listing);
     if (orphans.length === 0) return;
+    if (
+      !(await confirm({
+        title: `Create ${orphans.length} new FlipDesk item${orphans.length === 1 ? "" : "s"}?`,
+        description:
+          "Each eBay listing with no matching SKU becomes a new item. If some of these are already in FlipDesk under a different SKU, link them instead, or you will have duplicates.",
+        confirmLabel: `Create ${orphans.length}`,
+      }))
+    )
+      return;
     setBulkCreating(true);
     let created = 0;
     const errors: string[] = [];
@@ -454,7 +472,7 @@ export function EbaySkuMatch() {
   // does NOT touch the FlipDesk item's SKU — use the regular "Link" dialog
   // when you also want to copy the eBay Custom Label across.
   async function quickLink(listing: EbayListingRow, suggestionId: string) {
-    if (quickLinkBusyId) return;
+    if (quickLinkBusyId || writesLocked) return;
     setQuickLinkBusyId(listing.id);
     try {
       // US-465 AC1: mirror the live eBay listing into the listings table so the
@@ -542,7 +560,7 @@ export function EbaySkuMatch() {
           />
           <Button
             onClick={() => fileRef.current?.click()}
-            disabled={importing}
+            disabled={importing || writesLocked}
           >
             {importing ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -560,7 +578,26 @@ export function EbaySkuMatch() {
         </CardContent>
       </Card>
 
-      {loading ? (
+      {readFailed ? (
+        <Card>
+          <CardContent className="pt-6">
+            <ErrorState
+              title="Couldn't load the SKU check"
+              description={
+                itemsQuery.isError
+                  ? "Your FlipDesk items didn't load, so every eBay listing would look unmatched. Nothing is shown until both lists load."
+                  : "Your imported eBay listings didn't load, so this can't say what matches."
+              }
+              onRetry={() => {
+                if (listingsQuery.isError) void listingsQuery.refetch();
+                if (itemsQuery.isError) void itemsQuery.refetch();
+              }}
+              retrying={readBusy}
+              hideSupport
+            />
+          </CardContent>
+        </Card>
+      ) : loading ? (
         <LoadingRegion label="Loading listings">
           <SkeletonRows rows={5} />
         </LoadingRegion>
@@ -611,7 +648,7 @@ export function EbaySkuMatch() {
                     <Button
                       size="sm"
                       onClick={() => void createAllUnmatched()}
-                      disabled={bulkCreating}
+                      disabled={bulkCreating || writesLocked}
                     >
                       {bulkCreating ? (
                         <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -694,7 +731,7 @@ export function EbaySkuMatch() {
                                 onClick={() =>
                                   void quickLink(listing, suggestion.id)
                                 }
-                                disabled={quickLinkBusyId === listing.id}
+                                disabled={quickLinkBusyId === listing.id || writesLocked}
                               >
                                 {quickLinkBusyId === listing.id ? (
                                   <Loader2 className="mr-1 h-3 w-3 animate-spin" />
@@ -710,6 +747,7 @@ export function EbaySkuMatch() {
                           <Button
                             size="sm"
                             onClick={() => setCreateTarget(listing)}
+                            disabled={writesLocked}
                             aria-label={`Create an item for ${listing.title || "untitled listing"}`}
                           >
                             <Plus className="mr-1.5 h-3.5 w-3.5" />
@@ -719,6 +757,7 @@ export function EbaySkuMatch() {
                             size="sm"
                             variant="outline"
                             onClick={() => setLinkTarget(listing)}
+                            disabled={writesLocked}
                             aria-label={`Link ${listing.title || "untitled listing"} to an item`}
                           >
                             <Link2 className="mr-1.5 h-3.5 w-3.5" />

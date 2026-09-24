@@ -198,13 +198,32 @@ export function EbayPayoutsCard({
 } = {}) {
   const { data: connection } = useEbayConnection();
   const connected = !!connection;
-  const { data, isLoading } = useEbayPayouts(connected);
+  const { data, isLoading, isError, refetch, isFetching } =
+    useEbayPayouts(connected);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   if (!connected) return null;
 
   const list = (
-    isLoading ? (
+    // A failed read leaves `data` undefined, which used to fall through to
+    // "No payouts in the last 90 days" -- a statement about the seller's bank
+    // deposits made without having read them.
+    isError ? (
+      <div role="alert" className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted-foreground">
+          Couldn&apos;t load your eBay payouts, so this can&apos;t say whether
+          any arrived.
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void refetch()}
+          disabled={isFetching}
+        >
+          Try again
+        </Button>
+      </div>
+    ) : isLoading ? (
       <p className="text-sm text-muted-foreground">Loading payouts…</p>
     ) : data?.access === false ? (
       <p className="text-sm text-muted-foreground">

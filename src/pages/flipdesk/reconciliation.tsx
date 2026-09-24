@@ -28,6 +28,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
+import { PlanLockedNotice } from "@/components/flipdesk/plan-locked-notice";
+import { isPlanGateError } from "@/lib/plan-gate-error";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -143,7 +145,8 @@ export function ReconciliationPayoutsTab() {
   const importPayouts = useImportPayoutsCsv();
   const { data: payoutImports = [], isLoading: payoutsLoading } =
     usePayoutImports();
-  const { data: queueData, isLoading: queueLoading } = useReconciliationQueue();
+  const queueQuery = useReconciliationQueue();
+  const { data: queueData, isLoading: queueLoading } = queueQuery;
   const queue = queueData?.queue ?? [];
 
   async function handlePayoutFile(file: File) {
@@ -354,6 +357,9 @@ export function ReconciliationPayoutsTab() {
       <ReviewQueueCard
         queue={queue}
         loading={queueLoading}
+        error={queueQuery.isError ? queueQuery.error : null}
+        onRetry={() => void queueQuery.refetch()}
+        retrying={queueQuery.isFetching}
         total={queueData?.total ?? queue.length}
         hasMore={queueData?.hasMore ?? false}
         limit={queueData?.limit ?? queue.length}
@@ -841,8 +847,9 @@ function runStatusBadge(status: EbaySyncRun["status"]) {
 // eBay sync history — one row per background pull, newest first. Surfaces the
 // stats the sync computes (listings pulled/matched, sales created/updated,
 // fee enrichment, errors) which were previously only in the container logs.
-function SyncHistoryCard() {
-  const { data: runs = [], isLoading, isFetching, refetch } = useEbaySyncRuns();
+export function SyncHistoryCard() {
+  const { data: runs = [], isLoading, isError, isFetching, refetch } =
+    useEbaySyncRuns();
   const sync = useSyncEbayListings();
 
   // US-457: a run stuck in 'running' (e.g. a crashed worker) shouldn't block the
@@ -912,7 +919,15 @@ function SyncHistoryCard() {
         </div>
       </CardHeader>
       <CardContent className="px-0">
-        {isLoading ? (
+        {isError ? (
+          <ErrorState
+            title="Couldn't load sync history"
+            description="The history read failed, so this card cannot say whether any sync has run."
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+            hideSupport
+          />
+        ) : isLoading ? (
           <LoadingRegion label="Loading sync history" className="px-4">
             <SkeletonRows rows={5} />
           </LoadingRegion>
@@ -1032,19 +1047,28 @@ function SyncHistoryCard() {
   );
 }
 
-function ReviewQueueCard({
+export function ReviewQueueCard({
   queue,
   loading,
+  error,
+  onRetry,
+  retrying,
   total,
   hasMore,
   limit,
 }: {
   queue: QueueEntry[];
   loading: boolean;
+  /** The queue read's error, or null. A failed read leaves `queue` empty, and
+   *  without this the card said "All payouts are reconciled." */
+  error: unknown;
+  onRetry: () => void;
+  retrying: boolean;
   total: number;
   hasMore: boolean;
   limit: number;
 }) {
+  const failed = error != null;
   const matchMutation = useReconciliationMatch();
   const dismissMutation = useReconciliationDismiss();
   const runMutation = useReconciliationRun();
@@ -1121,10 +1145,12 @@ function ReviewQueueCard({
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant={total > 0 ? "destructive" : "outline"}>
-              {total}
-            </Badge>
-            {queue.length > 0 && (
+            {!failed && (
+              <Badge variant={total > 0 ? "destructive" : "outline"}>
+                {total}
+              </Badge>
+            )}
+            {!failed && queue.length > 0 && (
               <Button
                 variant="outline"
                 size="sm"
@@ -1147,7 +1173,7 @@ function ReviewQueueCard({
             payouts would otherwise be silently hidden. Flag it and point at
             Auto-match, which sweeps ALL of them server-side (not just this
             page); the list re-fetches after so the next batch surfaces. */}
-        {hasMore && (
+        {!failed && hasMore && (
           <div className="flex items-start gap-2 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
@@ -1158,7 +1184,17 @@ function ReviewQueueCard({
             </span>
           </div>
         )}
-        {loading ? (
+        {failed && isPlanGateError(error) ? (
+          <PlanLockedNotice what="Payout matching" />
+        ) : failed ? (
+          <ErrorState
+            title="Couldn't load the review queue"
+            description="The queue read failed, so this card cannot say whether any payout is unmatched. This is not a clean bill of health."
+            onRetry={onRetry}
+            retrying={retrying}
+            hideSupport
+          />
+        ) : loading ? (
           <LoadingRegion label="Loading queue">
             <SkeletonRows rows={4} />
           </LoadingRegion>

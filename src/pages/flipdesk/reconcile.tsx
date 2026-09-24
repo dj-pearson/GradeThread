@@ -170,7 +170,9 @@ export function FlipdeskReconcilePage() {
     );
   };
   // Open cross-source conflict count for the tab badge (US-148).
-  const { data: conflicts } = useSyncConflicts();
+  // Only a successful read produces a badge. A plan gate (402/403) or a failed
+  // read leaves `data` undefined, so nothing renders rather than a count.
+  const { data: conflicts, isError: conflictsFailed } = useSyncConflicts();
   const [photos, setPhotos] = useState<DumpPhoto[]>([]);
   const [assignments, setAssignments] = useState<AssignmentMap>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -645,7 +647,7 @@ export function FlipdeskReconcilePage() {
           <TabsTrigger value="payouts">Payouts &amp; fees</TabsTrigger>
           <TabsTrigger value="cross-source">
             Cross-source
-            {(conflicts?.total ?? 0) > 0 && (
+            {!conflictsFailed && (conflicts?.total ?? 0) > 0 && (
               <Badge variant="destructive" className="ml-1.5 px-1.5 text-[10px]">
                 {conflicts!.total}
               </Badge>

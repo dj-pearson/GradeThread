@@ -19,6 +19,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { ErrorState } from "@/components/ui/error-state";
+import { PlanLockedNotice } from "@/components/flipdesk/plan-locked-notice";
+import { isPlanGateError } from "@/lib/plan-gate-error";
 import {
   useConflictThreshold,
   useResolveConflicts,
@@ -72,7 +75,9 @@ interface ListingGroup {
 }
 
 export function CrossSourceConflicts() {
-  const { data, isLoading } = useSyncConflicts();
+  const { data, isLoading, isError, error, refetch, isFetching } =
+    useSyncConflicts();
+  const locked = isError && isPlanGateError(error);
   const resolve = useResolveConflicts();
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -144,9 +149,11 @@ export function CrossSourceConflicts() {
                 remembered per field, so future syncs won&apos;t overwrite it.
               </CardDescription>
             </div>
-            <Badge variant={groups.length > 0 ? "destructive" : "outline"}>
-              {data?.total ?? 0}
-            </Badge>
+            {!isError && (
+              <Badge variant={groups.length > 0 ? "destructive" : "outline"}>
+                {data?.total ?? 0}
+              </Badge>
+            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -187,7 +194,17 @@ export function CrossSourceConflicts() {
             </div>
           )}
 
-          {isLoading ? (
+          {locked ? (
+            <PlanLockedNotice what="Cross-source conflict checks" />
+          ) : isError ? (
+            <ErrorState
+              title="Couldn't load conflicts"
+              description="The conflicts read failed, so this card cannot say whether FlipDesk, eBay and Sheets agree. This is not a clean bill of health."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+              hideSupport
+            />
+          ) : isLoading ? (
             <div className="py-6 text-center text-sm text-muted-foreground">
               Loading conflicts…
             </div>

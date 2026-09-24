@@ -99,7 +99,12 @@ export function useReconciliationQueue() {
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(json.error || "Failed to load reconciliation queue.");
+        // Carry the status so the card can tell a plan gate (402/403) from a
+        // real failure; neither may read as "all payouts are reconciled".
+        throw Object.assign(
+          new Error(json.error || "Failed to load reconciliation queue."),
+          { status: res.status },
+        );
       }
       const queue = (json.queue ?? []) as QueueEntry[];
       return {
