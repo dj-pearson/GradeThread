@@ -5,12 +5,23 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { useFlipdeskDemand, type DemandFacet } from "@/hooks/use-flipdesk-demand";
 import { PageHeader } from "@/components/ui/page-header";
+import { scoutHrefForFacet } from "@/lib/scout-links";
 
 // US-1831: seller demand signal — what buyers are actively hunting (PII-safe
 // aggregate). Sellers act by sourcing/grading the wanted brand. Dataviz
 // conventions: ranked horizontal bars sized by demand, emerald accent.
 
-function FacetBars({ title, facets, max }: { title: string; facets: DemandFacet[]; max: number }) {
+function FacetBars({
+  title,
+  facets,
+  max,
+  kind,
+}: {
+  title: string;
+  facets: DemandFacet[];
+  max: number;
+  kind: "brand" | "category";
+}) {
   return (
     <Card>
       <CardHeader><CardTitle className="text-lg">{title}</CardTitle></CardHeader>
@@ -26,7 +37,7 @@ function FacetBars({ title, facets, max }: { title: string; facets: DemandFacet[
             <div key={f.term} className="space-y-1">
               <div className="flex items-center justify-between text-sm">
                 <Link
-                  to={`/dashboard/flipdesk/scout?q=${encodeURIComponent(f.term)}`}
+                  to={scoutHrefForFacet(f.term, kind)}
                   className="truncate font-medium capitalize hover:underline"
                   title={`Source ${f.term}`}
                 >
@@ -101,8 +112,8 @@ export function FlipdeskDemandPage() {
         }
       />
       <div className="grid gap-6 md:grid-cols-2">
-        <FacetBars title="Top wanted brands" facets={demand.brands} max={maxBrand} />
-        <FacetBars title="Top wanted categories" facets={demand.categories} max={maxCat} />
+        <FacetBars title="Top wanted brands" facets={demand.brands} max={maxBrand} kind="brand" />
+        <FacetBars title="Top wanted categories" facets={demand.categories} max={maxCat} kind="category" />
       </div>
     </div>
   );

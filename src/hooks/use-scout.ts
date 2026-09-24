@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import type { ValueBasis } from "@/components/value/value-basis-note";
@@ -94,7 +94,57 @@ export interface ScoutScanInput {
   sort?: ScoutSort;
 }
 
-export function useScoutScan() {
+// ── SRC-8: the last scan outlives the tab ───────────────────────────────────
+//
+// Results lived only in useMutation state, so switching to Buy decision and
+// back threw away a scan the seller had paid up to eight AI actions for. The
+// last result is parked in the query cache next to the URL it answered, and the
+// page shows it again when it mounts on that same URL.
+
+export const SCOUT_LAST_SCAN_KEY = ["scout-scan", "last"] as const;
+/** Keep the parked scan for half an hour of tab-switching. */
+export const SCOUT_LAST_SCAN_GC_MS = 30 * 60 * 1000;
+
+export interface ScoutLastScan {
+  /** The URL search keys the scan was run from; see scoutUrlKey. */
+  urlKey: string;
+  input: ScoutScanInput;
+  result: ScoutScanResult;
+}
+
+/** The URL keys that define a scan, in a stable order. */
+export const SCOUT_URL_KEYS = [
+  "q",
+  "brand",
+  "cat",
+  "maxTotal",
+  "minMarginPct",
+  "minMargin",
+  "sort",
+  "bin",
+  "freeShip",
+] as const;
+
+export function scoutUrlKey(params: URLSearchParams): string {
+  return SCOUT_URL_KEYS.map((k) => `${k}=${params.get(k) ?? ""}`).join("&");
+}
+
+/** Read the parked scan without ever fetching. */
+export function useScoutLastScan(): ScoutLastScan | undefined {
+  const { data } = useQuery<ScoutLastScan | null>({
+    queryKey: SCOUT_LAST_SCAN_KEY,
+    // Never runs: enabled is false and the data only ever arrives by
+    // setQueryData from useScoutScan.
+    queryFn: () => null,
+    enabled: false,
+    staleTime: Infinity,
+    gcTime: SCOUT_LAST_SCAN_GC_MS,
+  });
+  return data ?? undefined;
+}
+
+export function useScoutScan(opts: { urlKey?: () => string } = {}) {
+  const qc = useQueryClient();
   return useMutation<ScoutScanResult, Error, ScoutScanInput>({
     mutationFn: async (input) => {
       const res = await edgeFetch("/api/flipdesk/scout", {
@@ -120,6 +170,10 @@ export function useScoutScan() {
     },
     // SRC-3: no success toast. The results render inline right under the
     // button, and a toast saying the same thing covers them on a phone.
+    onSuccess: (result, input) => {
+      const parked: ScoutLastScan = { urlKey: opts.urlKey?.() ?? "", input, result };
+      qc.setQueryData(SCOUT_LAST_SCAN_KEY, parked);
+    },
     onError: (err) => toastError(err),
   });
 }

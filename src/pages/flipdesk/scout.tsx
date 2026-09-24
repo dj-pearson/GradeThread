@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
   Search,
@@ -21,6 +21,8 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
   SCOUT_MAX_AI_ACTIONS,
+  scoutUrlKey,
+  useScoutLastScan,
   useScoutScan,
   type ScoutBuyingOption,
   type ScoutScanInput,
@@ -51,6 +53,13 @@ function gradeClasses(grade: number | null): string {
 }
 
 type SortKey = "margin" | "grade" | "confidence";
+const SORT_KEYS: readonly SortKey[] = ["margin", "grade", "confidence"];
+const SCOUT_SORTS: readonly ScoutSort[] = ["bestMatch", "newlyListed", "endingSoonest", "priceAsc"];
+const DEFAULT_CATEGORY_ID = "11450"; // Clothing, Shoes & Accessories
+
+function pick<T extends string>(value: string | null, allowed: readonly T[], fallback: T): T {
+  return value != null && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
+}
 
 function CandidateRow({ c }: { c: ScoutScored }) {
   return (
@@ -170,11 +179,29 @@ export function FlipdeskScoutPage() {
   // US-1064: community-insights "Source more <brand>" recommendations deep-link
   // here with ?brand=<brand> so the comps scan is prefilled.
   const [searchParams, setSearchParams] = useSearchParams();
-  const [keyword, setKeyword] = useState("");
+  //
+  // SRC-8: the WHOLE search is seeded from the URL, not just the filter. The
+  // bookmark US-3098 promised reopened with an empty keyword, because submit
+  // wrote the filters and never the words.
+  const [keyword, setKeyword] = useState(() => searchParams.get("q") ?? "");
   const [brand, setBrand] = useState(() => searchParams.get("brand") ?? "");
-  const [categoryId, setCategoryId] = useState("11450"); // Clothing, Shoes & Accessories
-  const [sortKey, setSortKey] = useState<SortKey>("margin");
-  const [actionableOnly, setActionableOnly] = useState(false);
+  const [categoryId, setCategoryId] = useState(
+    () => searchParams.get("cat") ?? DEFAULT_CATEGORY_ID,
+  );
+  const [sortKey, setSortKey] = useState<SortKey>(() =>
+    pick(searchParams.get("order"), SORT_KEYS, "margin"),
+  );
+  const [actionableOnly, setActionableOnly] = useState(
+    () => searchParams.get("actionable") === "1",
+  );
+  // A prefilled link does not spend AI on arrival. It puts the seller one tap
+  // away instead.
+  const findDealsRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (searchParams.get("q")) findDealsRef.current?.focus();
+    // Mount only: a later URL change is the page's own submit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── US-3098: the deal filter ────────────────────────────────────────────
   //
@@ -189,7 +216,7 @@ export function FlipdeskScoutPage() {
     () => searchParams.get("minMargin") ?? "",
   );
   const [browseSort, setBrowseSort] = useState<ScoutSort>(
-    () => (searchParams.get("sort") as ScoutSort | null) ?? "bestMatch",
+    () => pick(searchParams.get("sort"), SCOUT_SORTS, "bestMatch"),
   );
   const [buyItNowOnly, setBuyItNowOnly] = useState(
     () => searchParams.get("bin") === "1",
@@ -224,8 +251,16 @@ export function FlipdeskScoutPage() {
     minMarginPctText.trim() || (ownsWorkspace ? String(targetPct) : "");
   const targetHint = ownsWorkspace ? `your ${targetPct}% target` : "your workspace target";
 
-  const scan = useScoutScan();
-  const result = scan.data;
+  // SRC-8: the key is read from the URL at the moment the scan succeeds, which
+  // is after submit wrote it.
+  const urlKeyRef = useRef("");
+  const scan = useScoutScan({ urlKey: () => urlKeyRef.current });
+  const lastScan = useScoutLastScan();
+  // A scan parked by an earlier visit shows again only on the URL it answered.
+  const [mountUrlKey] = useState(() => scoutUrlKey(searchParams));
+  const restored =
+    lastScan && lastScan.urlKey === mountUrlKey ? lastScan.result : undefined;
+  const result = scan.data ?? restored;
   // SRC-3: what a scan costs, said before the click rather than after the cap.
   const { aiActions } = usePlanUsage();
   const actionsLeft = aiActions.unlimited
@@ -264,13 +299,20 @@ export function FlipdeskScoutPage() {
       if (value) next.set(key, value);
       else next.delete(key);
     };
+    setOrDrop("q", keyword.trim());
+    setOrDrop("brand", brand.trim());
+    setOrDrop("cat", categoryId.trim() === DEFAULT_CATEGORY_ID ? "" : categoryId.trim());
+    setOrDrop("actionable", actionableOnly ? "1" : "");
+    setOrDrop("order", sortKey === "margin" ? "" : sortKey);
     setOrDrop("maxTotal", maxTotal.trim());
     setOrDrop("minMarginPct", minMarginPctText.trim());
     setOrDrop("minMargin", minMarginDollars.trim());
     setOrDrop("sort", browseSort === "bestMatch" ? "" : browseSort);
     setOrDrop("bin", buyItNowOnly ? "1" : "");
     setOrDrop("freeShip", freeShippingOnly ? "1" : "");
-    setSearchParams(next, { replace: true });
+    // SRC-8: a pushed entry, so Back returns to the previous search.
+    setSearchParams(next);
+    urlKeyRef.current = scoutUrlKey(next);
 
     // minMarginPct is a FRACTION on the wire (0.3 = 30%); the field is typed in
     // whole percent because that is how a seller says it.
@@ -426,7 +468,7 @@ export function FlipdeskScoutPage() {
             ) : null}
 
             <div className="sm:col-span-4">
-              <Button type="submit" disabled={!canSearch || scan.isPending}>
+              <Button ref={findDealsRef} type="submit" disabled={!canSearch || scan.isPending}>
                 {scan.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
