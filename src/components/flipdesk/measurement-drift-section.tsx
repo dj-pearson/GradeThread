@@ -128,7 +128,7 @@ export function MeasurementDriftSection() {
             <CardDescription>
               Your median measurement for each size against what other sellers
               record for the same size and garment. Sizes are a brand's opinion;
-              a tape measure is not.
+              a tape measure is not. All time. Not affected by the date range.
             </CardDescription>
           </div>
           <Button

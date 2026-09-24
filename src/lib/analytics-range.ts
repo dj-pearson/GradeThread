@@ -42,3 +42,26 @@ export function presetStart(p: Preset, now: Date = new Date()): string | null {
   from.setDate(from.getDate() - PRESET_DAYS[p]);
   return localIsoDate(from);
 }
+
+/**
+ * A12: the window a sentence is about, for copy that used to say "across every
+ * sale" or "across your history" on a report the range had narrowed.
+ */
+export function rangePhrase(p: Preset): string {
+  return p === "all" ? "across all your sales" : `in the ${RANGE_LABEL[p]}`;
+}
+
+/**
+ * A12: a sell-through gap is a difference of two percentages, so it is in
+ * POINTS. "10% more often" read as a ratio (40% vs 36%), which it is not.
+ */
+export function pointLift(
+  lift: number,
+  graded: number | null | undefined,
+  ungraded: number | null | undefined,
+): string {
+  const pts = Math.round(lift * 100);
+  const pct = (n: number | null | undefined) =>
+    n == null || !Number.isFinite(n) ? "-" : `${Math.round(n * 100)}%`;
+  return `a ${pts}-point higher sell-through (${pct(graded)} vs ${pct(ungraded)})`;
+}

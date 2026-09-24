@@ -66,3 +66,26 @@ describe("presetStart uses the local date (A9)", () => {
     expect(presetStart("all", now)).toBeNull();
   });
 });
+
+// ─── A12: copy that matches the window ───────────────────────────────────────
+
+import { pointLift, rangePhrase } from "@/lib/analytics-range";
+
+describe("windowed copy (A12)", () => {
+  it("names the window instead of 'every sale'", () => {
+    expect(rangePhrase("30d")).toBe("in the last 30 days");
+    expect(rangePhrase("all")).toBe("across all your sales");
+  });
+
+  it("states a sell-through gap in points", () => {
+    expect(pointLift(0.1, 0.4, 0.3)).toBe("a 10-point higher sell-through (40% vs 30%)");
+  });
+
+  it("the page no longer claims 'every sale' or 'your history', and the guarantee is all-time", () => {
+    const src = readFileSync(resolve(process.cwd(), "src/pages/flipdesk/analytics.tsx"), "utf8");
+    expect(src).not.toMatch(/across every sale|across your history/);
+    expect(src).not.toMatch(/sell through \$\{pct\(s\.sellThroughLift\)\} more often/);
+    const guarantee = src.slice(src.indexOf("function ConditionGuaranteeCard"));
+    expect(guarantee).toContain("fetchReturnReduction(null)");
+  });
+});

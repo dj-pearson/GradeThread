@@ -71,7 +71,7 @@ import { AnalyticsCardError } from "@/components/flipdesk/analytics-card-error";
 import { ScorecardSkeleton } from "@/components/flipdesk/scorecard-skeleton";
 import { pctTick, SERIES, usdTick } from "@/lib/chart-theme";
 import { useTenantKey } from "@/hooks/use-tenant-key";
-import { presetStart, RANGE_LABEL, type Preset } from "@/lib/analytics-range";
+import { pointLift, presetStart, RANGE_LABEL, rangePhrase, type Preset } from "@/lib/analytics-range";
 import { ANALYTICS_TABS, RANGE_TABS, tabFromPath, tabHref, type AnalyticsTabId } from "@/lib/analytics-tabs";
 import { usePresetParam } from "@/hooks/use-preset-param";
 
@@ -803,7 +803,7 @@ export function GradingRoiReport() {
           Export CSV
         </Button>
       </div>
-      <RoiHeadline summary={summary} />
+      <RoiHeadline summary={summary} preset={preset} />
 
       {/* US-2821: what each flaw costs, measured within its own grade band. */}
       <Suspense fallback={null}>
@@ -984,7 +984,13 @@ export function GradingRoiReport() {
 // sample is statistically meaningful (>= MIN_BUCKET_SIZE realized sales each
 // side); otherwise the numbers are shown muted with a "too early to call" note
 // so nothing is overstated on thin data.
-function RoiHeadline({ summary }: { summary: GradingRoiSummary | null }) {
+function RoiHeadline({
+  summary,
+  preset,
+}: {
+  summary: GradingRoiSummary | null;
+  preset: Preset;
+}) {
   const s = summary;
   const hasAny =
     !!s && (s.graded.sold > 0 || s.ungraded.sold > 0);
@@ -1000,8 +1006,11 @@ function RoiHeadline({ summary }: { summary: GradingRoiSummary | null }) {
     if (s.netProfitLift != null && s.netProfitLift > 0) {
       parts.push(`net ${usd(s.netProfitLift)} more`);
     }
-    if (s.sellThroughLift != null && s.sellThroughLift > 0) {
-      parts.push(`sell through ${pct(s.sellThroughLift)} more often`);
+    if (s.sellThroughLift != null && Math.round(s.sellThroughLift * 100) >= 1) {
+      // A12: points, not percent. See pointLift.
+      parts.push(
+        `have ${pointLift(s.sellThroughLift, s.graded.sellThrough, s.ungraded.sellThrough)}`,
+      );
     }
   }
   const lead = parts.length > 0 ? parts.join(", ") : null;
@@ -1014,7 +1023,7 @@ function RoiHeadline({ summary }: { summary: GradingRoiSummary | null }) {
           Does grading pay off?
         </CardTitle>
         <CardDescription>
-          Your graded items vs your ungraded items across every sale. We only
+          Your graded items vs your ungraded items {rangePhrase(preset)}. We only
           headline the lift once both sides have at least {MIN_BUCKET_SIZE}{" "}
           sales — too small to trust otherwise.
         </CardDescription>
@@ -1052,6 +1061,13 @@ function RoiHeadline({ summary }: { summary: GradingRoiSummary | null }) {
                 label="Sell-through"
                 graded={pct(s?.graded.sellThrough)}
                 ungraded={pct(s?.ungraded.sellThrough)}
+                note={
+                  s?.sellThroughLift != null
+                    ? `${s.sellThroughLift >= 0 ? "+" : ""}${Math.round(
+                        s.sellThroughLift * 100,
+                      )} points graded`
+                    : undefined
+                }
               />
               <RoiStatTile
                 icon={Clock}
@@ -1092,11 +1108,14 @@ function RoiStatTile({
   label,
   graded,
   ungraded,
+  note,
 }: {
   icon: typeof Percent;
   label: string;
   graded: string;
   ungraded: string;
+  /** A12: the gap in its own unit, e.g. "+10 points graded". */
+  note?: string;
 }) {
   return (
     <div className="rounded-lg border p-3">
@@ -1122,6 +1141,7 @@ function RoiStatTile({
           </p>
         </div>
       </div>
+      {note && <p className="mt-1 text-xs text-muted-foreground">{note}</p>}
     </div>
   );
 }
@@ -1169,7 +1189,6 @@ function ReturnReductionReport() {
   const insufficient =
     !headlined &&
     (graded?.kind === "insufficient" || bandFinding?.kind === "insufficient");
-  const highBand = summary.bands.find((b) => b.key === "high");
 
   function exportCsv() {
     downloadCsv(
@@ -1226,7 +1245,7 @@ function ReturnReductionReport() {
               </CardTitle>
               <CardDescription>
                 Return rate = refunded ÷ shipped (completed + refunded) sales,
-                across your history. Bands with fewer than {MIN_RETURN_SAMPLE}{" "}
+                {" "}{rangePhrase(preset)}. Bands with fewer than {MIN_RETURN_SAMPLE}{" "}
                 shipped sales are shown but kept out of the headlines — too small
                 to trust.
               </CardDescription>
@@ -1389,7 +1408,7 @@ function ReturnReductionReport() {
             </CardContent>
           </Card>
 
-          <ConditionGuaranteeCard highBand={highBand} />
+          <ConditionGuaranteeCard />
         </>
       )}
     </div>
@@ -1400,13 +1419,18 @@ function ReturnReductionReport() {
 // return reduction. Only meaningful once the seller has a trustworthy
 // high-grade track record; we build the guarantee blurb from their own numbers
 // (no fabricated claims) and let them copy it straight into a listing.
-function ConditionGuaranteeCard({
-  highBand,
-}: {
-  highBand:
-    | { sold: number; returns: number; returnRate: number | null }
-    | undefined;
-}) {
+function ConditionGuaranteeCard() {
+  // A12: the guarantee quotes the seller's ALL-TIME track record. It used the
+  // tab's range, so the "N graded sales" in a blurb already pasted into
+  // listings changed whenever the seller moved a dropdown they might not see.
+  const tenantKey = useTenantKey();
+  const { data } = useQuery({
+    queryKey: ["items_full", "analytics", "returns", tenantKey, null],
+    enabled: !!tenantKey,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchReturnReduction(null),
+  });
+  const highBand = data?.bands.find((b) => b.key === "high");
   const ready =
     !!highBand &&
     highBand.sold >= MIN_RETURN_SAMPLE &&
@@ -1418,7 +1442,7 @@ function ConditionGuaranteeCard({
   const blurb = ready
     ? `Condition guarantee: this item is independently graded 8.5–10.0. Across ${
         highBand!.sold
-      } graded sales at this tier, ${pct(
+      } graded sales at this tier (all time), ${pct(
         keptRate,
       )} shipped return-free. If it arrives in worse condition than its grade certificate states, return it for a full refund.`
     : "";
