@@ -4,18 +4,21 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
+  LabelList,
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { CHART_TOOLTIP_STYLE, SERIES } from "@/lib/chart-theme";
+import { CHART_TOOLTIP_STYLE, SERIES, pctTick } from "@/lib/chart-theme";
+import { sellThroughTooltip, type SellThroughDatum } from "@/lib/flipdesk-analytics";
 
+export type { SellThroughDatum };
 
-export interface SellThroughDatum {
-  name: string;
-  rate: number;
-  sold: number;
-  listed: number;
-}
+// A7: the rate the RPC computes is sold-in-range over listed-in-range, and an
+// item listed BEFORE the range but sold inside it counts as sold. So a group can
+// run past 100%, and a group with sales but no in-range listings has no rate at
+// all. Neither may be drawn as an ordinary bar: the axis stops at 100 and a bar
+// past it is labelled with its real value, and a null rate draws nothing rather
+// than a 0% bar.
 
 // Isolated so the FlipDesk Analytics route can lazy-load Recharts (~346KB) at
 // the chart boundary instead of shipping it in the route-entry chunk (US-408).
@@ -35,10 +38,11 @@ export function SellThroughChart({ data }: { data: SellThroughDatum[] }) {
         <XAxis
           type="number"
           domain={[0, 100]}
+          allowDataOverflow
           fontSize={11}
           tickLine={false}
           axisLine={false}
-          unit="%"
+          tickFormatter={pctTick}
         />
         <YAxis
           type="category"
@@ -50,9 +54,22 @@ export function SellThroughChart({ data }: { data: SellThroughDatum[] }) {
         />
         <Tooltip
           contentStyle={CHART_TOOLTIP_STYLE}
-          formatter={(value) => [`${value ?? 0}%`, "Sell-through"]}
+          formatter={(_value, _name, item) => [
+            sellThroughTooltip(item.payload as SellThroughDatum),
+            "Sell-through",
+          ]}
         />
-        <Bar dataKey="rate" fill={SERIES.primary} radius={[0, 4, 4, 0]} />
+        <Bar dataKey="rate" fill={SERIES.primary} radius={[0, 4, 4, 0]}>
+          <LabelList
+            dataKey="rate"
+            position="insideRight"
+            fill="#ffffff"
+            fontSize={11}
+            formatter={(v: unknown) =>
+              typeof v === "number" && v > 100 ? `${v}%*` : ""
+            }
+          />
+        </Bar>
       </BarChart>
     </ResponsiveContainer>
   );

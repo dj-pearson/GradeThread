@@ -43,6 +43,7 @@ import {
 import { useAuthStore } from "@/stores/auth-store";
 import {
   MIN_BUCKET_SIZE,
+  sellThroughDatum,
   type GroupKey,
   type GradingRoiSummary,
 } from "@/lib/flipdesk-analytics";
@@ -530,12 +531,9 @@ function SellThroughReport() {
     0,
   );
 
-  const chartData = visibleRows.slice(0, 12).map((r) => ({
-    name: r.group,
-    rate: r.sellThrough != null ? Math.round(r.sellThrough * 100) : 0,
-    sold: r.sold,
-    listed: r.listed,
-  }));
+  // A7: null stays null. A group that sold 5 with nothing listed in range
+  // has no rate, and drawing it as 0% said it sold nothing.
+  const chartData = visibleRows.slice(0, 12).map(sellThroughDatum);
 
   function exportCsv() {
     downloadCsv(
@@ -658,14 +656,19 @@ function SellThroughReport() {
                 Sell-through rate by {groupKey}
               </CardTitle>
               <CardDescription>
-                Sold ÷ listed, for items with a list date in range. Top 12
-                shown.
+                Sold in range / listed in range. Items listed earlier but sold in
+                range count as sold. Top 12 shown.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Suspense fallback={<ChartSkeleton />}>
                 <SellThroughChart data={chartData} />
               </Suspense>
+              {chartData.some((d) => d.rate != null && d.rate > 100) && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  * Over 100%. Includes items listed before this range.
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -698,7 +701,12 @@ function SellThroughReport() {
                         {r.sold}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {pct(r.sellThrough)}
+                        {r.sellThrough == null && r.sold > 0 ? (
+                          <span title="No listings in range">—</span>
+                        ) : (
+                          pct(r.sellThrough)
+                        )}
+                        {r.sellThrough != null && r.sellThrough > 1 && "*"}
                       </TableCell>
                       <TableCell className="text-right font-mono tabular-nums">
                         {usd(r.avgNetProfit)}
