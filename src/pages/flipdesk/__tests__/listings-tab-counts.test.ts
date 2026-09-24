@@ -46,6 +46,8 @@ describe("the page wires both in", () => {
     // Position 3 of the key must be the tab for keepRowsAcrossKeys to hold.
     const keyDecl = src.slice(src.indexOf("const listingsPageKey = ["));
     expect(keyDecl.slice(0, 80)).toMatch(/\.\.\.listingsItemsKey,\s*tab,/);
-    expect(src).toMatch(/const listingsItemsKey = \["items_full", "listings", [^\]]+\] as const/);
+    // INV-D1: the prefix is built by listingsItemsKeyFor, keyed on the
+    // workspace on screen; its shape is pinned in listings-owner-scope.test.ts.
+    expect(src).toContain("const listingsItemsKey = listingsItemsKeyFor(ownerId);");
   });
 });

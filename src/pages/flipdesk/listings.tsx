@@ -136,6 +136,7 @@ import {
 } from "@/pages/flipdesk/listings-url-state";
 import {
   listingPageArgs,
+  listingsItemsKeyFor,
   usePageRowDetails,
   type ListingPageResult,
 } from "@/pages/flipdesk/listings-page-queries";
@@ -665,7 +666,9 @@ export function FlipdeskListingsPage() {
   // reason the page-scoped detail reads key on pageRowIds. The first three
   // elements are unchanged, so every existing
   // invalidateQueries({ queryKey: ["items_full"] }) still sweeps all of them.
-  const listingsItemsKey = ["items_full", "listings", user?.id] as const;
+  // INV-D1: keyed on the WORKSPACE on screen, not the signed-in user, so a
+  // workspace switch never serves the other workspace's page from cache.
+  const listingsItemsKey = listingsItemsKeyFor(ownerId);
   const listingsPageKey = [
     ...listingsItemsKey,
     tab,
@@ -739,7 +742,8 @@ export function FlipdeskListingsPage() {
     // `buyerCounts` across the whole account for the repeat-buyer star.
     //
     // It is SECURITY INVOKER and items_full is security_invoker, so RLS still
-    // scopes this to the caller exactly as the direct read did.
+    // applies. RLS admits every workspace the caller is in, though, so INV-D1
+    // (00833) passes p_owner_id and the function reads that workspace only.
     queryFn: async (): Promise<ListingPageResult> => {
       const { data, error } = await supabase.rpc("flipdesk_listing_page", {
         // INV-6: the same argument builder select-all and CSV export use.
@@ -752,6 +756,7 @@ export function FlipdeskListingsPage() {
           columnSort,
           sortPreset,
           agedThresholdDays,
+          ownerId,
         }),
         p_limit: pageSize,
         p_offset: (page - 1) * pageSize,

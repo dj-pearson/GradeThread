@@ -1,6 +1,6 @@
 # What the backlog is waiting on you for
 
-Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 170 of 272 open stories carry at least one OPERATOR criterion — a step only you can take.
+Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 172 of 294 open stories carry at least one OPERATOR criterion — a step only you can take.
 
 This is not a list of blocked work. Most of these stories have buildable criteria before the operator step, and several were finished this session right up to it. It is a list of the last mile.
 
@@ -8,7 +8,7 @@ This is not a list of blocked work. Most of these stories have buildable criteri
 
 Computed from supabase/held-migrations.json and the criteria below, so it is right on the day you read it. Everything under this heading is two sittings, and it is the two that move the most stories.
 
-**1. Apply the 10 held migrations, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
+**1. Apply the 11 held migrations, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
 
 - `00823_imported_sales_shipped.sql` — US-3465 — old imported sales out of the Ship queue
 - `00824_get_or_create_source_tenant_scope.sql` — security - a signed-in user could write another seller's sources
@@ -20,10 +20,11 @@ Computed from supabase/held-migrations.json and the criteria below, so it is rig
 - `00830_account_webhooks.sql` — extensions-api plan actions 2+3 - customer webhook secret, one delivery per account, durable retries
 - `00831_source_item_counts.sql` — flipdesk-inventory plan action 7 - Sources page counts items in SQL
 - `00832_one_ebay_draft_per_item.sql` — marketplaces plan action 3 - one AutoLister eBay draft per item
+- `00833_inventory_table_owner_scope.sql` — INV-D1 - Inventory table and tab counts mixed two workspaces
 
    Applying them and flipping each heading to `## ✅ APPLIED:` with a date is also what clears `node scripts/held-migration-gate.mjs --ci`, which CI runs first and which fails on any branch carrying a held migration. Until then a pull request from a branch that has one cannot go green, however good the rest of it is.
 
-**2. Redeploy the edge on Coolify.** Its boot guard expects the schema version the migrations above just set, so this follows them rather than leading. That one deploy is the precondition for **6 stories** whose remaining step is a measurement taken afterwards, not separate work: US-3457, US-3146, US-3149, US-3147, US-3148, US-3028.
+**2. Redeploy the edge on Coolify.** Its boot guard expects the schema version the migrations above just set, so this follows them rather than leading. That one deploy is the precondition for **7 stories** whose remaining step is a measurement taken afterwards, not separate work: US-3457, US-3146, US-3149, US-3147, US-3148, US-3472, US-3028.
 
 ---
 
@@ -32,8 +33,8 @@ Computed from supabase/held-migrations.json and the criteria below, so it is rig
 Most of these are not separate sittings. Grouped by what you need open:
 
 - **Somewhere else (read the step)** — 63 steps
-- **Coolify, or a deploy + env change** — 29 steps
-- **Production database (psql or the Supabase SQL editor)** — 27 steps
+- **Coolify, or a deploy + env change** — 30 steps
+- **Production database (psql or the Supabase SQL editor)** — 28 steps
 - **A marketplace account, logged in** — 27 steps
 - **A lawyer** — 11 steps
 - **A grading run that costs real money** — 8 steps
@@ -477,6 +478,12 @@ priority 20
 
 confirm AUTH_EMAIL_HOOK_SECRET on the edge and GOTRUE_HOOK_SEND_EMAIL_* on the auth container, then re-measure /health/ready features.auth_email_hook.
 
+### US-3472 — ebay_category_aspects: getCategoryName writes an empty aspect list with a fresh fetched_at, so 7 prod categories show no fields for a week
+
+priority 21
+
+after deploy, a read-only query on prod shows zero ebay_category_aspects rows with an empty aspects payload once each affected category has been opened or refreshed
+
 ### US-2313 — Nothing in version control creates or verifies the 73 production cron schedules
 
 priority 25
@@ -688,6 +695,12 @@ audit prod expense rows for dates that already drifted (AC4). Note the drift is 
 priority 25
 
 run the ALL-TIME half of section 12 of scripts/prod-diagnostics-console.sql (AC4) - the demand_board and guarantee_claim rows of its first query. The 30-day slice came back 0 twice, so nobody ACTIVE loses anything; what is unanswered is whether an account that used either feature months ago should be grandfathered before the gates deploy.
+
+### US-3482 — Backfill: re-run the aspect matcher over existing drafts' specifics, no AI calls, dry run first
+
+priority 28
+
+run --dry-run on prod, share the counts, then --apply
 
 ### US-2922 — Top 100 brand size charts: verified, sourced and department-complete
 

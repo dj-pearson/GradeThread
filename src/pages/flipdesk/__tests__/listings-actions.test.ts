@@ -807,6 +807,7 @@ describe("INV-6: select-all and export ask for the page's own rows", () => {
       columnSort: null,
       sortPreset: "oldest" as const,
       agedThresholdDays: 45,
+      ownerId: "owner-b",
     };
     const a = makeListingsActions(deps(criteria as unknown as Partial<Deps>));
     await a.fetchMatchingRows(2000);
@@ -816,6 +817,8 @@ describe("INV-6: select-all and export ask for the page's own rows", () => {
     expect(p_ytd_start).toBe(pageYtd);
     expect(sent.p_unlisted_filter).toBe("ready");
     expect(sent.p_aged_threshold_days).toBe(45);
+    // INV-D1: select-all and the export read the workspace on screen too.
+    expect(sent.p_owner_id).toBe("owner-b");
     expect(typeof p_limit).toBe("number");
     expect(p_offset).toBe(0);
   });
