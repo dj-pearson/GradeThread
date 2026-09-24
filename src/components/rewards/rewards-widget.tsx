@@ -2,7 +2,7 @@ import { Link } from "react-router";
 import { ArrowRight, CalendarRange, Target, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { LabeledProgress } from "@/components/rewards/labeled-progress";
 import { useRewards } from "@/hooks/use-rewards";
 import { useQuests } from "@/hooks/use-quests";
 import { BadgeMedalStrip } from "@/components/rewards/badge-shelf";
@@ -28,13 +28,18 @@ function nf(n: number): string {
 
 export function RewardsWidget() {
   const { rewards, isLoading, isError } = useRewards();
-  const { quests } = useQuests();
+  // The quests read scans cross-user standings; a seller with no XP yet gets no
+  // widget below, so there is nothing to spend it on.
+  const { quests } = useQuests({ enabled: (rewards?.level.xp_total ?? 0) > 0 });
 
   // The celebration runner is mounted even when the card below renders nothing.
   // A brand-new seller has no widget to show, but they DO need their baseline
   // snapshot recorded — otherwise their very first badge diffs against nothing
   // and the one moment most worth marking is the one that gets skipped.
-  const celebrations = <RewardCelebrations />;
+  // Baseline-only while the rewards page's one-time arrival moment is pending:
+  // that card is the celebration for the backfill, and a toast here for the
+  // same levels and badges would be a second one.
+  const celebrations = <RewardCelebrations baselineOnly={!!rewards?.arrival} />;
 
   // A failed rewards read is not worth a red block on the dashboard: it is an
   // extra here, and the rewards page states the error properly.
@@ -74,11 +79,13 @@ export function RewardsWidget() {
           </div>
 
           <div className="space-y-1.5">
-            <Progress value={level.percent_to_next_level} />
+            <LabeledProgress
+              value={level.percent_to_next_level}
+              label={`Progress to level ${level.level + 1}`}
+              valueText={`${nf(level.xp_to_next_level)} XP to go`}
+            />
             <p className="text-xs text-muted-foreground">
-              {level.xp_to_next_level > 0
-                ? `${nf(level.xp_to_next_level)} XP to level ${level.level + 1}`
-                : "Level up ready"}
+              {nf(level.xp_to_next_level)} XP to level {level.level + 1}
             </p>
           </div>
 
@@ -113,7 +120,7 @@ export function RewardsWidget() {
               <p className="text-xs font-medium">
                 Badges · {badges.earned_count} of {badges.total}
               </p>
-              <BadgeMedalStrip badges={badges.earned} limit={6} />
+              <BadgeMedalStrip badges={badges.earned} limit={6} surface="dashboard_widget" />
             </div>
           )}
 
@@ -125,7 +132,12 @@ export function RewardsWidget() {
                   {nf(milestones.next.xp_remaining)} XP to go
                 </p>
               </div>
-              <Progress value={milestones.next.percent} className="h-1.5" />
+              <LabeledProgress
+                value={milestones.next.percent}
+                label={`Progress to ${milestones.next.label}`}
+                valueText={`${nf(milestones.next.xp_remaining)} XP to go`}
+                className="h-1.5"
+              />
             </div>
           )}
         </CardContent>

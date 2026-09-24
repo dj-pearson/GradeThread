@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/rewards-pipeline.ts
   - services/edge-functions/src/routes/jobs-rewards-sweep.ts
   - services/edge-functions/src/routes/rewards.ts
-reviewed: 2026-08-28
+reviewed: 2026-09-24
 tags: [rewards, gamification, flipdesk, seller, contract]
 summary: The seven FlipDesk pipeline stages earn XP that is DERIVED from durable item state rather than emitted by the routes that move an item; a sweep grants what is missing, the same code path serves the one-time backfill, and the anti-farming bound is an XP ceiling per occurred_at date rather than a paid gate.
 ---
@@ -97,13 +97,21 @@ key, default 300, degrading to the default on junk exactly like
 Applying it per **`occurred_at` date** rather than per wall-clock day is what
 makes the backfill work with no special case: a seller's months of history spread
 across months of dates and barely touch the ceiling, while 500 items imported and
-dated today hit it immediately. Planning is chronological, so on a day at its
+dated today hit it immediately. Child tables are read by `inventory_item_id` in
+chunks of `IN_CHUNK` (150) ids, not the 500-row page size: 500 UUIDs is ~19.5k
+URL characters and prod Kong answers 414 near 15.6k, which silently cost the
+largest sellers all their pipeline XP. Planning is chronological, so on a day at its
 limit the seller's earliest work is what earns.
 
 ## The sweep runs three ways
 
 1. **On the rewards screen.** `GET /api/rewards/state` sweeps first, throttled to
-   one attempt per five minutes, so working feels like it counts.
+   one attempt per five minutes, so working feels like it counts. The sweep runs
+   BEFORE the season rollover, because backdated XP from a quarter's last days
+   belongs in that quarter's write-once recap. The throttle is a CLAIM
+   (`claimSweep`): the stamp is written first with two sequential conditional
+   updates (never `.or()`, US-1552), so of several overlapping loads exactly one
+   sweeps.
 2. **On the FlipDesk pipeline page**, via the same endpoint and the same throttle.
 3. **Nightly** at 06:30 UTC (`/api/jobs/rewards-sweep`), which is the floor and
    the thing that delivers the backfill to a seller who never opens Rewards.

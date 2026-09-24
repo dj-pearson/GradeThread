@@ -370,28 +370,56 @@ export interface PipelineSweepSummary {
 
 const PAGE = 500;
 
-/** Load every row of a child table for these parent items, paged. */
-async function loadForItems<T>(
+/**
+ * How many item ids go into ONE `.in("inventory_item_id", ...)` filter.
+ *
+ * Deliberately NOT `PAGE`. A UUID costs about 37 characters of URL once quoted
+ * and comma-joined, so 500 of them is ~19.5k characters, and prod Kong answers
+ * 414 at around 15.6k. The sweep's caller swallows errors, so the failure mode
+ * was silent: the sellers with the most items earned no item_* XP at all. 150
+ * ids is ~5.5k characters, comfortably inside the limit with room for the rest
+ * of the query string.
+ */
+export const IN_CHUNK = 150;
+
+/**
+ * The slice of a supabase-js query builder `loadForItems` uses. Typed narrowly
+ * so a test can hand in a recording stub; production passes `supabaseAdmin`.
+ */
+// deno-lint-ignore no-explicit-any
+type ChildReadClient = { from(table: string): any };
+
+/** Load every row of a child table for these parent items, chunked and paged. */
+export async function loadForItems<T>(
   table: string,
   columns: string,
   itemIds: string[],
+  client: ChildReadClient = supabaseAdmin,
 ): Promise<Map<string, T[]>> {
   const byItem = new Map<string, T[]>();
-  for (let i = 0; i < itemIds.length; i += PAGE) {
-    const slice = itemIds.slice(i, i + PAGE);
-    const { data, error } = await supabaseAdmin
-      .from(table)
-      .select("inventory_item_id, " + columns)
-      .in("inventory_item_id", slice);
-    if (error) throw new Error("sweep: " + table + " read failed: " + error.message);
-    // The table name is a variable here, so supabase-js cannot infer a row type
-    // and widens `data` to its error shape. The cast goes through `unknown`
-    // deliberately; the columns are named two lines up in the same call.
-    const rows = (data ?? []) as unknown as Array<{ inventory_item_id: string }>;
-    for (const row of rows) {
-      const list = byItem.get(row.inventory_item_id) ?? [];
-      list.push(row as unknown as T);
-      byItem.set(row.inventory_item_id, list);
+  for (let i = 0; i < itemIds.length; i += IN_CHUNK) {
+    const slice = itemIds.slice(i, i + IN_CHUNK);
+    // Page INSIDE each chunk too: 150 items can own far more than PostgREST's
+    // row cap of photos or listings, and a capped page looks exactly like a
+    // complete one unless the short page is what ends the loop.
+    for (let from = 0;; from += PAGE) {
+      const { data, error } = await client
+        .from(table)
+        .select("inventory_item_id, " + columns)
+        .in("inventory_item_id", slice)
+        .order("id", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) throw new Error("sweep: " + table + " read failed: " + error.message);
+      // The table name is a variable here, so supabase-js cannot infer a row type
+      // and widens `data` to its error shape. The cast goes through `unknown`
+      // deliberately; the columns are named two lines up in the same call.
+      const rows = (data ?? []) as unknown as Array<{ inventory_item_id: string }>;
+      for (const row of rows) {
+        const list = byItem.get(row.inventory_item_id) ?? [];
+        list.push(row as unknown as T);
+        byItem.set(row.inventory_item_id, list);
+      }
+      if (rows.length < PAGE) break;
     }
   }
   return byItem;
@@ -454,22 +482,18 @@ export async function sweepPipelineRewards(userId: string): Promise<PipelineSwee
   }
 
   const itemIds = items.map((i) => i.id);
-  const photos = await loadForItems<PipelinePhoto>("item_photos", "created_at", itemIds);
-  const listings = await loadForItems<PipelineListing>(
-    "listings",
-    "platform_listing_id, listed_at, created_at",
-    itemIds,
-  );
-  const sales = await loadForItems<PipelineSale>(
-    "sales",
-    "sale_price, sold_at, sale_date",
-    itemIds,
-  );
-  const repricing = await loadForItems<PipelineRepricing>(
-    "repricing_suggestions",
-    "created_at",
-    itemIds,
-  );
+  // The four child tables are independent reads keyed on the same verified id
+  // set, so they run together rather than one after another.
+  const [photos, listings, sales, repricing] = await Promise.all([
+    loadForItems<PipelinePhoto>("item_photos", "created_at", itemIds),
+    loadForItems<PipelineListing>(
+      "listings",
+      "platform_listing_id, listed_at, created_at",
+      itemIds,
+    ),
+    loadForItems<PipelineSale>("sales", "sale_price, sold_at, sale_date", itemIds),
+    loadForItems<PipelineRepricing>("repricing_suggestions", "created_at", itemIds),
+  ]);
 
   // 2. What this owner has already earned, so the plan neither double-grants nor
   //    ignores XP that already counts against a date's ceiling.
@@ -604,27 +628,82 @@ export function sweepIsDue(lastAttemptIso: string | null | undefined, nowMs: num
 }
 
 /**
+ * Claim this seller's on-demand sweep slot. Returns true for exactly ONE caller
+ * per throttle window.
+ *
+ * The rewards screen, the dashboard widget and a retry can all load /state at
+ * the same moment. Reading the stamp and then sweeping let every one of them
+ * see "due" and run a full derivation, plus awardBadges and the tangible pass,
+ * side by side. So the stamp is written FIRST, in a conditional update, and
+ * only the caller whose update actually matched a row goes on to sweep.
+ *
+ * ⚠ Two sequential conditional updates, NOT one `.or(...)` (US-1552: the
+ * self-hosted prod PostgREST rejects logical operators on a mutation).
+ */
+export async function claimSweep(userId: string, nowMs: number): Promise<boolean> {
+  const nowIso = new Date(nowMs).toISOString();
+  const staleIso = new Date(nowMs - SWEEP_THROTTLE_MS).toISOString();
+
+  const never = await supabaseAdmin
+    .from("user_reward_state")
+    .update({ last_pipeline_sweep_at: nowIso } as never)
+    .eq("user_id", userId)
+    .is("last_pipeline_sweep_at", null)
+    .select("user_id");
+  if (never.error) throw new Error("sweep claim failed: " + never.error.message);
+  if ((never.data ?? []).length > 0) return true;
+
+  const stale = await supabaseAdmin
+    .from("user_reward_state")
+    .update({ last_pipeline_sweep_at: nowIso } as never)
+    .eq("user_id", userId)
+    .lt("last_pipeline_sweep_at", staleIso)
+    .select("user_id");
+  if (stale.error) throw new Error("sweep claim failed: " + stale.error.message);
+  if ((stale.data ?? []).length > 0) return true;
+
+  // No row matched either filter. Either the seller was swept inside the
+  // window, or they have no user_reward_state row yet (items, but no rewardable
+  // act). The second case gets an INSERT that ignores a duplicate, so of two
+  // racing first-ever loads only the one whose row landed sweeps.
+  const existing = await supabaseAdmin
+    .from("user_reward_state")
+    .select("user_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (existing.error) throw new Error("sweep claim failed: " + existing.error.message);
+  if (existing.data) return false;
+
+  const inserted = await supabaseAdmin
+    .from("user_reward_state")
+    .upsert(
+      { user_id: userId, last_pipeline_sweep_at: nowIso } as never,
+      { onConflict: "user_id", ignoreDuplicates: true },
+    )
+    .select("user_id");
+  if (inserted.error) throw new Error("sweep claim failed: " + inserted.error.message);
+  return (inserted.data ?? []).length > 0;
+}
+
+/**
  * Run a sweep for this seller unless one ran inside the throttle window.
  *
  * Best-effort by contract. This rides on the back of the rewards screen load,
  * and a sweep problem must never take that screen down — the same reasoning
  * that makes a disabled mechanic a no-op rather than an error in grantReward.
- * Returns the summary when a sweep ran, or null when it was throttled or failed.
+ * Returns the summary when a sweep ran, or null when it was throttled, lost the
+ * claim to a concurrent load, or failed.
+ *
+ * `sweep` is a test seam; production always runs sweepPipelineRewards.
  */
 export async function sweepOnDemand(
   userId: string,
   nowMs: number = Date.now(),
+  sweep: (userId: string) => Promise<PipelineSweepSummary> = sweepPipelineRewards,
 ): Promise<PipelineSweepSummary | null> {
   try {
-    const { data } = await supabaseAdmin
-      .from("user_reward_state")
-      .select("last_pipeline_sweep_at")
-      .eq("user_id", userId)
-      .maybeSingle();
-    const last = (data as { last_pipeline_sweep_at: string | null } | null)
-      ?.last_pipeline_sweep_at ?? null;
-    if (!sweepIsDue(last, nowMs)) return null;
-    return await sweepPipelineRewards(userId);
+    if (!(await claimSweep(userId, nowMs))) return null;
+    return await sweep(userId);
   } catch (err) {
     console.error(
       "[rewards-pipeline] on-demand sweep failed:",

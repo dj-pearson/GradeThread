@@ -43,6 +43,9 @@ import { loadSeasonTimezone, seasonForInstant } from "./rewards-seasons.ts";
 import { loadLoyaltyConfig, loadLoyaltyStanding } from "./rewards-loyalty.ts";
 import type { LoyaltyConfig } from "./rewards-loyalty.ts";
 import { readRewardState } from "./rewards-engine.ts";
+import { REWARDS_LINKS } from "./rewards-links.ts";
+import { loadMilestoneCatalog } from "./rewards-tangible.ts";
+import { anniversaryBaseKey } from "./rewards-loyalty.ts";
 import {
   loadQuestDefinitions,
   type QuestDefinition,
@@ -293,7 +296,7 @@ export function nearMissCandidate(
     periodKey: "once",
     title: `${unit} for ${miss.badge.name}`,
     body: `You're at ${miss.current} of ${miss.target}. ${miss.badge.description}`,
-    link: "/dashboard/rewards",
+    link: REWARDS_LINKS.badges,
   };
 }
 
@@ -350,7 +353,7 @@ export function questCandidate(
       body:
         `You're at ${current} of ${target} — ${remaining} more finishes the ${noun} ` +
         `before this window closes.`,
-      link: "/dashboard/rewards",
+      link: REWARDS_LINKS.quests,
     };
   }
 
@@ -367,7 +370,7 @@ export function questCandidate(
       periodKey: window.periodKey,
       title: `New ${noun}: ${quest.name}`,
       body: quest.description,
-      link: "/dashboard/rewards",
+      link: REWARDS_LINKS.quests,
     };
   }
 
@@ -418,7 +421,7 @@ export function expiringRewardCandidate(
     title: `Your ${soonest.grant.label} reward expires soon`,
     body: `It's yours until ${new Date(soonest.expiresMs).toISOString().slice(0, 10)} — ` +
       `${days === 1 ? "1 day" : `${days} days`} left to use it.`,
-    link: "/dashboard/rewards",
+    link: REWARDS_LINKS.milestones,
   };
 }
 
@@ -490,7 +493,7 @@ export function comebackCandidate(
     title: `What's new since you were last here`,
     body: `${whatsNew} ${standing} — your level, badges and member-since standing ` +
       `are exactly where you left them, and they stay that way.`,
-    link: "/dashboard/rewards",
+    link: REWARDS_LINKS.season,
   };
 }
 
@@ -835,17 +838,23 @@ export async function loadConfirmationWeeks(
 
 /** Time-boxed tangible grants still in force. */
 async function loadExpiringGrants(userId: string): Promise<ExpiringGrantInput[]> {
-  const { data, error } = await supabaseAdmin
-    .from("reward_tangible_grants")
-    .select("milestone_key, reward_type, reward_value, expires_at")
-    .eq("user_id", userId)
-    .eq("status", "granted")
-    .not("expires_at", "is", null)
-    .limit(50);
+  const [{ data, error }, catalog] = await Promise.all([
+    supabaseAdmin
+      .from("reward_tangible_grants")
+      .select("milestone_key, reward_type, reward_value, expires_at")
+      .eq("user_id", userId)
+      .eq("status", "granted")
+      .not("expires_at", "is", null)
+      .limit(50),
+    loadMilestoneCatalog().catch(() => []),
+  ]);
   if (error) {
     console.error("[rewards-nudges] grant load failed:", error.message);
     return [];
   }
+  // The catalog label, resolved the way loadMilestoneProgress resolves it. The
+  // key itself ("pgd_10_off") printed as "pgd 10 off" in a seller's inbox.
+  const labels = new Map(catalog.map((m) => [m.key, m.label]));
   return ((data ?? []) as Array<{
     milestone_key: string;
     reward_type: string;
@@ -853,11 +862,20 @@ async function loadExpiringGrants(userId: string): Promise<ExpiringGrantInput[]>
     expires_at: string | null;
   }>).map((r) => ({
     milestoneKey: r.milestone_key,
-    label: r.milestone_key.replace(/_/g, " "),
+    label: expiringGrantLabel(r.milestone_key, labels),
     rewardType: r.reward_type,
     rewardValue: Number(r.reward_value) || 0,
     expiresAt: r.expires_at,
   }));
+}
+
+/**
+ * The seller-facing name of a granted milestone. Instanced keys
+ * (`anniversary_gift:y3`) resolve through their catalog base key; a key with no
+ * catalog row at all reads as "a reward" rather than as a database identifier.
+ */
+export function expiringGrantLabel(key: string, labels: ReadonlyMap<string, string>): string {
+  return labels.get(key) ?? labels.get(anniversaryBaseKey(key)) ?? "GradeThread";
 }
 
 /** Quest progress snapshots for the live windows (the cheap read — the full lazy
@@ -1127,9 +1145,15 @@ export async function nudgeUser(
  */
 export function nudgeLink(path: string, sendId: string | null): string {
   if (!sendId) return path;
-  const sep = path.includes("?") ? "&" : "?";
-  return `${path}${sep}nudge=${sendId}&utm_source=gradethread&utm_medium=notification` +
-    `&utm_campaign=${NUDGE_CAMPAIGN}`;
+  // The query goes BEFORE any #anchor. Appended after it, the parameters would
+  // be part of the fragment, which the browser never sends and the SPA's
+  // useSearchParams never sees, so the send would go unattributed.
+  const hashAt = path.indexOf("#");
+  const base = hashAt >= 0 ? path.slice(0, hashAt) : path;
+  const hash = hashAt >= 0 ? path.slice(hashAt) : "";
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}nudge=${sendId}&utm_source=gradethread&utm_medium=notification` +
+    `&utm_campaign=${NUDGE_CAMPAIGN}${hash}`;
 }
 
 // ─── The attribution pass ────────────────────────────────────────────────────

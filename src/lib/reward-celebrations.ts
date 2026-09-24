@@ -112,8 +112,8 @@ export type CelebrationTier = "celebrate" | "quiet";
 
 /** The share card a moment offers, or null when it has none. */
 export interface CelebrationShare {
-  kind: "badge" | "level";
-  /** Badge catalog key, or the level number as a string. */
+  kind: "badge" | "level" | "anniversary";
+  /** Badge catalog key, the level number, or the anniversary year, as a string. */
   key: string;
   title: string;
   text: string;
@@ -138,10 +138,24 @@ export interface CelebrationContext {
   milestoneLabel(key: string): string;
   /** US-1914: display name of the tenure tier they now hold (e.g. "Veteran"). */
   tenureName: string;
+  /**
+   * Display label of the integrity tier they now hold ("Trusted seller"). The
+   * snapshot stores the KEY, which is what the toast printed ("trusted").
+   * Optional so an older caller degrades to the key rather than breaking.
+   */
+  integrityLabel?: string;
 }
 
 function plural(n: number, one: string, many: string): string {
   return n === 1 ? one : many;
+}
+
+/**
+ * "a Curator", "an Archivist". Decided by the first letter, which is right for
+ * every tier name on the ladder; "You're a Archivist" is what a bare "a" said.
+ */
+export function article(name: string): string {
+  return /^[aeiou]/i.test(name.trim()) ? `an ${name}` : `a ${name}`;
 }
 
 /**
@@ -167,7 +181,7 @@ export function detectCelebrations(
       kind: "level_up",
       tier: "celebrate",
       title: `Level ${next.level}`,
-      message: `You're a ${ctx.tierName} now. Levels never go down.`,
+      message: `You're ${article(ctx.tierName)} now. Levels never go down.`,
       share: {
         kind: "level",
         key: String(next.level),
@@ -193,7 +207,7 @@ export function detectCelebrations(
       id: `integrity:${next.integrityTier}`,
       kind: "integrity_tier",
       tier: "celebrate",
-      title: `Integrity tier: ${next.integrityTier}`,
+      title: `Integrity tier: ${ctx.integrityLabel ?? next.integrityTier}`,
       message: "Buyers see this on every grade you publish.",
       share: null,
     });
@@ -427,9 +441,23 @@ export function celebrationStateKey(userId: string): string {
 export interface CelebrationState {
   snapshot: RewardSnapshot | null;
   log: CelebrationLog;
+  /** Epoch ms the snapshot was taken. 0 = unknown (state written before this existed). */
+  takenAt: number;
 }
 
-const EMPTY_STATE: CelebrationState = { snapshot: null, log: EMPTY_CELEBRATION_LOG };
+const EMPTY_STATE: CelebrationState = {
+  snapshot: null,
+  log: EMPTY_CELEBRATION_LOG,
+  takenAt: 0,
+};
+
+/**
+ * A snapshot older than this is a baseline, not a comparison point. A seller
+ * back after two months would otherwise get a party for everything that
+ * happened while they were away, replayed as if it were news. The rewards page
+ * still shows all of it; only the toasts are skipped.
+ */
+export const SNAPSHOT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function readCelebrationState(
   userId: string,
@@ -441,6 +469,7 @@ export function readCelebrationState(
     const parsed = JSON.parse(raw) as Partial<CelebrationState>;
     return {
       snapshot: parsed.snapshot ?? null,
+      takenAt: typeof parsed.takenAt === "number" ? parsed.takenAt : 0,
       log: {
         celebrations: parsed.log?.celebrations ?? [],
         lastQuietAt: parsed.log?.lastQuietAt ?? 0,
@@ -460,6 +489,61 @@ export function writeCelebrationState(
   store: CelebrationStore = defaultStore(),
 ): void {
   store.set(celebrationStateKey(userId), JSON.stringify(state));
+}
+
+// ─── One pass ───────────────────────────────────────────────────────────────
+
+export interface CelebrationPass {
+  /** Everything the diff found, before the limiter. */
+  detected: CelebrationEvent[];
+  /** What reaches the screen. Always empty on a baseline-only pass. */
+  show: CelebrationEvent[];
+  /** The state to persist. The snapshot always advances. */
+  state: CelebrationState;
+}
+
+/**
+ * One run of the celebration runner, decided purely.
+ *
+ * `baselineOnly` is for a read that another surface is already celebrating:
+ * the server's one-time arrival moment. The runner used to be UNMOUNTED while
+ * the arrival showed, so its snapshot never advanced, and the moment the seller
+ * pressed "Got it" it mounted, diffed against the stale snapshot and replayed a
+ * level toast and a second confetti burst for the same backfill. A baseline
+ * pass records the new snapshot and marks what it found as seen, and shows
+ * nothing.
+ */
+export function celebrationPass(
+  previous: CelebrationState,
+  next: RewardSnapshot,
+  ctx: CelebrationContext,
+  nowMs: number,
+  opts: { baselineOnly?: boolean } = {},
+): CelebrationPass {
+  const fresh = previous.snapshot && previous.takenAt > 0 &&
+      nowMs - previous.takenAt <= SNAPSHOT_MAX_AGE_MS
+    ? previous.snapshot
+    : null;
+  const detected = detectCelebrations(fresh, next, ctx);
+
+  if (opts.baselineOnly) {
+    const seen = [...previous.log.seen, ...detected.map((e) => e.id)];
+    return {
+      detected,
+      show: [],
+      state: {
+        snapshot: next,
+        takenAt: nowMs,
+        log: {
+          ...previous.log,
+          seen: Array.from(new Set(seen)).slice(-CELEBRATION_POLICY.seenLimit),
+        },
+      },
+    };
+  }
+
+  const { show, log } = applyCelebrationLimits(detected, previous.log, nowMs);
+  return { detected, show, state: { snapshot: next, log, takenAt: nowMs } };
 }
 
 // ─── Analytics (US-1915 AC4) ────────────────────────────────────────────────

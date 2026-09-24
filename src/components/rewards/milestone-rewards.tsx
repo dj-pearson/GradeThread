@@ -1,7 +1,9 @@
 import { Check, Gift } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { LabeledProgress } from "@/components/rewards/labeled-progress";
 import type { MilestoneProgress } from "@/hooks/use-rewards";
+import { grantAction } from "@/lib/reward-actions";
+import { RewardActionLink } from "@/components/rewards/reward-action-link";
 
 // US-1857, over the US-1853 grant model: the tangible-reward area.
 //
@@ -37,12 +39,19 @@ function expiryNote(expiresAt: string | null): string {
   return ` · ${days} day${days === 1 ? "" : "s"} left`;
 }
 
+/** An expired grant keeps its row but offers nothing to go and use. */
+function isExpired(expiresAt: string | null): boolean {
+  if (!expiresAt) return false;
+  const ms = Date.parse(expiresAt);
+  return Number.isFinite(ms) && ms <= Date.now();
+}
+
 export function MilestoneRewards({ milestones }: { milestones: MilestoneProgress }) {
   const { enabled, granted, next } = milestones;
   if (!enabled && granted.length === 0) return null;
 
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-lg">
           <Gift className="h-5 w-5 text-primary" />
@@ -69,8 +78,13 @@ export function MilestoneRewards({ milestones }: { milestones: MilestoneProgress
                     {g.granted_at
                       ? `Granted ${new Date(g.granted_at).toLocaleDateString()}`
                       : "Granted"}
-                    {expiryNote(g.expires_at)}
+                    {g.consumed_at ? null : expiryNote(g.expires_at)}
                   </p>
+                  {g.consumed_at
+                    ? <p className="text-xs font-medium text-muted-foreground">Used</p>
+                    : isExpired(g.expires_at)
+                    ? null
+                    : <RewardActionLink action={grantAction(g.reward_type)} />}
                 </div>
               </li>
             ))}
@@ -85,7 +99,12 @@ export function MilestoneRewards({ milestones }: { milestones: MilestoneProgress
                 {nf(next.xp_remaining)} XP to go
               </p>
             </div>
-            <Progress value={next.percent} className="h-1.5" />
+            <LabeledProgress
+              value={next.percent}
+              label={`Progress to ${next.label}`}
+              valueText={`${next.xp_remaining.toLocaleString()} XP to go`}
+              className="h-1.5"
+            />
             <p className="text-xs text-muted-foreground">
               Unlocks at {nf(next.xp_threshold)} XP. Nothing to press — it arrives when you
               cross the line.

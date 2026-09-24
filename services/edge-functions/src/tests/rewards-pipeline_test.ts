@@ -538,7 +538,7 @@ Deno.test("a failed on-demand sweep still stamps and still returns null", async 
 
 Deno.test("the rewards screen never fails on a sweep problem", async () => {
   const src = await Deno.readTextFile(new URL("../routes/rewards.ts", import.meta.url));
-  assert(src.includes("await sweepOnDemand(userId, nowMs)"), "state load must sweep on demand");
+  assert(src.includes("sweepOnDemand(userId, nowMs)"), "state load must sweep on demand");
   // Scoped to the authenticated caller, never to a workspace owner: XP is a
   // personal standing (the reason rewards.ts uses c.get("userId") throughout).
   assert(!src.includes("sweepOnDemand(workspaceOwnerId"), "sweep must use the caller id");
@@ -743,4 +743,185 @@ Deno.test("AC3: the North Star milestone email stays the one owner", async () =>
   // exactly once, and that ownership is the half of AC3 that IS real.
   const src = await Deno.readTextFile(new URL("../routes/jobs-north-star.ts", import.meta.url));
   assert(src.includes("north_star_milestone_log"), "the milestone log is the dedupe");
+});
+
+// ── R1: the child-table .in() lists stay under the proxy's URL limit ─────────
+
+import { IN_CHUNK, loadForItems } from "../lib/rewards-pipeline.ts";
+
+/** A chainable stand-in for supabase-js that records every `.in()` list. */
+function recordingClient(rowsPerCall: (inIds: string[], from: number) => number) {
+  const inLengths: number[] = [];
+  const ranges: Array<[number, number]> = [];
+  const client = {
+    from(_table: string) {
+      let ids: string[] = [];
+      let from = 0;
+      const q = {
+        select: () => q,
+        in: (_col: string, list: string[]) => {
+          ids = list;
+          inLengths.push(list.length);
+          return q;
+        },
+        order: () => q,
+        range: (a: number, b: number) => {
+          from = a;
+          ranges.push([a, b]);
+          const n = rowsPerCall(ids, from);
+          const data = Array.from({ length: n }, (_, k) => ({
+            inventory_item_id: ids[k % ids.length],
+            created_at: "2026-01-01T00:00:00.000Z",
+          }));
+          return Promise.resolve({ data, error: null });
+        },
+      };
+      return q;
+    },
+  };
+  return { client, inLengths, ranges };
+}
+
+Deno.test("R1: an IN_CHUNK of quoted UUIDs fits well inside the proxy URL limit", () => {
+  // ~37 URL characters per quoted, comma-joined UUID. Prod Kong 414s at ~15.6k;
+  // 8,000 leaves room for the rest of the query string. Raising IN_CHUNK to
+  // PAGE (500) puts this at 18,500 and fails here.
+  assert(IN_CHUNK * 37 < 8000, `IN_CHUNK=${IN_CHUNK} makes a ${IN_CHUNK * 37}-char filter`);
+});
+
+Deno.test("R1: 400 items are read in .in() lists of at most IN_CHUNK ids", async () => {
+  const ids = Array.from({ length: 400 }, () => crypto.randomUUID());
+  const { client, inLengths } = recordingClient(() => 3);
+  const out = await loadForItems("item_photos", "created_at", ids, client);
+  assert(inLengths.length >= 3, "400 ids must take at least three chunks");
+  for (const n of inLengths) assert(n <= IN_CHUNK && n <= 150, `.in() got ${n} ids`);
+  assertEquals(inLengths.reduce((a, b) => a + b, 0), 400, "every id is asked for once");
+  assert(out.size > 0);
+});
+
+Deno.test("R1: a chunk that fills a whole page is read again until a short page", async () => {
+  const ids = Array.from({ length: 10 }, () => crypto.randomUUID());
+  // First page full (500 rows), second page short (7): 507 rows total.
+  const { client, ranges } = recordingClient((_ids, from) => (from === 0 ? 500 : 7));
+  const out = await loadForItems<{ inventory_item_id: string }>(
+    "listings",
+    "created_at",
+    ids,
+    client,
+  );
+  assertEquals(ranges, [[0, 499], [500, 999]]);
+  const total = [...out.values()].reduce((a, l) => a + l.length, 0);
+  assertEquals(total, 507, "rows past the first page are not dropped");
+});
+
+Deno.test("R1: the file never hands .in(inventory_item_id) the PAGE-sized slice", async () => {
+  const src = await Deno.readTextFile(new URL("../lib/rewards-pipeline.ts", import.meta.url));
+  const loader = src.slice(src.indexOf("export async function loadForItems"));
+  const body = loader.slice(0, loader.indexOf("\n}\n") + 1);
+  assert(body.includes("itemIds.slice(i, i + IN_CHUNK)"), "chunk by IN_CHUNK, not PAGE");
+  assert(!body.includes("i += PAGE"), "the id loop must step by IN_CHUNK");
+});
+
+// ── R2: sweep before finalize, and claim before sweeping ─────────────────────
+
+import { installFakePostgrest } from "./_fake-postgrest.ts";
+import { sweepOnDemand } from "../lib/rewards-pipeline.ts";
+
+Deno.test("R2: /state sweeps BEFORE it finalizes the season recap", async () => {
+  const src = await Deno.readTextFile(new URL("../routes/rewards.ts", import.meta.url));
+  const handler = src.slice(src.indexOf('rewardsRoutes.get("/state"'));
+  const sweepAt = handler.indexOf("sweepOnDemand(userId, nowMs)");
+  const finalizeAt = handler.indexOf("finalizeCompletedSeason(userId");
+  assert(sweepAt > 0 && finalizeAt > 0, "both calls must be in the handler");
+  assert(sweepAt < finalizeAt, "backdated pipeline XP must land before the recap is written");
+});
+
+function fakeSummary() {
+  return { marksGranted: 0, xpAdded: 0, levelBefore: 0, levelAfter: 0, cappedOut: 0 };
+}
+
+Deno.test("R2: two concurrent on-demand sweeps run exactly one derive pass", async () => {
+  const db = installFakePostgrest();
+  try {
+    const userId = crypto.randomUUID();
+    db.reset({ user_reward_state: [{ id: userId, user_id: userId, last_pipeline_sweep_at: null }] });
+    let passes = 0;
+    const sweep = async () => {
+      passes++;
+      await new Promise((r) => setTimeout(r, 5));
+      return fakeSummary();
+    };
+    const now = Date.parse("2026-09-24T12:00:00.000Z");
+    const [a, b] = await Promise.all([
+      sweepOnDemand(userId, now, sweep),
+      sweepOnDemand(userId, now, sweep),
+    ]);
+    assertEquals(passes, 1, "only the caller that won the claim sweeps");
+    assertEquals([a, b].filter((r) => r !== null).length, 1);
+
+    // Inside the window: nobody sweeps. After it: exactly one does again.
+    assertEquals(await sweepOnDemand(userId, now + 60_000, sweep), null);
+    assertEquals(passes, 1);
+    await Promise.all([
+      sweepOnDemand(userId, now + SWEEP_THROTTLE_MS + 1, sweep),
+      sweepOnDemand(userId, now + SWEEP_THROTTLE_MS + 1, sweep),
+    ]);
+    assertEquals(passes, 2);
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("R2: a seller with no reward-state row is claimed once by insert", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset({ user_reward_state: [] });
+    const userId = crypto.randomUUID();
+    let passes = 0;
+    const sweep = () => {
+      passes++;
+      return Promise.resolve(fakeSummary());
+    };
+    const now = Date.parse("2026-09-24T12:00:00.000Z");
+    await sweepOnDemand(userId, now, sweep);
+    await sweepOnDemand(userId, now + 1000, sweep);
+    assertEquals(passes, 1);
+    assertEquals(db.tables.user_reward_state.length, 1, "the claim wrote one row");
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("R2 / US-1552: the sweep claim uses sequential updates, never .or()", async () => {
+  const src = await Deno.readTextFile(new URL("../lib/rewards-pipeline.ts", import.meta.url));
+  const fn = src.slice(src.indexOf("export async function claimSweep"));
+  const body = fn.slice(0, fn.indexOf("\n}\n") + 1);
+  assert(!body.includes(CALL("or")), "no logical operator on the claim mutation");
+  assert(body.includes('.is("last_pipeline_sweep_at", null)'));
+  assert(body.includes('.lt("last_pipeline_sweep_at", staleIso)'));
+});
+
+// ── R8: /state is three phases, not six ──────────────────────────────────────
+
+Deno.test("R8: /state sweeps first, then reads in parallel, recaps after the rollover", async () => {
+  const src = await Deno.readTextFile(new URL("../routes/rewards.ts", import.meta.url));
+  const handler = src.slice(src.indexOf('rewardsRoutes.get("/state"'));
+  const body = handler.slice(0, handler.indexOf("\n});\n"));
+  // The badge, integrity and loyalty reads no longer wait on readRewardState.
+  assert(
+    /Promise\.all\(\[\s*finalizeCompletedSeason\(userId, tz, nowMs\)\.then\(\(\) => loadSeasonRecaps\(userId\)\),\s*readRewardState\(userId\),[\s\S]*?loadBadgeShelf\(userId\),\s*loadSellerIntegrityStanding\(userId\),\s*loadLoyaltyStanding\(userId, nowMs\),/
+      .test(body),
+    "phase B must run the rollover beside the independent reads",
+  );
+  assertEquals((body.match(/await /g) ?? []).length, 3, "three awaited phases");
+});
+
+Deno.test("R8: the /quests doc comment sits on the /quests handler", async () => {
+  const src = await Deno.readTextFile(new URL("../routes/rewards.ts", import.meta.url));
+  const at = src.indexOf('rewardsRoutes.get("/quests"');
+  const before = src.slice(Math.max(0, at - 1200), at);
+  assert(before.includes("// GET /api/rewards/quests"), "doc comment must precede its handler");
+  const share = src.indexOf("// POST /api/rewards/share");
+  const quests = src.indexOf("// GET /api/rewards/quests");
+  assert(share < quests || share > at, "the comment is not stranded above /share");
 });

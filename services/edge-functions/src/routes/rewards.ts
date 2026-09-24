@@ -47,7 +47,7 @@ import {
   leaderboardIdentity,
   type LeaderboardPeriod,
   leaderboardPath,
-  normalizeAlias,
+  validateAlias,
   viewerRank,
 } from "../lib/leaderboards.ts";
 import { boardWindow, loadBoard, loadCohort } from "../lib/leaderboards-data.ts";
@@ -65,59 +65,62 @@ rewardsRoutes.get("/state", async (c) => {
   const nowMs = Date.now();
 
   try {
-    const tz = await loadSeasonTimezone();
+    // Phase A. US-2972: bring pipeline XP up to date before reading it, so a
+    // seller who just finished listing sees that work on this load rather than
+    // tomorrow. Throttled to one sweep per SWEEP_THROTTLE_MS and internally
+    // best-effort — it returns null when throttled OR when it failed, and either
+    // way the screen renders from whatever state is already stored. A sweep
+    // problem must not cost the seller their rewards screen. The timezone read
+    // is independent of it, so the two run together.
+    const [tz] = await Promise.all([loadSeasonTimezone(), sweepOnDemand(userId, nowMs)]);
 
-    // Roll over the season that just ended, if it hasn't been recapped yet.
-    // Lazy + idempotent (UNIQUE(user_id, season_key), 00542) — see
+    // Phase B. Everything that only needs the swept ledger, together.
+    //
+    // ⚠ The rollover runs AFTER the sweep, not beside it. Pipeline XP is
+    // backdated to when the work happened, so an item listed on the last day of
+    // a quarter and swept on the first day of the next one belongs to the
+    // quarter that just ended. Finalizing first wrote the recap without it, and
+    // the recap row is write-once. The recaps list is read after the rollover
+    // (chained on it) so a quarter that just closed appears on this load.
+    //
+    // Rollover: lazy + idempotent (UNIQUE(user_id, season_key), 00542) — see
     // finalizeCompletedSeason for why this isn't a quarterly cron. Best-effort:
     // a rollover problem must not take down the whole screen.
-    await finalizeCompletedSeason(userId, tz, nowMs);
-
-    // US-2972: bring pipeline XP up to date before reading it, so a seller who
-    // just finished listing sees that work on this load rather than tomorrow.
-    // Throttled to one sweep per SWEEP_THROTTLE_MS and internally best-effort —
-    // it returns null when throttled OR when it failed, and either way the
-    // screen renders from whatever state is already stored. A sweep problem
-    // must not cost the seller their rewards screen.
-    await sweepOnDemand(userId, nowMs);
-
-    const [state, season, recaps] = await Promise.all([
+    //
+    // US-1857: the badge shelf rides along on this read rather than getting an
+    // endpoint of its own. US-1912 AC1/AC4: so does the Grade Integrity
+    // standing — cheap, part of the same "where do I stand" answer, and what the
+    // US-1857 celebration diff watches for a tier change. US-1914 AC1: tenure
+    // too — it is the one standing here that has nothing to do with what the
+    // seller did, which is exactly why it must not be a second request that can
+    // fail on its own and leave the page implying their history is gone. All are
+    // internally best-effort, so none can take the screen down.
+    const [recaps, state, season, badges, integrity, standing] = await Promise.all([
+      finalizeCompletedSeason(userId, tz, nowMs).then(() => loadSeasonRecaps(userId)),
       readRewardState(userId),
       loadSeasonProgress(userId, tz, nowMs),
-      loadSeasonRecaps(userId),
+      loadBadgeShelf(userId),
+      loadSellerIntegrityStanding(userId),
+      loadLoyaltyStanding(userId, nowMs),
     ]);
 
     // A user with no rewardable action yet has no state row. That is level 0 /
     // Thrifter, not an error — everyone starts on the ladder.
     const progress = levelProgress(state?.xpPeak ?? 0, state?.xpTotal ?? 0);
 
-    // US-1857: the badge shelf and the tangible ladder ride along on this read
-    // rather than getting endpoints of their own. Both are cheap, both derive
-    // from the same XP total the level card shows, and splitting them would let
-    // the widget render a level the "next reward" bar disagrees with. Both are
-    // internally best-effort, so neither can take the screen down.
-    // US-1912 AC1/AC4: the seller's Grade Integrity standing rides this read for
-    // the same reason the badge shelf does — it is cheap, it is part of the same
-    // "where do I stand" answer, and it is what the US-1857 celebration diff
-    // watches for a tier change. Internally best-effort (it degrades to the
-    // pre-floor standing), so it cannot take the screen down.
-    // US-1914 AC1: tenure rides the same read. It is the one standing on this
-    // page that has nothing to do with what the seller did — which is exactly
-    // why it must not be a second request that can fail on its own and leave the
-    // page implying their history is gone.
-    const [badges, milestones, integrity, standing] = await Promise.all([
-      loadBadgeShelf(userId),
-      loadMilestoneProgress(userId, progress.xpTotal),
-      loadSellerIntegrityStanding(userId),
-      loadLoyaltyStanding(userId, nowMs),
-    ]);
-
+    // Phase C. The two reads that need the level. The tangible ladder derives
+    // from the same XP total the level card shows, so splitting it out would let
+    // the widget render a level the "next reward" bar disagrees with.
+    //
     // US-2973: the one-time arrival moment, decided SERVER-side. The
     // client-side celebration diff cannot carry this: it returns nothing when
     // the previous snapshot is null, that snapshot lives in localStorage, and a
     // seller who has never opened this page is precisely who the backfill is
     // for. Best-effort — a missing celebration must not cost them the screen.
-    const arrival = await loadArrival(userId, progress.level, badges?.earned?.length ?? 0);
+    const [milestones, arrival] = await Promise.all([
+      loadMilestoneProgress(userId, progress.xpTotal),
+      loadArrival(userId, progress.level, badges?.earned?.length ?? 0),
+    ]);
 
     return c.json({
       arrival,
@@ -193,19 +196,6 @@ rewardsRoutes.get("/state", async (c) => {
   }
 });
 
-// GET /api/rewards/quests — personal quests + live community challenges.
-//
-// Split from /state rather than folded into it because it is the expensive half:
-// a community challenge scans cross-user events for its standings, and the level
-// card should not wait on a leaderboard. Same personal scoping as /state — a
-// quest belongs to the human, never to the workspace they are acting inside.
-//
-// This read EVALUATES: progress is recomputed from the ledger and a quest that
-// has just been finished is claimed and paid here. That is deliberate and it is
-// the season-rollover pattern (finalizeCompletedSeason) — a weekly boundary
-// touches every user at one instant, and a cron fanning out across the whole
-// user base to write one row each is a worse failure surface than writing it the
-// next time they look. Idempotent by claim, so a refresh pays nothing twice.
 // POST /api/rewards/share — record a tracked share of a graded find (US-1854).
 //
 // Pays NOTHING. It writes the row the share loop is measured against and banks
@@ -386,18 +376,19 @@ rewardsRoutes.get("/leaderboard", async (c) => {
       });
     }
 
-    const tz = await loadSeasonTimezone();
+    const [tz, cohort] = await Promise.all([loadSeasonTimezone(), loadCohort()]);
     const window = boardWindow(period, Date.now(), tz);
-    const cohort = await loadCohort();
 
-    const standings = [];
-    for (const metric of LEADERBOARD_METRICS) {
-      const board = await loadBoard(metric.key, cohort, window, {
-        brandSlug: null,
-        category: null,
-      });
+    // Four independent boards over one cohort: run together, keep the order.
+    const boards = await Promise.all(
+      LEADERBOARD_METRICS.map((metric) =>
+        loadBoard(metric.key, cohort, window, { brandSlug: null, category: null })
+      ),
+    );
+    const standings = LEADERBOARD_METRICS.map((metric, i) => {
+      const board = boards[i];
       const mine = viewerRank(board.candidates, LEADERBOARD_SITE_URL, userId);
-      standings.push({
+      return {
         metric: metric.key,
         name: metric.name,
         score_label: metric.scoreLabel,
@@ -411,8 +402,8 @@ rewardsRoutes.get("/leaderboard", async (c) => {
         secondary: mine?.secondary ?? 0,
         tied: mine?.tied ?? false,
         of: board.candidates.filter((x) => x.score > 0).length,
-      });
-    }
+      };
+    });
 
     return c.json({
       opt_in: true,
@@ -444,34 +435,54 @@ rewardsRoutes.put("/leaderboard", async (c) => {
     | null;
   if (!body) return c.json({ error: "Invalid JSON body." }, 400);
 
+  // Types first. A loose read here used to treat enabled:"true" as LEAVE and a
+  // numeric alias as CLEAR, so a client bug silently pulled a seller off the
+  // boards or wiped their name.
+  if (body.enabled !== undefined && typeof body.enabled !== "boolean") {
+    return c.json({ error: "enabled must be true or false." }, 400);
+  }
+  if (body.alias !== undefined && body.alias !== null && typeof body.alias !== "string") {
+    return c.json({ error: "Display name must be text." }, 400);
+  }
+
   const update: Record<string, unknown> = {};
   let nextAlias: string | null | undefined;
   if (body.alias !== undefined) {
-    nextAlias = normalizeAlias(body.alias);
+    const checked = validateAlias(body.alias);
+    if (!checked.ok) return c.json({ error: checked.error }, 400);
+    nextAlias = checked.alias;
     update.leaderboard_alias = nextAlias;
   }
 
-  if (body.enabled !== undefined) {
-    const enabled = body.enabled === true;
-    if (enabled) {
-      // Joining with no resolvable alias would publish a row with nothing to
-      // call it, so refuse rather than fall back to anything identifying.
-      const { data } = await supabaseAdmin
-        .from("users")
-        .select(LEADERBOARD_USER_COLUMNS)
-        .eq("id", userId)
-        .maybeSingle();
-      const merged: LeaderboardPrefsRow = { ...((data as LeaderboardPrefsRow | null) ?? {}) };
-      if (nextAlias !== undefined) merged.leaderboard_alias = nextAlias;
-      if (!previewIdentity(merged)) {
-        return c.json(
-          { error: "Add a display name before joining the leaderboards." },
-          400,
-        );
-      }
+  // Joining, or clearing the alias, can leave a row with nothing to call it on a
+  // public board. Both are refused rather than falling back to anything
+  // identifying, so both need the current row.
+  const joining = body.enabled === true;
+  const clearing = nextAlias === null;
+  if (joining || clearing) {
+    const { data } = await supabaseAdmin
+      .from("users")
+      .select(LEADERBOARD_USER_COLUMNS)
+      .eq("id", userId)
+      .maybeSingle();
+    const current = (data as LeaderboardPrefsRow | null) ?? {};
+    const merged: LeaderboardPrefsRow = { ...current };
+    if (nextAlias !== undefined) merged.leaderboard_alias = nextAlias;
+    const willBeListed = body.enabled === undefined
+      ? current.leaderboard_opt_in === true
+      : body.enabled === true;
+    if (willBeListed && !previewIdentity(merged)) {
+      return c.json(
+        {
+          error: joining
+            ? "Add a display name before joining the leaderboards."
+            : "You need a display name while you're on the boards. Leave the boards first.",
+        },
+        400,
+      );
     }
-    update.leaderboard_opt_in = enabled;
   }
+  if (body.enabled !== undefined) update.leaderboard_opt_in = body.enabled;
 
   if (Object.keys(update).length === 0) {
     return c.json({ error: "Nothing to update." }, 400);
@@ -497,6 +508,19 @@ rewardsRoutes.put("/leaderboard", async (c) => {
   });
 });
 
+// GET /api/rewards/quests — personal quests + live community challenges.
+//
+// Split from /state rather than folded into it because it is the expensive half:
+// a community challenge scans cross-user events for its standings, and the level
+// card should not wait on a leaderboard. Same personal scoping as /state — a
+// quest belongs to the human, never to the workspace they are acting inside.
+//
+// This read EVALUATES: progress is recomputed from the ledger and a quest that
+// has just been finished is claimed and paid here. That is deliberate and it is
+// the season-rollover pattern (finalizeCompletedSeason) — a weekly boundary
+// touches every user at one instant, and a cron fanning out across the whole
+// user base to write one row each is a worse failure surface than writing it the
+// next time they look. Idempotent by claim, so a refresh pays nothing twice.
 rewardsRoutes.get("/quests", async (c) => {
   const userId = c.get("userId");
   try {

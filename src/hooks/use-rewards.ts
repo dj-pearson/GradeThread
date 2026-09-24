@@ -108,6 +108,8 @@ export interface MilestoneGrant {
   status: string;
   granted_at: string | null;
   expires_at: string | null;
+  /** When a discount was redeemed. Absent on an older edge. */
+  consumed_at?: string | null;
 }
 
 export interface NextMilestone {
@@ -157,6 +159,8 @@ export interface IntegrityStanding {
   next_tier: string | null;
   next_tier_gaps: string[];
   tier_changed_at: string | null;
+  /** The standing could not be read. Not the same as "Building history". */
+  unavailable?: true;
 }
 
 const EMPTY_INTEGRITY: IntegrityStanding = {

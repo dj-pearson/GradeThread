@@ -29,7 +29,14 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { isFeatureEnabled } from "./feature-flags.ts";
+import {
+  chunk,
+  COHORT_IN_CHUNK,
+  leaderboardIdentity,
+  type LeaderboardIdentitySource,
+} from "./leaderboards.ts";
 import { notifyUser } from "./notify.ts";
+import { REWARDS_LINKS } from "./rewards-links.ts";
 import {
   clampQuestXp,
   frozenXpAward,
@@ -171,6 +178,37 @@ export function questWindow(
   return weekWindow(p.year, p.month, p.day, tz);
 }
 
+/** How long after a FIXED quest ends it is still settled on a read. */
+export const FIXED_QUEST_SETTLE_MS = 7 * 86_400_000;
+
+/**
+ * The window of this quest that most recently CLOSED, or null.
+ *
+ * A quest is only ever evaluated on a read, so a seller who finished a weekly
+ * quest on Friday and next opened the page on Monday was never claimed, paid or
+ * told: by Monday the read was looking at the new week. Settling the window that
+ * just closed on the next read fixes that, and it stays idempotent because the
+ * claim is keyed on (quest, period_key) and the grant on quest:<key>:<period>.
+ *
+ * Weekly and monthly: the window containing the instant before the current one
+ * started. Fixed: the quest's own dates, for FIXED_QUEST_SETTLE_MS after it ends.
+ */
+export function previousQuestWindow(
+  quest: Pick<QuestDefinition, "cadence" | "starts_at" | "ends_at">,
+  nowMs: number,
+  tz: string,
+): QuestWindow | null {
+  if (quest.cadence === "fixed") {
+    const start = Date.parse(quest.starts_at ?? "");
+    const end = Date.parse(quest.ends_at ?? "");
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+    if (nowMs < end || nowMs - end > FIXED_QUEST_SETTLE_MS) return null;
+    return { periodKey: "fixed", startMs: start, endMs: end };
+  }
+  const current = questWindow(quest, nowMs, tz);
+  return current ? questWindow(quest, current.startMs - 1, tz) : null;
+}
+
 // ─── Progress ───────────────────────────────────────────────────────────────
 
 export interface QuestEventInput {
@@ -244,9 +282,9 @@ export interface Standing {
 /**
  * Rank challenge participants. Pure.
  *
- * ONLY sellers with a public GradeThread Verified profile are listed — a
- * challenge board is a public surface, and being counted in a challenge is not
- * consent to be named on one. Everyone's events still count toward their OWN
+ * ONLY sellers who opted into the leaderboards are listed (the caller resolves
+ * their public name through leaderboardIdentity) — a challenge board is a public
+ * surface, and being counted in a challenge is not consent to be named on one. Everyone's events still count toward their OWN
  * score; publicity decides whether the name is shown, and therefore whether a
  * rank among the shown names exists for them.
  *
@@ -310,22 +348,51 @@ function toQuestEvent(row: {
 }
 
 /** One user's reward events at or after `sinceMs`. Tenant-scoped (US-268). */
+/** Rows per page of the per-user event read. At or under PostgREST's row cap. */
+export const USER_EVENTS_PAGE = 1000;
+/** Hard stop on pages, so a runaway ledger cannot turn one read into hundreds. */
+const USER_EVENTS_MAX_PAGES = 50;
+
+const REWARD_TYPE_LIST: string[] = [...REWARD_TYPES];
+
+/**
+ * Every rewardable event this user has had since `sinceMs`, oldest first.
+ *
+ * PAGED. Settling the window that just closed (previousQuestWindow) reaches
+ * back a whole extra week or month, and a fixed quest's window can reach back
+ * further still. One unpaged, oldest-first read stops at PostgREST's row cap,
+ * and what it drops is the NEWEST rows: a busy seller's current-week quests
+ * would read short exactly because last month was busy. The type filter keeps
+ * rows that can never count out of the pages.
+ */
 async function loadUserEvents(userId: string, sinceMs: number): Promise<QuestEventInput[]> {
-  const { data, error } = await supabaseAdmin
-    .from("reputation_events")
-    .select("event_type, occurred_at, verified, metadata")
-    .eq("user_id", userId)
-    .gte("occurred_at", new Date(sinceMs).toISOString())
-    .order("occurred_at", { ascending: true });
-  if (error) {
-    console.error("[rewards-quests] event load failed:", error.message);
-    return [];
-  }
   const out: QuestEventInput[] = [];
-  for (const r of data ?? []) {
-    const ev = toQuestEvent(r as Parameters<typeof toQuestEvent>[0]);
-    if (ev) out.push(ev);
+  const sinceIso = new Date(sinceMs).toISOString();
+  for (let page = 0; page < USER_EVENTS_MAX_PAGES; page++) {
+    const from = page * USER_EVENTS_PAGE;
+    const { data, error } = await supabaseAdmin
+      .from("reputation_events")
+      .select("event_type, occurred_at, verified, metadata")
+      .eq("user_id", userId)
+      .in("event_type", REWARD_TYPE_LIST)
+      .gte("occurred_at", sinceIso)
+      .order("occurred_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + USER_EVENTS_PAGE - 1);
+    if (error) {
+      console.error("[rewards-quests] event load failed:", error.message);
+      return out;
+    }
+    const rows = data ?? [];
+    for (const r of rows) {
+      const ev = toQuestEvent(r as Parameters<typeof toQuestEvent>[0]);
+      if (ev) out.push(ev);
+    }
+    if (rows.length < USER_EVENTS_PAGE) return out;
   }
+  console.warn(
+    `[rewards-quests] event read for ${userId} hit ${USER_EVENTS_MAX_PAGES} pages; progress is partial.`,
+  );
   return out;
 }
 
@@ -344,11 +411,22 @@ export interface ChallengeView extends QuestView {
   you_are_listed: boolean;
 }
 
+/** How the personal quests in the window that just closed turned out. */
+export interface LastPeriodSummary {
+  /** What to call the window: every closed quest weekly, every one monthly, or mixed. */
+  label: "week" | "month" | "round";
+  done: number;
+  total: number;
+  xp: number;
+}
+
 export interface QuestsState {
   enabled: boolean;
   quests: QuestView[];
   challenges: ChallengeView[];
   season_timezone: string;
+  /** Absent when no personal quest had a window close recently. */
+  last_period?: LastPeriodSummary;
 }
 
 /**
@@ -428,7 +506,7 @@ async function persistQuestProgress(
     message: xp > 0
       ? `${quest.name} — +${xp} XP.`
       : `${quest.name} — done.`,
-    link: "/dashboard/rewards",
+    link: REWARDS_LINKS.quests,
   }).catch(() => {});
 
   return { completedAt, xpAwarded: xp };
@@ -493,29 +571,44 @@ export async function loadChallengeStandings(
   }
   if (scores.size === 0) return empty;
 
-  // Public identity only. A seller who never turned on their Verified profile is
-  // scored but not named.
-  const { data: profiles, error: profErr } = await supabaseAdmin
-    .from("users")
-    .select("id, verified_handle, verified_display_name")
-    .in("id", [...scores.keys()])
-    .eq("verified_enabled", true)
-    .not("verified_handle", "is", null);
-  if (profErr) {
-    console.error("[rewards-quests] standings profile load failed:", profErr.message);
-    return empty;
+  // Public identity only, and only for sellers who JOINED the boards. A
+  // challenge board is the same kind of public surface as the leaderboards, so
+  // it takes the same consent (the 00547 opt-in) and resolves the same name
+  // through leaderboardIdentity(). A Verified profile alone is not consent to be
+  // ranked here: a seller who switched the boards off on the Perks tab stays off
+  // this one too. Everyone is still scored; the opt-in decides who is named.
+  const inputs: StandingInput[] = [];
+  const ids = [...scores.keys()];
+  const pages = await Promise.all(
+    chunk(ids, COHORT_IN_CHUNK).map((slice) =>
+      supabaseAdmin
+        .from("users")
+        .select(
+          "id, leaderboard_opt_in, leaderboard_alias, verified_enabled, verified_handle, " +
+            "verified_display_name, referral_display_name, rewards_display_name",
+        )
+        .in("id", slice)
+        .eq("leaderboard_opt_in", true)
+    ),
+  );
+  for (const { data: profiles, error: profErr } of pages) {
+    if (profErr) {
+      console.error("[rewards-quests] standings profile load failed:", profErr.message);
+      return empty;
+    }
+    for (const p of (profiles ?? []) as unknown as Array<LeaderboardIdentitySource & { id: string }>) {
+      const who = leaderboardIdentity(p);
+      if (!who) continue;
+      inputs.push({
+        userId: p.id,
+        // The public key a row is sorted and keyed by: the Verified handle when
+        // the seller has a public one, otherwise the board alias they chose.
+        handle: who.handle ?? who.alias,
+        displayName: who.alias,
+        score: scores.get(p.id) ?? 0,
+      });
+    }
   }
-
-  const inputs: StandingInput[] = ((profiles ?? []) as Array<{
-    id: string;
-    verified_handle: string | null;
-    verified_display_name: string | null;
-  }>).map((p) => ({
-    userId: p.id,
-    handle: p.verified_handle,
-    displayName: p.verified_display_name,
-    score: scores.get(p.id) ?? 0,
-  }));
 
   const { standings, viewerRank } = rankStandings(inputs, viewerId);
   return {
@@ -550,11 +643,39 @@ export async function loadQuestsState(
     const live = defs
       .map((q) => ({ quest: q, window: questWindow(q, nowMs, tz) }))
       .filter((x): x is { quest: QuestDefinition; window: QuestWindow } => x.window !== null);
-    if (live.length === 0) return { ...off, enabled: true };
+    const closed = defs
+      .map((q) => ({ quest: q, window: previousQuestWindow(q, nowMs, tz) }))
+      .filter((x): x is { quest: QuestDefinition; window: QuestWindow } => x.window !== null);
+    if (live.length === 0 && closed.length === 0) return { ...off, enabled: true };
 
     // One event read for every window, from the earliest boundary in play.
-    const since = Math.min(...live.map((x) => x.window.startMs));
+    const since = Math.min(...[...live, ...closed].map((x) => x.window.startMs));
     const events = await loadUserEvents(userId, since);
+
+    // Settle the windows that just closed. Only a FINISHED one is written: an
+    // unfinished quest from last week has nothing left to claim, and writing its
+    // snapshot would only add a row per quest per week for nobody to read.
+    let lastPeriod: LastPeriodSummary | undefined;
+    for (const { quest, window } of closed) {
+      const progress = computeQuestProgress(events, quest, window);
+      let xpAwarded = 0;
+      if (progress.complete) {
+        xpAwarded = (await persistQuestProgress(userId, quest, window, progress)).xpAwarded;
+      }
+      if (quest.quest_type !== "personal") continue;
+      const label = quest.cadence === "weekly"
+        ? "week"
+        : quest.cadence === "monthly"
+        ? "month"
+        : "round";
+      lastPeriod ??= { label, done: 0, total: 0, xp: 0 };
+      if (lastPeriod.label !== label) lastPeriod.label = "round";
+      lastPeriod.total += 1;
+      if (progress.complete) {
+        lastPeriod.done += 1;
+        lastPeriod.xp += xpAwarded;
+      }
+    }
 
     const quests: QuestView[] = [];
     const challenges: ChallengeView[] = [];
@@ -587,7 +708,13 @@ export async function loadQuestsState(
       }
     }
 
-    return { enabled: true, quests, challenges, season_timezone: tz };
+    return {
+      enabled: true,
+      quests,
+      challenges,
+      season_timezone: tz,
+      ...(lastPeriod ? { last_period: lastPeriod } : {}),
+    };
   } catch (err) {
     console.error(
       "[rewards-quests] state load failed:",

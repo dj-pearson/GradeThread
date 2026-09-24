@@ -7,7 +7,7 @@
 // lt / lte filters (dotted paths reach into embeds), order, limit, embeds joined
 // by `<singular>_id` (inventory_items -> inventory_item_id), `!inner` dropping
 // rows whose embed is missing, insert / upsert(on_conflict) / update / delete,
-// single() / maybeSingle(), and the two job-lock RPCs.
+// single() / maybeSingle(), ignore-duplicates upserts, and the two job-lock RPCs.
 //
 // Usage:
 //   import "./_env.ts";
@@ -30,6 +30,11 @@ export interface FakePostgrest {
   tables: Record<string, Row[]>;
   calls: FakeCall[];
   locks: Set<string>;
+  /**
+   * PostgREST's db-max-rows. Infinity (the default) models no cap; set it to
+   * prove a read pages instead of trusting one response to be complete.
+   */
+  maxRows: number;
   reset(seed?: Record<string, Row[]>): void;
   /** Make the next `method` on `table` answer a 500. */
   failNext(table: string, method: "GET" | "POST" | "PATCH" | "DELETE"): void;
@@ -134,10 +139,12 @@ export function installFakePostgrest(): FakePostgrest {
     tables: {},
     calls: [],
     locks: new Set(),
+    maxRows: Number.POSITIVE_INFINITY,
     reset(seed = {}) {
       fake.tables = structuredClone(seed);
       fake.calls = [];
       fake.locks = new Set();
+      fake.maxRows = Number.POSITIVE_INFINITY;
       failures.length = 0;
     },
     failNext(table, method) {
@@ -263,8 +270,12 @@ export function installFakePostgrest(): FakePostgrest {
           return dir === "desc" ? -r : r;
         });
       }
+      const offset = Number(params.get("offset") ?? 0) || 0;
+      if (offset > 0) rows = rows.slice(offset);
       const limit = params.get("limit");
       if (limit) rows = rows.slice(0, Number(limit));
+      // PostgREST's db-max-rows: a server-side cap no query can raise.
+      if (Number.isFinite(fake.maxRows)) rows = rows.slice(0, fake.maxRows);
       return shape(rows, headers);
     }
 
@@ -272,10 +283,14 @@ export function installFakePostgrest(): FakePostgrest {
       const input = (Array.isArray(body) ? body : [body]) as Row[];
       const conflict = params.get("on_conflict");
       const merge = prefer.includes("resolution=merge-duplicates");
+      const ignore = prefer.includes("resolution=ignore-duplicates");
       const out: Row[] = [];
       for (const r of input) {
         const keys = conflict ? conflict.split(",") : ["id"];
-        const hit = merge ? list.find((x) => keys.every((k) => x[k] === r[k])) : undefined;
+        const hit = merge || ignore
+          ? list.find((x) => keys.every((k) => x[k] === r[k]))
+          : undefined;
+        if (hit && ignore) continue; // ON CONFLICT DO NOTHING returns no row
         if (hit) {
           Object.assign(hit, r);
           out.push(hit);

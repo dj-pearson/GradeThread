@@ -2,9 +2,19 @@
 // challenges, and the two things that must never leak out of it.
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 
-import { useQuests, type QuestsState } from "@/hooks/use-quests";
+import {
+  lastPeriodLine,
+  newlyCompletedQuests,
+  useQuests,
+  type QuestsState,
+} from "@/hooks/use-quests";
 import { QuestsPanel, questTimeLeft } from "@/components/rewards/quests-panel";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("@/hooks/use-quests", async (importActual) => {
   const actual = await importActual<typeof import("@/hooks/use-quests")>();
@@ -64,7 +74,11 @@ function mount(s: QuestsState): string {
     isError: false,
     refetch: vi.fn(),
   } as unknown as ReturnType<typeof useQuests>);
-  return renderToStaticMarkup(<QuestsPanel />);
+  return renderToStaticMarkup(
+    <MemoryRouter>
+      <QuestsPanel />
+    </MemoryRouter>,
+  );
 }
 
 describe("QuestsPanel (US-1852)", () => {
@@ -106,8 +120,27 @@ describe("QuestsPanel (US-1852)", () => {
         challenges: [{ ...CHALLENGE, your_rank: null, you_are_listed: false }],
       }),
     );
-    expect(html).toContain("only public Verified profiles are named");
+    // R3: the board takes the leaderboard opt-in, so the way onto it is the
+    // Perks tab's boards panel, not the Verified profile.
+    expect(html).toContain("Join the boards to be named here.");
+    expect(html).toContain('href="/dashboard/rewards?tab=perks#leaderboard"');
     expect(html).not.toContain("ranked #");
+  });
+});
+
+describe("last period line (R7)", () => {
+  it("summarizes the window that just closed", () => {
+    expect(lastPeriodLine({ label: "week", done: 3, total: 4, xp: 60 })).toBe(
+      "Last week: 3 of 4 done, +60 XP.",
+    );
+    expect(lastPeriodLine({ label: "round", done: 0, total: 2, xp: 0 })).toBe(
+      "Last round: 0 of 2 done.",
+    );
+  });
+
+  it("renders under the quests heading when the server sends it", () => {
+    const html = mount(state({ last_period: { label: "week", done: 1, total: 1, xp: 30 } }));
+    expect(html).toContain("Last week: 1 of 1 done, +30 XP.");
   });
 });
 
@@ -125,5 +158,90 @@ describe("questTimeLeft", () => {
 
   it("degrades to empty on an unparseable date", () => {
     expect(questTimeLeft("not-a-date", now)).toBe("");
+  });
+});
+
+describe("QuestsPanel loading and error (R11)", () => {
+  beforeEach(() => mocked.mockReset());
+
+  it("shows a skeleton while loading instead of nothing", () => {
+    mocked.mockReturnValue({
+      quests: { enabled: false, quests: [], challenges: [], season_timezone: "UTC" },
+      isLoading: true,
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useQuests>);
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <QuestsPanel />
+      </MemoryRouter>,
+    );
+    expect(html).toContain('aria-label="Loading your quests"');
+  });
+
+  it("a failed read renders a retry button that refetches", () => {
+    const refetch = vi.fn();
+    mocked.mockReturnValue({
+      quests: { enabled: false, quests: [], challenges: [], season_timezone: "UTC" },
+      isLoading: false,
+      isError: true,
+      refetch,
+    } as unknown as ReturnType<typeof useQuests>);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => {
+      root.render(
+        <MemoryRouter>
+          <QuestsPanel />
+        </MemoryRouter>,
+      );
+    });
+    expect(container.textContent).toContain("Couldn't load this week's quests.");
+    const btn = [...container.querySelectorAll("button")].find((b) =>
+      b.textContent === "Try again"
+    );
+    act(() => btn!.click());
+    expect(refetch).toHaveBeenCalled();
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("says scores reset when a challenge ends", () => {
+    const html = mount(state({ quests: [], challenges: [CHALLENGE] }));
+    expect(html).toContain("Scores reset when it ends.");
+    expect(html).not.toContain("Ends and stays ended");
+  });
+});
+
+describe("quest actions (R15)", () => {
+  it("an unfinished quest links to the work that moves it", () => {
+    const html = mount(state());
+    expect(html).toContain('href="/dashboard/submissions/new"');
+    expect(html).toContain("Grade an item");
+  });
+
+  it("a finished quest offers no link", () => {
+    const html = mount(state({ quests: [{ ...QUEST, completed_at: "2026-08-06T00:00:00Z" }] }));
+    expect(html).not.toContain("Grade an item");
+  });
+});
+
+describe("newlyCompletedQuests (R11)", () => {
+  const since = Date.parse("2026-09-24T12:00:00Z");
+  const done = (at: string) => ({ ...QUEST, completed_at: at, xp_awarded: 30 });
+
+  it("finds a quest that finished between two reads", () => {
+    const before = state({ quests: [QUEST] });
+    const after = state({ quests: [done("2026-09-01T00:00:00Z")] });
+    expect(newlyCompletedQuests(before, after, since)).toEqual(["week_grade_3:w2026-08-03"]);
+    expect(newlyCompletedQuests(after, after, since)).toEqual([]);
+  });
+
+  it("on a first read, counts only a completion this read just paid", () => {
+    expect(newlyCompletedQuests(null, state({ quests: [done("2026-09-24T12:00:30Z")] }), since))
+      .toHaveLength(1);
+    expect(newlyCompletedQuests(null, state({ quests: [done("2026-09-01T00:00:00Z")] }), since))
+      .toEqual([]);
   });
 });

@@ -2,7 +2,7 @@ import { CalendarHeart, Share2, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { LabeledProgress } from "@/components/rewards/labeled-progress";
 import type { LoyaltyStanding } from "@/hooks/use-rewards";
 import {
   memberSinceLabel,
@@ -10,7 +10,7 @@ import {
   TENURE_EXPLAINER_COPY,
   tenureLengthLabel,
 } from "@/lib/loyalty-copy";
-import { shareOrCopy } from "@/lib/share";
+import { anniversaryShare, shareRewardCard } from "@/lib/reward-share";
 
 // US-1914 AC1: "member since" flair and the tenure ladder.
 //
@@ -59,7 +59,7 @@ export function LoyaltyStandingCard({ loyalty }: LoyaltyStandingCardProps) {
   const percentBigger = Math.round((multiplier - 1) * 100);
 
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-lg">
           <CalendarHeart className="h-5 w-5 text-primary" />
@@ -86,7 +86,7 @@ export function LoyaltyStandingCard({ loyalty }: LoyaltyStandingCardProps) {
         <p className="text-sm text-muted-foreground">{TENURE_EXPLAINER_COPY}</p>
 
         {percentBigger > 0 && (
-          <div className="flex items-start gap-3 rounded-lg bg-muted/60 p-3">
+          <div className="flex items-start gap-3 border-t pt-3">
             <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" aria-hidden="true" />
             <p className="text-sm">
               Milestone credits come through{" "}
@@ -98,7 +98,10 @@ export function LoyaltyStandingCard({ loyalty }: LoyaltyStandingCardProps) {
 
         {next ? (
           <div className="space-y-1.5">
-            <Progress value={nextRungPercent(loyalty)} />
+            <LabeledProgress
+              value={nextRungPercent(loyalty)}
+              label={`Progress to ${next.label}`}
+            />
             <p className="text-xs text-muted-foreground">
               {next.label} at{" "}
               {tenureLengthLabel((loyalty.months_to_next ?? 0) + loyalty.months)} as a member
@@ -130,16 +133,10 @@ export function LoyaltyStandingCard({ loyalty }: LoyaltyStandingCardProps) {
               variant="outline"
               size="sm"
               onClick={() => {
-                void shareOrCopy({
-                  title: `${loyalty.last_anniversary_year} years on GradeThread`,
-                  text: `${loyalty.last_anniversary_year} ${
-                    loyalty.last_anniversary_year === 1 ? "year" : "years"
-                  } grading condition on GradeThread.`,
-                  url: `${
-                    typeof window !== "undefined" ? window.location.origin : ""
-                  }/how-it-works`,
-                  copiedMessage: "Link copied — paste it anywhere.",
-                });
+                void shareRewardCard(
+                  anniversaryShare(loyalty.last_anniversary_year),
+                  "loyalty_card",
+                );
               }}
             >
               <Share2 className="mr-1.5 h-3.5 w-3.5" />

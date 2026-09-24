@@ -13,9 +13,13 @@ import {
   Trophy,
   type LucideIcon,
 } from "lucide-react";
+import { Link } from "react-router";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { actionForBadge } from "@/lib/reward-actions";
+import { RewardActionLink } from "@/components/rewards/reward-action-link";
 import type { RewardBadge, RewardBadgeShelf } from "@/hooks/use-rewards";
-import { shareRewardCard } from "@/lib/reward-share";
+import { shareRewardCard, type RewardShareSurface } from "@/lib/reward-share";
 import { cn } from "@/lib/utils";
 
 // US-1857: the badge shelf — earned medals, and the ones still to earn.
@@ -53,6 +57,9 @@ const TIER_BG: Record<string, string> = {
   gold: "#d4af37",
 };
 
+/** Tiers whose fill is too light for a white glyph. */
+const DARK_GLYPH_TIERS = new Set(["silver", "gold"]);
+
 const TIER_LABEL: Record<string, string> = {
   bronze: "Bronze",
   silver: "Silver",
@@ -71,7 +78,16 @@ function earnedMonth(iso: string | null): string {
  * one-tap share the celebration offers, available forever afterwards rather than
  * only in the eight seconds the toast is on screen.
  */
-function BadgeMedal({ badge, size = "md" }: { badge: RewardBadge; size?: "sm" | "md" }) {
+function BadgeMedal({
+  badge,
+  size = "md",
+  surface = "badge_shelf",
+}: {
+  badge: RewardBadge;
+  size?: "sm" | "md";
+  /** Where the tap happened, so a widget share is not logged as a shelf share. */
+  surface?: RewardShareSurface;
+}) {
   const Icon = ICONS[badge.icon] ?? Medal;
   const tier = TIER_LABEL[badge.tier] ?? badge.tier;
   const when = earnedMonth(badge.earned_at);
@@ -85,7 +101,7 @@ function BadgeMedal({ badge, size = "md" }: { badge: RewardBadge; size?: "sm" | 
           key: badge.key,
           title: `GradeThread badge: ${badge.name}`,
           text: `Earned the ${badge.name} badge on GradeThread.`,
-        }, "badge_shelf");
+        }, surface);
       }}
       title={`${badge.description}${when ? ` Earned ${when}.` : ""}`}
       aria-label={`Share the ${badge.name} badge — ${tier}. ${badge.description}`}
@@ -97,7 +113,10 @@ function BadgeMedal({ badge, size = "md" }: { badge: RewardBadge; size?: "sm" | 
     >
       <span
         className={cn(
-          "flex flex-shrink-0 items-center justify-center rounded-full text-white",
+          "flex flex-shrink-0 items-center justify-center rounded-full",
+          // White on the silver and gold fills measured about 2.1-2.5:1. The
+          // brand night glyph clears 4.5:1 on both; bronze keeps white.
+          DARK_GLYPH_TIERS.has(badge.tier) ? "text-brand-night" : "text-white",
           size === "sm" ? "h-10 w-10" : "h-14 w-14",
         )}
         style={{ background: TIER_BG[badge.tier] ?? "#0F3460" }}
@@ -106,7 +125,7 @@ function BadgeMedal({ badge, size = "md" }: { badge: RewardBadge; size?: "sm" | 
       </span>
       <span
         className={cn(
-          "w-full truncate font-medium leading-tight",
+          "line-clamp-2 w-full font-medium leading-tight",
           size === "sm" ? "text-[11px]" : "text-xs",
         )}
       >
@@ -117,13 +136,21 @@ function BadgeMedal({ badge, size = "md" }: { badge: RewardBadge; size?: "sm" | 
 }
 
 /** The medals only — used by the dashboard widget, where space is the constraint. */
-export function BadgeMedalStrip({ badges, limit }: { badges: RewardBadge[]; limit: number }) {
+export function BadgeMedalStrip({
+  badges,
+  limit,
+  surface = "badge_shelf",
+}: {
+  badges: RewardBadge[];
+  limit: number;
+  surface?: RewardShareSurface;
+}) {
   if (badges.length === 0) return null;
   const shown = badges.slice(0, limit);
   const rest = badges.length - shown.length;
   return (
     <div className="flex flex-wrap items-start gap-1">
-      {shown.map((b) => <BadgeMedal key={b.key} badge={b} size="sm" />)}
+      {shown.map((b) => <BadgeMedal key={b.key} badge={b} size="sm" surface={surface} />)}
       {rest > 0 && (
         <span className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-xs font-medium tabular-nums text-muted-foreground">
           +{rest}
@@ -135,7 +162,7 @@ export function BadgeMedalStrip({ badges, limit }: { badges: RewardBadge[]; limi
 
 export function BadgeShelf({ shelf }: { shelf: RewardBadgeShelf }) {
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-lg">
           <Medal className="h-5 w-5 text-primary" />
@@ -151,9 +178,14 @@ export function BadgeShelf({ shelf }: { shelf: RewardBadgeShelf }) {
             {shelf.earned.map((b) => <BadgeMedal key={b.key} badge={b} />)}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            No medals yet. Grade your first item and the first one lands straight away.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              No medals yet. Grade your first item and the first one lands straight away.
+            </p>
+            <Button asChild size="sm" variant="outline">
+              <Link to="/dashboard/submissions/new">Grade your first item</Link>
+            </Button>
+          </div>
         )}
 
         {shelf.upcoming.length > 0 && (
@@ -167,7 +199,10 @@ export function BadgeShelf({ shelf }: { shelf: RewardBadgeShelf }) {
                   </span>
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-muted-foreground">{b.name}</p>
-                    <p className="text-xs text-muted-foreground">{b.description}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {actionForBadge(b.key)?.goal ?? b.description}
+                    </p>
+                    {actionForBadge(b.key) && <RewardActionLink action={actionForBadge(b.key)!} />}
                   </div>
                 </li>
               ))}

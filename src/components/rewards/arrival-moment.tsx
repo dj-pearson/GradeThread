@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Sparkles } from "lucide-react";
+import { Share2, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ConfettiBurst } from "@/components/rewards/confetti-burst";
 import { edgeFetch } from "@/lib/edge-fetch";
-import type { RewardArrival } from "@/hooks/use-rewards";
+import type { RewardArrival, RewardsState } from "@/hooks/use-rewards";
+import { article } from "@/lib/reward-celebrations";
+import { shareRewardCard } from "@/lib/reward-share";
 
 /**
  * US-2973: the one-time "your work counted" moment.
@@ -44,8 +46,18 @@ export function ArrivalMoment({
     // showing on the next load, which is the right way for this to fail.
     setDismissed(true);
     try {
-      await edgeFetch("/api/rewards/arrival/ack", { method: "POST" });
-      await qc.invalidateQueries({ queryKey: ["rewards-state"] });
+      await edgeFetch("/api/rewards/arrival/ack", {
+        method: "POST",
+        // Personal, like every rewards route: the ack is the caller's own row.
+        skipWorkspaceHeader: true,
+      });
+      // Clear the arrival in the cache rather than refetching. A refetch here
+      // re-ran the whole /state read just to learn what we already know, and it
+      // was the refetch that re-mounted the celebration runner into a replay.
+      qc.setQueriesData<RewardsState>(
+        { queryKey: ["rewards-state"] },
+        (s) => (s ? { ...s, arrival: null } : s),
+      );
     } catch {
       // Deliberately silent. There is nothing the seller can do about it and
       // nothing they lose.
@@ -67,7 +79,7 @@ export function ArrivalMoment({
             </span>
             <div className="space-y-1">
               <h2 className="text-lg font-bold text-primary">
-                Your work counted. You&rsquo;re a {tierName}.
+                Your work counted. You&rsquo;re {article(tierName)}.
               </h2>
               <p className="text-sm text-primary/80">
                 We went back through everything you have sourced, photographed,
@@ -86,9 +98,26 @@ export function ArrivalMoment({
               </p>
             </div>
           </div>
-          <Button size="sm" onClick={() => void acknowledge()}>
-            Got it
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => void acknowledge()}>
+              Got it
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                void shareRewardCard({
+                  kind: "level",
+                  key: String(arrival.level),
+                  title: `GradeThread level ${arrival.level}`,
+                  text: `Level ${arrival.level}, ${tierName}, grading condition on GradeThread.`,
+                }, "arrival");
+              }}
+            >
+              <Share2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+              Share my level
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </>

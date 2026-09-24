@@ -5,9 +5,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { useRewards } from "@/hooks/use-rewards";
 import type { RewardsState } from "@/hooks/use-rewards";
 import {
-  applyCelebrationLimits,
   celebrationAnalyticsEvents,
-  detectCelebrations,
+  celebrationPass,
   prefersReducedMotion,
   readCelebrationState,
   snapshotFromRewards,
@@ -51,6 +50,7 @@ function contextFor(rewards: RewardsState): CelebrationContext {
     // read is missing (a mid-deploy edge, a failed tenure query). Naming a tier
     // we can't see would be inventing one.
     tenureName: rewards.loyalty?.tier?.label ?? "Your standing",
+    integrityLabel: rewards.integrity?.label,
   };
 }
 
@@ -81,7 +81,12 @@ function announce(event: CelebrationEvent): void {
   toast(event.title, { description: event.message, duration: 4000, action });
 }
 
-export function RewardCelebrations() {
+/**
+ * `baselineOnly`: record the snapshot but announce nothing. Set while the
+ * server's arrival moment is showing, so the arrival is the one celebration for
+ * that backfill and nothing replays after "Got it".
+ */
+export function RewardCelebrations({ baselineOnly = false }: { baselineOnly?: boolean }) {
   const { user } = useAuth();
   const { rewards } = useRewards();
   const [burst, setBurst] = useState(0);
@@ -96,17 +101,31 @@ export function RewardCelebrations() {
     // celebrate. A demotion is never celebrated either: detectCelebrations only
     // fires on a change, and the edge tells the seller about a drop privately,
     // so the toast this can raise is always good news.
+    const previous = readCelebrationState(userId);
+    // A failed integrity read carries the last known tier forward. Recording it
+    // as null would make the next good read look like a promotion.
     const next = snapshotFromRewards(
       rewards,
-      rewards.integrity?.displayable ? rewards.integrity.tier : null,
+      rewards.integrity?.unavailable
+        ? previous.snapshot?.integrityTier ?? null
+        : rewards.integrity?.displayable
+        ? rewards.integrity.tier
+        : null,
     );
-    const previous = readCelebrationState(userId);
-    const events = detectCelebrations(previous.snapshot, next, contextFor(rewards));
-    const { show, log } = applyCelebrationLimits(events, previous.log, Date.now());
+    const { detected: events, show, state } = celebrationPass(
+      previous,
+      next,
+      contextFor(rewards),
+      Date.now(),
+      { baselineOnly },
+    );
 
     // Persist BEFORE rendering: the snapshot has to advance even when the cap
     // suppressed everything, or the same suppressed moments queue up forever.
-    writeCelebrationState(userId, { snapshot: next, log });
+    writeCelebrationState(userId, state);
+
+    // A baseline pass is not a suppression; there is nothing to measure.
+    if (baselineOnly) return;
 
     // US-1915 AC4. WHICH events to emit is a pure decision and lives in
     // lib/reward-celebrations.ts — this is a useEffect, and the repo's reward
@@ -119,7 +138,7 @@ export function RewardCelebrations() {
     if (show.some((e) => e.tier === "celebrate") && !prefersReducedMotion()) {
       setBurst((n) => n + 1);
     }
-  }, [userId, rewards]);
+  }, [userId, rewards, baselineOnly]);
 
   return <ConfettiBurst runId={burst} />;
 }

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeApiUrl } from "@/lib/edge-api";
@@ -138,6 +138,10 @@ export function useMyLeaderboard(period: LeaderboardPeriod) {
   return useQuery({
     queryKey: ["my-leaderboard", period],
     staleTime: 60_000,
+    // Switching period must not blank the panel. Without this `data` went
+    // undefined for the fetch, which read as "not on the boards", wiped the
+    // alias field and unmounted the very period buttons just clicked.
+    placeholderData: keepPreviousData,
     queryFn: async (): Promise<MyLeaderboardState> => {
       const res = await edgeFetch(`/api/rewards/leaderboard?period=${period}`, {
         skipWorkspaceHeader: true,
@@ -174,16 +178,53 @@ export function useSetLeaderboardOptIn() {
       });
       const data = (await res.json().catch(() => ({}))) as {
         opt_in?: boolean;
+        resolved_alias?: string | null;
         error?: string;
       };
-      if (!res.ok) throw new Error(data.error ?? "Couldn't update your leaderboard settings");
-      return { optIn: data.opt_in === true };
+      if (!res.ok) {
+        throw new LeaderboardSaveError(
+          data.error ?? "Couldn't update your leaderboard settings",
+          res.status,
+        );
+      }
+      return { optIn: data.opt_in === true, resolvedAlias: data.resolved_alias ?? null };
     },
-    onSuccess: ({ optIn }) => {
+    onSuccess: (result, input) => {
       queryClient.invalidateQueries({ queryKey: ["my-leaderboard"] });
       queryClient.invalidateQueries({ queryKey: ["leaderboards"] });
-      toast.success(optIn ? "You're on the leaderboards." : "Removed from the leaderboards.");
+      toast.success(leaderboardSaveToast(input, result));
     },
-    onError: (err: Error) => toastError(err),
+    // A 400 is a sentence about what the seller typed (a hidden character, a
+    // reserved name). The panel shows it under the field it is about, so a toast
+    // would only say it twice.
+    onError: (err: Error) => {
+      if (err instanceof LeaderboardSaveError && err.status === 400) return;
+      toastError(err);
+    },
   });
+}
+
+/** A failed leaderboard save, carrying the HTTP status so a 400 can be shown inline. */
+export class LeaderboardSaveError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "LeaderboardSaveError";
+    this.status = status;
+  }
+}
+
+/**
+ * What a successful save says, by what the seller MEANT to do. Reading it off
+ * the resulting opt-in state made a rename say "You're on the leaderboards."
+ */
+export function leaderboardSaveToast(
+  input: { enabled?: boolean; alias?: string | null },
+  result: { optIn: boolean; resolvedAlias: string | null },
+): string {
+  if (input.enabled === true) return "You're on the leaderboards.";
+  if (input.enabled === false) return "Removed from the leaderboards.";
+  return result.resolvedAlias
+    ? `Name updated. You'll show as ${result.resolvedAlias}.`
+    : "Name updated.";
 }

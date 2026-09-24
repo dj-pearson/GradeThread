@@ -3133,22 +3133,20 @@ contentPublicRoutes.get("/leaderboards.json", async (c) => {
     const metrics = LEADERBOARD_METRICS as readonly LeaderboardMetric[];
 
     if (!query.metric) {
-      const boards = [];
-      for (const m of metrics) {
-        const data = await loadBoard(m.key, cohort, window, {
-          brandSlug: null,
-          category: null,
-        });
-        boards.push({
-          metric: m,
-          path: leaderboardPath(m.key),
-          entries: rankLeaderboard(
-            data.candidates,
-            PUBLIC_SITE_URL,
-            Math.min(query.limit, LEADERBOARD_HUB_LIMIT),
-          ),
-        });
-      }
+      // The four boards are independent reads over the same cohort, so they run
+      // together. Promise.all keeps the catalog's order in the output.
+      const datas = await Promise.all(
+        metrics.map((m) => loadBoard(m.key, cohort, window, { brandSlug: null, category: null })),
+      );
+      const boards = metrics.map((m, i) => ({
+        metric: m,
+        path: leaderboardPath(m.key),
+        entries: rankLeaderboard(
+          datas[i].candidates,
+          PUBLIC_SITE_URL,
+          Math.min(query.limit, LEADERBOARD_HUB_LIMIT),
+        ),
+      }));
       return c.json({
         hub: true,
         window: windowJson,

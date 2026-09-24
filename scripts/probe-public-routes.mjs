@@ -94,7 +94,7 @@ const DYNAMIC = [
 const KNOWN_EMPTY_INDEXES = new Map([
   [
     "/help",
-    "US-2618 — 83 articles exist in content/help/ and none are in the database. " +
+    "US-2618 — 84 articles exist in content/help/ and none are in the database. " +
       "Run `npm run help:seed` against production with the service-role key, " +
       "then delete this entry.",
   ],

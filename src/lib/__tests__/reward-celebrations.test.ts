@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  article,
+  celebrationPass,
+  SNAPSHOT_MAX_AGE_MS,
   applyCelebrationLimits,
   celebrationAnalyticsEvents,
   CELEBRATION_POLICY,
@@ -305,10 +308,15 @@ describe("persistence", () => {
 
   it("round-trips per user", () => {
     const store = memory();
-    writeCelebrationState("user-a", { snapshot: snap(), log: log({ lastQuietAt: 42 }) }, store);
+    writeCelebrationState(
+      "user-a",
+      { snapshot: snap(), log: log({ lastQuietAt: 42 }), takenAt: 1_000 },
+      store,
+    );
     const back = readCelebrationState("user-a", store);
     expect(back.snapshot?.level).toBe(4);
     expect(back.log.lastQuietAt).toBe(42);
+    expect(back.takenAt).toBe(1_000);
     // A different account on the same browser must not inherit it.
     expect(readCelebrationState("user-b", store).snapshot).toBeNull();
     expect(store.data[celebrationStateKey("user-a")]).toBeTruthy();
@@ -378,5 +386,74 @@ describe("US-1915 AC4: celebrationAnalyticsEvents", () => {
     const out = celebrationAnalyticsEvents(two, two);
     expect(out.every((e) => e.event === "reward_celebration_shown")).toBe(true);
     expect(out).toHaveLength(2);
+  });
+});
+
+// ─── R10: one celebration per event ──────────────────────────────────────────
+
+describe("article", () => {
+  it("gives every tier on the ladder the right article", () => {
+    expect(["Thrifter", "Picker", "Curator", "Archivist", "Legend"].map(article)).toEqual([
+      "a Thrifter",
+      "a Picker",
+      "a Curator",
+      "an Archivist",
+      "a Legend",
+    ]);
+  });
+
+  it("is what the level-up toast says", () => {
+    const [e] = detectCelebrations(snap(), snap({ level: 12 }), { ...CTX, tierName: "Archivist" });
+    expect(e!.message).toContain("You're an Archivist now.");
+  });
+});
+
+describe("celebrationPass", () => {
+  const NOW = Date.parse("2026-09-24T12:00:00.000Z");
+  const before = { snapshot: snap(), log: log(), takenAt: NOW - 60_000 };
+  const after = snap({ level: 9, xpTotal: 9_000, badges: ["first_grade", "viral_find"] });
+
+  it("an arrival pass then a normal pass shows nothing at all", () => {
+    const arrival = celebrationPass(before, after, CTX, NOW, { baselineOnly: true });
+    expect(arrival.show).toEqual([]);
+    expect(arrival.detected.length).toBeGreaterThan(0);
+    expect(arrival.state.snapshot).toEqual(after);
+
+    // "Got it" -> the runner is no longer baseline-only, same data.
+    const next = celebrationPass(arrival.state, after, CTX, NOW + 5_000);
+    expect(next.show).toEqual([]);
+  });
+
+  it("marks what a baseline pass found as seen", () => {
+    const arrival = celebrationPass(before, after, CTX, NOW, { baselineOnly: true });
+    expect(arrival.state.log.seen).toContain("level:9");
+    expect(arrival.state.log.seen).toContain("badge:viral_find");
+  });
+
+  it("a snapshot older than a week re-baselines quietly", () => {
+    const stale = { ...before, takenAt: NOW - SNAPSHOT_MAX_AGE_MS - 1 };
+    const pass = celebrationPass(stale, after, CTX, NOW);
+    expect(pass.detected).toEqual([]);
+    expect(pass.show).toEqual([]);
+    expect(pass.state.takenAt).toBe(NOW);
+  });
+
+  it("a snapshot written before takenAt existed is treated as stale", () => {
+    const legacy = { ...before, takenAt: 0 };
+    expect(celebrationPass(legacy, after, CTX, NOW).show).toEqual([]);
+  });
+
+  it("a fresh snapshot still celebrates a real level up", () => {
+    const pass = celebrationPass(before, after, CTX, NOW);
+    expect(pass.show.some((e) => e.kind === "level_up")).toBe(true);
+  });
+
+  it("the integrity toast names the tier's label, not its key", () => {
+    const [e] = detectCelebrations(
+      snap({ integrityTier: "reliable" }),
+      snap({ integrityTier: "trusted" }),
+      { ...CTX, integrityLabel: "Trusted seller" },
+    );
+    expect(e!.title).toBe("Integrity tier: Trusted seller");
   });
 });
