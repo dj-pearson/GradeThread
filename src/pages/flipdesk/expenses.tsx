@@ -78,6 +78,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { invalidateBooks } from "@/lib/ledger";
 import {
   EXPENSE_CATEGORIES,
   EXPENSE_CATEGORY_LABELS,
@@ -151,7 +152,9 @@ export function FlipdeskExpensesPage() {
   const user = useAuthStore((s) => s.user);
   // RLS lets a workspace member read every workspace they belong to, so the
   // list names the one on screen rather than trusting RLS to pick it.
-  const { workspaceOwnerId: ownerId } = useWorkspace();
+  const { workspaceOwnerId: ownerId, can } = useWorkspace();
+  const canEdit = can("manage_inventory");
+  const canDelete = can("delete_inventory");
   const qc = useQueryClient();
   const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -246,12 +249,18 @@ export function FlipdeskExpensesPage() {
     });
     if (!ok) return;
     try {
-      const { error } = await supabase
+      // .select("id") so a delete RLS filtered out (a role without delete
+      // rights) comes back as zero rows instead of a silent "success".
+      const { data, error } = await supabase
         .from("flipdesk_expenses")
         .delete()
-        .eq("id", id);
+        .eq("id", id)
+        .select("id");
       if (error) throw error;
-      await qc.invalidateQueries({ queryKey: ["expenses"] });
+      if (!data || data.length === 0) {
+        throw new Error("You don't have permission to change this.");
+      }
+      await invalidateBooks(qc);
       toast.success("Expense deleted.");
     } catch (err) {
       toastError(err, "Delete failed.");
@@ -274,10 +283,12 @@ export function FlipdeskExpensesPage() {
               <Download className="mr-2 h-4 w-4" />
               Export CSV
             </Button>
-            <Button onClick={() => setDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add expense
-            </Button>
+            {canEdit && (
+              <Button onClick={() => setDialogOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add expense
+              </Button>
+            )}
           </>
         }
       />
@@ -428,11 +439,15 @@ export function FlipdeskExpensesPage() {
                 icon={Wallet}
                 title="No expenses logged"
                 description="Track overhead like shipping supplies, mileage, and subscriptions to get a true profit picture."
-                action={{
-                  label: "Add expense",
-                  onClick: () => setDialogOpen(true),
-                  icon: Plus,
-                }}
+                action={
+                  canEdit
+                    ? {
+                        label: "Add expense",
+                        onClick: () => setDialogOpen(true),
+                        icon: Plus,
+                      }
+                    : undefined
+                }
               />
             )
           ) : (
@@ -516,27 +531,31 @@ export function FlipdeskExpensesPage() {
                           <Paperclip className="h-3.5 w-3.5" />
                         </Button>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => {
-                          setEditing(e);
-                          setDialogOpen(true);
-                        }}
-                        aria-label={`Edit ${expenseName(e)}`}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-destructive"
-                        onClick={() => remove(e.id)}
-                        aria-label={`Delete ${expenseName(e)}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      {canEdit && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => {
+                            setEditing(e);
+                            setDialogOpen(true);
+                          }}
+                          aria-label={`Edit ${expenseName(e)}`}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      {canDelete && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive"
+                          onClick={() => remove(e.id)}
+                          aria-label={`Delete ${expenseName(e)}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -700,7 +719,7 @@ function ExpenseDialog({
     try {
       await deleteExpenseReceipt(expense.id);
       setReceiptPath(null);
-      await qc.invalidateQueries({ queryKey: ["expenses"] });
+      await invalidateBooks(qc);
       toast.success("Receipt removed.");
     } catch (err) {
       toastError(err);
@@ -757,11 +776,15 @@ function ExpenseDialog({
         // No user_id in the patch: the row's owner never changes, and RLS
         // scopes the update by it. Sending it would be a chance to move a row
         // between workspaces, which nothing here should be able to do.
-        const { error } = await supabase
+        const { data: updated, error } = await supabase
           .from("flipdesk_expenses")
           .update(fields as never)
-          .eq("id", expense.id);
+          .eq("id", expense.id)
+          .select("id");
         if (error) throw error;
+        if (!updated || updated.length === 0) {
+          throw new Error("You don't have permission to change this.");
+        }
       } else {
         const insert: ExpenseInsert = {
           user_id: workspaceOwnerId,
@@ -802,7 +825,7 @@ function ExpenseDialog({
         }
       }
 
-      await qc.invalidateQueries({ queryKey: ["expenses"] });
+      await invalidateBooks(qc);
       toast.success(expense ? "Expense updated." : "Expense logged.");
       setAmount("");
       setDescription("");

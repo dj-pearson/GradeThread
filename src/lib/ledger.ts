@@ -156,6 +156,22 @@ export async function invalidateLedgerQueries(qc: QueryInvalidator): Promise<voi
 }
 
 /**
+ * Everything an expense write can change: the expense list, the Trends
+ * overhead figure, the books review list and count, and every ledger read.
+ * Expense writes used to refresh only ["expenses"], so Trends and the P&L kept
+ * showing the old overhead until they went stale.
+ */
+export async function invalidateBooks(qc: QueryInvalidator): Promise<void> {
+  await Promise.all([
+    qc.invalidateQueries({ queryKey: ["expenses"] }),
+    qc.invalidateQueries({ queryKey: ["finances-overhead"] }),
+    qc.invalidateQueries({ queryKey: ["books-review"] }),
+    qc.invalidateQueries({ queryKey: ["books-review-count"] }),
+    invalidateLedgerQueries(qc),
+  ]);
+}
+
+/**
  * Seller-owned tables rebuild_ledger_for_user (00777) derives entries from,
  * each with a trigger-maintained updated_at and a user_id to scope by. Two more
  * inputs are read through their sale in newestLedgerSourceChange: shipments

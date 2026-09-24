@@ -24,6 +24,8 @@ function q(over: Record<string, unknown> = {}) {
   };
 }
 
+const ws = vi.hoisted(() => ({ canManage: true }));
+
 const state = {
   conflicts: q(),
   syncRuns: q(),
@@ -61,7 +63,13 @@ vi.mock("@/stores/auth-store", () => {
 });
 
 vi.mock("@/hooks/use-workspace", () => ({
-  useWorkspace: () => ({ workspaceOwnerId: "u1", activeWorkspaceOwnerId: null }),
+  useWorkspace: () => ({
+    workspaceOwnerId: "u1",
+    activeWorkspaceOwnerId: null,
+    can: () => ws.canManage,
+    isOwner: ws.canManage,
+    isPersonal: true,
+  }),
 }));
 
 vi.mock("@/hooks/use-plan-usage", () => ({
@@ -137,6 +145,7 @@ const gate = (status: number) =>
   Object.assign(new Error("Business plan required"), { status });
 
 beforeEach(() => {
+  ws.canManage = true;
   state.conflicts = q();
   state.syncRuns = q();
   state.payouts = q();
@@ -249,5 +258,17 @@ describe("EbaySkuMatch", () => {
     state.items = q({ data: [], isSuccess: true, isFetching: true });
     await render(<EbaySkuMatch />);
     expect(createAll()?.disabled).toBe(true);
+  });
+
+  it("a viewer (Money M11) sees the check but no write buttons", async () => {
+    ws.canManage = false;
+    await render(<EbaySkuMatch />);
+    expect(text()).toContain("Levi's 501");
+    for (const label of ["Create all", "Create", "Link", "Ignore", "Upload eBay CSV", "Clear imported data"]) {
+      const found = [...document.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim().startsWith(label),
+      );
+      expect(found, label).toBeUndefined();
+    }
   });
 });

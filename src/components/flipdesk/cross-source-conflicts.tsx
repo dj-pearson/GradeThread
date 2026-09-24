@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { ErrorState } from "@/components/ui/error-state";
 import { PlanLockedNotice } from "@/components/flipdesk/plan-locked-notice";
 import { isPlanGateError } from "@/lib/plan-gate-error";
+import { useWorkspace } from "@/hooks/use-workspace";
 import {
   useConflictThreshold,
   useResolveConflicts,
@@ -384,6 +385,10 @@ function ListingConflictCard({
 // Email-alert threshold: one email per upward crossing of the open-conflict
 // count. Blank = disabled.
 function ThresholdCard() {
+  // The threshold is a column on the caller's OWN users row, but the alert
+  // job reads the workspace owner's. A member saving here changed a number
+  // nothing reads, so for a member the setting is shown as the owner's.
+  const { isPersonal } = useWorkspace();
   const { data: threshold, isLoading } = useConflictThreshold();
   const setThreshold = useSetConflictThreshold();
   const [draft, setDraft] = useState<string | null>(null);
@@ -417,34 +422,43 @@ function ThresholdCard() {
           Leave blank to turn alerts off.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-wrap items-center gap-3">
-        <Input
-          aria-label="Conflict email alert threshold"
-          type="number"
-          min={1}
-          className="w-28"
-          placeholder="Off"
-          value={value}
-          disabled={isLoading}
-          onChange={(e) => setDraft(e.target.value)}
-        />
-        <Button
-          size="sm"
-          onClick={save}
-          disabled={!dirty || setThreshold.isPending}
-        >
-          {setThreshold.isPending ? (
-            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-          ) : null}
-          Save
-        </Button>
-        {threshold == null && !isLoading && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <AlertTriangle className="h-3 w-3" />
-            Alerts are currently off.
-          </span>
-        )}
-      </CardContent>
+      {!isPersonal ? (
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Only the workspace owner can change this. Alerts for this workspace
+            go to the owner.
+          </p>
+        </CardContent>
+      ) : (
+        <CardContent className="flex flex-wrap items-center gap-3">
+          <Input
+            aria-label="Conflict email alert threshold"
+            type="number"
+            min={1}
+            className="w-28"
+            placeholder="Off"
+            value={value}
+            disabled={isLoading}
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <Button
+            size="sm"
+            onClick={save}
+            disabled={!dirty || setThreshold.isPending}
+          >
+            {setThreshold.isPending ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            Save
+          </Button>
+          {threshold == null && !isLoading && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <AlertTriangle className="h-3 w-3" />
+              Alerts are currently off.
+            </span>
+          )}
+        </CardContent>
+      )}
     </Card>
   );
 }
