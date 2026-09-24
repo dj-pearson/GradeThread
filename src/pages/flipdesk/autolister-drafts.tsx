@@ -1,6 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { shouldIgnoreDraftsHotkey } from "./autolister/drafts-hotkeys";
+import { DraftsPublishConfirm } from "./autolister/drafts-publish-confirm";
 import {
   Boxes,
   Search,
@@ -322,6 +324,8 @@ export function FlipdeskAutolisterDraftsPage() {
   // catalogued by an older model; this reads the photos again and corrects what
   // the AI itself wrote, leaving anything the seller typed alone.
   const [reidentifyOpen, setReidentifyOpen] = useState(false);
+  // AL-05: "p" asks first.
+  const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
   const editTitleRef = useRef<HTMLInputElement>(null);
@@ -557,10 +561,27 @@ export function FlipdeskAutolisterDraftsPage() {
     toast.success("Publish finished — see per-row status.");
   }
 
+  // AL-05: what the "p" confirm reports. Only drafts visible under the current
+  // search are sent, so the count is of those.
+  const publishPreview = useMemo(() => {
+    const chosen = sorted.filter((d) => selectedIds.has(d.id));
+    const ready = new Set(readyDrafts.map((d) => d.id));
+    return {
+      count: chosen.length,
+      blocked: chosen.filter((d) => !ready.has(d.id)).length,
+      totalValue: chosen.reduce((sum, d) => sum + (d.listing_price ?? 0), 0),
+      hiddenBySearch: selectedIds.size - chosen.length,
+    };
+  }, [sorted, selectedIds, readyDrafts]);
+
   // Global key handler for the cockpit. Typing in the search/editor inputs is
   // respected; only the documented shortcuts are intercepted.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // AL-05: never on Ctrl/Cmd/Alt (Cmd+P is print), a repeat, a handled
+      // event, a focused button or link, or while any dialog is open.
+      if (shouldIgnoreDraftsHotkey(e)) return;
+      if (crossListOpen || reidentifyOpen || publishConfirmOpen) return;
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName;
       const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
@@ -620,7 +641,13 @@ export function FlipdeskAutolisterDraftsPage() {
           break;
         case "p":
           e.preventDefault();
-          void publishSelected();
+          if (publishPreview.count === 0) {
+            toast.error("Select drafts first (press x on a row).");
+          } else if (!ebayConnection) {
+            toast.error("Connect eBay first on the Marketplaces page.");
+          } else if (!bulkPublish.running) {
+            setPublishConfirmOpen(true);
+          }
           break;
         default:
           break;
@@ -628,8 +655,11 @@ export function FlipdeskAutolisterDraftsPage() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-    // publishSelected is intentionally not memoized; it closes over current state.
-  }, [sorted, activeIndex, editingId, saveAndNext, openEditor, toggleSelect]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    sorted, activeIndex, editingId, saveAndNext, openEditor, toggleSelect,
+    crossListOpen, reidentifyOpen, publishConfirmOpen, publishPreview,
+    ebayConnection, bulkPublish.running,
+  ]);
 
   const totalValue = useMemo(
     () => drafts.reduce((sum, d) => sum + (d.listing_price ?? 0), 0),
@@ -1315,6 +1345,15 @@ export function FlipdeskAutolisterDraftsPage() {
         ebayConnected={!!ebayConnection}
         running={bulkPublish.running || crossPushBulk.isPending}
         onConfirm={(choice) => void crossListSelected(choice)}
+      />
+      <DraftsPublishConfirm
+        open={publishConfirmOpen}
+        onOpenChange={setPublishConfirmOpen}
+        {...publishPreview}
+        onConfirm={() => {
+          setPublishConfirmOpen(false);
+          void publishSelected();
+        }}
       />
       <BulkAiEnrichDialog
         open={reidentifyOpen}
