@@ -60,6 +60,7 @@ import {
 import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
 import { aiBudgetExceededBody, isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
+import { fileSnapUsage } from "../lib/ai-usage.ts";
 import { classifyGarment, type GarmentClassification } from "../lib/ai-extract.ts";
 import { valueAtGrade } from "../lib/condition-value.ts";
 import { suggestCategories } from "../lib/ebay-client.ts";
@@ -1861,6 +1862,9 @@ gradeRoutes.post("/snap", async (c) => {
     ]);
     grade = gradeResult;
     garmentClassification = classification;
+    // SNAP-02: file the vision spend under the grading budget that gates this
+    // route, or its kill switch never sees a snap.
+    void fileSnapUsage(ownerId, grade.usages);
   } catch (err) {
     // Refund the reserved snap so a transient grading failure isn't counted.
     //

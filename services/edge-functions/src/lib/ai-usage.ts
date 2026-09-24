@@ -304,3 +304,24 @@ export async function recordAiCall(input: RecordAiCallInput): Promise<void> {
     );
   }
 }
+
+/**
+ * SNAP-02: file a Snap-to-Value grade's spend under the GRADING budget.
+ *
+ * /snap is gated on `isAiBudgetExhausted("grading")`, and that budget is a
+ * roll-up of ai_usage_events by feature. quickGrade hands its usages back for
+ * the caller to file (US-2845), and /snap used to drop them, so the budget that
+ * gates snap never saw a cent of snap's spend and its kill switch could not
+ * trip on it. There is no submission row: a snap stores nothing.
+ *
+ * Fire-and-forget from the handler (`recordAiUsage` never throws). The
+ * recorder is injectable so the filing is testable without a database.
+ */
+export function fileSnapUsage(
+  ownerId: string,
+  usages: Array<{ phase: string; usage: AiTokenUsage }>,
+  recorder: (input: RecordAiUsageInput) => Promise<void> = recordAiUsage,
+): Promise<void> {
+  if (usages.length === 0) return Promise.resolve();
+  return recorder({ userId: ownerId, submissionId: null, feature: "grading", usages });
+}
