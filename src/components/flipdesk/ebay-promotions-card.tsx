@@ -88,8 +88,7 @@ export function EbayPromotionsCard() {
         <CardContent>
           {data?.access === false ? (
             <p className="text-sm text-muted-foreground">
-              Reconnect eBay to manage promotions. Your current sign-in does not
-              include eBay&apos;s promotions permission.
+              Reconnect eBay to manage promotions.
             </p>
           ) : (
             <InlineRetry

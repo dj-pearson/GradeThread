@@ -1832,10 +1832,10 @@ function SoldSyncSection() {
       <p className="mb-3 max-w-prose text-xs text-muted-foreground">
         When one of these channels sells a garment, GradeThread ends your other
         listings for it so the same item cannot sell twice. It reads your own
-        sold page while you are on it, from your browser
+        sold page while you are on it, from your browser.{" "}
         {scheduled
-          ? ", and on the schedule below in a background tab while your browser is open."
-          : ". Nothing is read on a schedule."}{" "}
+          ? "It also checks on the schedule below while your browser is open."
+          : "Nothing is read on a schedule."}{" "}
         GradeThread never receives your marketplace password, session, or the
         name or address of anyone who bought from you.
       </p>
