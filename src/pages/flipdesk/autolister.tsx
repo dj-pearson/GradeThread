@@ -439,6 +439,8 @@ function AutolisterWorkbench() {
   // AL-09: the latest groups/staged for code that runs after an await.
   const liveGroupsRef = useRef(groups);
   liveGroupsRef.current = groups;
+  const liveStagedRef = useRef(staged);
+  liveStagedRef.current = staged;
   const stagedByIdRef = useRef<ReadonlyMap<string, StagedPhoto>>(new Map());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
@@ -1858,6 +1860,10 @@ function AutolisterWorkbench() {
    */
   async function generate(only?: string[] | null, allowProtected?: ReadonlySet<string>) {
     if (!ownerId) return;
+    // AL-07: LIVE state. "Generate first N" runs this from a toast, whose
+    // closure held the groups before their itemId stamps: every item twice.
+    const groups = liveGroupsRef.current;
+    const stagedById = stagedByIdRef.current;
     if (groups.length === 0) {
       toast.error("Create at least one group first.");
       return;
@@ -1878,7 +1884,7 @@ function AutolisterWorkbench() {
       for (const g of groups) for (const pid of g.photoIds) finalAssigned[pid] = g.id;
       const correction = groupingCorrectionScore(autoAssignedRef.current, finalAssigned);
       trackGroupingOutcome({
-        photo_count: staged.length,
+        photo_count: liveStagedRef.current.length,
         corrected_count: correction.corrected,
         correction_pct: Math.round(correction.pct * 100) / 100,
         manual_groups_created: manualGroupsCreated(
@@ -1907,7 +1913,7 @@ function AutolisterWorkbench() {
           setGroups(stamped);
           if (idbAvailable()) {
             await saveSession(sessionId.current, {
-              staged, groups: stamped, undo: undoGroupsRef.current,
+              staged: liveStagedRef.current, groups: stamped, undo: undoGroupsRef.current,
               sort: { ungroupedSort, groupEvery }, updatedAt: Date.now(), ownerId: ownerId ?? undefined,
             });
           }
@@ -1939,8 +1945,8 @@ function AutolisterWorkbench() {
         // seller stays on this page to keep working. The batch id goes into the
         // URL so BatchNav appears and the run is one click away.
         const takenPhotoIds = new Set(sent.flatMap((g) => g.photoIds));
-        const remainingGroups = groups.filter((g) => !created.has(g.id));
-        const remainingStaged = staged.filter((p) => !takenPhotoIds.has(p.id));
+        const remainingGroups = liveGroupsRef.current.filter((g) => !created.has(g.id));
+        const remainingStaged = liveStagedRef.current.filter((p) => !takenPhotoIds.has(p.id));
         // The undo snapshot describes groups that no longer exist here.
         undoGroupsRef.current = null;
         setGroups(remainingGroups);

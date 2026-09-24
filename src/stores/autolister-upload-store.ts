@@ -184,6 +184,9 @@ interface XhrOutcome {
 // AL-03: every in-flight staging XHR, so a sign-out can abort them rather than
 // let the last user's files finish uploading under the next user's session.
 const activeXhrs = new Set<XMLHttpRequest>();
+// AL-03: bumped by reset(). A task started before a reset sees a different
+// value and stops before it uploads anything.
+let resetEpoch = 0;
 
 function xhrSend(
   sessionId: string,
@@ -303,10 +306,14 @@ export async function uploadStagingPhoto(
   full: Blob,
   thumb: Blob | null,
   onProgress: (fraction: number) => void = () => {},
+  isCancelled: () => boolean = () => false,
 ): Promise<StagedUploadResult> {
   for (let attempt = 0; ; attempt++) {
     const delay = uploadLimiter.acquireDelayMs();
     if (delay > 0) await sleep(delay);
+    // AL-03: a sign-out during a pacing or 429 back-off sleep must not send
+    // the last user's file under whoever is signed in by the time it wakes.
+    if (isCancelled()) throw new Error("Upload cancelled.");
     try {
       return await _transport.upload(session, full, thumb, onProgress);
     } catch (err) {
@@ -419,6 +426,8 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
   // apart from the store plumbing + byte-level progress.
   async function processUploadTask(task: UploadTask, stats: BatchStats): Promise<void> {
     const { id, file } = task;
+    const epoch = resetEpoch;
+    const wasReset = () => epoch !== resetEpoch;
     // AL-03: a reset (sign-out) empties `tasks`. A lane that was still queued
     // behind it must not start the upload for the next user.
     if (!get().tasks.some((t) => t.id === id)) return;
@@ -550,20 +559,29 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
       // US-1541: paced under the server's rate budget + auto-backoff on 429.
       // US-1542: progress 30→100 is REAL byte progress, throttled to whole
       // steps so a 600-file batch doesn't storm the store with set() calls.
+      // AL-03: reset (sign-out) while this was decoding. The file belongs to
+      // the last user; it must not be uploaded under the next one's token.
+      if (wasReset()) return;
       patchTask(id, { status: "uploading", progress: 30 });
       let lastPct = 30;
       const sessionForUpload = get().sessionId ?? "";
-      const up = await uploadStagingPhoto(sessionForUpload, body, thumbBlob, (fraction) => {
-        const pct = 30 + Math.round(fraction * 70);
-        if (pct >= lastPct + 2 || pct === 100) {
-          lastPct = pct;
-          patchTask(id, { progress: pct });
-        }
-      });
+      const up = await uploadStagingPhoto(
+        sessionForUpload,
+        body,
+        thumbBlob,
+        (fraction) => {
+          const pct = 30 + Math.round(fraction * 70);
+          if (pct >= lastPct + 2 || pct === 100) {
+            lastPct = pct;
+            patchTask(id, { progress: pct });
+          }
+        },
+        wasReset,
+      );
 
       // AL-03: reset while this was uploading. Never hand the photo to
       // whoever is signed in now.
-      if (!get().tasks.some((t) => t.id === id)) return;
+      if (wasReset() || !get().tasks.some((t) => t.id === id)) return;
       deliverResult({
         id: crypto.randomUUID(),
         url: up.url,
@@ -785,6 +803,7 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
     },
 
     reset: () => {
+      resetEpoch++;
       for (const xhr of [...activeXhrs]) {
         try {
           xhr.abort();

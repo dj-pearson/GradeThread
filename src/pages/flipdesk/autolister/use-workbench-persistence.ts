@@ -17,6 +17,7 @@ import {
   scopeSessionToOwner,
 } from "@/lib/autolister-session-idb";
 import { type StagedPhoto, useAutolisterUploadStore } from "@/stores/autolister-upload-store";
+import { useAuthStore } from "@/stores/auth-store";
 
 /** AL-11: how long edits settle before the session is written. */
 export const PERSIST_DEBOUNCE_MS = 400;
@@ -193,6 +194,10 @@ export function useWorkbenchPersistence<G>({
     if (typeof window === "undefined" || !hydratedRef.current) return;
     const persist = () => {
       pendingPersistRef.current = null;
+      // AL-03: sign-out wipes this browser's AutoLister data and THEN unmounts
+      // the workbench, whose unmount flush would write the last user's grid
+      // straight back (re-creating the IndexedDB database it just deleted).
+      if (!useAuthStore.getState().user) return;
       if (idbAvailable()) {
         void saveSession(sessionId, {
           staged,

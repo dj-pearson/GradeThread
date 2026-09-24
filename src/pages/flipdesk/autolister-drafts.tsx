@@ -636,14 +636,20 @@ export function FlipdeskAutolisterDraftsPage() {
   // search are sent, so the count is of those.
   const publishPreview = useMemo(() => {
     const chosen = selectedVisible;
-    const ready = new Set(readyDrafts.map((d) => d.id));
+    // The pre-flight blockers only. readyDrafts also drops rows this session
+    // already sent, which are not "flagged, unpriced or scheduled".
+    const isBlocked = (d: DraftRow) =>
+      d.needs_review ||
+      !((d.listing_price ?? 0) > 0) ||
+      !d.platform_category_id ||
+      !!d.scheduled_publish_at;
     return {
       count: chosen.length,
-      blocked: chosen.filter((d) => !ready.has(d.id)).length,
+      blocked: chosen.filter(isBlocked).length,
       totalValue: chosen.reduce((sum, d) => sum + (d.listing_price ?? 0), 0),
       hiddenBySearch: hiddenSelected,
     };
-  }, [selectedVisible, hiddenSelected, readyDrafts]);
+  }, [selectedVisible, hiddenSelected]);
 
   // Global key handler for the cockpit. Typing in the search/editor inputs is
   // respected; only the documented shortcuts are intercepted.

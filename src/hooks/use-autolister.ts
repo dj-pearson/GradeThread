@@ -58,7 +58,6 @@ interface StartBatchResponse {
   item_count: number;
 }
 
-/** POST /api/flipdesk/autolister/batch — enqueue items for generation. */
 /** AL-07: the edge's per-batch cap on POST /autolister/batch (MAX_BATCH_ITEMS). */
 export const MAX_GENERATE_BATCH_ITEMS = 300;
 
@@ -80,6 +79,7 @@ export class StartBatchError extends Error {
   }
 }
 
+/** POST /api/flipdesk/autolister/batch: enqueue items for generation. */
 export function useStartAutolisterBatch() {
   return useMutation<StartBatchResponse, Error, StartBatchInput>({
     mutationFn: async (input) => {

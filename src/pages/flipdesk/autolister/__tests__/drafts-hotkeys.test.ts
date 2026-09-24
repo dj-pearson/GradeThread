@@ -35,6 +35,23 @@ describe("shouldIgnoreDraftsHotkey (AL-05)", () => {
     expect(shouldIgnoreDraftsHotkey(ev(box, { key: " " }))).toBe(true);
   });
 
+  it("still lets letters through from a focused draft row (a role=button tr)", () => {
+    const row = document.createElement("tr");
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
+    for (const key of ["j", "k", "e", "x", "a", "p"]) {
+      expect(shouldIgnoreDraftsHotkey(ev(row, { key }))).toBe(false);
+    }
+    expect(shouldIgnoreDraftsHotkey(ev(document.createElement("button"), { key: "j" }))).toBe(false);
+  });
+
+  it("leaves arrows and type-ahead to a focused option or tab", () => {
+    const opt = document.createElement("div");
+    opt.setAttribute("role", "option");
+    expect(shouldIgnoreDraftsHotkey(ev(opt, { key: "ArrowDown" }))).toBe(true);
+    expect(shouldIgnoreDraftsHotkey(ev(opt, { key: "p" }))).toBe(true);
+  });
+
   it("ignores anything inside an open dialog", () => {
     const dialog = document.createElement("div");
     dialog.setAttribute("role", "dialog");
