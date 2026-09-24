@@ -2350,7 +2350,10 @@ const MAX_SIZE_ESTIMATE_PHOTOS = 6;
 // picks a role-diverse capped subset; a positional pre-slice here would let
 // gallery order (especially a manual reorder, US-1543) hide tag/defect shots
 // from the role budget and the tag-OCR pass entirely.
-async function loadItemPhotoUrls(itemId: string): Promise<ListingGenPhoto[]> {
+async function loadItemPhotoUrls(
+  itemId: string,
+  ownerId: string,
+): Promise<ListingGenPhoto[]> {
   const { data } = await supabaseAdmin
     .from("item_photos")
     .select("id, photo_type, photo_role, storage_path, sort_order, photo_url")
@@ -2366,7 +2369,8 @@ async function loadItemPhotoUrls(itemId: string): Promise<ListingGenPhoto[]> {
   // model silently reads the item without its care/size label. Resolve each row
   // to a fetchable URL instead — sort_order is preserved, which selectListingPhotos
   // and the tag-OCR pass both depend on.
-  const resolved = await itemPhotoAiUrls(listable);
+  // AL-02: only paths inside the owner's folder are signed for the model.
+  const resolved = await itemPhotoAiUrls(listable, undefined, { ownerId });
   return resolved.map(({ row, url }) => ({
     url,
     type: row.photo_type ?? "",
@@ -2471,7 +2475,7 @@ export async function generateListing(
   // shots dropped, count capped, defect/tag roles prioritized — since image
   // tokens dominate per-item cost. Tag-OCR scans the tag set below (bounded
   // separately; tags are cheap and authoritative).
-  const photos = await loadItemPhotoUrls(itemId);
+  const photos = await loadItemPhotoUrls(itemId, ownerId);
   if (photos.length === 0) {
     throw new Error(`Item ${itemId} has no photos to generate a listing from`);
   }

@@ -19,6 +19,7 @@ import {
 } from "../lib/closet-import.ts";
 import { processClosetImportRun } from "../lib/closet-import-run.ts";
 import { ITEM_PHOTOS_BUCKET } from "../lib/item-photo-storage.ts";
+import { isOwnedStoragePath } from "../lib/staging-path.ts";
 
 // US-2518 — durable, reversible CSV inventory import.
 //
@@ -292,7 +293,7 @@ export async function undoImportRun(
       .eq("inventory_items.user_id", ownerId);
     const paths = ((photoRows ?? []) as Array<{ storage_path: string | null }>)
       .map((p) => p.storage_path)
-      .filter((p): p is string => typeof p === "string" && p.startsWith(`${ownerId}/`));
+      .filter((p): p is string => isOwnedStoragePath(p, ownerId));
     if (paths.length > 0) {
       await supabaseAdmin.storage.from(ITEM_PHOTOS_BUCKET).remove(paths)
         .then(() => {}, () => {});

@@ -63,6 +63,7 @@ import {
   withAiAction,
 } from "../lib/ai-metering.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { isOwnedStagingPath } from "../lib/staging-path.ts";
 import { roleAtLeast } from "../lib/workspace-roles.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
@@ -1199,11 +1200,11 @@ function parseHandoffPayload(
     }
     seen.add(id);
     // The ownership check, before anything is written or read back.
-    if (!path.startsWith(`${ownerId}/_staging/`)) {
+    if (!isOwnedStagingPath(path, ownerId)) {
       return { error: "A photo is not owned by the caller.", status: 403 };
     }
     const thumbPath = str(p.thumbnail_storage_path);
-    if (thumbPath && !thumbPath.startsWith(`${ownerId}/_staging/`)) {
+    if (thumbPath && !isOwnedStagingPath(thumbPath, ownerId)) {
       return { error: "A thumbnail is not owned by the caller.", status: 403 };
     }
     // Re-derive the public URLs from the (now verified) paths rather than
@@ -1405,7 +1406,7 @@ flipdeskAutolisterRoutes.delete("/sessions/:id", async (c) => {
     const p = raw as Record<string, unknown>;
     for (const key of ["storage_path", "thumbnail_storage_path"]) {
       const path = str(p[key]);
-      if (path.startsWith(`${ownerId}/_staging/`)) paths.push(path);
+      if (isOwnedStagingPath(path, ownerId)) paths.push(path);
     }
   }
   if (paths.length > 0) {
@@ -1569,7 +1570,7 @@ flipdeskAutolisterRoutes.post("/classify-photos", async (c) => {
     // `${ownerId}/_staging/…`). Require the full staging prefix, not just the
     // owner folder, matching the sibling /verify-groups check — so a path
     // elsewhere in the owner's tree can't be smuggled in.
-    if (!path.startsWith(`${ownerId}/_staging/`)) {
+    if (!isOwnedStagingPath(path, ownerId)) {
       return c.json({ error: "A photo is not owned by the caller." }, 403);
     }
     // item-photo-url-ok: a staging/just-uploaded object in the public bucket,
@@ -1652,7 +1653,7 @@ flipdeskAutolisterRoutes.post("/verify-groups", async (c) => {
       if (!id || !path) {
         return c.json({ error: "Each photo needs an id and storage_path." }, 400);
       }
-      if (!path.startsWith(`${ownerId}/_staging/`)) {
+      if (!isOwnedStagingPath(path, ownerId)) {
         return c.json({ error: "A photo is not owned by the caller." }, 403);
       }
       photos.push({
@@ -1745,7 +1746,7 @@ flipdeskAutolisterRoutes.post("/propose-groups", async (c) => {
     if (!id || !path) {
       return c.json({ error: "Each photo needs an id and storage_path." }, 400);
     }
-    if (!path.startsWith(`${ownerId}/_staging/`)) {
+    if (!isOwnedStagingPath(path, ownerId)) {
       return c.json({ error: "A photo is not owned by the caller." }, 403);
     }
     photos.push({
@@ -1819,7 +1820,7 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
       )
       // US-1638: staged covers live under `${ownerId}/_staging/…` (see comment
       // above) — require the full staging prefix, not just the owner folder.
-      .filter((x) => x.storage_path.startsWith(`${ownerId}/_staging/`));
+      .filter((x) => isOwnedStagingPath(x.storage_path, ownerId));
     const uniqueCovers = [...new Map(covers.map((x) => [x.id, x])).values()];
     if (uniqueCovers.length === 0) {
       return c.json(
@@ -1951,6 +1952,8 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
   // without its label shot.
   const resolvedQaPhotos = await itemPhotoAiUrls(
     (photoRows ?? []) as Array<ItemPhotoUrlRow & { inventory_item_id: string }>,
+    undefined,
+    { ownerId },
   );
   const byItem = new Map<string, { url: string; type: string }[]>();
   for (const { row, url } of resolvedQaPhotos) {

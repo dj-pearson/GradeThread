@@ -10704,3 +10704,116 @@ Deno.test({
     );
   },
 });
+
+// ── AL-02: staging-path traversal ─────────────────────────────────────
+//
+// Every staging check used to be `path.startsWith(`${ownerId}/_staging/`)`,
+// which B's OWN prefix followed by `../../<A>/...` passes. Storage normalises
+// the `..`, so the model was handed another tenant's photo. Each route now goes
+// through lib/staging-path.ts, and each must refuse a path that starts in B's
+// folder and climbs out of it, raw or percent-encoded. (402 when B's plan lacks
+// AutoLister is also a pass: the plan gate runs first and nothing is read.)
+
+/** The `sub` claim of a Supabase JWT, i.e. that user's id. */
+function jwtSub(jwt: string): string {
+  const part = jwt.split(".")[1] ?? "";
+  const b64 = part.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+  return (JSON.parse(atob(padded)) as { sub: string }).sub;
+}
+
+const TRAVERSAL_VICTIM = "00000000-0000-4000-8000-000000000001";
+function traversalPaths(ownerId: string): string[] {
+  return [
+    `${ownerId}/_staging/../../${TRAVERSAL_VICTIM}/_staging/sess/x.jpg`,
+    `${ownerId}/_staging/%2e%2e/%2e%2e/${TRAVERSAL_VICTIM}/_staging/sess/x.jpg`,
+  ];
+}
+
+const STAGING_TRAVERSAL_ROUTES: Array<{
+  label: string;
+  path: string;
+  body: (p: string) => unknown;
+  /** photo-qa's cover branch DROPS unowned covers and answers 400 on none. */
+  extraOk?: number[];
+}> = [
+  {
+    label: "classify-photos",
+    path: "/api/flipdesk/autolister/classify-photos",
+    body: (p) => ({ photos: [{ id: "p1", storage_path: p }] }),
+  },
+  {
+    label: "verify-groups",
+    path: "/api/flipdesk/autolister/verify-groups",
+    body: (p) => ({
+      groups: [
+        { id: "g1", photos: [{ id: "p1", storage_path: p }] },
+        { id: "g2", photos: [{ id: "p2", storage_path: p }] },
+      ],
+    }),
+  },
+  {
+    label: "propose-groups",
+    path: "/api/flipdesk/autolister/propose-groups",
+    body: (p) => ({
+      photos: [{ id: "p1", storage_path: p }, { id: "p2", storage_path: p }],
+    }),
+  },
+  {
+    label: "photo-qa (covers)",
+    path: "/api/flipdesk/autolister/photo-qa",
+    body: (p) => ({ covers: [{ id: "p1", storage_path: p }] }),
+    extraOk: [400],
+  },
+  {
+    label: "sessions (handoff park)",
+    path: "/api/flipdesk/autolister/sessions",
+    body: (p) => ({
+      staging_session_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      source: "ios",
+      photos: [{ id: "p1", storage_path: p }],
+    }),
+  },
+];
+
+for (const route of STAGING_TRAVERSAL_ROUTES) {
+  Deno.test({
+    name: `AL-02: ${route.label} refuses a staging path that climbs out of B's folder`,
+    ignore: !CONFIGURED,
+    fn: async () => {
+      const bId = jwtSub(B_JWT!);
+      for (const p of traversalPaths(bId)) {
+        const res = await fetch(`${BASE}${route.path}`, {
+          method: "POST",
+          headers: { ...authHeaders(B_JWT!), "Content-Type": "application/json" },
+          body: JSON.stringify(route.body(p)),
+        });
+        await res.body?.cancel();
+        assert(
+          DENIED_OR_GATED.has(res.status) || (route.extraOk ?? []).includes(res.status),
+          `POST ${route.label} with ${p}: should be refused but got ${res.status}`,
+        );
+      }
+    },
+  });
+}
+
+Deno.test({
+  name: "AL-02: expense adopt-staged refuses a traversal out of A's own staging folder",
+  ignore: !CONFIGURED || !A_EXPENSE_ID,
+  fn: async () => {
+    const aId = jwtSub(A_JWT!);
+    for (const p of traversalPaths(aId)) {
+      const res = await fetch(
+        `${BASE}/api/flipdesk/expenses/${A_EXPENSE_ID}/adopt-staged`,
+        {
+          method: "POST",
+          headers: authHeaders(A_JWT!),
+          body: JSON.stringify({ staging_path: p }),
+        },
+      );
+      await res.body?.cancel();
+      assertEquals(res.status, 403, `adopt-staged with ${p}`);
+    }
+  },
+});
