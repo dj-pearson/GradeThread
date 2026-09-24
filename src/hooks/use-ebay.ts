@@ -1595,6 +1595,9 @@ export function useListingQuality(itemId: string | null | undefined) {
 // US-1895: bulk recommended-aspect coverage for a set of items (the AutoLister
 // drafts list), so low-coverage drafts are sortable/fixable in bulk. One call
 // per visible page; the edge de-dupes category-spec fetches.
+/** The aspect-coverage route caps each call at 200 item ids. */
+export const ASPECT_COVERAGE_CHUNK = 200;
+
 export function useBulkAspectCoverage(itemIds: string[]) {
   const key = [...itemIds].sort().join(",");
   return useQuery({
@@ -1602,20 +1605,29 @@ export function useBulkAspectCoverage(itemIds: string[]) {
     enabled: itemIds.length > 0,
     staleTime: 60_000,
     retry: 1,
+    // AL-04: the route reads at most ASPECT_COVERAGE_CHUNK ids per call, so a
+    // bigger list is sent in chunks. A failed chunk THROWS: returning {} made a
+    // failed read look like "no coverage data", which is a claim about drafts.
     queryFn: async (): Promise<Record<string, AspectCoverage>> => {
-      const res = await fetch(
-        `${edgeApiUrl()}/api/flipdesk/ebay/aspect-coverage`,
-        {
-          method: "POST",
-          headers: await ebayHeaders(),
-          body: JSON.stringify({ itemIds }),
-        },
-      );
-      if (!res.ok) return {};
-      const json = (await res.json().catch(() => ({}))) as {
-        coverage?: Record<string, AspectCoverage>;
-      };
-      return json.coverage ?? {};
+      const unique = [...new Set(itemIds)];
+      const headers = await ebayHeaders();
+      const out: Record<string, AspectCoverage> = {};
+      for (let i = 0; i < unique.length; i += ASPECT_COVERAGE_CHUNK) {
+        const res = await fetch(
+          `${edgeApiUrl()}/api/flipdesk/ebay/aspect-coverage`,
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ itemIds: unique.slice(i, i + ASPECT_COVERAGE_CHUNK) }),
+          },
+        );
+        if (!res.ok) throw new Error(`Coverage read failed (HTTP ${res.status})`);
+        const json = (await res.json().catch(() => ({}))) as {
+          coverage?: Record<string, AspectCoverage>;
+        };
+        Object.assign(out, json.coverage ?? {});
+      }
+      return out;
     },
   });
 }

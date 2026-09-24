@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Boxes,
   Search,
@@ -54,6 +54,7 @@ import { ClickableRow } from "@/components/clickable-row";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import {
+  patchAutolisterDraft,
   useAutolisterDrafts,
   useBulkPublish,
   useGeneratePlatformFields,
@@ -175,32 +176,27 @@ export function FlipdeskAutolisterDraftsPage() {
   );
   // US-1895: recommended-aspect coverage per draft, so a bulk session can sort
   // + fix low-coverage drafts before publishing (one de-duped edge call).
-  const { data: coverageByItem = {} } = useBulkAspectCoverage(itemIds);
+  // AL-04: a failed coverage read shows a banner; the table still renders.
+  const {
+    data: coverageByItem = {},
+    isError: coverageError,
+    refetch: reloadCoverage,
+    isFetching: coverageFetching,
+  } = useBulkAspectCoverage(itemIds);
 
-  // US-1897: the persisted Listing Quality Score per draft.
-  //
-  // A failed score read is unavailable, not evidence that drafts are unscored.
-  // Keep it separate so a retry can refresh just the supporting reads.
-  const listingIds = useMemo(() => drafts.map((d) => d.id), [drafts]);
-  const { data: scoreByListing = {}, isError: scoresError, refetch: reloadScores } = useQuery({
-    queryKey: ["draft-quality-scores", listingIds],
-    enabled: listingIds.length > 0,
-    staleTime: 30_000,
-    queryFn: async (): Promise<Record<string, QualityScoreSummary>> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select("id, quality_score, quality_blocked")
-        .in("id", listingIds);
-      if (error) throw error;
-      return scoreMapFromRows(
-        (data ?? []) as Array<{
-          id: string;
-          quality_score: number | null;
-          quality_blocked: boolean | null;
-        }>,
-      );
-    },
-  });
+  // US-1897: the persisted Listing Quality Score per draft. AL-04: read with
+  // the drafts themselves rather than a second GET carrying every id.
+  const scoreByListing = useMemo<Record<string, QualityScoreSummary>>(
+    () =>
+      scoreMapFromRows(
+        drafts.map((d) => ({
+          id: d.id,
+          quality_score: d.quality_score ?? null,
+          quality_blocked: d.quality_blocked ?? null,
+        })),
+      ),
+    [drafts],
+  );
   // See draft-quality.ts for why unscored sinks to the end.
   const qualityRank = (listingId: string): number => qualityRankOf(scoreByListing[listingId]);
   // Ratio (0..1) for sorting; unknown/no-recommended coverage sinks to the end.
@@ -210,31 +206,17 @@ export function FlipdeskAutolisterDraftsPage() {
     return c.filled / c.total;
   };
   // The draft lives on `listings`, but what you PAID lives on the inventory
-  // item (inventory_items.acquired_price — surfaced as purchase_price by the
-  // items_full view the Inventory table reads). Pull it alongside the title so
-  // a draft can show cost + estimated return without a second round trip.
-  const { data: itemMeta = {}, isError: itemMetaError, isLoading: itemMetaLoading, refetch: reloadItemMeta } = useQuery<
-    Record<string, { title: string; cost: number | null }>
-  >({
-    queryKey: ["autolister_drafts_items", user?.id, itemIds],
-    enabled: itemIds.length > 0,
-    queryFn: async () => {
-      const { data: rows, error: rowsReadError } = await supabase
-        .from("inventory_items")
-        .select("id, title, acquired_price")
-        .in("id", itemIds);
-      if (rowsReadError) throw rowsReadError;
-      const map: Record<string, { title: string; cost: number | null }> = {};
-      for (const r of (rows ?? []) as Array<{
-        id: string;
-        title: string;
-        acquired_price: number | null;
-      }>) {
-        map[r.id] = { title: r.title, cost: r.acquired_price };
-      }
-      return map;
-    },
-  });
+  // item (inventory_items.acquired_price). AL-04: embedded in the drafts read.
+  const itemMeta = useMemo<Record<string, { title: string; cost: number | null }>>(() => {
+    const map: Record<string, { title: string; cost: number | null }> = {};
+    for (const d of drafts) {
+      map[d.inventory_item_id] = {
+        title: d.inventory_items?.title ?? "",
+        cost: d.inventory_items?.acquired_price ?? null,
+      };
+    }
+    return map;
+  }, [drafts]);
 
   function titleFor(d: DraftRow): string {
     return (
@@ -412,35 +394,19 @@ export function FlipdeskAutolisterDraftsPage() {
           if (costErr) {
             toastError(costErr, "Saved, but the cost didn't stick.");
           } else {
-            queryClient.setQueryData<
-              Record<string, { title: string; cost: number | null }>
-            >(
-              ["autolister_drafts_items", user?.id, itemIds.length],
-              (old) => ({
-                ...(old ?? {}),
-                [row.inventory_item_id]: {
-                  title: old?.[row.inventory_item_id]?.title ?? "",
-                  cost,
-                },
-              }),
-            );
+            patchAutolisterDraft(queryClient, user?.id, row.id, { acquired_price: cost });
           }
         }
-        queryClient.setQueryData<DraftRow[]>(
-          ["autolister_drafts", user?.id],
-          (old) =>
-            (old ?? []).map((d) =>
-              d.id === row.id
-                ? { ...d, listing_title: title || null, listing_price: price }
-                : d,
-            ),
-        );
+        patchAutolisterDraft(queryClient, user?.id, row.id, {
+          listing_title: title || null,
+          listing_price: price,
+        });
         return true;
       } finally {
         setSaving(false);
       }
     },
-    [editTitle, editPrice, editCost, itemMeta, itemIds.length, queryClient, user?.id],
+    [editTitle, editPrice, editCost, itemMeta, queryClient, user?.id],
   );
 
   // Enter inside the editor: save the current row, then advance and keep the
@@ -860,15 +826,26 @@ export function FlipdeskAutolisterDraftsPage() {
           </div>
         </CardHeader>
         <CardContent className="px-0">
-          {isLoading || itemMetaLoading ? (
+          {coverageError && drafts.length > 0 && (
+            <div
+              role="status"
+              className="mx-4 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+            >
+              <span>Couldn't load item specifics. That column and its sort are blank for now.</span>
+              <Button size="sm" variant="outline" disabled={coverageFetching} onClick={() => void reloadCoverage()}>
+                Retry
+              </Button>
+            </div>
+          )}
+          {isLoading ? (
             <LoadingRegion label="Loading drafts" className="px-4">
               <SkeletonRows rows={5} />
             </LoadingRegion>
-          ) : draftsError || itemMetaError || scoresError ? (
+          ) : draftsError ? (
             <ErrorState
               title="Couldn't load your drafts"
-              description={scoresError ? "Couldn't load quality scores. Retry before reviewing which drafts are ready." : itemMetaError ? "Couldn't load item costs. Profit estimates are unavailable until this read succeeds." : (draftsError as Error).message}
-              onRetry={() => Promise.all([refetchDrafts(), reloadItemMeta(), reloadScores()])}
+              description={(draftsError as Error).message}
+              onRetry={() => refetchDrafts()}
               retrying={draftsFetching}
             />
           ) : drafts.length === 0 ? (
@@ -1357,9 +1334,6 @@ export function FlipdeskAutolisterDraftsPage() {
         onDone={() => {
           void queryClient.invalidateQueries({
             queryKey: ["autolister_drafts"],
-          });
-          void queryClient.invalidateQueries({
-            queryKey: ["autolister_drafts_items"],
           });
           void queryClient.invalidateQueries({ queryKey: ["items_full"] });
         }}

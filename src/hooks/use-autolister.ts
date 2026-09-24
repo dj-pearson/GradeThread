@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MAX_QA_ITEMS, runChunkedQa } from "@/lib/photo-qa-chunking";
-import { fetchCapped } from "@/lib/paged-read";
+import { type CappedRead, fetchCapped } from "@/lib/paged-read";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import type {
@@ -679,6 +679,55 @@ export interface AutolisterDraftRow {
   // US-828: per-aspect needs-review entries from generation reconciliation; its
   // length drives the "N to fix" count badge on the row.
   aspect_review: AspectReviewEntry[] | null;
+  // AL-04: read in the same request. These used to be two side queries that
+  // sent every id in a GET (Kong 414s at ~400) and hid the table on failure.
+  quality_score?: number | null;
+  quality_blocked?: boolean | null;
+  inventory_items?: { title: string | null; acquired_price: number | null } | null;
+}
+
+/** What a Drafts inline edit can change on a cached row. `acquired_price`
+ * lives on the joined inventory item. */
+export interface AutolisterDraftPatch {
+  listing_title?: string | null;
+  listing_price?: number | null;
+  price_is_estimated?: boolean | null;
+  acquired_price?: number | null;
+}
+
+/**
+ * AL-04: patch one draft inside the cached CappedRead in place, so a save
+ * shows at once without a refetch re-sorting the list mid-review. The cache
+ * holds `{ rows, truncated, limit }`, not an array; mapping it as an array
+ * threw after the save had already landed.
+ */
+export function patchAutolisterDraft(
+  queryClient: QueryClient,
+  userId: string | undefined,
+  id: string,
+  patch: AutolisterDraftPatch,
+): void {
+  queryClient.setQueryData<CappedRead<AutolisterDraftRow>>(
+    ["autolister_drafts", userId],
+    (old) => {
+      if (!old) return old;
+      const { acquired_price, ...listingPatch } = patch;
+      return {
+        ...old,
+        rows: old.rows.map((d) => {
+          if (d.id !== id) return d;
+          const next: AutolisterDraftRow = { ...d, ...listingPatch };
+          if (acquired_price !== undefined) {
+            next.inventory_items = {
+              title: d.inventory_items?.title ?? null,
+              acquired_price,
+            };
+          }
+          return next;
+        }),
+      };
+    },
+  );
 }
 
 /**
@@ -705,7 +754,7 @@ export function useAutolisterDrafts(enabled = true) {
         const { data, error } = await supabase
           .from("listings")
           .select(
-            "id, inventory_item_id, listing_title, listing_price, batch_id, created_at, scheduled_publish_at, price_is_estimated, price_comp_source, platform_category_id, needs_review, aspect_review",
+            "id, inventory_item_id, listing_title, listing_price, batch_id, created_at, scheduled_publish_at, price_is_estimated, price_comp_source, platform_category_id, needs_review, aspect_review, quality_score, quality_blocked, inventory_items(title, acquired_price)",
           )
           .eq("listing_status", "draft")
           .not("batch_id", "is", null)
