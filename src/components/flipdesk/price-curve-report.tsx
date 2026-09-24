@@ -109,7 +109,7 @@ export function PriceCurveReport({
   // "distinct brands" endpoint would be a second round trip for a list this
   // page can have for free.
   const { data: allBrandRows = [] } = useQuery({
-    queryKey: ["items_full", "analytics", "sell-through", tenantKey, "brand", "all"],
+    queryKey: ["items_full", "analytics", "sell-through", tenantKey, "brand", null],
     enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchSellThrough("brand", null),
@@ -121,7 +121,7 @@ export function PriceCurveReport({
     [allBrandRows],
   );
   const { data: categoryRows = [] } = useQuery({
-    queryKey: ["items_full", "analytics", "sell-through", tenantKey, "category", "all"],
+    queryKey: ["items_full", "analytics", "sell-through", tenantKey, "category", null],
     enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchSellThrough("category", null),

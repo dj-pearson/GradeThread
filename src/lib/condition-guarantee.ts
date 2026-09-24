@@ -93,6 +93,12 @@ export async function fetchGuaranteeCandidates(
     .order("grade_value", { ascending: false })
     .limit(limit);
   if (error) throw error;
-  const items = ((data ?? []) as GuaranteeCandidate[]).filter(qualifiesForGuarantee);
-  return { items, total: count ?? items.length };
+  const rows = (data ?? []) as GuaranteeCandidate[];
+  const items = rows.filter(qualifiesForGuarantee);
+  // The count is taken before the certificate check, which only runs here. Take
+  // off the rows it refused, so "N items qualify" never names more rows than
+  // the list below can show. Refused rows outside this page are not seen, so
+  // this can still run high, never low.
+  const refused = rows.length - items.length;
+  return { items, total: Math.max(items.length, (count ?? rows.length) - refused) };
 }

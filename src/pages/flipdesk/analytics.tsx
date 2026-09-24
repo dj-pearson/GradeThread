@@ -1045,7 +1045,7 @@ function RoiHeadline({
             ) : (
               <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
                 {s?.meaningful
-                  ? "Across your sales so far, graded items haven't shown a measurable edge yet."
+                  ? `Graded items haven't shown a measurable edge ${rangePhrase(preset)} yet.`
                   : `Too early to call — need ${MIN_BUCKET_SIZE}+ graded and ${MIN_BUCKET_SIZE}+ ungraded sales to compare reliably (${
                       s?.graded.sold ?? 0
                     } graded, ${s?.ungraded.sold ?? 0} ungraded so far).`}

@@ -246,7 +246,7 @@ export async function fetchCommunityBenchmarks(
  * Community tab both build it here, so the same window and filters are one
  * cache entry and one RPC rather than two. The tenant is in the key because
  * the payload carries the caller's own "You" figures. Filters are normalised
- * so "Nike" and " nike " do not split the cache.
+ * so "Nike" and " Nike " (whitespace only; case is kept) do not split the cache.
  */
 export function communityBenchmarksKey(
   tenant: string | undefined,

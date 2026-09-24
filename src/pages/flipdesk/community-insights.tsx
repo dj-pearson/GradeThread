@@ -133,6 +133,14 @@ export function FlipdeskCommunityInsightsPage(
     [searchParams],
   );
   const [draft, setDraft] = useState<CommunityBenchmarkFilters>(filters);
+  // When the URL's filters change from outside the inputs (Back, a shared
+  // link, Clear), the boxes follow. Compared by value, so a ?preset= change
+  // (a new searchParams object, same filters) keeps what is being typed.
+  const [shownFilters, setShownFilters] = useState(filters);
+  if (!sameBenchmarkFilters(shownFilters, filters)) {
+    setShownFilters(filters);
+    setDraft(filters);
+  }
   const setFilters = (f: CommunityBenchmarkFilters) =>
     setSearchParams((prev) => filtersToParams(prev, f), { replace: true });
   // US-2235: recommendations are dismissible + expandable beyond the preview.
@@ -148,7 +156,7 @@ export function FlipdeskCommunityInsightsPage(
     });
   }
 
-  // Normalized into the key as well as the call, so "Nike" and " nike " are one
+  // Normalized into the key as well as the call, so "Nike" and " Nike " are one
   // cache entry rather than two identical queries.
   const activeFilters = useMemo(() => normalizeBenchmarkFilters(filters), [filters]);
   const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
