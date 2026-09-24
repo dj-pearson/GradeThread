@@ -56,6 +56,13 @@ export interface LastPeriodSummary {
   xp: number;
 }
 
+/** "Last week: 3 of 4 done, +60 XP." */
+export function lastPeriodLine(p: LastPeriodSummary): string {
+  const label = p.label === "round" ? "Last round" : `Last ${p.label}`;
+  const xp = p.xp > 0 ? `, +${p.xp.toLocaleString()} XP` : "";
+  return `${label}: ${p.done} of ${p.total} done${xp}.`;
+}
+
 export interface QuestsState {
   enabled: boolean;
   quests: Quest[];

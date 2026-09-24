@@ -15,12 +15,7 @@ import { Link } from "react-router";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import {
-  useQuests,
-  type Challenge,
-  type LastPeriodSummary,
-  type Quest,
-} from "@/hooks/use-quests";
+import { lastPeriodLine, useQuests, type Challenge, type Quest } from "@/hooks/use-quests";
 import { cn } from "@/lib/utils";
 
 // US-1852: quests are the SHORT loop on the rewards page — the week, sitting
@@ -64,13 +59,6 @@ export function questTimeLeft(endsAt: string, nowMs: number = Date.now()): strin
   if (hours <= 24) return `${hours} hour${hours === 1 ? "" : "s"} left`;
   const days = Math.ceil(ms / 86_400_000);
   return `${days} day${days === 1 ? "" : "s"} left`;
-}
-
-/** "Last week: 3 of 4 done, +60 XP." Exported for the unit test. */
-export function lastPeriodLine(p: LastPeriodSummary): string {
-  const label = p.label === "round" ? "Last round" : `Last ${p.label}`;
-  const xp = p.xp > 0 ? `, +${p.xp.toLocaleString()} XP` : "";
-  return `${label}: ${p.done} of ${p.total} done${xp}.`;
 }
 
 function QuestRow({ quest }: { quest: Quest }) {

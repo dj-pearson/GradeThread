@@ -4,8 +4,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
-import { useQuests, type QuestsState } from "@/hooks/use-quests";
-import { lastPeriodLine, QuestsPanel, questTimeLeft } from "@/components/rewards/quests-panel";
+import { lastPeriodLine, useQuests, type QuestsState } from "@/hooks/use-quests";
+import { QuestsPanel, questTimeLeft } from "@/components/rewards/quests-panel";
 
 vi.mock("@/hooks/use-quests", async (importActual) => {
   const actual = await importActual<typeof import("@/hooks/use-quests")>();
