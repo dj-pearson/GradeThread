@@ -132,3 +132,18 @@ export function errorMessage(err: unknown): string {
 export function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
+
+/** English ordinal suffix for an integer: 1 -> "st", 12 -> "th", 22 -> "nd". */
+export function ordinalSuffix(n: number): string {
+  const j = Math.abs(n) % 10;
+  const k = Math.abs(n) % 100;
+  if (j === 1 && k !== 11) return "st";
+  if (j === 2 && k !== 12) return "nd";
+  if (j === 3 && k !== 13) return "rd";
+  return "th";
+}
+
+/** An integer with its English ordinal suffix: 22 -> "22nd". */
+export function ordinal(n: number): string {
+  return `${n}${ordinalSuffix(n)}`;
+}

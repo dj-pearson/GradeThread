@@ -53,6 +53,7 @@ import {
 } from "@/lib/community-benchmarks";
 import { deriveRecommendations } from "@/lib/community-recommendations";
 import { RecommendationRow } from "@/components/flipdesk/community-insights-widget";
+import { ordinalSuffix } from "@/lib/utils";
 
 const pct = (n: number | null | undefined): string =>
   n == null || !Number.isFinite(n) ? "—" : `${Math.round(n * 100)}%`;
@@ -916,13 +917,4 @@ export function FlipdeskCommunityInsightsPage(
       )}
     </div>
   );
-}
-
-function ordinalSuffix(n: number): string {
-  const j = n % 10;
-  const k = n % 100;
-  if (j === 1 && k !== 11) return "st";
-  if (j === 2 && k !== 12) return "nd";
-  if (j === 3 && k !== 13) return "rd";
-  return "th";
 }

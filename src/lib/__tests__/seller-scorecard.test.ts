@@ -186,3 +186,76 @@ describe("returnSplitLine", () => {
     expect(EMPTY_SCORECARD.returnSplit.graded).toEqual({ fulfilled: 0, returns: 0 });
   });
 });
+
+// ─── A5: ordinals, own-sample gate, honest unranked copy, range-keeping links ──
+
+import { ordinal } from "@/lib/utils";
+import {
+  rankedPercentile,
+  scorecardTileHref,
+  tileRankText,
+} from "@/lib/seller-scorecard";
+
+describe("ordinal (A5)", () => {
+  it.each([
+    [1, "1st"],
+    [2, "2nd"],
+    [3, "3rd"],
+    [11, "11th"],
+    [12, "12th"],
+    [13, "13th"],
+    [21, "21st"],
+    [22, "22nd"],
+    [101, "101st"],
+  ])("%i -> %s", (n, s) => {
+    expect(ordinal(n)).toBe(s);
+  });
+});
+
+describe("own-sample gate (A5)", () => {
+  it("a seller with 1 sold of 1 listed is not ranked, and is not the weakest", () => {
+    const c = card([
+      row("sell_through", 3, { ownValue: 1, ownSampleSize: 1 }),
+      row("price_realization", 40),
+    ]);
+    expect(rankedPercentile(c, c.metrics[0]!)).toBeNull();
+    expect(pickBiggestGap(c)?.metric).toBe("price_realization");
+    expect(tileRankText(c, c.metrics[0]!)).toBe("1 of 5 items needed");
+  });
+
+  it("a card whose only percentile rests on a tiny own sample is unranked", () => {
+    const c = card([row("sell_through", 3, { ownSampleSize: 2 })]);
+    expect(isUnranked(c)).toBe(true);
+    expect(diagnosisLine(c)).toBeNull();
+  });
+});
+
+describe("tile rank text (A5)", () => {
+  it("never reads '40 of 5 peers'", () => {
+    const c = card([
+      row("sell_through", null, { cohortSellers: 40, ownSampleSize: 2 }),
+    ]);
+    expect(tileRankText(c, c.metrics[0]!)).toBe("2 of 5 items needed");
+  });
+  it("says 'No data yet' with no own value", () => {
+    const c = card([row("sell_through", null, { ownValue: null })]);
+    expect(tileRankText(c, c.metrics[0]!)).toBe("No data yet");
+  });
+  it("names the cohort floor when the cohort is small", () => {
+    const c = card([row("sell_through", null, { cohortSellers: 3 })]);
+    expect(tileRankText(c, c.metrics[0]!)).toBe("Ranks at 5 sellers (3 so far)");
+  });
+  it("uses the right suffix", () => {
+    const c = card([row("sell_through", 22)]);
+    expect(tileRankText(c, c.metrics[0]!)).toBe("22nd percentile");
+  });
+});
+
+describe("tile links keep the range (A5)", () => {
+  it("carries ?preset=30d to the target tab", () => {
+    expect(scorecardTileHref("return_rate", "?preset=30d")).toEqual({
+      pathname: "/dashboard/flipdesk/analytics/returns",
+      search: "?preset=30d",
+    });
+  });
+});

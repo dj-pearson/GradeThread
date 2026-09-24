@@ -8,6 +8,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { buttonByText, mount, settle, type Mounted } from "@/test/helpers/mount";
 
 const fail = { scorecard: true, curve: true, sourceYield: true };
+let scorecardMetrics: unknown[] = [];
 const calls = { scorecard: 0, curve: 0, sourceYield: 0 };
 
 vi.mock("@/lib/seller-scorecard", async (orig) => ({
@@ -16,7 +17,7 @@ vi.mock("@/lib/seller-scorecard", async (orig) => ({
     calls.scorecard += 1;
     if (fail.scorecard) throw new Error("boom");
     const { EMPTY_SCORECARD } = await import("@/lib/seller-scorecard");
-    return EMPTY_SCORECARD;
+    return { ...EMPTY_SCORECARD, metrics: scorecardMetrics };
   }),
 }));
 vi.mock("@/lib/condition-price-curve", async (orig) => ({
@@ -56,6 +57,7 @@ let m: Mounted | null = null;
 beforeEach(() => {
   fail.scorecard = fail.curve = fail.sourceYield = true;
   calls.scorecard = calls.curve = calls.sourceYield = 0;
+  scorecardMetrics = [];
   useAuthStore.setState({
     user: { id: "11111111-1111-4111-8111-111111111111" } as never,
     activeWorkspaceOwnerId: null,
@@ -91,6 +93,35 @@ describe("analytics cards show an error, not an empty state (A2)", () => {
     // Before the query settles.
     expect(m.container.textContent).toContain("Loading your scorecard");
     await settle();
+  });
+
+  it("scorecard tiles keep the range in their links, with correct ordinals (A5)", async () => {
+    fail.scorecard = false;
+    scorecardMetrics = [
+      {
+        metric: "return_rate",
+        direction: "lower_is_better",
+        ownValue: 0.1,
+        ownSampleSize: 20,
+        cohortSellers: 12,
+        cohortP25: 0.05,
+        cohortMedian: 0.08,
+        cohortP75: 0.12,
+        ownPercentile: 22,
+      },
+    ];
+    m = mount(
+      h(SellerScorecardCard, { periodStart: "2026-08-25", periodLabel: "last 30 days" }),
+      "/dashboard/flipdesk/analytics?preset=30d",
+    );
+    await settle();
+    const a = m.container.querySelector("a");
+    expect(a?.getAttribute("href")).toBe(
+      "/dashboard/flipdesk/analytics/returns?preset=30d",
+    );
+    expect(m.container.textContent).toContain("22nd percentile");
+    expect(m.container.textContent).not.toContain("22th");
+    expect(m.container.textContent).toContain("Your scorecard, last 30 days");
   });
 
   it("price curve: error row, not 'No sales to draw yet'", async () => {

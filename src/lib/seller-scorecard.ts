@@ -13,6 +13,7 @@
 
 import { supabase } from "@/lib/supabase";
 import { normaliseAgainst } from "@/lib/rpc-shape";
+import { ordinal } from "@/lib/utils";
 
 export type ScorecardMetric =
   | "sell_through"
@@ -100,6 +101,25 @@ export function returnSplitLine(side: ReturnSplitSide, label: string): ReturnSpl
   };
 }
 
+/**
+ * The Analytics tab that explains each metric. The tile links there, keeping
+ * the query string (A5), so a seller on ?preset=30d lands on the same range.
+ */
+export const SCORECARD_TAB_FOR: Record<ScorecardMetric, string> = {
+  sell_through: "/dashboard/flipdesk/analytics",
+  price_realization: "/dashboard/flipdesk/analytics/price-curve",
+  days_to_sell: "/dashboard/flipdesk/analytics",
+  return_rate: "/dashboard/flipdesk/analytics/returns",
+  grade_yield: "/dashboard/flipdesk/analytics/grading-roi",
+};
+
+export function scorecardTileHref(
+  metric: ScorecardMetric,
+  search: string,
+): { pathname: string; search: string } {
+  return { pathname: SCORECARD_TAB_FOR[metric], search };
+}
+
 /** Display order, and the tie-break order for pickBiggestGap. */
 export const METRIC_ORDER: readonly ScorecardMetric[] = [
   "sell_through",
@@ -160,6 +180,36 @@ export const DIAGNOSIS: Record<ScorecardMetric, string> = {
 };
 
 /**
+ * A5: a metric is ranked only when the cohort gave it a percentile AND the
+ * caller's own sample clears minActivity. The RPC holds OTHER sellers to that
+ * floor but ranked the caller on whatever they had, so one sale of one listing
+ * could read as the weakest sell-through on the platform.
+ */
+export function rankedPercentile(
+  card: Scorecard,
+  m: ScorecardRow,
+): number | null {
+  if (m.ownPercentile == null || !Number.isFinite(m.ownPercentile)) return null;
+  if (m.ownSampleSize < card.minActivity) return null;
+  return m.ownPercentile;
+}
+
+/**
+ * The line under a tile's value. Each unranked case says which floor it is
+ * waiting on, so "40 of 5 peers" (a big cohort, a small own sample) can no
+ * longer be printed.
+ */
+export function tileRankText(card: Scorecard, m: ScorecardRow): string {
+  if (m.ownValue == null || !Number.isFinite(m.ownValue)) return "No data yet";
+  if (m.ownSampleSize < card.minActivity) {
+    return `${m.ownSampleSize} of ${card.minActivity} items needed`;
+  }
+  const p = rankedPercentile(card, m);
+  if (p != null) return `${ordinal(p)} percentile`;
+  return `Ranks at ${card.minSellers} sellers (${m.cohortSellers} so far)`;
+}
+
+/**
  * The single weakest metric.
  *
  * Only metrics with a real percentile can win: a metric whose cohort was too
@@ -168,9 +218,7 @@ export const DIAGNOSIS: Record<ScorecardMetric, string> = {
  * across renders rather than depending on payload order.
  */
 export function pickBiggestGap(card: Scorecard): ScorecardRow | null {
-  const ranked = card.metrics.filter(
-    (m) => m.ownPercentile != null && Number.isFinite(m.ownPercentile),
-  );
+  const ranked = card.metrics.filter((m) => rankedPercentile(card, m) != null);
   if (ranked.length === 0) return null;
   return ranked.reduce((worst, m) => {
     if (m.ownPercentile! < worst.ownPercentile!) return m;
@@ -197,7 +245,7 @@ export function orderedMetrics(card: Scorecard): ScorecardRow[] {
 
 /** True when no metric could be ranked, so the card should say why. */
 export function isUnranked(card: Scorecard): boolean {
-  return card.metrics.every((m) => m.ownPercentile == null);
+  return card.metrics.every((m) => rankedPercentile(card, m) == null);
 }
 
 // ─── Fetch ───────────────────────────────────────────────────────

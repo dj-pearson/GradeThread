@@ -168,6 +168,14 @@ const pct = (n: number | null | undefined): string =>
 
 type Preset = "all" | "30d" | "90d" | "12mo";
 
+// The window each preset covers, in words, for titles and copy.
+const RANGE_LABEL: Record<Preset, string> = {
+  all: "all time",
+  "30d": "last 30 days",
+  "90d": "last 90 days",
+  "12mo": "last 12 months",
+};
+
 // Lower bound (yyyy-mm-dd) for a preset, or null for all-time. The DB RPC does
 // the actual date filtering; this just translates the preset into the period
 // start it expects (US-418 — aggregation moved server-side).
@@ -394,7 +402,13 @@ function TeamReportHost() {
 function ScorecardHost() {
   const [preset] = usePresetParam();
   const periodStart = useMemo(() => presetStart(preset), [preset]);
-  return <SellerScorecardCard periodStart={periodStart} />;
+  return (
+    <SellerScorecardCard
+      periodStart={periodStart}
+      periodLabel={RANGE_LABEL[preset]}
+      periodSlug={preset}
+    />
+  );
 }
 
 function PriceCurveTab() {
