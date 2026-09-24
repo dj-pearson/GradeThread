@@ -234,7 +234,7 @@ Deno.test("SRC-6: with a ten-listing bucket the order is not simply ascending by
   const nwt = [9000, 8500, 9500, 10000, 4500].map((p, i) => condCand(`nwt-${i}`, p, "New with tags"));
   const input = [...used, ...nwt];
   const ranked = rankByRoughValue(input, null).map((c) => c.itemId);
-  const byTotal = [...input].sort((a, b) => a.askingCents - b.askingCents).map((c) => c.itemId);
+  const byTotal = [...input].sort((a, b) => (a.askingCents ?? 0) - (b.askingCents ?? 0)).map((c) => c.itemId);
   assert(JSON.stringify(ranked) !== JSON.stringify(byTotal), "phase one must not be cheapest-first");
   // The $45 NWT (about half its bucket) beats the $17 pre-owned (about 0.8 of its).
   assert(ranked.indexOf("nwt-4") < ranked.indexOf("used-1"));

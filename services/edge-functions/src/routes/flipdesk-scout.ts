@@ -2010,13 +2010,14 @@ export function parseScoutBuy(body: Record<string, unknown>): ScoutBuyInput | { 
   // The listing the seller bought from, so the item remembers where it was
   // found. https only: this is shown back to the seller as a link.
   if (body.sourceListingUrl != null && body.sourceListingUrl !== "") {
+    const raw = typeof body.sourceListingUrl === "string" ? body.sourceListingUrl : "";
     let url: URL | null = null;
     try {
-      url = typeof body.sourceListingUrl === "string" ? new URL(body.sourceListingUrl) : null;
+      url = raw ? new URL(raw) : null;
     } catch {
       url = null;
     }
-    if (!url || url.protocol !== "https:" || body.sourceListingUrl.length > 500) {
+    if (!url || url.protocol !== "https:" || raw.length > 500) {
       return { error: "sourceListingUrl must be an https link" };
     }
     const line = `Found at ${url.toString()}`;
