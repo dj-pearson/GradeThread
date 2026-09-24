@@ -73,6 +73,8 @@ import {
   type ScorecardSortKey,
   type Throughput,
   type ThroughputRow,
+  clampMargin,
+  teamErrorMessage,
 } from "@/lib/team-reporting";
 
 // US-3019 -- the sourcing team's scorecard.
@@ -86,8 +88,12 @@ import {
 // them across sourcers would invent a number. They sit in their own footer row
 // so the page still adds up to what the P&L says.
 
+// A13: Intl puts the sign before the symbol, so a loss reads "-$12.00", not
+// "$-12.00".
+const USD = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const usd = (n: number | null | undefined): string =>
-  n == null || !Number.isFinite(n) ? "—" : `$${n.toFixed(2)}`;
+  n == null || !Number.isFinite(n) ? "—" : USD.format(n);
+
 const pct = (n: number | null | undefined): string =>
   n == null || !Number.isFinite(n) ? "—" : `${Math.round(n * 100)}%`;
 const mult = (n: number | null | undefined): string =>
@@ -254,7 +260,7 @@ export function TeamScorecardCard({
     return (
       <ErrorState
         title="Could not load the team scorecard"
-        description={error instanceof Error ? error.message : String(error)}
+        description={teamErrorMessage(error)}
         onRetry={() => void refetch()}
       />
     );
@@ -534,7 +540,7 @@ export function ThroughputCard({
     return (
       <ErrorState
         title="Could not load throughput"
-        description={error instanceof Error ? error.message : String(error)}
+        description={teamErrorMessage(error)}
         onRetry={() => void refetch()}
       />
     );
@@ -761,7 +767,7 @@ export function PersonBySourceCard({
     return (
       <ErrorState
         title="Could not load the person by shop grid"
-        description={error instanceof Error ? error.message : String(error)}
+        description={teamErrorMessage(error)}
         onRetry={() => void refetch()}
       />
     );
@@ -884,11 +890,15 @@ export function PersonBySourceCard({
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 Scale:
-                <span
-                  className="inline-block h-3 w-6 rounded-sm border"
-                  style={{ backgroundColor: cellTint(-scale, scale) }}
-                />
-                {usd(-scale)} loss
+                {metric !== "count" && (
+                  <>
+                    <span
+                      className="inline-block h-3 w-6 rounded-sm border"
+                      style={{ backgroundColor: cellTint(-scale, scale) }}
+                    />
+                    {usd(-scale)} loss
+                  </>
+                )}
                 <span
                   className="inline-block h-3 w-6 rounded-sm border"
                   style={{ backgroundColor: cellTint(scale, scale) }}
@@ -946,6 +956,7 @@ function useMarginParam(): [number, (m: number) => void] {
   return [margin, setMargin];
 }
 
+
 const REASON_LABEL: Record<MissReason, string> = {
   loss: "Lost money",
   "below-target": "Under target",
@@ -955,6 +966,18 @@ export function OverpayCard({ periodStart }: { periodStart: string | null }) {
   const { workspaceOwnerId } = useWorkspace();
   const [margin, setMargin] = useMarginParam();
   const marginPct = Math.round(margin * 100);
+  // A13: the input edits a local draft and commits on blur or Enter. Bound
+  // straight to the URL, clearing the box snapped it back to 30 and every
+  // keystroke refetched the report. null = show the committed value.
+  const [marginDraft, setMarginDraft] = useState<string | null>(null);
+  function commitMargin() {
+    if (marginDraft == null) return;
+    const n = Math.round(Number(marginDraft));
+    if (marginDraft.trim() !== "" && Number.isFinite(n)) {
+      setMargin(clampMargin(n));
+    }
+    setMarginDraft(null);
+  }
 
   const {
     data = EMPTY_MISS_REPORT,
@@ -1004,7 +1027,7 @@ export function OverpayCard({ periodStart }: { periodStart: string | null }) {
     return (
       <ErrorState
         title="Could not load the miss report"
-        description={error instanceof Error ? error.message : String(error)}
+        description={teamErrorMessage(error)}
         onRetry={() => void refetch()}
       />
     );
@@ -1018,12 +1041,13 @@ export function OverpayCard({ periodStart }: { periodStart: string | null }) {
       <Input
         id="target-margin"
         type="number"
-        min={0}
+        min={1}
         max={99}
-        value={marginPct}
-        onChange={(e) => {
-          const next = Number(e.target.value);
-          if (Number.isFinite(next) && next >= 0 && next < 100) setMargin(next);
+        value={marginDraft ?? String(marginPct)}
+        onChange={(e) => setMarginDraft(e.target.value)}
+        onBlur={commitMargin}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitMargin();
         }}
         className="w-20"
       />
@@ -1247,7 +1271,7 @@ export function DeadCapitalCard() {
     return (
       <ErrorState
         title="Could not load dead capital"
-        description={error instanceof Error ? error.message : String(error)}
+        description={teamErrorMessage(error)}
         onRetry={() => void refetch()}
       />
     );

@@ -1325,3 +1325,24 @@ export function sortScorecard(
     return sign * (av - bv);
   });
 }
+
+/**
+ * A13: what a failed read says. Plain copy keyed on the Postgres code, never
+ * the raw message (which named tables and columns).
+ */
+export function teamErrorMessage(err: unknown): string {
+  const code =
+    err && typeof err === "object" && "code" in err
+      ? String((err as { code?: unknown }).code ?? "")
+      : "";
+  if (code === "57014") {
+    return "This report is taking too long. Try again or pick a shorter date range.";
+  }
+  if (code === "42501") return "Sign in again.";
+  return "We couldn't reach your team's numbers. Nothing has changed. Try again.";
+}
+
+/** A13: the target margin a seller can set, in whole percent. */
+export function clampMargin(pct: number): number {
+  return Math.min(99, Math.max(1, Math.round(pct)));
+}
