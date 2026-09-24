@@ -882,6 +882,11 @@ export interface PlannerSessionTask {
   observed_minutes?: number | null;
   confirmed_minutes?: number | null;
   correction_minutes?: number | null;
+  /**
+   * When the running task started, by the server's clock (WMT-09). Only the
+   * active task carries it; a reload reads it back instead of losing it.
+   */
+  started_at?: string | null;
   actionable: boolean;
 }
 

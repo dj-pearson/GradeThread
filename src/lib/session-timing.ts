@@ -138,6 +138,8 @@ export interface SessionTaskView {
   bin: string | null;
   estimate_minutes: number | null;
   confirmed_minutes?: number | null;
+  /** Server time the running task started (WMT-09). Active task only. */
+  started_at?: string | null;
   actionable: boolean;
 }
 
@@ -277,4 +279,16 @@ export function reconcile(
   return rule.check(item)
     ? { landed: true, note: "" }
     : { landed: false, note: rule.missing };
+}
+
+/**
+ * The minutes box as a whole number from 1 to 240, or null (WMT-09).
+ * Number("") is 0, and a 0 used to be recorded as a free task.
+ */
+export function confirmableMinutes(text: string): number | null {
+  if (text.trim() === "") return null;
+  const n = Number(text);
+  if (!Number.isFinite(n)) return null;
+  const r = Math.round(n);
+  return r >= 1 && r <= 240 ? r : null;
 }

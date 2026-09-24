@@ -62,6 +62,7 @@ import {
 import { TaskCorrections } from "@/components/flipdesk/task-corrections";
 import { ADVICE_COPY, ADVICE_REASON_COPY } from "@/lib/work-advice-copy";
 import {
+  confirmableMinutes,
   reconcile,
   sessionProgress,
   timingCertainty,
@@ -140,6 +141,15 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
   const [confirmEnd, setConfirmEnd] = useState<"complete" | "abandon" | null>(null);
 
   const current = progress.current;
+  // WMT-09: after a reload the in-memory start is gone, so the server's
+  // task_started time stands in for it. Read at the moment it is needed.
+  const startedAt = (): number | null => {
+    if (startedAtRef.current !== null) return startedAtRef.current;
+    const fromServer = progress.currentIsActive && current?.started_at
+      ? Date.parse(current.started_at)
+      : Number.NaN;
+    return Number.isFinite(fromServer) ? fromServer : null;
+  };
   const item = useItemFull(current?.inventory_item_id ?? undefined);
   const check = useMemo(
     () => reconcile(current?.action_key ?? "", item.data as ItemListRow | null),
@@ -166,9 +176,12 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
   const runTask = useCallback(
     async (task: SessionTaskView, action: string, confirmedMinutes?: number) => {
       if (!session) return;
-      if (action === "start") {
-        attempts.current[task.id] = (attempts.current[task.id] ?? 0) + 1;
-      }
+      // WMT-09: the attempt number moves only once a start has LANDED. A
+      // start that failed may still have reached the server, so its retry
+      // must carry the same number for the server to dedup it.
+      const attempt = action === "start"
+        ? (attempts.current[task.id] ?? 0) + 1
+        : attempts.current[task.id] ?? 1;
       try {
         setConflict(null);
         await taskAction.mutateAsync({
@@ -176,9 +189,10 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
           action,
           revision: session.revision,
           confirmedMinutes,
-          attempt: attempts.current[task.id] ?? 1,
+          attempt,
         });
         if (action === "start") {
+          attempts.current[task.id] = attempt;
           startedAtRef.current = Date.now();
           resetSpans();
         } else {
@@ -369,7 +383,7 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
                   size="sm"
                   disabled={busy}
                   onClick={() => {
-                    const from = startedAtRef.current;
+                    const from = startedAt();
                     const c = from
                       ? timingCertainty({
                         startedAt: from,
@@ -377,8 +391,11 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
                         hidden: spans,
                       })
                       : null;
+                    // WMT-09: what the clock saw, or NOTHING. Pre-filling the
+                    // estimate meant one tap stored the planner's guess as
+                    // confirmed minutes, which the learner then trained on.
                     setMinutes(
-                      String(c?.observedMinutes ?? current.estimate_minutes ?? 0),
+                      c && c.observedMinutes > 0 ? String(c.observedMinutes) : "",
                     );
                     setConfirming(current);
                   }}
@@ -418,7 +435,7 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
           minutes={minutes}
           setMinutes={setMinutes}
           sentence={(() => {
-            const from = startedAtRef.current;
+            const from = startedAt();
             if (!from) return "";
             return timingCertainty({
               startedAt: from,
@@ -428,14 +445,11 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
           })()}
           onCancel={() => setConfirming(null)}
           onConfirm={() => {
-            const n = Number(minutes);
+            const n = confirmableMinutes(minutes);
+            if (n === null) return;
             const task = confirming;
             setConfirming(null);
-            void runTask(
-              task,
-              "complete",
-              Number.isFinite(n) && n >= 0 ? Math.round(n) : undefined,
-            );
+            void runTask(task, "complete", n);
           }}
         />
       )}
@@ -608,11 +622,16 @@ function ConfirmMinutes(props: {
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const valid = confirmableMinutes(props.minutes) !== null;
   return (
-    <div
-      role="group"
+    <form
       aria-labelledby="wmt-confirm"
       className="space-y-2 rounded-lg bg-muted/50 p-3"
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!props.busy && valid) props.onConfirm();
+      }}
     >
       <p id="wmt-confirm" className="text-sm font-medium">
         How long did that actually take?
@@ -628,15 +647,21 @@ function ConfirmMinutes(props: {
           <Input
             id="wmt-minutes"
             className="w-24"
+            type="number"
+            min={1}
+            max={240}
             inputMode="numeric"
+            // The box opens on a question; the cursor belongs in it.
+            autoFocus
             value={props.minutes}
             onChange={(e) => props.setMinutes(e.target.value)}
           />
         </div>
-        <Button size="sm" disabled={props.busy} onClick={props.onConfirm}>
+        <Button type="submit" size="sm" disabled={props.busy || !valid}>
           Save and move on
         </Button>
         <Button
+          type="button"
           size="sm"
           variant="ghost"
           disabled={props.busy}
@@ -645,6 +670,6 @@ function ConfirmMinutes(props: {
           Not yet
         </Button>
       </div>
-    </div>
+    </form>
   );
 }

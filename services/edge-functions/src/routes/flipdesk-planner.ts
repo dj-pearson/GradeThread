@@ -177,6 +177,12 @@ interface TaskRow {
   observed_minutes: number | null;
   confirmed_minutes: number | null;
   correction_minutes: number | null;
+  /**
+   * NOT A COLUMN. When the running task last started, by the SERVER's clock,
+   * read from its latest task_started timing event (WMT-09). Set by
+   * loadTasks on the active task only.
+   */
+  started_at?: string | null;
 }
 
 const SESSION_COLUMNS =
@@ -303,6 +309,10 @@ function sessionBody(session: SessionRow, tasks: TaskRow[]) {
         observed_minutes: t.observed_minutes,
         confirmed_minutes: t.confirmed_minutes,
         correction_minutes: t.correction_minutes,
+        // WMT-09: so a reload mid-task offers the minutes that really passed
+        // rather than the planner's guess. Null on every task but the active
+        // one.
+        started_at: t.state === "active" ? t.started_at ?? null : null,
         // A task whose item was deleted keeps its history and stops being
         // work. The null id is what says so (US-3167 AC4).
         actionable: t.inventory_item_id !== null &&
@@ -319,7 +329,24 @@ async function loadTasks(sessionId: string, ownerId: string): Promise<TaskRow[]>
     .eq("user_id", ownerId) // US-268
     .order("position", { ascending: true })
     .limit(MAX_PLAN_TASKS);
-  return (data as TaskRow[] | null) ?? [];
+  const tasks = (data as TaskRow[] | null) ?? [];
+  // WMT-09: one owner-scoped read for the running task's start. The runner
+  // kept this only in memory, so after a reload "Done" offered the estimate,
+  // and one tap stored the planner's guess as confirmed minutes.
+  const active = tasks.find((t) => t.state === "active");
+  if (active) {
+    const { data: ev } = await supabaseAdmin
+      .from("flipdesk_work_timing_events")
+      .select("occurred_at")
+      .eq("task_id", active.id)
+      .eq("user_id", ownerId) // US-268
+      .eq("kind", "task_started")
+      .order("occurred_at", { ascending: false })
+      .limit(1);
+    const row = (ev as { occurred_at: string }[] | null)?.[0];
+    active.started_at = row?.occurred_at ?? null;
+  }
+  return tasks;
 }
 
 // ── POST /sessions ────────────────────────────────────────────────
@@ -1198,6 +1225,10 @@ flipdeskPlannerRoutes.post("/sessions/:id/:action", async (c) => {
 
 // ── POST /tasks/:id/:action ───────────────────────────────────────
 
+/** The window a confirmed duration must fall in (WMT-09). */
+export const MIN_CONFIRMED_MINUTES = 1;
+export const MAX_CONFIRMED_MINUTES = 240;
+
 const TASK_ACTIONS: Record<string, { state: TaskState; event: TimingEventKind | null }> = {
   start: { state: "active", event: "task_started" },
   pause: { state: "pending", event: "task_paused" },
@@ -1245,6 +1276,23 @@ flipdeskPlannerRoutes.post("/tasks/:id/:action", async (c) => {
       code: rev.refusal.code,
       ...sessionBody(session, tasks),
     }, 409);
+  }
+
+  // WMT-09: confirmed minutes are what the learner trains on, so a number
+  // outside a real session is refused rather than stored. Zero is refused
+  // too: the runner used to send Number("") as a free task.
+  if (action === "complete" && body.confirmed_minutes != null) {
+    const m = body.confirmed_minutes;
+    if (
+      typeof m !== "number" || !Number.isFinite(m) ||
+      Math.round(m) < MIN_CONFIRMED_MINUTES || Math.round(m) > MAX_CONFIRMED_MINUTES
+    ) {
+      return jsonError(
+        c,
+        400,
+        `Minutes have to be between ${MIN_CONFIRMED_MINUTES} and ${MAX_CONFIRMED_MINUTES}.`,
+      );
+    }
   }
 
   const move = canTransitionTask(task.state, spec.state);

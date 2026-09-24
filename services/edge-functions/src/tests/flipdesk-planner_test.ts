@@ -572,7 +572,7 @@ Deno.test("WMT-03: a session write that matches no row is a 409, not a success",
     // Another tab bumps the revision between our read and our write. The
     // fake answers the read first, so move the row as the PATCH arrives.
     const realFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: Request | URL | string, init?: RequestInit) => {
+    globalThis.fetch = ((input: Request | URL | string, init?: RequestInit) => {
       const req = input instanceof Request ? input : new Request(String(input), init);
       if (req.method === "PATCH" && req.url.includes("flipdesk_work_sessions")) {
         db.tables.flipdesk_work_sessions[0].revision = 4;
@@ -588,6 +588,51 @@ Deno.test("WMT-03: a session write that matches no row is a 409, not a success",
     } finally {
       globalThis.fetch = realFetch;
     }
+  } finally {
+    db.restore();
+  }
+});
+
+// ── WMT-09: the server's start time, and no impossible minutes ──────────
+
+Deno.test("WMT-09: the running task carries the server's start time", async () => {
+  const db = installFakePostgrest();
+  try {
+    const seed = sessionSeed("active", "active");
+    db.reset({
+      ...seed,
+      flipdesk_work_timing_events: [
+        { id: "e1", task_id: "task-1", user_id: OWNER, kind: "task_started", occurred_at: "2026-09-21T10:00:00.000Z" },
+        { id: "e2", task_id: "task-1", user_id: OWNER, kind: "task_started", occurred_at: "2026-09-21T11:00:00.000Z" },
+        // Another tenant's event on the same task id must never be read.
+        { id: "e3", task_id: "task-1", user_id: "someone-else", kind: "task_started", occurred_at: "2026-09-21T11:30:00.000Z" },
+      ],
+    });
+    const res = await plannerApp().request("/sessions/current");
+    assertEquals(res.status, 200);
+    const body = await res.json();
+    assertEquals(body.tasks[0].started_at, "2026-09-21T11:00:00.000Z");
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("WMT-09: 9,999 confirmed minutes is refused and nothing moves", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset(sessionSeed("active", "active"));
+    const r = await send("POST", "/tasks/task-1/complete", {
+      revision: 3,
+      confirmed_minutes: 9999,
+    });
+    assertEquals(r.status, 400);
+    const zero = await send("POST", "/tasks/task-1/complete", {
+      revision: 3,
+      confirmed_minutes: 0,
+    });
+    assertEquals(zero.status, 400);
+    assertEquals(db.tables.flipdesk_work_session_tasks[0].state, "active");
+    assertEquals(db.writes("flipdesk_work_session_tasks").length, 0);
   } finally {
     db.restore();
   }
