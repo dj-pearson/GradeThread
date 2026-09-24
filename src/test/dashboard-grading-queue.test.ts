@@ -168,14 +168,15 @@ describe("what needs the seller's attention", () => {
     expect(widget).toContain("ATTENTION_QUIET_STATE");
   });
 
-  it("shows at most five rows, newest first", () => {
+  it("shows at most five rows, the longest stall first (DASH-12)", () => {
     const widget = readFileSync(
       resolve(process.cwd(), "src/components/dashboard/widgets/grading-attention.tsx"),
       "utf8",
     );
     expect(widget).toContain("const MAX_ROWS = 5");
-    expect(widget).toContain('.order("created_at", { ascending: false })');
-    expect(widget).toContain(".limit(MAX_ROWS)");
+    // Oldest first by time in status; newest-first cut the longest stalls.
+    expect(widget).toContain('.order("updated_at", { ascending: true })');
+    expect(widget).toContain("ordered.slice(0, MAX_ROWS)");
   });
 });
 

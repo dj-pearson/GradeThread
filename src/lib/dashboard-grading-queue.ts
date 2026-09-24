@@ -78,6 +78,20 @@ export const ATTENTION_STATUSES = [
   "pending_review",
 ] as const satisfies readonly QueueStatus[];
 
+/**
+ * The longest stall first. Status priority is ATTENTION_STATUSES order
+ * (disputed, needs_photos, failed, pending_review); inside a status, the row
+ * that has sat longest comes first. The input is already oldest-first, and
+ * Array.prototype.sort is stable, so sorting by priority alone keeps that.
+ */
+export function orderAttentionRows<T extends { status: string }>(rows: readonly T[]): T[] {
+  const rank = (s: string) => {
+    const i = (ATTENTION_STATUSES as readonly string[]).indexOf(s);
+    return i === -1 ? ATTENTION_STATUSES.length : i;
+  };
+  return [...rows].sort((a, b) => rank(a.status) - rank(b.status));
+}
+
 /** The quiet state, spelled once so the widget and its test cannot drift. */
 export const ATTENTION_QUIET_STATE = "Nothing waiting on you";
 

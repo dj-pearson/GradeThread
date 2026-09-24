@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
@@ -76,6 +76,19 @@ function useGradingAttentionCounts(enabled: boolean) {
       };
     },
   });
+}
+
+/**
+ * The current time, re-read every `ms`. Without it "Updated just now" is
+ * computed once per render and never advances while the page sits open.
+ */
+function useNow(ms: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(id);
+  }, [ms]);
+  return now;
 }
 
 /** "Updated 4 minutes ago", or null when nothing has resolved yet. */
@@ -171,7 +184,8 @@ export function AttentionRail(
     ? [conflicts, queue, drafts, overview]
     : [grading];
   const updatedAt = oldestUpdatedAt(sources.map((q) => q.dataUpdatedAt ?? 0));
-  const updatedLabel = relativeTime(updatedAt, Date.now());
+  const now = useNow(30_000);
+  const updatedLabel = relativeTime(updatedAt, now);
   const loading = sources.some((q) => q.isLoading) ||
     (isFlipdesk && (ebay.isLoading || needsYou.isLoading));
   const refreshing = sources.some((q) => q.isFetching) ||
@@ -293,7 +307,13 @@ export function AttentionRail(
         {updatedLabel
           ? (
             <span className="text-xs text-muted-foreground">
-              Updated {updatedLabel}
+              Updated{" "}
+              <time
+                dateTime={new Date(updatedAt!).toISOString()}
+                title={new Date(updatedAt!).toLocaleString()}
+              >
+                {updatedLabel}
+              </time>
             </span>
           )
           : null}

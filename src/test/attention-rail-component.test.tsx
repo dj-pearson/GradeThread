@@ -261,3 +261,30 @@ describe("AttentionRail: no eBay connection (DASH-8)", () => {
     expect(container.textContent).toContain("All clear");
   });
 });
+
+describe("AttentionRail: the Updated label advances (DASH-12)", () => {
+  it("moves on from 'just now' after the 30s tick", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-09-23T12:00:00Z"));
+      // Rebuild the sources so their dataUpdatedAt is the faked "now".
+      state.conflicts = q({ data: { total: 0 } });
+      state.queue = q({
+        data: { pending: [], needsAttention: [], finishedNeedsReview: [] },
+      });
+      state.drafts = q({ data: { rows: [], truncated: false } });
+      state.overview = q({ data: { agingCount: 0, staleCount: 0 } });
+      await render("flipdesk");
+      expect(container.textContent).toContain("Updated just now");
+      const time = container.querySelector("time")!;
+      expect(time.getAttribute("dateTime")).toBe("2026-09-23T12:00:00.000Z");
+      await act(async () => {
+        vi.advanceTimersByTime(90_000);
+      });
+      expect(container.textContent).not.toContain("Updated just now");
+      expect(container.textContent).toContain("minutes ago");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
