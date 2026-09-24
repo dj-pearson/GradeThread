@@ -53,9 +53,21 @@ function gradeClasses(grade: number | null): string {
 }
 
 type SortKey = "margin" | "grade" | "confidence";
+/** SRC-9: the URL keys that make up the deal filter. */
+const FILTER_URL_KEYS = ["maxTotal", "minMarginPct", "minMargin", "sort", "bin", "freeShip"] as const;
+const SORT_LABELS: Record<ScoutSort, string> = {
+  bestMatch: "best match",
+  newlyListed: "newly listed",
+  endingSoonest: "ending soonest",
+  priceAsc: "cheapest first",
+};
 const SORT_KEYS: readonly SortKey[] = ["margin", "grade", "confidence"];
 const SCOUT_SORTS: readonly ScoutSort[] = ["bestMatch", "newlyListed", "endingSoonest", "priceAsc"];
 const DEFAULT_CATEGORY_ID = "11450"; // Clothing, Shoes & Accessories
+
+function buyingOptionsLabel(buyItNowOnly: boolean): string | null {
+  return buyItNowOnly ? "Buy It Now" : null;
+}
 
 function pick<T extends string>(value: string | null, allowed: readonly T[], fallback: T): T {
   return value != null && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
@@ -224,8 +236,11 @@ export function FlipdeskScoutPage() {
   const [freeShippingOnly, setFreeShippingOnly] = useState(
     () => searchParams.get("freeShip") === "1",
   );
-  const [showFilters, setShowFilters] = useState(
-    () => Boolean(searchParams.get("maxTotal") ?? searchParams.get("minMarginPct")),
+  // SRC-9: open whenever the URL carries ANY filter. It used to open only for
+  // maxTotal or minMarginPct, so a link with freeShip=1 applied a filter the
+  // seller could not see.
+  const [showFilters, setShowFilters] = useState(() =>
+    FILTER_URL_KEYS.some((k) => searchParams.get(k)),
   );
 
   // The seller's standing target, so a number set once in Buy decision is not
@@ -247,9 +262,18 @@ export function FlipdeskScoutPage() {
   // SRC-2: a member cannot read the owner's row (RLS is owner-only), and the
   // edge falls back to the OWNER's target when none is sent, so a member's
   // blank field sends nothing rather than a guessed 30%.
+  //
+  // SRC-9: while the target loads the form is still usable; a blank field then
+  // sends nothing rather than a number we do not have yet. On a failed read the
+  // product default is used and the field says so.
+  const targetKnown = ownsWorkspace && !targetLoading;
   const effectiveMinMarginPct =
-    minMarginPctText.trim() || (ownsWorkspace ? String(targetPct) : "");
-  const targetHint = ownsWorkspace ? `your ${targetPct}% target` : "your workspace target";
+    minMarginPctText.trim() || (targetKnown ? String(targetPct) : "");
+  const targetHint = !ownsWorkspace
+    ? "your workspace target"
+    : targetLoading
+    ? "your target"
+    : `your ${targetPct}% target`;
 
   // SRC-8: the key is read from the URL at the moment the scan succeeds, which
   // is after submit wrote it.
@@ -323,8 +347,10 @@ export function FlipdeskScoutPage() {
       brand: brand.trim() || undefined,
       maxTotalCents: centsFrom(maxTotal),
       minMarginCents: centsFrom(minMarginDollars),
-      minMarginPct:
-        showFilters && Number.isFinite(pct) && pct > 0 ? pct / 100 : undefined,
+      // SRC-9: sent whether or not the panel is open. It used to be dropped
+      // when the panel was closed while bin, freeShip and sort were not, so
+      // the same URL meant two different scans.
+      minMarginPct: Number.isFinite(pct) && pct > 0 ? pct / 100 : undefined,
       buyingOptions: buyItNowOnly
         ? (["FIXED_PRICE", "BEST_OFFER"] as ScoutBuyingOption[])
         : undefined,
@@ -334,10 +360,28 @@ export function FlipdeskScoutPage() {
     scan.mutate(input);
   }
 
-  if (targetError) {
-    return <div role="alert" className="space-y-2 p-6"><p>Couldn't load your profit target. Retry before comparing deals.</p><Button variant="outline" onClick={() => void reloadTarget()}>Try again</Button></div>;
+  // SRC-9: a summary of the filter that is in force, so a closed panel never
+  // hides one.
+  const filterSummary = [
+    maxTotal.trim() ? `under $${maxTotal.trim()}` : null,
+    freeShippingOnly ? "free ship" : null,
+    buyingOptionsLabel(buyItNowOnly),
+    minMarginPctText.trim() ? `${minMarginPctText.trim()}%+` : null,
+    minMarginDollars.trim() ? `$${minMarginDollars.trim()}+ profit` : null,
+    browseSort !== "bestMatch" ? SORT_LABELS[browseSort] : null,
+  ].filter((part): part is string => Boolean(part));
+
+  function clearFilters() {
+    setMaxTotal("");
+    setMinMarginPctText("");
+    setMinMarginDollars("");
+    setBrowseSort("bestMatch");
+    setBuyItNowOnly(false);
+    setFreeShippingOnly(false);
+    const next = new URLSearchParams(searchParams);
+    for (const key of FILTER_URL_KEYS) next.delete(key);
+    setSearchParams(next, { replace: true });
   }
-  if (targetLoading) return <p role="status" className="p-6">Loading your profit target...</p>;
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
@@ -389,6 +433,18 @@ export function FlipdeskScoutPage() {
               >
                 {showFilters ? "Hide deal filter" : "Deal filter"}
               </button>
+              {filterSummary.length > 0 ? (
+                <span className="ml-3 inline-flex items-center gap-2 text-xs text-muted-foreground">
+                  <span data-testid="scout-filter-summary">{filterSummary.join(", ")}</span>
+                  <button
+                    type="button"
+                    className="font-medium text-primary hover:underline"
+                    onClick={clearFilters}
+                  >
+                    Clear
+                  </button>
+                </span>
+              ) : null}
             </div>
 
             {showFilters ? (
@@ -416,8 +472,23 @@ export function FlipdeskScoutPage() {
                     onChange={(e) => setMinMarginPctText(e.target.value)}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Percent after fees. Blank uses {targetHint}.
+                    Percent after fees.{" "}
+                    {minMarginPctText.trim() ? `Blank uses ${targetHint}.` : `Using ${targetHint}.`}
                   </p>
+                  {targetError ? (
+                    <div role="alert" className="flex items-center gap-2 text-[11px] text-destructive">
+                      <span>
+                        Couldn't load your target, using {DEFAULT_SOURCING_TARGET_PCT}%.
+                      </span>
+                      <button
+                        type="button"
+                        className="font-medium underline"
+                        onClick={() => void reloadTarget()}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="scout-min-margin">Min profit</Label>
