@@ -92,7 +92,10 @@ describe("the drain signal is claimed_at, and its absence is stated out loud", (
     const page = readFileSync(resolve(here, "../pages/flipdesk/marketplaces.tsx"), "utf8");
     const section = page.slice(page.indexOf("function ExtensionQueueSection"));
     const guard = section.slice(0, section.indexOf("return ("));
-    expect(guard).toMatch(/if \(isLoading\) return null;/);
+    // MP-08: loading and error no longer return null either; they keep the
+    // heading and the #extension-queue anchor.
+    expect(guard).toMatch(/if \(isLoading \|\| isError\) \{/);
+    expect(guard).not.toMatch(/return null;/);
     expect(guard).not.toMatch(/pending\.length === 0 && needsAttention\.length === 0/);
   });
 
