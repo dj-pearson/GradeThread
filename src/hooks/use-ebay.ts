@@ -97,6 +97,26 @@ export function useEbayConnectionIssue() {
   });
 }
 
+/**
+ * MP-12: does this issue mean the seller has to sign in to eBay again?
+ *
+ * A seller-initiated disconnect writes refresh_error = "disconnected" on the
+ * row it deactivates, and that used to trip the red re-auth banner and the
+ * summary's "needs attention" right after the seller chose to disconnect.
+ */
+export function isReauthNeeded(issue: EbayConnectionIssue | null | undefined): boolean {
+  return !!issue && !issue.is_active && !!issue.refresh_error &&
+    issue.refresh_error !== "disconnected";
+}
+
+/** MP-12: plain words for a stored refresh_error, never the raw string. */
+export function reauthMessage(refreshError: string | null | undefined): string {
+  if (refreshError && /revoked|expired/i.test(refreshError)) {
+    return "Your eBay sign-in expired or was revoked. Reconnect eBay to keep syncing sales and publishing.";
+  }
+  return "eBay needs you to sign in again. Reconnect eBay to keep syncing sales and publishing.";
+}
+
 // ── Business policies + ship-from location ──────────────────────────
 
 export interface EbayPolicyDefaults {

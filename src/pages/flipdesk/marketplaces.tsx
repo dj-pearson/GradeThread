@@ -43,6 +43,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MarketplaceConnectionSummary } from "@/components/flipdesk/marketplace-connection-summary";
 import { EbayPromotionsCard } from "@/components/flipdesk/ebay-promotions-card";
@@ -77,6 +87,8 @@ import {
   useDisconnectEbay,
   useEbayConnection,
   useEbayConnectionIssue,
+  isReauthNeeded,
+  reauthMessage,
   useCreateEbayPolicies,
   useEbayPolicies,
   useSetDefaultPolicies,
@@ -213,6 +225,73 @@ const CALLBACK_MESSAGES: Record<
     message: "Could not complete eBay sign-in. Please retry, and contact support if it persists.",
   },
 };
+
+// MP-12: any code neither map knows (provider_error, or a code from an older
+// edge) still says something. Before, an unknown code returned the seller to
+// the page with no message at all.
+const CALLBACK_FALLBACK = {
+  type: "error" as const,
+  message: "eBay sign-in didn't finish. Try again, and contact support if it keeps happening.",
+};
+const SHOPIFY_CALLBACK_FALLBACK = {
+  type: "error" as const,
+  message: "Shopify sign-in didn't finish. Try again, and contact support if it keeps happening.",
+};
+
+// MP-12: the confirm in front of Disconnect. It names the account and says
+// what stops, because a one-click ghost button next to Reconnect revoked the
+// grant with no warning.
+function DisconnectConfirm({
+  channel,
+  account,
+  consequence,
+  pending,
+  onConfirm,
+}: {
+  channel: string;
+  account: string | null | undefined;
+  consequence: string;
+  pending: boolean;
+  onConfirm: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-destructive hover:text-destructive"
+        onClick={() => setOpen(true)}
+        disabled={pending}
+      >
+        {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        Disconnect
+      </Button>
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Disconnect {channel}
+              {account ? ` (${account})` : ""}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>{consequence}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it connected</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setOpen(false);
+                onConfirm();
+              }}
+            >
+              Disconnect
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
 
 // Human-friendly relative timestamp for the "Last synced …" label. Falls
 // back to a date string if the value is older than a week.
@@ -820,20 +899,15 @@ function EbaySetup({
                       >
                         Reconnect
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() =>
+                      <DisconnectConfirm
+                        channel="eBay"
+                        account={connection?.account_handle}
+                        consequence="Sales from eBay stop syncing, cross-listed items won't auto-end, and you can't publish until you reconnect."
+                        pending={disconnect.isPending}
+                        onConfirm={() =>
                           connection && disconnect.mutate({ connectionId: connection.id })
                         }
-                        disabled={disconnect.isPending}
-                      >
-                        {disconnect.isPending && (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        )}
-                        Disconnect
-                      </Button>
+                      />
                     </div>
                   ) : (
                     connError ? (
@@ -1125,18 +1199,13 @@ function ShopifySetup() {
               {sync.isPending ? "Syncing…" : "Sync from Shopify"}
             </Button>
             {canManage && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                onClick={() => disconnect.mutate()}
-                disabled={disconnect.isPending}
-              >
-                {disconnect.isPending && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                )}
-                Disconnect
-              </Button>
+              <DisconnectConfirm
+                channel="Shopify"
+                account={connection?.account_handle}
+                consequence="Orders from Shopify stop syncing, cross-listed items won't auto-end, and you can't publish to Shopify until you reconnect."
+                pending={disconnect.isPending}
+                onConfirm={() => disconnect.mutate()}
+              />
             )}
             <span className="ml-auto text-[11px] text-muted-foreground">
               {connection?.last_synced_at
@@ -2269,7 +2338,7 @@ export function FlipdeskMarketplacesPage() {
       else if (entry.type === "info") toast.info(entry.message);
       else toast.error(entry.message);
     };
-    if (ebayCode && CALLBACK_MESSAGES[ebayCode]) show(CALLBACK_MESSAGES[ebayCode]);
+    if (ebayCode) show(CALLBACK_MESSAGES[ebayCode] ?? CALLBACK_FALLBACK);
     // US-3458: the callback started the first pull server-side, so watch for
     // it the same way a Sync click does. `before` is whatever this page last
     // saw; a reconnect resets the server's cursor to null, so the first stamp
@@ -2282,8 +2351,8 @@ export function FlipdeskMarketplacesPage() {
         duration: Infinity,
       });
     }
-    if (shopifyCode && SHOPIFY_CALLBACK_MESSAGES[shopifyCode]) {
-      show(SHOPIFY_CALLBACK_MESSAGES[shopifyCode]);
+    if (shopifyCode) {
+      show(SHOPIFY_CALLBACK_MESSAGES[shopifyCode] ?? SHOPIFY_CALLBACK_FALLBACK);
     }
     const next = new URLSearchParams(params);
     next.delete("ebay");
@@ -2389,11 +2458,14 @@ export function FlipdeskMarketplacesPage() {
           (revoked/expired grant) needs explicit re-auth. Show a clear banner
           with a reconnect action rather than silently reverting to the
           "Connect eBay" CTA. */}
-      {connIssue && !connIssue.is_active && connIssue.refresh_error && (
-        <div className="flex flex-col gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+      {isReauthNeeded(connIssue) && (
+        <div
+          role="alert"
+          className="flex flex-col gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+        >
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-destructive" />
-            <span className="text-foreground">{connIssue.refresh_error}</span>
+            <span className="text-foreground">{reauthMessage(connIssue?.refresh_error)}</span>
           </div>
           {canManage ? (
             <Button

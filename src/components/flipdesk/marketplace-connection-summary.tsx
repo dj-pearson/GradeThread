@@ -2,7 +2,12 @@ import { Link } from "react-router";
 import { AlertCircle, AlertTriangle, Check, Circle, Loader2, Minus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useEbayConnection, useEbayConnectionIssue, useEbayPolicies } from "@/hooks/use-ebay";
+import {
+  isReauthNeeded,
+  useEbayConnection,
+  useEbayConnectionIssue,
+  useEbayPolicies,
+} from "@/hooks/use-ebay";
 import { useShopifyConnection } from "@/hooks/use-shopify";
 import { useGoogleConnection } from "@/hooks/use-google-sheets";
 
@@ -77,7 +82,8 @@ export function MarketplaceConnectionSummary({
   // A connection deactivated by a permanent refresh failure is NOT the same as
   // one that was never made, and rolling the two together is how a seller sits
   // for a week wondering why nothing syncs.
-  const ebayNeedsReauth = !!ebayIssue && !ebayIssue.is_active && !!ebayIssue.refresh_error;
+  // MP-12: a disconnect the seller chose is not a problem to flag.
+  const ebayNeedsReauth = isReauthNeeded(ebayIssue);
 
   const rows: Row[] = [
     {

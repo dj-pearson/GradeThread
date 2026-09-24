@@ -168,7 +168,10 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
     console.error(
       `[flipdesk-ebay] consent error: ${ebayError} — ${ebayErrorDesc ?? "(no description)"}`
     );
-    return finish(ebayError === "access_denied" ? "cancelled" : ebayError);
+    // MP-12: every other code (invalid_scope, server_error, ...) is one status
+    // the app knows how to word. Passing eBay's raw code through sent the
+    // seller back to the page with no message at all.
+    return finish(ebayError === "access_denied" ? "cancelled" : "provider_error");
   }
   if (!code || !state) {
     return finish("cancelled");

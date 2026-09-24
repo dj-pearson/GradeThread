@@ -41,6 +41,10 @@ const state = {
   candidatesError: false,
   claim: vi.fn(),
   overviewError: false,
+  issue: null as unknown,
+  disconnect: vi.fn(),
+  toastErrors: [] as string[],
+  entry: "/dashboard/flipdesk/marketplaces",
 };
 
 vi.mock("@/hooks/use-workspace", async () => {
@@ -54,14 +58,27 @@ vi.mock("@/hooks/use-workspace", async () => {
   };
 });
 
-vi.mock("@/hooks/use-ebay", () => ({
+vi.mock("sonner", () => ({
+  toast: Object.assign(vi.fn(), {
+    success: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn(),
+    error: (msg: string) => state.toastErrors.push(msg),
+    loading: vi.fn(),
+    dismiss: vi.fn(),
+  }),
+}));
+
+vi.mock("@/hooks/use-ebay", async (orig) => ({
+  isReauthNeeded: (await orig<typeof import("@/hooks/use-ebay")>()).isReauthNeeded,
+  reauthMessage: (await orig<typeof import("@/hooks/use-ebay")>()).reauthMessage,
   useEbayConnection: () => ({
     data: state.connection,
     isLoading: state.connLoading,
     isError: state.connError,
     refetch: vi.fn(),
   }),
-  useEbayConnectionIssue: () => ({ data: null }),
+  useEbayConnectionIssue: () => ({ data: state.issue }),
   useEbayPolicies: (enabled: boolean) => {
     state.policyCalls.push(enabled);
     return {
@@ -73,7 +90,7 @@ vi.mock("@/hooks/use-ebay", () => ({
   },
   useStartEbayOauth: mutation,
   useSyncEbayListings: mutation,
-  useDisconnectEbay: mutation,
+  useDisconnectEbay: () => ({ ...mutation(), mutate: state.disconnect }),
   useCreateEbayLocation: mutation,
   useCreateEbayPolicies: mutation,
   useSetDefaultPolicies: mutation,
@@ -194,7 +211,7 @@ function render() {
     root = createRoot(container!);
     root.render(
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={["/dashboard/flipdesk/marketplaces"]}>
+        <MemoryRouter initialEntries={[state.entry]}>
           <FlipdeskMarketplacesPage />
         </MemoryRouter>
       </QueryClientProvider>,
@@ -245,6 +262,10 @@ beforeEach(() => {
     candidatesError: false,
     claim: vi.fn(),
     overviewError: false,
+    issue: null,
+    disconnect: vi.fn(),
+    toastErrors: [],
+    entry: "/dashboard/flipdesk/marketplaces",
   });
 });
 
@@ -696,5 +717,50 @@ describe("Marketplaces page: promoted listings error (MP-11)", () => {
     await openTab("Ads & promotions");
     expect(document.body.textContent).toContain("Couldn't load promoted listings");
     expect(document.body.textContent).not.toContain("No promoted listings yet");
+  });
+});
+
+describe("Marketplaces page: safe disconnect (MP-12)", () => {
+  it("Disconnect opens a confirm and only disconnects when confirmed", async () => {
+    state.connection = CONNECTED;
+    render();
+    const btn = buttonIn(stepRow("Connect your eBay account"), "Disconnect")!;
+    act(() => btn.click());
+    const dialog = document.querySelector("[role=alertdialog]") as HTMLElement;
+    expect(dialog).toBeTruthy();
+    expect(dialog.textContent).toContain("thrift_seller");
+    expect(dialog.textContent).toContain("stop syncing");
+    expect(state.disconnect).not.toHaveBeenCalled();
+    act(() => buttonIn(dialog, "Disconnect")!.click());
+    expect(state.disconnect).toHaveBeenCalledWith({ connectionId: "conn-1" });
+  });
+
+  it("a disconnect the seller chose does not raise the re-auth banner", () => {
+    state.issue = { is_active: false, refresh_error: "disconnected" };
+    render();
+    expect(document.body.textContent).not.toContain("Reconnect eBay to keep syncing");
+  });
+
+  it("a revoked grant raises the banner in plain words, never the raw string", () => {
+    state.issue = {
+      is_active: false,
+      refresh_error:
+        "eBay disconnected: your authorization was revoked or expired. Please reconnect your eBay account.",
+    };
+    render();
+    const alert = [...document.querySelectorAll("[role=alert]")].find((a) =>
+      a.textContent?.includes("expired or was revoked"),
+    );
+    expect(alert).toBeTruthy();
+    expect(alert!.textContent).not.toContain("eBay disconnected:");
+  });
+
+  it("an unknown eBay callback code still tells the seller something", async () => {
+    state.entry = "/dashboard/flipdesk/marketplaces?ebay=invalid_scope";
+    render();
+    await settle();
+    expect(state.toastErrors).toContain(
+      "eBay sign-in didn't finish. Try again, and contact support if it keeps happening.",
+    );
   });
 });

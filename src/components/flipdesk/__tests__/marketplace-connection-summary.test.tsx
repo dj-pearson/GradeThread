@@ -17,7 +17,8 @@ const state = {
   issue: null as unknown,
 };
 
-vi.mock("@/hooks/use-ebay", () => ({
+vi.mock("@/hooks/use-ebay", async (orig) => ({
+  isReauthNeeded: (await orig<typeof import("@/hooks/use-ebay")>()).isReauthNeeded,
   useEbayConnection: () => ({ data: state.ebay, isLoading: false, isError: state.ebayError }),
   useEbayConnectionIssue: () => ({ data: state.issue }),
   useEbayPolicies: () => ({ data: state.policies }),
@@ -110,5 +111,14 @@ describe("MarketplaceConnectionSummary", () => {
     expect(row("eBay")).toContain("seller");
     const link = [...document.querySelectorAll("a")].find((a) => a.textContent?.startsWith("eBay"));
     expect(link?.getAttribute("href")).toContain("#ebay-setup");
+  });
+});
+
+describe("MarketplaceConnectionSummary after a chosen disconnect (MP-12)", () => {
+  it("does not flag attention for refresh_error = disconnected", () => {
+    state.issue = { is_active: false, refresh_error: "disconnected" };
+    render();
+    expect(row("eBay")).not.toContain("Sign in again");
+    expect(document.body.textContent).not.toContain("needs attention");
   });
 });
