@@ -48,7 +48,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { EmptyState } from "@/components/ui/empty-state";
+import { QueueBody } from "@/components/flipdesk/post-sale/queue-body";
 import { PlatformCoverageNote } from "@/components/flipdesk/platform-coverage-note";
 import { CaseItemSummary } from "@/components/flipdesk/case-item-summary";
 import { ReturnEvidencePanel } from "@/components/flipdesk/return-evidence-panel";
@@ -275,26 +275,13 @@ function fmtDate(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
 }
 
-// US-2541: was a bare paragraph. These three lists are the ones a seller
-// checks to confirm NOTHING is waiting on them, so "nothing here" has to read
-// as an answer rather than as a list that failed to draw.
-function EmptyRow({ text }: { text: string }) {
-  return (
-    <EmptyState
-      className="py-8"
-      icon={PackageCheck}
-      title={text}
-      description="eBay cases only — GradeThread does not read your other marketplaces."
-    />
-  );
-}
-
 // ── Payment disputes (most urgent — deadline-driven) ────────────────
 
 function DisputesCard() {
   const qc = useQueryClient();
   const confirm = useConfirm();
-  const { data: disputes = [], isLoading } = useEbayPaymentDisputes();
+  const disputesQuery = useEbayPaymentDisputes();
+  const { data: disputes = [] } = disputesQuery;
   const resolve = useEbayResolveDispute();
   const [busy, setBusy] = useState<string | null>(null);
   // The dispute currently being contested (drives the note dialog), plus its note.
@@ -388,12 +375,16 @@ function DisputesCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {isLoading ? (
-          <Skeleton className="h-16 w-full" />
-        ) : visible.length === 0 ? (
-          <EmptyRow text={showClosed ? "No closed payment disputes." : "No open payment disputes."} />
-        ) : (
-          visible.map((d) => {
+        <QueueBody
+          isLoading={disputesQuery.isLoading}
+          isError={disputesQuery.isError}
+          isSuccess={disputesQuery.isSuccess}
+          refetch={disputesQuery.refetch}
+          isEmpty={visible.length === 0}
+          emptyText={showClosed ? "No closed payment disputes." : "No open payment disputes."}
+          kind="payment disputes"
+        >
+          {visible.map((d) => {
             const days = daysUntil(d.respondByDate);
             const overdue = days != null && days < 0;
             return (
@@ -486,8 +477,8 @@ function DisputesCard() {
                 )}
               </div>
             );
-          })
-        )}
+          })}
+        </QueueBody>
       </CardContent>
 
       <Dialog
@@ -581,7 +572,8 @@ function EvidenceUploader({
 function ReturnsCard() {
   const qc = useQueryClient();
   const confirm = useConfirm();
-  const { data: returns = [], isLoading } = useEbayReturns();
+  const returnsQuery = useEbayReturns();
+  const { data: returns = [] } = returnsQuery;
   // US-2227 AC3: the list arrived unfiltered and every row got Approve /
   // Decline / Refund buttons, so a case eBay had already closed looked exactly
   // like one waiting on the seller — with a destructive action attached.
@@ -814,14 +806,16 @@ function ReturnsCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {isLoading ? (
-          <Skeleton className="h-16 w-full" />
-        ) : visible.length === 0 ? (
-          <EmptyRow
-            text={showClosed ? "No closed returns." : "No open returns."}
-          />
-        ) : (
-          visible.map((r) => (
+        <QueueBody
+          isLoading={returnsQuery.isLoading}
+          isError={returnsQuery.isError}
+          isSuccess={returnsQuery.isSuccess}
+          refetch={returnsQuery.refetch}
+          isEmpty={visible.length === 0}
+          emptyText={showClosed ? "No closed returns." : "No open returns."}
+          kind="returns"
+        >
+          {visible.map((r) => (
             // US-3466: always stacked. Side by side, eight buttons in a
             // shrink-0 row could not wrap, so on desktop they ran past the
             // card edge and squeezed the details into a one-word column.
@@ -1093,8 +1087,8 @@ function ReturnsCard() {
                 </div>
               )}
             </div>
-          ))
-        )}
+          ))}
+        </QueueBody>
       </CardContent>
     </Card>
   );
@@ -1105,7 +1099,8 @@ function ReturnsCard() {
 function CancellationsCard() {
   const qc = useQueryClient();
   const confirm = useConfirm();
-  const { data: cancellations = [], isLoading } = useEbayCancellations();
+  const cancellationsQuery = useEbayCancellations();
+  const { data: cancellations = [] } = cancellationsQuery;
   const decide = useEbayDecideCancellation();
   const [busy, setBusy] = useState<string | null>(null);
   // US-2227 AC3: third instance of the same unfiltered-list defect.
@@ -1168,12 +1163,16 @@ function CancellationsCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {isLoading ? (
-          <Skeleton className="h-16 w-full" />
-        ) : visible.length === 0 ? (
-          <EmptyRow text={showClosed ? "No closed cancellation requests." : "No open cancellation requests."} />
-        ) : (
-          visible.map((ca) => (
+        <QueueBody
+          isLoading={cancellationsQuery.isLoading}
+          isError={cancellationsQuery.isError}
+          isSuccess={cancellationsQuery.isSuccess}
+          refetch={cancellationsQuery.refetch}
+          isEmpty={visible.length === 0}
+          emptyText={showClosed ? "No closed cancellation requests." : "No open cancellation requests."}
+          kind="cancellation requests"
+        >
+          {visible.map((ca) => (
             <div
               key={ca.cancelId}
               data-focus-id={ca.cancelId}
@@ -1233,8 +1232,8 @@ function CancellationsCard() {
               </div>
               )}
             </div>
-          ))
-        )}
+          ))}
+        </QueueBody>
       </CardContent>
     </Card>
   );
@@ -1343,7 +1342,8 @@ function DeadlineBadge({ respondBy }: { respondBy: string | null | undefined }) 
 }
 
 function InquiriesCard() {
-  const { data: inquiries = [], isLoading } = useEbayInquiries();
+  const inquiriesQuery = useEbayInquiries();
+  const { data: inquiries = [] } = inquiriesQuery;
   const act = useEbayInquiryAction();
   const confirm = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
@@ -1424,14 +1424,16 @@ function InquiriesCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {isLoading ? (
-          <Skeleton className="h-16 w-full" />
-        ) : visible.length === 0 ? (
-          <EmptyRow
-            text={showClosed ? "No closed inquiries." : "No open item-not-received inquiries."}
-          />
-        ) : (
-          visible.map((inq) => (
+        <QueueBody
+          isLoading={inquiriesQuery.isLoading}
+          isError={inquiriesQuery.isError}
+          isSuccess={inquiriesQuery.isSuccess}
+          refetch={inquiriesQuery.refetch}
+          isEmpty={visible.length === 0}
+          emptyText={showClosed ? "No closed inquiries." : "No open item-not-received inquiries."}
+          kind="item-not-received inquiries"
+        >
+          {visible.map((inq) => (
             <div
               key={inq.inquiryId}
               data-focus-id={inq.inquiryId}
@@ -1498,8 +1500,8 @@ function InquiriesCard() {
                 </div>
               )}
             </div>
-          ))
-        )}
+          ))}
+        </QueueBody>
       </CardContent>
       <TrackingDialog
         open={!!trackingFor}
@@ -1516,7 +1518,8 @@ function InquiriesCard() {
 }
 
 function CasesCard() {
-  const { data: cases = [], isLoading } = useEbayCases();
+  const casesQuery = useEbayCases();
+  const { data: cases = [] } = casesQuery;
   const act = useEbayCaseAction();
   const confirm = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
@@ -1610,12 +1613,16 @@ function CasesCard() {
           A case is a return or inquiry the buyer escalated. eBay decides it, and a
           case decided against you counts as a defect on your seller account.
         </p>
-        {isLoading ? (
-          <Skeleton className="h-16 w-full" />
-        ) : visible.length === 0 ? (
-          <EmptyRow text={showClosed ? "No closed cases." : "No open eBay cases."} />
-        ) : (
-          visible.map((kase) => (
+        <QueueBody
+          isLoading={casesQuery.isLoading}
+          isError={casesQuery.isError}
+          isSuccess={casesQuery.isSuccess}
+          refetch={casesQuery.refetch}
+          isEmpty={visible.length === 0}
+          emptyText={showClosed ? "No closed cases." : "No open eBay cases."}
+          kind="eBay cases"
+        >
+          {visible.map((kase) => (
             <div
               key={kase.caseId}
               data-focus-id={kase.caseId}
@@ -1724,8 +1731,8 @@ function CasesCard() {
                 />
               )}
             </div>
-          ))
-        )}
+          ))}
+        </QueueBody>
       </CardContent>
       <TrackingDialog
         open={!!trackingFor}

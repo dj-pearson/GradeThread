@@ -24,6 +24,8 @@ const OFFERS_TABLE = "src/components/flipdesk/best-offers-table.tsx";
 const MESSAGES_TABLE = "src/components/flipdesk/buyer-messages-table.tsx";
 const OFFERS_SURFACE = [OFFERS, OFFERS_TABLE, MESSAGES_TABLE];
 const POST_SALE = "src/pages/flipdesk/post-sale.tsx";
+// PS-01: the empty row moved into the shared list body with the error branch.
+const QUEUE_BODY = "src/components/flipdesk/post-sale/queue-body.tsx";
 const NOTE = "src/components/flipdesk/platform-coverage-note.tsx";
 
 function read(rel: string): string {
@@ -118,7 +120,7 @@ describe("an empty list looks like an answer (US-2541)", () => {
   });
 
   it("the post-sale lists say which marketplace they are empty FOR", () => {
-    const src = read(POST_SALE);
+    const src = read(QUEUE_BODY);
     expect(src).toMatch(/function EmptyRow/);
     expect(src).toMatch(/<EmptyState/);
     expect(src).toContain("eBay cases only");
