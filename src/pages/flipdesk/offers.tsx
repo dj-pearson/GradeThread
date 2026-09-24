@@ -229,7 +229,7 @@ function SendOfferCard() {
     try {
       const res = await send.mutateAsync({
         listingIds: [...selected],
-        discountPercentage: String(Math.round(pct)),
+        discountPct: Math.round(pct),
         message: message.trim() || undefined,
       });
       toast.success(`Offer sent on ${res.count} listing(s).`);

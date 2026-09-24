@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -16,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { edgeFetch } from "@/lib/edge-fetch";
+import { useEbaySendOffer, useEbaySendOffersToday } from "@/hooks/use-ebay";
 
 // US-2943: the morning list of watchers worth an offer.
 //
@@ -38,67 +37,21 @@ import { edgeFetch } from "@/lib/edge-fetch";
 // so this card says what is wrong and what to do instead, in one place, rather
 // than rendering an error the seller can do nothing about.
 
-interface Candidate {
-  listingId: string;
-  title: string | null;
-  priceCents: number | null;
-  watchers: number;
-  daysListed: number | null;
-  lastOfferedAt: string | null;
-}
-
-interface TodayResponse {
-  available: boolean;
-  detail?: string;
-  fallback?: { kind: string; detail: string; href: string };
-  cooldownDays?: number;
-  discountPct?: number;
-  candidates: Candidate[];
-  suppressed: Candidate[];
-  exposureCents?: number | null;
-}
-
 function money(cents: number | null | undefined): string {
   return cents == null ? "—" : `$${(cents / 100).toFixed(2)}`;
 }
 
 export function SendOffersToday() {
-  const qc = useQueryClient();
   const confirm = useConfirm();
   const [discount, setDiscount] = useState("10");
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const pct = Math.min(Math.max(Number(discount) || 10, 1), 60);
-  const { data, isLoading } = useQuery({
-    queryKey: ["ebay_send_offers_today", pct],
-    staleTime: 5 * 60_000,
-    queryFn: async (): Promise<TodayResponse> => {
-      const res = await edgeFetch(
-        `/api/flipdesk/ebay/negotiation/send-offer-today?discount_pct=${pct}`,
-      );
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load today's offer candidates.");
-      return json as TodayResponse;
-    },
-  });
-
-  const send = useMutation<{ count: number }, Error, { ids: string[] }>({
-    mutationFn: async ({ ids }) => {
-      const res = await edgeFetch("/api/flipdesk/ebay/negotiation/send-offer", {
-        method: "POST",
-        body: JSON.stringify({ listing_ids: ids, discount_percentage: String(pct) }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.detail || json.error || "eBay rejected the offer.");
-      return json;
-    },
-    onSuccess: (res) => {
-      toast.success(`Offer sent to watchers on ${res.count} item${res.count === 1 ? "" : "s"}.`);
-      setPicked(new Set());
-      void qc.invalidateQueries({ queryKey: ["ebay_send_offers_today"] });
-    },
-    onError: (err) => toastError(err, "The offer did not send."),
-  });
+  // OM-04: tenant-keyed, and the discount is not part of the key.
+  const { data, isLoading } = useEbaySendOffersToday();
+  // OM-04: the shared hook, which also refreshes this list, the eligible list
+  // and the analytics once an offer goes out.
+  const send = useEbaySendOffer();
 
   const selected = useMemo(
     () => (data?.candidates ?? []).filter((c) => picked.has(c.listingId)),
@@ -121,7 +74,18 @@ export function SendOffersToday() {
       confirmLabel: "Send offers",
     });
     if (!ok) return;
-    send.mutate({ ids: selected.map((c) => c.listingId) });
+    send.mutate(
+      { listingIds: selected.map((c) => c.listingId), discountPct: pct },
+      {
+        onSuccess: (res) => {
+          toast.success(
+            `Offer sent to watchers on ${res.count} item${res.count === 1 ? "" : "s"}.`,
+          );
+          setPicked(new Set());
+        },
+        onError: (err) => toastError(err, "The offer did not send."),
+      },
+    );
   }
 
   if (isLoading) {

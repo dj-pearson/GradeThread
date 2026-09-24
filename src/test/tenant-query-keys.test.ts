@@ -32,7 +32,6 @@ const KNOWN: Record<string, string> = {
   ebay_comps: "market comparables for a query, not seller data",
   // Predate MP-05 and are off the Marketplaces page. Migrate, then delete.
   ebay_sync_runs: "keyed on user.id, not the workspace owner",
-  ebay_messages: "untenanted; buyer messages page",
   ebay_returns: "untenanted; returns page",
   ebay_inquiries: "untenanted; returns page",
   ebay_cases: "untenanted; returns page",
@@ -40,11 +39,8 @@ const KNOWN: Record<string, string> = {
   ebay_payment_disputes: "untenanted; disputes page",
   ebay_promotable_listings: "keyed on user.id, not the workspace owner",
   ebay_return_analytics: "untenanted; analytics page",
-  ebay_offer_analytics: "untenanted; analytics page",
   ebay_listings: "keyed on user.id; SKU match",
   ebay_ad_spend: "untenanted; ad spend card",
-  ebay_send_offers_today: "untenanted; offers page",
-  ebay_threshold_conflicts: "untenanted; offers page",
 };
 
 function walk(dir: string): string[] {

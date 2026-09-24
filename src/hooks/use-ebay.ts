@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
@@ -1857,11 +1862,32 @@ export interface EbayBuyerMessage {
   answered?: boolean;
 }
 
+/**
+ * OM-04: an edge failure that keeps what the edge said. The page branches on
+ * `code` (offer_not_open, body_too_long, counter_out_of_range) and on `status`
+ * (409), so a hook that threw a bare Error made every one of those look alike.
+ */
+export type EdgeError = Error & { status?: number; code?: string };
+
+function edgeError(
+  res: Response,
+  json: { detail?: string; error?: string; code?: string },
+  fallback: string,
+  preferDetail = true,
+): EdgeError {
+  const err: EdgeError = new Error(
+    (preferDetail ? json.detail || json.error : json.error) || fallback,
+  );
+  err.status = res.status;
+  if (typeof json.code === "string") err.code = json.code;
+  return err;
+}
+
 export function useEbayBestOffers(enabled = true) {
   const tenantKey = useTenantKey();
-  return useQuery({
+  return useQuery<EbayBestOffer[], EdgeError>({
     queryKey: ["ebay_best_offers", tenantKey],
-    enabled,
+    enabled: enabled && !!tenantKey,
     // US-2236 AC4: Best Offers carry short (often 48h) deadlines, so a stale
     // inbox can cost a sale. Refresh in the background every 90s and on window
     // focus — but only while the tab is visible (refetchIntervalInBackground
@@ -1874,7 +1900,7 @@ export function useEbayBestOffers(enabled = true) {
         { headers: await ebayHeaders() },
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load best offers.");
+      if (!res.ok) throw edgeError(res, json, "Couldn't load best offers.", false);
       return (json.offers ?? []) as EbayBestOffer[];
     },
   });
@@ -1883,16 +1909,17 @@ export function useEbayBestOffers(enabled = true) {
 export function useEbayRespondOffer() {
   return useMutation<
     { ok: true },
-    Error & { status?: number },
+    EdgeError,
     {
       bestOfferId: string;
       itemId: string;
       action: "Accept" | "Decline" | "Counter";
       counterPrice?: number;
+      counterQuantity?: number;
       message?: string;
     }
   >({
-    mutationFn: async ({ bestOfferId, itemId, action, counterPrice, message }) => {
+    mutationFn: async ({ bestOfferId, itemId, action, counterPrice, counterQuantity, message }) => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/offers/${encodeURIComponent(
           bestOfferId,
@@ -1904,18 +1931,13 @@ export function useEbayRespondOffer() {
             item_id: itemId,
             action,
             counter_price: counterPrice,
+            counter_quantity: counterQuantity,
             message,
           }),
         },
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const err: Error & { status?: number } = new Error(
-          json.detail || json.error || "Offer response failed.",
-        );
-        err.status = res.status;
-        throw err;
-      }
+      if (!res.ok) throw edgeError(res, json, "Offer response failed.");
       return json;
     },
   });
@@ -1957,28 +1979,41 @@ export function useEbayNegotiationCapability(enabled = true) {
 
 export function useEbayEligibleOffers(enabled = true) {
   const tenantKey = useTenantKey();
-  return useQuery({
+  return useQuery<EbayEligibleItem[], EdgeError>({
     queryKey: ["ebay_eligible_offers", tenantKey],
-    enabled,
+    enabled: enabled && !!tenantKey,
     queryFn: async (): Promise<EbayEligibleItem[]> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/eligible`,
         { headers: await ebayHeaders() },
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load eligible listings.");
+      if (!res.ok) throw edgeError(res, json, "Couldn't load eligible listings.", false);
       return (json.items ?? []) as EbayEligibleItem[];
     },
   });
 }
 
+/**
+ * OM-02: what a send answers. A partial multi-store send is a 200 with the ids
+ * that went and the ones that did not, so the page can keep only the failures
+ * selected and a retry does not re-offer the watchers who already have one.
+ */
+export interface EbaySendOfferResult {
+  ok: boolean;
+  count: number;
+  sent?: string[];
+  failed?: Array<{ ids: string[]; detail: string }>;
+}
+
 export function useEbaySendOffer() {
+  const qc = useQueryClient();
   return useMutation<
-    { ok: true; count: number },
-    Error & { status?: number },
-    { listingIds: string[]; discountPercentage?: string; message?: string }
+    EbaySendOfferResult,
+    EdgeError,
+    { listingIds: string[]; discountPct: number; message?: string }
   >({
-    mutationFn: async ({ listingIds, discountPercentage, message }) => {
+    mutationFn: async ({ listingIds, discountPct, message }) => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/send-offer`,
         {
@@ -1986,34 +2021,112 @@ export function useEbaySendOffer() {
           headers: await ebayHeaders(),
           body: JSON.stringify({
             listing_ids: listingIds,
-            discount_percentage: discountPercentage,
+            discount_percentage: discountPct,
             message,
           }),
         },
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const err: Error & { status?: number } = new Error(
-          json.detail || json.error || "Send-offer failed.",
-        );
-        err.status = res.status;
-        throw err;
-      }
-      return json;
+      if (!res.ok) throw edgeError(res, json, "Send-offer failed.");
+      return json as EbaySendOfferResult;
+    },
+    // OM-04: what went out changes three lists. Without this the ranked list
+    // offered the same watchers again, because it still thought they had none.
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["ebay_send_offers_today"] });
+      void qc.invalidateQueries({ queryKey: ["ebay_eligible_offers"] });
+      void qc.invalidateQueries({ queryKey: ["ebay_offer_analytics"] });
+    },
+  });
+}
+
+// US-2943: the morning list of watchers worth an offer.
+export interface SendOfferCandidate {
+  listingId: string;
+  title: string | null;
+  priceCents: number | null;
+  watchers: number;
+  daysListed: number | null;
+  lastOfferedAt: string | null;
+}
+
+export interface SendOffersTodayResponse {
+  available: boolean;
+  detail?: string;
+  fallback?: { kind: string; detail: string; href: string };
+  cooldownDays?: number;
+  discountPct?: number;
+  candidates: SendOfferCandidate[];
+  suppressed: SendOfferCandidate[];
+  exposureCents?: number | null;
+}
+
+/**
+ * OM-04: tenant-keyed, and the discount is NOT in the key. The candidate list
+ * does not depend on it and the card computes the exposure itself, so typing
+ * "15" into the discount box used to fire a new eBay-backed request per key.
+ */
+export function useEbaySendOffersToday(enabled = true) {
+  const tenantKey = useTenantKey();
+  return useQuery<SendOffersTodayResponse, EdgeError>({
+    queryKey: ["ebay_send_offers_today", tenantKey],
+    enabled: enabled && !!tenantKey,
+    staleTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const res = await edgeFetch("/api/flipdesk/ebay/negotiation/send-offer-today");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw edgeError(res, json, "Couldn't load today's offer candidates.", false);
+      return json as SendOffersTodayResponse;
+    },
+  });
+}
+
+// US-2944: eBay's per-listing auto-accept against the seller's own rule.
+export interface OfferThresholdConflict {
+  listing_id: string;
+  title: string | null;
+  stored_auto_accept_cents: number | null;
+  rule_auto_accept_cents: number | null;
+  reason: "raised_to_rule" | "raised_to_margin_floor" | "dropped_no_valid_price";
+}
+
+export interface OfferThresholdConflictReport {
+  rule: { id: string; accept_at_pct: number; margin_floor_pct: number } | null;
+  conflicts: OfferThresholdConflict[];
+}
+
+export function useEbayThresholdConflicts(enabled = true) {
+  const tenantKey = useTenantKey();
+  return useQuery<OfferThresholdConflictReport, EdgeError>({
+    queryKey: ["ebay_threshold_conflicts", tenantKey],
+    enabled: enabled && !!tenantKey,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const res = await edgeFetch("/api/flipdesk/ebay/negotiation/threshold-conflicts");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw edgeError(res, json, "Couldn't check your offer thresholds.", false);
+      return json as OfferThresholdConflictReport;
     },
   });
 }
 
 export function useEbayMessages(enabled = true) {
-  return useQuery({
-    queryKey: ["ebay_messages"],
-    enabled,
+  const tenantKey = useTenantKey();
+  return useQuery<EbayBuyerMessage[], EdgeError>({
+    queryKey: ["ebay_messages", tenantKey],
+    enabled: enabled && !!tenantKey,
+    // OM-04: a buyer question is time-sensitive too. Less often than offers,
+    // which carry a hard deadline, but no longer "only when you reload".
+    refetchInterval: 120_000,
+    refetchOnWindowFocus: true,
+    staleTime: 60_000,
     queryFn: async (): Promise<EbayBuyerMessage[]> => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/messages`, {
         headers: await ebayHeaders(),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load messages.");
+      if (!res.ok) throw edgeError(res, json, "Couldn't load messages.", false);
       return (json.messages ?? []) as EbayBuyerMessage[];
     },
   });
@@ -2022,7 +2135,7 @@ export function useEbayMessages(enabled = true) {
 export function useEbayReplyMessage() {
   return useMutation<
     { ok: true },
-    Error & { status?: number },
+    EdgeError,
     { messageId: string; itemId: string; recipientId: string; body: string }
   >({
     mutationFn: async ({ messageId, itemId, recipientId, body }) => {
@@ -2041,13 +2154,7 @@ export function useEbayReplyMessage() {
         },
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const err: Error & { status?: number } = new Error(
-          json.detail || json.error || "Reply failed.",
-        );
-        err.status = res.status;
-        throw err;
-      }
+      if (!res.ok) throw edgeError(res, json, "Reply failed.");
       return json;
     },
   });
@@ -3795,17 +3902,20 @@ export interface OfferAnalytics {
 }
 
 export function useOfferAnalytics(days = 180, enabled = true) {
-  return useQuery({
-    queryKey: ["ebay_offer_analytics", days],
-    enabled,
+  const tenantKey = useTenantKey();
+  return useQuery<OfferAnalytics, EdgeError>({
+    queryKey: ["ebay_offer_analytics", tenantKey, days],
+    enabled: enabled && !!tenantKey,
     staleTime: 5 * 60_000,
+    // The window toggle should not blank the card while the next one loads.
+    placeholderData: keepPreviousData,
     queryFn: async (): Promise<OfferAnalytics> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/analytics?days=${days}`,
         { headers: await ebayHeaders() },
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't load offer analytics.");
+      if (!res.ok) throw edgeError(res, json, "Couldn't load offer analytics.", false);
       return json as OfferAnalytics;
     },
   });

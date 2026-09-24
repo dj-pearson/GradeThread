@@ -1,9 +1,13 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { edgeFetch } from "@/lib/edge-fetch";
+import {
+  useEbayThresholdConflicts,
+  type OfferThresholdConflict,
+} from "@/hooks/use-ebay";
 
 // US-2944: eBay's auto-accept versus the seller's own rule.
 //
@@ -19,18 +23,7 @@ import { edgeFetch } from "@/lib/edge-fetch";
 // Each row names what eBay will accept at and what the rule wants, so the
 // seller can decide whether the rule or the listing is the one that is wrong.
 
-interface Conflict {
-  listing_id: string;
-  title: string | null;
-  stored_auto_accept_cents: number | null;
-  rule_auto_accept_cents: number | null;
-  reason: "raised_to_rule" | "raised_to_margin_floor" | "dropped_no_valid_price";
-}
-
-interface ConflictReport {
-  rule: { id: string; accept_at_pct: number; margin_floor_pct: number } | null;
-  conflicts: Conflict[];
-}
+type Conflict = OfferThresholdConflict;
 
 function money(cents: number | null): string {
   return cents == null ? "nothing" : `$${(cents / 100).toFixed(2)}`;
@@ -44,16 +37,8 @@ const REASON_NOTE: Record<Conflict["reason"], string> = {
 
 export function OfferThresholdConflicts() {
   const qc = useQueryClient();
-  const { data } = useQuery({
-    queryKey: ["ebay_threshold_conflicts"],
-    staleTime: 5 * 60_000,
-    queryFn: async (): Promise<ConflictReport> => {
-      const res = await edgeFetch("/api/flipdesk/ebay/negotiation/threshold-conflicts");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't check your offer thresholds.");
-      return json as ConflictReport;
-    },
-  });
+  // OM-04: tenant-keyed, via the shared hook.
+  const { data } = useEbayThresholdConflicts();
 
   const reconcile = useMutation<{ updated: number }, Error, { listingIds: string[] }>({
     mutationFn: async ({ listingIds }) => {
