@@ -59,7 +59,7 @@ export function SellerScorecardCard({
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { fetchSellerScorecard } = await import("@/lib/seller-scorecard");
-      return fetchSellerScorecard(periodStart);
+      return fetchSellerScorecard(periodStart, tenantKey as string);
     },
   });
 

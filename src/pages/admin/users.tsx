@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { supabase } from "@/lib/supabase";
-import { sanitizeSearch, endOfDayIso } from "@/lib/search-filter";
+import { sanitizeSearch, localDayRangeIso } from "@/lib/search-filter";
 import type { UserRow } from "@/types/database";
 import { fetchAdminUserListStats } from "@/lib/admin-aggregates";
 import { FLIPDESK_PLANS, getPlanBadgeClasses, getRoleBadgeClasses } from "@/lib/constants";
@@ -157,8 +157,10 @@ export function AdminUsersPage() {
       }
       if (planFilter !== "all") query = query.eq("flipdesk_plan", planFilter);
       if (roleFilter !== "all") query = query.eq("role", roleFilter);
-      if (dateFrom) query = query.gte("created_at", dateFrom);
-      if (dateTo) query = query.lte("created_at", endOfDayIso(dateTo));
+      // SUB-08: local calendar days, the dates the table shows.
+      const range = localDayRangeIso(dateFrom, dateTo);
+      if (range.gte) query = query.gte("created_at", range.gte);
+      if (range.lt) query = query.lt("created_at", range.lt);
 
       query = query
         .order("created_at", { ascending: false })

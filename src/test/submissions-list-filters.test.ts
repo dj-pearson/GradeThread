@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { sanitizeSearch, endOfDayIso } from "@/lib/search-filter";
+import { sanitizeSearch } from "@/lib/search-filter";
 
 // US-2544. The Submissions list wore a magnifying glass over two dropdowns and
 // no search box, sorted without saying which way, showed an empty disputes
@@ -11,6 +11,13 @@ import { sanitizeSearch, endOfDayIso } from "@/lib/search-filter";
 const PAGE = "src/pages/submissions.tsx";
 function page(): string {
   return readFileSync(resolve(process.cwd(), PAGE), "utf8");
+}
+// SUB-07: the filters and the CSV export moved out of the page so the list's
+// two sort branches and the export share one set of predicates.
+const QUERY = "src/lib/submission-list-query.ts";
+const EXPORT = "src/lib/submissions-export.ts";
+function lib(rel: string): string {
+  return readFileSync(resolve(process.cwd(), rel), "utf8");
 }
 
 describe("search term sanitizing (US-2544)", () => {
@@ -26,24 +33,22 @@ describe("search term sanitizing (US-2544)", () => {
     expect(sanitizeSearch("size 32x34")).toBe("size 32x34");
   });
 
-  it("ends a date range at the end of that day", () => {
-    // .lte against a bare date compares to midnight, which drops everything
-    // filed on the day the seller picked as the end of the range.
-    expect(endOfDayIso("2026-08-14")).toBe("2026-08-14T23:59:59.999Z");
-  });
+  // SUB-08: the date bounds moved to local days; see search-filter-local-days.test.ts.
 });
 
 describe("the list can be searched and dated (US-2544 AC2)", () => {
   it("has a real search field over title and brand", () => {
     const src = page();
     expect(src).toContain("<SearchInput");
-    expect(src).toContain("title.ilike.%${term}%,brand.ilike.%${term}%");
+    expect(lib(QUERY)).toContain("title.ilike.%${term}%,brand.ilike.%${term}%");
   });
 
   it("debounces rather than querying every keystroke", () => {
     const src = page();
     expect(src).toMatch(/setSearchDraft/);
-    expect(src, "no debounce timer").toMatch(/setTimeout\(\s*\(\)\s*=>\s*\{[\s\S]{0,120}setSearch\(searchDraft\)/);
+    expect(src, "no debounce timer").toMatch(
+      /setTimeout\(\s*\(\)\s*=>\s*\{[\s\S]{0,200}updateParams\(\{ search: searchDraft, page: 0 \}, \{ replace: true \}\)/,
+    );
   });
 
   it("filters BOTH sort branches, not just the default one", () => {
@@ -51,8 +56,10 @@ describe("the list can be searched and dated (US-2544 AC2)", () => {
     // them changes the result set when you click a column header, which is the
     // kind of bug nobody reports because it looks like the data changed.
     const src = page();
-    expect(src, "the helper is gone").toContain("const withSearchAndDates =");
-    const calls = src.match(/= withSearchAndDates\(/g) ?? [];
+    expect(lib(QUERY), "the helper is gone").toContain(
+      "export function applySubmissionFilters",
+    );
+    const calls = src.match(/= applySubmissionFilters\(/g) ?? [];
     expect(calls.length, "expected one call per sort branch").toBe(2);
   });
 
@@ -103,14 +110,14 @@ describe("disputes collapse when there are none (US-2544 AC3)", () => {
 
 describe("rows are selectable and exportable (US-2544 AC4)", () => {
   it("the export takes an optional id list", () => {
-    const src = page();
-    expect(src).toContain("async function exportSubmissionsCsv(ids?: string[])");
-    expect(src).toContain("exportSubmissionsCsv([...selected])");
+    expect(lib(EXPORT)).toContain("export async function exportSubmissionsCsv(");
+    expect(lib(EXPORT)).toContain("ids?: string[];");
+    expect(page()).toMatch(/exportSubmissionsCsv\(ownerId!, \{\s*ids: \[\.\.\.selected\],/);
   });
 
   it("the selected ids are chunked like every other id list here", () => {
     // A selection can span hundreds of rows; one .in() would overflow the URL.
-    const src = page();
+    const src = lib(EXPORT);
     const chunked = /if \(ids\) \{[\s\S]{0,200}fetchInChunks/.test(src);
     expect(chunked, "selected-id export is not chunked").toBe(true);
   });
@@ -118,8 +125,8 @@ describe("rows are selectable and exportable (US-2544 AC4)", () => {
   it("select-all covers the page, and selection survives paging", () => {
     const src = page();
     expect(src).toContain("allOnPageSelected");
-    expect(src, "selection must not be cleared by setPage").not.toMatch(
-      /setPage\([^)]*\);\s*setSelected\(new Set\(\)\)/,
+    expect(src, "selection must not be cleared by paging").not.toMatch(
+      /updateParams\(\{ page: [^}]*\}\);?\s*setSelected\(new Set\(\)\)/,
     );
   });
 });
@@ -138,7 +145,7 @@ describe("the table has a phone layout (US-2544 AC5)", () => {
     const cards = src.slice(src.indexOf('className="space-y-2 md:hidden"'));
     const card = cards.slice(0, cards.indexOf('className="hidden overflow-x-auto md:block"'));
     expect(card).toContain("<ScoreBandIcon");
-    expect(card).toContain("getStatusBadgeClasses");
+    expect(card).toContain("<SubmissionStatusBadge status={sub.status} />");
   });
 });
 
@@ -149,5 +156,83 @@ describe("the search guard is shared, not copied (US-2544)", () => {
     expect(src, "a second local copy has appeared").not.toContain(
       "function sanitizeSearch",
     );
+  });
+});
+
+describe("every read is scoped to the effective owner (SUB-01)", () => {
+  // RLS unions own rows, member workspaces and, for an admin, every seller.
+  // Leaning on it alone showed admins the whole platform in their list, count,
+  // CSV and My Disputes. Each from() below must name the owner explicitly.
+  it("each submissions/disputes read carries .eq(\"user_id\", ownerId)", () => {
+    let total = 0;
+    for (const src of [page(), lib(EXPORT)]) {
+      const reads = [...src.matchAll(/\.from\("(submissions|disputes)"\)/g)];
+      total += reads.length;
+      for (const m of reads) {
+        const window = src.slice(m.index!, m.index! + 260);
+        expect(window, `unscoped ${m[1]} read at offset ${m.index}`).toMatch(
+          /\.eq\("user_id", ownerId!?\)/,
+        );
+      }
+    }
+    // Two list branches, My Disputes, and the export's two reads.
+    expect(total).toBeGreaterThanOrEqual(5);
+  });
+
+  it("the owner comes from the active workspace, and keys carry it", () => {
+    const src = page();
+    expect(src).toContain("s.activeWorkspaceOwnerId ?? s.user?.id");
+    expect(src).toMatch(/queryKey: \[\s*"submissions",\s*ownerId,/);
+    expect(src).toContain('queryKey: ["my-disputes", ownerId]');
+  });
+});
+
+describe("grades show on every row that has one (SUB-06)", () => {
+  it("both sort branches pass every row id to fetchGradeMap", () => {
+    const src = page();
+    const calls = [...src.matchAll(/await fetchGradeMap\(([^;]*)\);/g)].map((m) =>
+      (m[1] ?? "").replace(/\s+/g, ""),
+    );
+    expect(calls).toEqual(["rows.map((s)=>s.id)", "submissionRows.map((s)=>s.id)"]);
+    expect(src, "a status filter crept back in").not.toMatch(
+      /fetchGradeMap\(\s*submissionRows\.filter/,
+    );
+  });
+
+  it("a pending_review score is labelled Preliminary", () => {
+    const src = page();
+    expect((src.match(/sub\.status === "pending_review" && \(\s*<PreliminaryLabel \/>/g) ?? []).length).toBe(2);
+  });
+
+  it("paging keeps the table mounted, within one owner only", () => {
+    const src = page();
+    expect(src).toContain("prevQuery?.queryKey[1] === ownerId ? keepPreviousData(prev) : undefined");
+    expect(src).toContain("isFetching && isPlaceholderData");
+  });
+});
+
+describe("list state lives in the URL (SUB-12)", () => {
+  it("filters, sort and page are read from the search params, not useState", () => {
+    const src = page();
+    expect(src).toContain("} = readListParams(searchParams);");
+    for (const gone of ["setStatusFilter", "setGarmentTypeFilter", "setSortField", "setPage("]) {
+      expect(src, `${gone} is back`).not.toContain(gone);
+    }
+  });
+
+  it("rows are real links, not role=button rows", () => {
+    const src = page();
+    const table = src.slice(src.indexOf('className="hidden overflow-x-auto md:block"'));
+    const body = table.slice(0, table.indexOf("</Table>"));
+    expect(body).not.toContain("<ClickableRow");
+    expect(body).toContain("to={submissionHref(sub.id)}");
+    expect(body).toContain("after:absolute after:inset-0");
+    expect(body).toContain('<TableCell className="relative z-10">');
+    const cards = src.slice(src.indexOf('className="space-y-2 md:hidden"'));
+    expect(cards.slice(0, cards.indexOf("</ul>"))).toContain("<Link");
+  });
+
+  it("the header checkbox has an indeterminate state", () => {
+    expect(page()).toContain('? "indeterminate"');
   });
 });

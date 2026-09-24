@@ -83,11 +83,12 @@ describe("the post-grade cards are one section (US-2545 AC4)", () => {
     const start = src.indexOf("What's next");
     expect(start).toBeGreaterThan(-1);
     const open = src.lastIndexOf(
-      "{submission.status === \"completed\" && gradeReport && (",
+      // SUB-14: gated once, and kept through a dispute.
+      "{gradeReport?.certificate_id && gradeIsShareable && (",
       start,
     );
     expect(open, "the section has no single gate").toBeGreaterThan(-1);
-    expect(start - open).toBeLessThan(600);
+    expect(start - open).toBeLessThan(900);
   });
 
   it("the dispute card and the photo grid stay OUTSIDE it", () => {

@@ -19,11 +19,14 @@ export function ImageLightbox({
   index,
   onClose,
   onNavigate,
+  onImageError,
 }: {
   images: LightboxImage[];
   index: number;
   onClose: () => void;
   onNavigate: (next: number) => void;
+  /** SUB-11: lets a caller re-sign an expired URL. */
+  onImageError?: (id: string) => void;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const touchStartX = useRef<number | null>(null);
@@ -171,6 +174,7 @@ export function ImageLightbox({
           <img
             src={current.src}
             alt={current.caption}
+            onError={() => onImageError?.(current.id)}
             className={cn(
               "select-none transition-transform",
               zoomed

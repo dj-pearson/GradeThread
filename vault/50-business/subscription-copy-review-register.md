@@ -9,11 +9,16 @@ code_refs:
   - services/edge-functions/src/tests/subscription-copy-register_test.ts
   - src/test/subscription-disclosure-coverage.test.ts
   - src/test/legal-page-dates-and-crossrefs.test.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-24
 tags: [legal, billing, subscriptions, compliance, counsel]
 summary: Every place GradeThread tells a customer about a recurring charge, its ending, or where their data goes — who drafted the wording, and whether counsel has seen it.
 ---
 
+> **Re-reviewed 2026-09-24.** email.ts changed for SUB-05: the INTERNAL
+> admin alert `sendDisputeFiledAdminEmail` gained appeal wording ("New
+> authenticity appeal"). It goes to the dispute inbox, not a customer, and
+> carries no billing or data disclosure, so nothing this register tracks moved.
+>
 > **Re-reviewed 2026-09-11.** email.ts changed for US-3233, one word: 'cancelling' to 'canceling' in the
 > billing-change email. No disclosure was added, removed or reworded, and this
 > register tracks WHICH disclosures each email carries. Re-read against the diff:

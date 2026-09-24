@@ -32,10 +32,14 @@ export interface ReturnReductionSummary {
 
 // The RPC is not in the generated Database types; call it through a narrowly
 // typed view of the client (same pattern as flipdesk_sell_through etc.).
+//
+// 00836: the web calls flipdesk_return_reduction_v2, which takes the workspace
+// on screen (p_owner_id) and filters to it before counting. v1 blended every
+// workspace RLS admits, and stays only because the iOS app calls it.
 type RpcClient = {
   rpc: (
-    fn: "flipdesk_return_reduction",
-    args: { p_period_start: string | null },
+    fn: "flipdesk_return_reduction_v2",
+    args: { p_period_start: string | null; p_owner_id: string },
   ) => Promise<{
     data: ReturnReductionSummary | null;
     error: { message: string } | null;
@@ -50,10 +54,12 @@ const EMPTY_STAT: ReturnStat = { sold: 0, returns: 0, returnRate: null };
  */
 export async function fetchReturnReduction(
   periodStart: string | null,
+  ownerId: string,
 ): Promise<ReturnReductionSummary> {
   const client = supabase as unknown as RpcClient;
-  const { data, error } = await client.rpc("flipdesk_return_reduction", {
+  const { data, error } = await client.rpc("flipdesk_return_reduction_v2", {
     p_period_start: periodStart,
+    p_owner_id: ownerId,
   });
   if (error) throw new Error(error.message);
   return (

@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { formatReadyBy, useGradeTurnaround } from "@/hooks/use-grade-turnaround";
 import { toast } from "sonner";
 import {
@@ -25,7 +25,18 @@ import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { EmptyState } from "@/components/ui/empty-state";
 import { showExampleAction } from "@/lib/show-example";
 import { PageHeader } from "@/components/ui/page-header";
-import { statusFilterFromSearch } from "@/lib/dashboard-grading-queue";
+import { submissionHref } from "@/lib/dashboard-grading-queue";
+import { formatLabel } from "@/lib/format-label";
+import { SUBMISSION_STAGE_COPY } from "@/lib/grading-journey";
+import { SubmissionStatusBadge } from "@/components/submission/submission-status-badge";
+import {
+  clampedPage,
+  LIST_STATUS_FILTERS,
+  readListParams,
+  writeListParams,
+  type SortField,
+  type SubmissionsListParams,
+} from "@/lib/submissions-list-params";
 import { QueryBoundary } from "@/components/ui/query-boundary";
 import { ErrorState } from "@/components/ui/error-state";
 import { Badge } from "@/components/ui/badge";
@@ -54,33 +65,28 @@ import {
 } from "@/components/ui/table";
 import { ClickableRow } from "@/components/clickable-row";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { csvBlob, downloadBlob } from "@/lib/download";
-import { escapeCsvCell } from "@/lib/items-csv";
-import { todayLocalDate, toLocalDate } from "@/lib/local-date";
-import { sanitizeSearch, endOfDayIso } from "@/lib/search-filter";
+import { exportSubmissionsCsv } from "@/lib/submissions-export";
+import {
+  applySubmissionFilters,
+  submissionFiltersActive,
+  type SubmissionListFilters,
+} from "@/lib/submission-list-query";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/hooks/use-auth";
-import { fetchInChunks } from "@/lib/supabase-batch";
+import { useAuthStore } from "@/stores/auth-store";
 import {
   GARMENT_TYPES,
-  SUBMISSION_STATUSES,
-  getStatusBadgeClasses,
   getScoreColor,
 } from "@/lib/constants";
-import type { SubmissionRow, GradeReportRow, DisputeRow } from "@/types/database";
+import type {
+  SubmissionRow,
+  GradeReportRow,
+  DisputeRow,
+} from "@/types/database";
+import { DISPUTE_KIND_LABEL, disputeCountLabel } from "@/lib/dispute-kind";
 
 const PAGE_SIZE = 20;
-
-type SortField = "created_at" | "overall_score";
-type SortDirection = "asc" | "desc";
-
-function formatLabel(value: string): string {
-  return value
-    .split(/[-_]/)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
 
 // US-2204: the table renders five submission columns, so the list query fetches
 // exactly those. Typing the rows as the projection (rather than SubmissionRow)
@@ -96,6 +102,16 @@ interface SubmissionWithGrade extends SubmissionListRow {
   grade_report?: Pick<GradeReportRow, "overall_score" | "grade_tier"> | null;
 }
 
+// SUB-06: a pending_review score is the AI's grade before a human finalizes
+// it. Show it, but say it may change.
+function PreliminaryLabel() {
+  return (
+    <span className="rounded border border-violet-300 px-1 text-[11px] font-medium text-violet-700 dark:border-violet-700 dark:text-violet-300">
+      Preliminary
+    </span>
+  );
+}
+
 function LoadingSkeleton() {
   return (
     <div className="space-y-3">
@@ -105,143 +121,6 @@ function LoadingSkeleton() {
         </div>
       ))}
     </div>
-  );
-}
-
-// US-2544 AC4: pass `ids` to export just the checked rows. Omit it for the
-// whole account, which is what the toolbar button has always done.
-async function exportSubmissionsCsv(ids?: string[]) {
-  // US-2204: the export is unpaginated by design, so it is the one submissions
-  // read whose row width scales with the whole account. It writes seven columns
-  // out of the row, and the grade_reports side is already projected — so project
-  // this side too and type it as the projection, which makes tsc (not a runtime
-  // blank cell) the thing that catches a new CSV column reaching for a field the
-  // query stopped fetching.
-  type ExportSubmission = Pick<
-    SubmissionRow,
-    | "id"
-    | "created_at"
-    | "title"
-    | "brand"
-    | "garment_type"
-    | "garment_category"
-    | "status"
-  >;
-
-  // Fetch ALL submissions (no pagination), or just the selected ids. The id
-  // list is chunked for the same reason the grade-report join below is: a
-  // selection can span hundreds of rows and would overflow the request URL.
-  const EXPORT_COLUMNS =
-    "id, created_at, title, brand, garment_type, garment_category, status";
-  let allSubmissions: ExportSubmission[];
-  if (ids) {
-    allSubmissions = await fetchInChunks<ExportSubmission>(ids, async (chunk) => {
-      const { data, error } = await supabase
-        .from("submissions")
-        .select(EXPORT_COLUMNS)
-        .in("id", chunk)
-        .order("created_at", { ascending: false });
-      return { data, error };
-    });
-  } else {
-    const { data: submissions, error: subError } = await supabase
-      .from("submissions")
-      .select(EXPORT_COLUMNS)
-      .order("created_at", { ascending: false });
-    if (subError) throw subError;
-    allSubmissions = (submissions ?? []) as ExportSubmission[];
-  }
-
-  if (allSubmissions.length === 0) {
-    toast.info("No submissions to export.");
-    return;
-  }
-
-  // Fetch all grade reports for these submissions
-  const submissionIds = allSubmissions.map((s) => s.id);
-
-  type ExportGradeReport = Pick<
-    GradeReportRow,
-    | "overall_score"
-    | "grade_tier"
-    | "fabric_condition_score"
-    | "structural_integrity_score"
-    | "cosmetic_appearance_score"
-    | "functional_elements_score"
-    | "odor_cleanliness_score"
-    | "certificate_id"
-  > & { submission_id: string };
-
-  // Batch the id list — a full export can span hundreds of submissions, which
-  // would overflow the request URL as a single .in() call.
-  const reportRows = await fetchInChunks<ExportGradeReport>(
-    submissionIds,
-    async (chunk) => {
-      const { data, error } = await supabase
-        .from("grade_reports")
-        .select(
-          "submission_id, overall_score, grade_tier, fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, certificate_id"
-        )
-        .in("submission_id", chunk)
-        .is("superseded_at", null); // US-479: active report per submission
-      return { data, error };
-    },
-  );
-  const gradeMap = new Map(reportRows.map((r) => [r.submission_id, r]));
-
-  const headers = [
-    "Submission Date",
-    "Title",
-    "Brand",
-    "Garment Type",
-    "Category",
-    "Status",
-    "Overall Grade",
-    "Grade Tier",
-    "Fabric Condition",
-    "Structural Integrity",
-    "Cosmetic Appearance",
-    "Functional Elements",
-    "Cleanliness",
-    "Certificate URL",
-  ];
-
-  const rows = allSubmissions.map((sub) => {
-    const grade = gradeMap.get(sub.id);
-    const certUrl = grade?.certificate_id
-      ? `${window.location.origin}/cert/${grade.certificate_id}`
-      : "";
-
-    const dateStr = toLocalDate(sub.created_at);
-    const fields: string[] = [
-      dateStr,
-      sub.title,
-      sub.brand ?? "",
-      formatLabel(sub.garment_type),
-      formatLabel(sub.garment_category),
-      formatLabel(sub.status),
-      grade ? grade.overall_score.toFixed(1) : "",
-      grade?.grade_tier ?? "",
-      grade ? grade.fabric_condition_score.toFixed(1) : "",
-      grade ? grade.structural_integrity_score.toFixed(1) : "",
-      grade ? grade.cosmetic_appearance_score.toFixed(1) : "",
-      grade ? grade.functional_elements_score.toFixed(1) : "",
-      grade ? grade.odor_cleanliness_score.toFixed(1) : "",
-      certUrl,
-    ];
-    return fields.map(escapeCsvCell);
-  });
-
-  const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join(
-    "\n"
-  );
-
-  const dateStr = todayLocalDate();
-  downloadBlob(
-    csvBlob(csvContent),
-    ids
-      ? `gradethread_export_${allSubmissions.length}_selected_${dateStr}.csv`
-      : `gradethread_export_${dateStr}.csv`,
   );
 }
 
@@ -260,69 +139,106 @@ function getDisputeStatusBadgeClasses(status: string): string {
   }
 }
 
-interface DisputeWithSubmission extends DisputeRow {
+type DisputeWithSubmission = Pick<
+  DisputeRow,
+  "id" | "kind" | "status" | "reason" | "resolution_notes" | "created_at"
+> & {
   submission_title?: string;
   submission_id?: string;
-}
+};
 
 export function SubmissionsPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  // SUB-01: RLS alone is not a tenant scope here. It unions the caller's own
+  // rows, every workspace they belong to and, for an admin, every seller on the
+  // platform. The list is one workspace's ledger, so every read below names the
+  // effective owner, and the query keys carry it so a workspace switch refetches
+  // instead of serving the other tenant's cached page.
+  const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId ?? s.user?.id);
   // US-3328: finished grades held for their paid turnaround, and when each lands.
   const turnaround = useGradeTurnaround();
   const [exporting, setExporting] = useState(false);
-  const [page, setPage] = useState(0);
-  // US-3075 AC2: the dashboard grading-queue tiles link here with ?status=<s>,
-  // and until now this page ignored it: every tile landed on the same
-  // unfiltered table and the seller had to re-pick the status they had just
-  // clicked. Seeded ONCE, as a lazy initial value, so the URL sets where the
-  // page opens and the Status select owns it from then on. Re-reading the
-  // parameter on every render would fight the select instead.
-  const [searchParams] = useSearchParams();
-  const [statusFilter, setStatusFilter] = useState<string>(() =>
-    statusFilterFromSearch(searchParams),
-  );
+  // SUB-12: status, type, search, dates, sort and page live in the URL, so
+  // Back from a submission, refresh and open-in-new-tab keep them. Each is
+  // validated on read (readListParams); US-3075's ?status=<s> links from the
+  // dashboard tiles still land filtered, through statusFilterFromSearch.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const {
+    status: statusFilter,
+    garmentType: garmentTypeFilter,
+    search,
+    dateFrom,
+    dateTo,
+    sortField,
+    sortDirection,
+    page,
+  } = readListParams(searchParams);
+  function updateParams(
+    patch: Partial<SubmissionsListParams>,
+    opts?: { replace?: boolean },
+  ) {
+    setSearchParams((prev) => writeListParams(prev, patch), opts);
+  }
 
   // Press "n" to start a new submission.
   useKeyboardShortcuts([
     { key: "n", handler: () => navigate("/dashboard/submissions/new") },
   ]);
-  const [garmentTypeFilter, setGarmentTypeFilter] = useState<string>("all");
-  const [sortField, setSortField] = useState<SortField>("created_at");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   // US-2544 AC2: free-text search over title + brand, plus a date range. The
-  // draft is what the field shows; `search` is what the query runs on, 300ms
-  // behind it, so typing a nine-character brand does not fire nine queries.
-  const [searchDraft, setSearchDraft] = useState("");
-  const [search, setSearch] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  // draft is what the field shows; `search` (the URL's q) is what the query
+  // runs on, 300ms behind it, so typing a nine-character brand does not fire
+  // nine queries. The debounced write REPLACES the history entry, so Back is
+  // not a keystroke-by-keystroke undo.
+  const [searchDraft, setSearchDraft] = useState(search);
+  const lastWrittenSearch = useRef(search);
   // US-2544 AC4: ids picked for a partial export.
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // A selection belongs to one workspace. Carrying it across a switch would
+  // show "3 selected" for rows the new owner does not have.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [ownerId]);
 
   useEffect(() => {
     const t = setTimeout(() => {
-      setSearch(searchDraft);
-      setPage(0);
+      if (searchDraft.trim() === search) return;
+      lastWrittenSearch.current = searchDraft.trim();
+      updateParams({ search: searchDraft, page: 0 }, { replace: true });
     }, 300);
     return () => clearTimeout(t);
-  }, [searchDraft]);
+    // updateParams only wraps setSearchParams, which is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchDraft, search]);
 
-  const filtersActive =
-    statusFilter !== "all" ||
-    garmentTypeFilter !== "all" ||
-    searchDraft.trim() !== "" ||
-    dateFrom !== "" ||
-    dateTo !== "";
+  // Back/forward changed q under the field: follow it, but never clobber
+  // what the seller is typing with the value this page just wrote.
+  useEffect(() => {
+    if (search === lastWrittenSearch.current) return;
+    lastWrittenSearch.current = search;
+    setSearchDraft(search);
+  }, [search]);
+
+  // The filters the query runs on, shared with the CSV export (SUB-07).
+  const filters: SubmissionListFilters = {
+    status: statusFilter,
+    garmentType: garmentTypeFilter,
+    search,
+    dateFrom,
+    dateTo,
+  };
+  const filtersActive = submissionFiltersActive({ ...filters, search: searchDraft });
 
   function clearFilters() {
-    setStatusFilter("all");
-    setGarmentTypeFilter("all");
     setSearchDraft("");
-    setSearch("");
-    setDateFrom("");
-    setDateTo("");
-    setPage(0);
+    lastWrittenSearch.current = "";
+    updateParams({
+      status: "all",
+      garmentType: "all",
+      search: "",
+      dateFrom: "",
+      dateTo: "",
+      page: 0,
+    });
   }
 
   const {
@@ -330,10 +246,12 @@ export function SubmissionsPage() {
     isLoading,
     isError,
     isFetching,
+    isPlaceholderData,
     refetch,
   } = useQuery({
     queryKey: [
       "submissions",
+      ownerId,
       page,
       statusFilter,
       garmentTypeFilter,
@@ -344,30 +262,10 @@ export function SubmissionsPage() {
       sortDirection,
     ],
     queryFn: async () => {
-      // US-2544 AC2: the search and date filters must reach BOTH sort branches.
-      // Defining them once is the only thing stopping the score branch from
-      // quietly ignoring a filter the date branch honours.
-      //
-      // `.or()` on a SELECT is fine on prod PostgREST — it is only rejected on
-      // UPDATE/DELETE (US-1552). sanitizeSearch strips the characters `.or()`
-      // parses as syntax.
-      const withSearchAndDates = <
-        T extends {
-          or: (filter: string) => T;
-          gte: (column: string, value: string) => T;
-          lte: (column: string, value: string) => T;
-        },
-      >(
-        q: T,
-      ): T => {
-        let next = q;
-        const term = sanitizeSearch(search);
-        if (term) next = next.or(`title.ilike.%${term}%,brand.ilike.%${term}%`);
-        if (dateFrom) next = next.gte("created_at", dateFrom);
-        if (dateTo) next = next.lte("created_at", endOfDayIso(dateTo));
-        return next;
-      };
-
+      // US-2544 AC2: every filter must reach BOTH sort branches. Applying them
+      // through one helper (shared with the CSV export) is the only thing
+      // stopping the score branch from quietly ignoring a filter the date
+      // branch honours.
       // Fetch the active grade report (overall_score + grade_tier) for a set of
       // submission ids, keyed by submission_id. US-479: only the non-superseded
       // report per submission.
@@ -402,12 +300,9 @@ export function SubmissionsPage() {
         let scoreQuery = supabase
           .from("submissions")
           .select(SUBMISSION_LIST_COLUMNS, { count: "exact" })
+          .eq("user_id", ownerId!)
           .is("superseded_at", null);
-        if (statusFilter !== "all")
-          scoreQuery = scoreQuery.eq("status", statusFilter);
-        if (garmentTypeFilter !== "all")
-          scoreQuery = scoreQuery.eq("garment_type", garmentTypeFilter);
-        scoreQuery = withSearchAndDates(scoreQuery);
+        scoreQuery = applySubmissionFilters(scoreQuery, filters);
         scoreQuery = scoreQuery
           .order("overall_score", {
             ascending: sortDirection === "asc",
@@ -431,17 +326,12 @@ export function SubmissionsPage() {
       let query = supabase
         .from("submissions")
         .select(SUBMISSION_LIST_COLUMNS, { count: "exact" })
+        .eq("user_id", ownerId!)
         // US-949: superseded (retaken) submissions are history — exclude them
         // from the active list + count so a retake doesn't leave a dead row.
         .is("superseded_at", null);
 
-      if (statusFilter !== "all") {
-        query = query.eq("status", statusFilter);
-      }
-      if (garmentTypeFilter !== "all") {
-        query = query.eq("garment_type", garmentTypeFilter);
-      }
-      query = withSearchAndDates(query);
+      query = applySubmissionFilters(query, filters);
 
       query = query
         .order("created_at", { ascending: sortDirection === "asc" })
@@ -453,9 +343,11 @@ export function SubmissionsPage() {
 
       const submissionRows = (submissions ?? []) as SubmissionListRow[];
 
-      const gradeMap = await fetchGradeMap(
-        submissionRows.filter((s) => s.status === "completed").map((s) => s.id)
-      );
+      // SUB-06: every row id, the same set the score branch passes. Filtering
+      // to "completed" hid the grade on disputed and pending_review rows under
+      // this sort only, and those are the rows a seller watches. RLS already
+      // hides a held grade_reports row until its release.
+      const gradeMap = await fetchGradeMap(submissionRows.map((s) => s.id));
 
       const merged: SubmissionWithGrade[] = submissionRows.map((s) => ({
         ...s,
@@ -464,6 +356,13 @@ export function SubmissionsPage() {
 
       return { submissions: merged, totalCount: count ?? 0 };
     },
+    enabled: !!ownerId,
+    // SUB-06: keep the current page on screen while the next one loads, so
+    // paging and sorting dim the table instead of dropping to the skeleton.
+    // Only within one owner: a workspace switch must never show the previous
+    // tenant's rows, even dimmed.
+    placeholderData: (prev, prevQuery) =>
+      prevQuery?.queryKey[1] === ownerId ? keepPreviousData(prev) : undefined,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -474,60 +373,41 @@ export function SubmissionsPage() {
     isFetching: disputesFetching,
     refetch: refetchDisputes,
   } = useQuery({
-    queryKey: ["my-disputes", user?.id],
-    queryFn: async () => {
-      // Fetch all user disputes
+    queryKey: ["my-disputes", ownerId],
+    queryFn: async (): Promise<DisputeWithSubmission[]> => {
+      // SUB-04: one embedded read instead of three serial ones. The grade
+      // report and submission ride along through their foreign keys, and RLS
+      // still applies to each embedded table.
       const { data: disputes, error: disputeError } = await supabase
         .from("disputes")
-        .select("*")
-        .order("created_at", { ascending: false });
+        .select(
+          "id, kind, status, reason, resolution_notes, created_at, grade_reports(submission_id, submissions(title))",
+        )
+        .eq("user_id", ownerId!)
+        .order("created_at", { ascending: false })
+        .limit(50);
 
       if (disputeError) throw disputeError;
 
-      const disputeRows = (disputes ?? []) as DisputeRow[];
+      const rows = (disputes ?? []) as unknown as Array<
+        Pick<
+          DisputeRow,
+          "id" | "kind" | "status" | "reason" | "resolution_notes" | "created_at"
+        > & {
+          grade_reports: {
+            submission_id: string;
+            submissions: { title: string } | null;
+          } | null;
+        }
+      >;
 
-      if (disputeRows.length === 0) return [];
-
-      // Fetch grade reports to get submission IDs
-      const gradeReportIds = disputeRows.map((d) => d.grade_report_id);
-      const { data: gradeReports, error: grError } = await supabase
-        .from("grade_reports")
-        .select("id, submission_id")
-        .in("id", gradeReportIds);
-      // US-1636: surface a join failure instead of silently dropping every
-      // dispute's item title (which read as "unknown item").
-      if (grError) throw grError;
-
-      const gradeReportRows = (gradeReports ?? []) as Array<{
-        id: string;
-        submission_id: string;
-      }>;
-      const gradeReportMap = new Map(
-        gradeReportRows.map((gr) => [gr.id, gr.submission_id])
-      );
-
-      // Fetch submission titles
-      const submissionIds = gradeReportRows.map((gr) => gr.submission_id);
-      const { data: subs, error: subsError } = await supabase
-        .from("submissions")
-        .select("id, title")
-        .in("id", submissionIds);
-      if (subsError) throw subsError;
-
-      const subRows = (subs ?? []) as Array<{ id: string; title: string }>;
-      const subMap = new Map(subRows.map((s) => [s.id, s.title]));
-
-      const result: DisputeWithSubmission[] = disputeRows.map((d) => {
-        const subId = gradeReportMap.get(d.grade_report_id);
-        return {
-          ...d,
-          submission_id: subId,
-          submission_title: subId ? subMap.get(subId) : undefined,
-        };
-      });
-
-      return result;
+      return rows.map(({ grade_reports: gr, ...d }) => ({
+        ...d,
+        submission_id: gr?.submission_id,
+        submission_title: gr?.submissions?.title,
+      }));
     },
+    enabled: !!ownerId,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -537,14 +417,24 @@ export function SubmissionsPage() {
   const totalCount = data?.totalCount ?? 0;
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
+  // SUB-12: a ?page= past the end (a stale link, rows deleted since) lands on
+  // the last real page instead of an empty table.
+  // Only from a real answer for THIS page: placeholder data carries the
+  // previous query's count, and a Back/Forward from a short filtered list to
+  // page 5 of the full one would otherwise snap page 5 to page 1.
+  const pageOverflow =
+    data && !isPlaceholderData ? clampedPage(page, totalCount, PAGE_SIZE) : null;
+  useEffect(() => {
+    if (pageOverflow !== null) updateParams({ page: pageOverflow }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageOverflow]);
+
   function toggleSort(field: SortField) {
     if (sortField === field) {
-      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+      updateParams({ sortDirection: sortDirection === "asc" ? "desc" : "asc", page: 0 });
     } else {
-      setSortField(field);
-      setSortDirection("desc");
+      updateParams({ sortField: field, sortDirection: "desc", page: 0 });
     }
-    setPage(0);
   }
 
   // US-2544 AC2: both headers used to render the same static ArrowUpDown, so
@@ -579,6 +469,7 @@ export function SubmissionsPage() {
 
   const allOnPageSelected =
     submissions.length > 0 && submissions.every((s) => selected.has(s.id));
+  const someOnPageSelected = submissions.some((s) => selected.has(s.id));
 
   function toggleSelectAll() {
     setSelected((prev) => {
@@ -598,11 +489,15 @@ export function SubmissionsPage() {
           <>
             <Button
               variant="outline"
-              disabled={exporting}
+              disabled={exporting || !ownerId}
               onClick={async () => {
                 setExporting(true);
                 try {
-                  await exportSubmissionsCsv();
+                  // SUB-07: exports what the filters on screen match.
+                  const n = await exportSubmissionsCsv(ownerId!, { filters });
+                  if (n > 0) {
+                    toast.success(`Exported ${n} submission${n !== 1 ? "s" : ""}.`);
+                  }
                 } catch {
                   toast.error("Failed to export submissions.");
                 } finally {
@@ -611,7 +506,11 @@ export function SubmissionsPage() {
               }}
             >
               <Download className="mr-1 h-4 w-4" />
-              {exporting ? "Exporting…" : "Export CSV"}
+              {exporting
+                ? "Exporting…"
+                : filtersActive && totalCount > 0 && !isPlaceholderData
+                  ? `Export ${totalCount} matching`
+                  : "Export CSV"}
             </Button>
             <Button
               variant="outline"
@@ -652,8 +551,7 @@ export function SubmissionsPage() {
               <Select
                 value={statusFilter}
                 onValueChange={(v) => {
-                  setStatusFilter(v);
-                  setPage(0);
+                  updateParams({ status: v, page: 0 });
                 }}
               >
                 <SelectTrigger aria-label="Filter submissions by status">
@@ -661,9 +559,11 @@ export function SubmissionsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Statuses</SelectItem>
-                  {SUBMISSION_STATUSES.map((s) => (
+                  {/* SUB-13: every status, expired included, named the way
+                      the badge names it. */}
+                  {LIST_STATUS_FILTERS.map((s) => (
                     <SelectItem key={s} value={s}>
-                      {formatLabel(s)}
+                      {SUBMISSION_STAGE_COPY[s].label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -674,8 +574,7 @@ export function SubmissionsPage() {
               <Select
                 value={garmentTypeFilter}
                 onValueChange={(v) => {
-                  setGarmentTypeFilter(v);
-                  setPage(0);
+                  updateParams({ garmentType: v, page: 0 });
                 }}
               >
                 <SelectTrigger aria-label="Filter submissions by garment type">
@@ -692,8 +591,8 @@ export function SubmissionsPage() {
               </Select>
             </div>
 
-            {/* US-2544 AC2: date range. Both bounds are inclusive — see
-                endOfDayIso for why the end needs saying out loud. */}
+            {/* US-2544 AC2: date range. Both bounds are inclusive local days;
+                see localDayRangeIso (SUB-08). */}
             <div className="flex items-center gap-2">
               <Label htmlFor="date-from" className="text-xs text-muted-foreground">
                 From
@@ -705,8 +604,7 @@ export function SubmissionsPage() {
                 max={dateTo || undefined}
                 className="w-40"
                 onChange={(e) => {
-                  setDateFrom(e.target.value);
-                  setPage(0);
+                  updateParams({ dateFrom: e.target.value, page: 0 });
                 }}
               />
               <Label htmlFor="date-to" className="text-xs text-muted-foreground">
@@ -719,8 +617,7 @@ export function SubmissionsPage() {
                 min={dateFrom || undefined}
                 className="w-40"
                 onChange={(e) => {
-                  setDateTo(e.target.value);
-                  setPage(0);
+                  updateParams({ dateTo: e.target.value, page: 0 });
                 }}
               />
             </div>
@@ -788,7 +685,13 @@ export function SubmissionsPage() {
               )
             }
           >
-            <>
+            <div
+              className={cn(
+                "transition-opacity",
+                isFetching && isPlaceholderData && "pointer-events-none opacity-60",
+              )}
+              aria-busy={isFetching && isPlaceholderData}
+            >
               {/* US-2544 AC4: what the checkboxes are for. Only appears once
                   something is checked, so the toolbar stays quiet otherwise. */}
               {selected.size > 0 && (
@@ -800,11 +703,16 @@ export function SubmissionsPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={exporting}
+                      disabled={exporting || !ownerId}
                       onClick={async () => {
                         setExporting(true);
                         try {
-                          await exportSubmissionsCsv([...selected]);
+                          const n = await exportSubmissionsCsv(ownerId!, {
+                            ids: [...selected],
+                          });
+                          if (n > 0) {
+                            toast.success(`Exported ${n} submission${n !== 1 ? "s" : ""}.`);
+                          }
                         } catch {
                           toast.error("Failed to export the selected submissions.");
                         } finally {
@@ -832,19 +740,20 @@ export function SubmissionsPage() {
               <ul className="space-y-2 md:hidden">
                 {submissions.map((sub) => (
                   <li key={sub.id}>
-                    <div className="flex items-start gap-3 rounded-lg border p-3">
-                      <input
-                        type="checkbox"
-                        className="mt-1 h-4 w-4 flex-shrink-0 cursor-pointer"
-                        checked={selected.has(sub.id)}
-                        onChange={() => toggleSelected(sub.id)}
-                        aria-label={`Select ${sub.title}`}
-                      />
-                      <button
-                        className="min-w-0 flex-1 space-y-1 text-left"
-                        onClick={() =>
-                          navigate(`/dashboard/submissions/${sub.id}`)
-                        }
+                    <div className="flex items-start gap-1 rounded-lg border p-1.5">
+                      {/* SUB-12: a 44px target on a phone, outside the link. */}
+                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center">
+                        <Checkbox
+                          checked={selected.has(sub.id)}
+                          onCheckedChange={() => toggleSelected(sub.id)}
+                          aria-label={`Select ${sub.title}`}
+                          className="relative after:absolute after:-inset-3.5 after:content-['']"
+                        />
+                      </div>
+                      {/* SUB-12: a real link, so it opens in a new tab. */}
+                      <Link
+                        to={submissionHref(sub.id)}
+                        className="min-w-0 flex-1 space-y-1 py-1.5 pr-1.5 text-left"
                       >
                         <p className="truncate font-medium">{sub.title}</p>
                         <p className="truncate text-xs text-muted-foreground">
@@ -852,12 +761,7 @@ export function SubmissionsPage() {
                           {new Date(sub.created_at).toLocaleDateString()}
                         </p>
                         <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                          <Badge
-                            variant="outline"
-                            className={cn(getStatusBadgeClasses(sub.status))}
-                          >
-                            {formatLabel(sub.status)}
-                          </Badge>
+                          <SubmissionStatusBadge status={sub.status} />
                           {turnaround.releaseTimes[sub.id] && (
                             <span className="text-xs text-muted-foreground">
                               Ready by {formatReadyBy(turnaround.releaseTimes[sub.id] ?? "")}
@@ -878,10 +782,13 @@ export function SubmissionsPage() {
                               <span className="text-xs font-medium text-muted-foreground">
                                 {sub.grade_report.grade_tier}
                               </span>
+                              {sub.status === "pending_review" && (
+                                <PreliminaryLabel />
+                              )}
                             </span>
                           )}
                         </div>
-                      </button>
+                      </Link>
                     </div>
                   </li>
                 ))}
@@ -892,11 +799,15 @@ export function SubmissionsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-10">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 cursor-pointer"
-                          checked={allOnPageSelected}
-                          onChange={toggleSelectAll}
+                        <Checkbox
+                          checked={
+                            allOnPageSelected
+                              ? true
+                              : someOnPageSelected
+                                ? "indeterminate"
+                                : false
+                          }
+                          onCheckedChange={toggleSelectAll}
                           aria-label="Select all on this page"
                         />
                       </TableHead>
@@ -925,38 +836,34 @@ export function SubmissionsPage() {
                   </TableHeader>
                   <TableBody>
                     {submissions.map((sub) => (
-                      <ClickableRow
+                      // SUB-12: a plain row whose title is a real link, with a
+                      // stretched hit area over the whole row. Ctrl/cmd-click
+                      // opens a new tab and the table keeps its semantics
+                      // (the old role="button" <tr> had neither).
+                      <TableRow
                         key={sub.id}
-                        className="hover:bg-muted/50"
-                        onActivate={() =>
-                          navigate(`/dashboard/submissions/${sub.id}`)
-                        }
-                        activateLabel={`View submission ${sub.title}`}
+                        className="relative hover:bg-muted/50 focus-within:bg-muted/50"
                       >
-                        <TableCell>
-                          {/* ClickableRow already ignores clicks that start
-                              inside a nested input, so this does not navigate. */}
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 cursor-pointer"
+                        <TableCell className="relative z-10">
+                          <Checkbox
                             checked={selected.has(sub.id)}
-                            onChange={() => toggleSelected(sub.id)}
+                            onCheckedChange={() => toggleSelected(sub.id)}
                             aria-label={`Select ${sub.title}`}
                           />
                         </TableCell>
                         <TableCell className="font-medium">
-                          {sub.title}
+                          <Link
+                            to={submissionHref(sub.id)}
+                            className="after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:underline"
+                          >
+                            {sub.title}
+                          </Link>
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {sub.brand ?? "—"}
                         </TableCell>
                         <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={cn(getStatusBadgeClasses(sub.status))}
-                          >
-                            {formatLabel(sub.status)}
-                          </Badge>
+                          <SubmissionStatusBadge status={sub.status} />
                           {turnaround.releaseTimes[sub.id] && (
                             <p className="mt-1 text-xs text-muted-foreground">
                               Ready by {formatReadyBy(turnaround.releaseTimes[sub.id] ?? "")}
@@ -979,6 +886,9 @@ export function SubmissionsPage() {
                               <span className="text-xs font-medium text-muted-foreground">
                                 {sub.grade_report.grade_tier}
                               </span>
+                              {sub.status === "pending_review" && (
+                                <PreliminaryLabel />
+                              )}
                             </span>
                           ) : (
                             <span className="text-muted-foreground">—</span>
@@ -987,7 +897,7 @@ export function SubmissionsPage() {
                         <TableCell className="text-muted-foreground">
                           {new Date(sub.created_at).toLocaleDateString()}
                         </TableCell>
-                      </ClickableRow>
+                      </TableRow>
                     ))}
                   </TableBody>
                 </Table>
@@ -1004,7 +914,7 @@ export function SubmissionsPage() {
                       variant="outline"
                       size="sm"
                       disabled={page === 0}
-                      onClick={() => setPage((p) => p - 1)}
+                      onClick={() => updateParams({ page: page - 1 })}
                     >
                       <ChevronLeft className="mr-1 h-4 w-4" />
                       Previous
@@ -1013,7 +923,7 @@ export function SubmissionsPage() {
                       variant="outline"
                       size="sm"
                       disabled={page >= totalPages - 1}
-                      onClick={() => setPage((p) => p + 1)}
+                      onClick={() => updateParams({ page: page + 1 })}
                     >
                       Next
                       <ChevronRight className="ml-1 h-4 w-4" />
@@ -1021,7 +931,7 @@ export function SubmissionsPage() {
                   </div>
                 </div>
               )}
-            </>
+            </div>
           </QueryBoundary>
         </CardContent>
       </Card>
@@ -1046,9 +956,7 @@ export function SubmissionsPage() {
               My Disputes
             </CardTitle>
             {myDisputes.length > 0 && (
-              <CardDescription>
-                {myDisputes.length} dispute{myDisputes.length !== 1 ? "s" : ""}
-              </CardDescription>
+              <CardDescription>{disputeCountLabel(myDisputes)}</CardDescription>
             )}
           </div>
         </CardHeader>
@@ -1068,6 +976,7 @@ export function SubmissionsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Submission</TableHead>
+                    <TableHead>Type</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Reason</TableHead>
                     <TableHead>Filed</TableHead>
@@ -1079,7 +988,12 @@ export function SubmissionsPage() {
                     const cells = (
                       <>
                         <TableCell className="font-medium">
-                          {d.submission_title ?? "Unknown"}
+                          {d.submission_title ?? "Deleted submission"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="whitespace-nowrap">
+                            {DISPUTE_KIND_LABEL[d.kind] ?? DISPUTE_KIND_LABEL.grade}
+                          </Badge>
                         </TableCell>
                         <TableCell>
                           <Badge
@@ -1091,13 +1005,19 @@ export function SubmissionsPage() {
                             {formatLabel(d.status)}
                           </Badge>
                         </TableCell>
-                        <TableCell className="max-w-[200px] truncate text-muted-foreground">
+                        <TableCell
+                          className="max-w-[200px] truncate text-muted-foreground"
+                          title={d.reason}
+                        >
                           {d.reason}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {new Date(d.created_at).toLocaleDateString()}
                         </TableCell>
-                        <TableCell className="max-w-[200px] truncate text-muted-foreground">
+                        <TableCell
+                          className="max-w-[200px] truncate text-muted-foreground"
+                          title={d.resolution_notes ?? undefined}
+                        >
                           {d.resolution_notes ?? "—"}
                         </TableCell>
                       </>

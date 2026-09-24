@@ -422,6 +422,9 @@ app.use("/api/payments/*", authMiddleware);
 app.use("/api/keys/*", authMiddleware);
 app.use("/api/notifications/dispute-status", authMiddleware);
 app.use("/api/notifications/dispute-filed", authMiddleware);
+// SUB-05: a member's dispute is stored under the workspace owner, so the
+// legacy alert route has to resolve workspaceOwnerId too.
+app.use("/api/notifications/dispute-filed", workspaceMiddleware);
 app.use("/api/notifications/register", authMiddleware);
 // US-2557: the badge count. Session-scoped, so it needs the same guard.
 app.use("/api/notifications/unread-count", authMiddleware);

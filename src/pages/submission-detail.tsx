@@ -9,7 +9,6 @@ import {
   Flag,
   Clock,
   Loader2,
-  Upload,
   Package,
   Camera,
   Tag,
@@ -18,6 +17,7 @@ import {
   Eye,
   ShieldCheck,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRealtimeSubmission } from "@/hooks/use-realtime-submission";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { GradeRangeNote } from "@/components/grading/grade-range-note";
@@ -59,6 +59,7 @@ import {
   DISPUTE_WINDOW_DAYS,
   COUNTERFEIT_RISK_LABELS,
   getScoreColor,
+  getScoreBorderColor,
   getTierBadgeClasses,
   getProgressColor,
   tierBandRange,
@@ -76,6 +77,11 @@ import {
 } from "@/lib/grading-journey";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
+import {
+  isFinalPayStatus,
+  PAY_RETRY_ATTEMPTS,
+  PAY_RETRY_DELAY_MS,
+} from "@/lib/pay-retry";
 import { track } from "@/lib/analytics";
 import {
   Select,
@@ -87,20 +93,43 @@ import {
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { ShowcaseConsentPanel } from "@/components/showcase/showcase-consent-panel";
 import { RepairTriagePanel } from "@/components/grade/repair-triage-panel";
+import { DetectedIssues } from "@/components/grade/detected-issues";
+import { DISPUTE_KIND_LABEL } from "@/lib/dispute-kind";
+import { ConditionNoteCard } from "@/components/grade/condition-note-card";
+import { formatCountdown } from "@/lib/countdown";
+import { formatLabel } from "@/lib/format-label";
+import { SubmissionStatusBadge } from "@/components/submission/submission-status-badge";
+import {
+  detailPollDelay,
+  isPollableStatus,
+  releaseRefetchDelay,
+} from "@/lib/detail-poll";
+import { DisputeEvidencePicker } from "@/components/grade/dispute-evidence-picker";
+import {
+  prepareEvidence,
+  EVIDENCE_MAX_WIDTH,
+  EVIDENCE_QUALITY,
+} from "@/lib/dispute-evidence";
+import { compressImage } from "@/lib/image-utils";
 import { GarmentPassportPanel } from "@/components/passport/garment-passport-panel";
 import { CertShareActions } from "@/components/certificate/cert-share-actions";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
-import type {
-  SubmissionRow,
-  GradeReportRow,
-  SubmissionImageRow,
-  DisputeRow,
-  InventoryItemRow,
-  ImageType,
-} from "@/types/database";
+import type { DisputeRow, ImageType } from "@/types/database";
+import {
+  GRADE_REPORT_OWNER_SELECT,
+  SUBMISSION_DETAIL_COLUMNS,
+  type SubmissionDetailView,
+  SUBMISSION_IMAGE_COLUMNS,
+  LINKED_ITEM_COLUMNS,
+  DISPUTE_VIEW_COLUMNS,
+  type GradeReportOwnerView,
+  type SubmissionImageView,
+  type LinkedItemView,
+  type DisputeView,
+} from "@/lib/submission-detail-columns";
 import type { RetakeBridgeState } from "@/lib/retake-submission";
 import { HelpLink } from "@/components/help/help-link";
 
@@ -110,24 +139,18 @@ function getConfidenceLabel(score: number): {
   icon: typeof CheckCircle2;
 } {
   if (score > 0.85)
-    return { label: "High", color: "text-emerald-500", icon: CheckCircle2 };
+    return { label: "High", color: "text-emerald-700 dark:text-emerald-400", icon: CheckCircle2 };
   if (score >= 0.75)
-    return { label: "Medium", color: "text-amber-500", icon: Info };
+    return { label: "Medium", color: "text-amber-700 dark:text-amber-400", icon: Info };
   return { label: "Low", color: "text-brand-red-text", icon: AlertTriangle };
 }
 
-function formatLabel(value: string): string {
-  return value
-    .split(/[-_]/)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
 
 // US-1466: minutes past which an in-flight grade is flagged as "taking longer
 // than expected" (with a support link). Normal grades finish well under this.
 // US-1437: read a File as a base64 data URI so dispute evidence can be POSTed to
 // the server-side validation endpoint (which sniffs + strips it before storage).
-function fileToDataUrl(file: File): Promise<string> {
+function fileToDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
@@ -171,15 +194,145 @@ function LoadingSkeleton() {
   );
 }
 
+// SUB-11: the page's secondary reads, as functions so each section's retry
+// re-runs only its own read rather than the whole page load.
+
+type LinkedItemRead = { ok: true; item: LinkedItemView | null } | { ok: false };
+
+async function readLinkedItem(submissionId: string): Promise<LinkedItemRead> {
+  const { data, error } = await supabase
+    .from("inventory_items")
+    .select(LINKED_ITEM_COLUMNS)
+    .eq("submission_id", submissionId)
+    .maybeSingle();
+  if (error) return { ok: false };
+  return { ok: true, item: data ? (data as LinkedItemView) : null };
+}
+
+/** Signed URLs by image id, or null when any photo could not be signed. */
+async function signImages(
+  images: readonly SubmissionImageView[],
+): Promise<Record<string, string> | null> {
+  if (images.length === 0) return {};
+  // One request for every path (US-276: private bucket, TTL <= 900s).
+  const { data: signed, error } = await supabase.storage
+    .from("submission-images")
+    .createSignedUrls(
+      images.map((img) => img.storage_path),
+      900,
+    );
+  if (error || !signed || signed.some((entry) => entry.error)) return null;
+  const idByPath = new Map(images.map((img) => [img.storage_path, img.id]));
+  const urls: Record<string, string> = {};
+  for (const entry of signed) {
+    const imageId = entry.path ? idByPath.get(entry.path) : undefined;
+    if (imageId && entry.signedUrl) urls[imageId] = entry.signedUrl;
+  }
+  return urls;
+}
+
+type PhotosRead =
+  | { ok: true; images: SubmissionImageView[]; urls: Record<string, string> }
+  | { ok: false };
+
+async function readPhotos(
+  listed: PromiseLike<{ data: unknown; error: unknown }>,
+): Promise<PhotosRead> {
+  const { data, error } = await listed;
+  if (error) return { ok: false };
+  const images = [...((data ?? []) as SubmissionImageView[])].sort(
+    (a, b) => a.display_order - b.display_order,
+  );
+  const urls = await signImages(images);
+  // US-3433: a photo we cannot sign is a photo the seller cannot see, and it
+  // is the same answer as one we could not list.
+  if (!urls) return { ok: false };
+  return { ok: true, images, urls };
+}
+
+function listPhotos(submissionId: string) {
+  return supabase
+    .from("submission_images")
+    .select(SUBMISSION_IMAGE_COLUMNS)
+    .eq("submission_id", submissionId);
+}
+
+function getDisputeStatusBadge(status: string) {
+  switch (status) {
+    case "open":
+      return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-950/50 dark:text-yellow-300 dark:border-yellow-800";
+    case "under_review":
+      return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800";
+    case "resolved":
+      return "bg-green-100 text-green-800 border-green-200 dark:bg-green-950/50 dark:text-green-300 dark:border-green-800";
+    case "rejected":
+      return "bg-red-100 text-red-800 border-red-200 dark:bg-red-950/50 dark:text-red-300 dark:border-red-800";
+    default:
+      return "";
+  }
+}
+
+function DisputeStatusCard({
+  dispute,
+  title,
+  pendingCopy,
+}: {
+  dispute: DisputeView;
+  title: string;
+  pendingCopy: string;
+}) {
+  return (
+    <Card className="border-yellow-500/60 bg-yellow-500/5">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Flag className="h-4 w-4" />
+            {title}
+          </CardTitle>
+          <Badge
+            variant="outline"
+            className={cn(getDisputeStatusBadge(dispute.status))}
+          >
+            {formatLabel(dispute.status)}
+          </Badge>
+        </div>
+        <CardDescription>
+          Submitted {new Date(dispute.created_at).toLocaleDateString()}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div>
+          <p className="text-sm font-medium text-muted-foreground">Reason</p>
+          <p className="text-sm">{dispute.reason}</p>
+        </div>
+        {dispute.resolution_notes && (
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">
+              Resolution
+            </p>
+            <p className="text-sm">{dispute.resolution_notes}</p>
+          </div>
+        )}
+        {(dispute.status === "open" || dispute.status === "under_review") && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4" />
+            {pendingCopy}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SubmissionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const visible = useDocumentVisible();
-  const [submission, setSubmission] = useState<SubmissionRow | null>(null);
-  const [gradeReport, setGradeReport] = useState<GradeReportRow | null>(null);
-  const [images, setImages] = useState<SubmissionImageRow[]>([]);
+  const [submission, setSubmission] = useState<SubmissionDetailView | null>(null);
+  const [gradeReport, setGradeReport] = useState<GradeReportOwnerView | null>(null);
+  const [images, setImages] = useState<SubmissionImageView[]>([]);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   // US-2545 AC2: index of the photo open in the full-screen viewer.
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -189,7 +342,7 @@ export function SubmissionDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
-  const [dispute, setDispute] = useState<DisputeRow | null>(null);
+  const [dispute, setDispute] = useState<DisputeView | null>(null);
   /**
    * US-3427: the dispute lookup failed, so we do not know whether this report
    * has already been disputed.
@@ -204,7 +357,12 @@ export function SubmissionDetailPage() {
    * consults it rather than just leaning on `dispute` being null.
    */
   const [disputeCheckFailed, setDisputeCheckFailed] = useState(false);
-  const [linkedItem, setLinkedItem] = useState<InventoryItemRow | null>(null);
+  // SUB-04: the authenticity appeal on this report, kept apart from `dispute`.
+  const [appeal, setAppeal] = useState<DisputeView | null>(null);
+  // SUB-11: the page renders before the dispute read lands, so the action
+  // waits for it rather than offering to file against an unknown.
+  const [disputesLoaded, setDisputesLoaded] = useState(false);
+  const [linkedItem, setLinkedItem] = useState<LinkedItemView | null>(null);
   /**
    * US-3428: the linked-inventory lookup failed, so we do not know whether this
    * grade is already attached to a FlipDesk item.
@@ -235,6 +393,7 @@ export function SubmissionDetailPage() {
   const [disputeCategory, setDisputeCategory] = useState("");
   const [disputeReason, setDisputeReason] = useState("");
   const [disputePhotos, setDisputePhotos] = useState<File[]>([]);
+  const [evidenceTooLarge, setEvidenceTooLarge] = useState(false);
   const [submittingDispute, setSubmittingDispute] = useState(false);
 
   // Tracks the currently-rendered submission id so an in-flight refetch bound to
@@ -247,29 +406,37 @@ export function SubmissionDetailPage() {
   const refetchData = useCallback(async () => {
     if (!id) return;
     try {
-      const { data: sub, error: subError } = await supabase
-        .from("submissions")
-        .select("*")
-        .eq("id", id)
-        .single();
-      // A refetch (realtime handler or the 5s interval) can still be in flight
-      // when the route param changes A→B; without this guard its resolution would
+      // SUB-11: both reads together.
+      const [subRes, reportRes] = await Promise.all([
+        supabase.from("submissions").select(SUBMISSION_DETAIL_COLUMNS).eq("id", id).single(),
+        supabase
+          .from("grade_reports")
+          .select(GRADE_REPORT_OWNER_SELECT)
+          // US-479: a regraded submission keeps superseded history; fetch only
+          // the active report so maybeSingle resolves to one row.
+          .eq("submission_id", id)
+          .is("superseded_at", null)
+          .maybeSingle(),
+      ]);
+      // A refetch (realtime handler or the poll) can still be in flight when
+      // the route param changes A→B; without this guard its resolution would
       // setState the previous submission's data over B. Drop stale writes.
       if (currentIdRef.current !== id) return;
-      if (subError) throw subError;
-
-      const { data: reportData, error: reportError } = await supabase
-        .from("grade_reports")
-        .select("*")
-        // US-479: a regraded submission keeps superseded history; fetch only the
-        // active report so .single() resolves to exactly one row.
-        .eq("submission_id", id)
-        .is("superseded_at", null)
-        .maybeSingle();
-      if (currentIdRef.current !== id) return;
-      if (reportError) throw reportError;
-      if (sub) setSubmission(sub);
-      setGradeReport(reportData ?? null);
+      if (subRes.error) throw subRes.error;
+      if (reportRes.error) throw reportRes.error;
+      const sub = subRes.data as SubmissionDetailView | null;
+      const report = (reportRes.data ?? null) as GradeReportOwnerView | null;
+      // SUB-11: a poll that finds nothing new must not re-render the page.
+      if (sub) {
+        setSubmission((prev) =>
+          prev && prev.updated_at === sub.updated_at && prev.status === sub.status
+            ? prev
+            : sub,
+        );
+      }
+      setGradeReport((prev) =>
+        JSON.stringify(prev) === JSON.stringify(report) ? prev : report,
+      );
       setRefreshError(false);
     } catch {
       if (currentIdRef.current === id) setRefreshError(true);
@@ -293,12 +460,22 @@ export function SubmissionDetailPage() {
   // payment precedence (/api/grade/pay/:id) so the grade proceeds without a
   // second click. The credit-grant webhook lands a beat after Stripe redirects,
   // so we retry a few times before giving up.
-  const payRetryDone = useRef(false);
+  // SUB-09: keyed by submission id, so a second submission's return flow is
+  // not swallowed by the first one's flag, and released if the loop is torn
+  // down before it finishes (StrictMode's double effect, a fast navigation).
+  const payRetryFor = useRef<string | null>(null);
+  // Set when the retries ran out without a final answer: the credits may still
+  // be arriving, and nothing on the server will start the grade by itself.
+  const [payRetryStalledTier, setPayRetryStalledTier] = useState<string | null>(null);
+  const [startingGrade, setStartingGrade] = useState(false);
+  useEffect(() => {
+    setPayRetryStalledTier(null);
+  }, [id]);
   useEffect(() => {
     if (!id) return;
     if (searchParams.get("pay_retry") !== "1") return;
-    if (payRetryDone.current) return;
-    payRetryDone.current = true;
+    if (payRetryFor.current === id) return;
+    payRetryFor.current = id;
 
     const checkout = searchParams.get("checkout");
     const tier = searchParams.get("tier") ?? "standard";
@@ -324,18 +501,22 @@ export function SubmissionDetailPage() {
     }
 
     let cancelled = false;
+    let finished = false;
     (async () => {
       toast.loading("Applying your new credits…", { id: "pay-retry" });
       // Up to ~16s of retries to outrun the credit-grant webhook.
-      for (let attempt = 0; attempt < 8 && !cancelled; attempt++) {
+      for (let attempt = 0; attempt < PAY_RETRY_ATTEMPTS && !cancelled; attempt++) {
         try {
           const res = await edgeFetch(`/api/grade/pay/${id}`, {
             method: "POST",
             json: { tier },
             silentGate: true,
           });
+          if (cancelled) return;
           const json = await res.json().catch(() => ({}));
+          if (cancelled) return;
           if (res.ok && json.payment?.paid) {
+            finished = true;
             track("grade.pack_upsell_converted", { tier });
             track("grade.paid", { method: json.payment.method, tier });
             toast.success("Grade unlocked with your new credits.", {
@@ -345,48 +526,112 @@ export function SubmissionDetailPage() {
             clearParams();
             return;
           }
+          // SUB-09: an answer that will not change on the next attempt.
+          if (isFinalPayStatus(res.status)) {
+            finished = true;
+            toast.error(
+              typeof json.error === "string" && json.error
+                ? json.error
+                : "Couldn't start this grade.",
+              { id: "pay-retry" },
+            );
+            clearParams();
+            return;
+          }
         } catch {
           /* transient — keep retrying */
         }
-        await new Promise((r) => setTimeout(r, 2000));
+        if (cancelled) return;
+        await new Promise((r) => setTimeout(r, PAY_RETRY_DELAY_MS));
       }
       if (!cancelled) {
+        finished = true;
+        // SUB-09: this used to promise the grade "will start automatically".
+        // Nothing on the server retries, so say what is true and hand the
+        // seller the button that does it.
         toast.info(
-          "Credits are being added — this grade will start automatically in a moment.",
+          "Your credits are still arriving. Press Start grading in a moment.",
           { id: "pay-retry" },
         );
+        setPayRetryStalledTier(tier);
         clearParams();
       }
     })();
 
     return () => {
       cancelled = true;
+      if (!finished) {
+        // Torn down mid-loop: never leave the loading toast spinning, and let
+        // a re-run of this effect start the loop again.
+        toast.dismiss("pay-retry");
+        payRetryFor.current = null;
+      }
     };
   }, [id, searchParams, setSearchParams, refetchData]);
 
-  // Re-fetch when submission status changes via realtime. We only care
-  // about `.status` here — read it into a local so the deps array is
-  // honest and we don't re-run on unrelated submission-row updates.
-  // Realtime (above) is the primary trigger; this 5s setInterval is a fallback
-  // while a grade is in flight. Gate it on tab visibility so a backgrounded tab
-  // stops polling every 5s, and refetch once on return to the foreground. (US-576)
-  const submissionStatus = submission?.status;
-  useEffect(() => {
-    if (
-      visible &&
-      (!submissionStatus ||
-        submissionStatus === "processing" ||
-        submissionStatus === "pending" ||
-        // US-1628: keep polling while a grade awaits human review, so the
-        // "we'll let you know the moment it's official" banner resolves without
-        // a hard refresh even if the realtime event is missed.
-        submissionStatus === "pending_review")
-    ) {
-      refetchData();
-      const interval = setInterval(refetchData, 5000);
-      return () => clearInterval(interval);
+  async function handleStartGrading() {
+    if (!id || !payRetryStalledTier) return;
+    setStartingGrade(true);
+    try {
+      const res = await edgeFetch(`/api/grade/pay/${id}`, {
+        method: "POST",
+        json: { tier: payRetryStalledTier },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.payment?.paid) {
+        track("grade.paid", { method: json.payment.method, tier: payRetryStalledTier });
+        toast.success("Grading started.");
+        setPayRetryStalledTier(null);
+        await refetchData();
+      } else if (res.ok) {
+        toast.info("Your credits haven't arrived yet. Try again in a minute.");
+      } else {
+        toast.error(
+          typeof json.error === "string" && json.error ? json.error : "Couldn't start this grade.",
+        );
+        if (isFinalPayStatus(res.status)) setPayRetryStalledTier(null);
+      }
+    } catch (err) {
+      toastError(err, "Couldn't start this grade");
+    } finally {
+      setStartingGrade(false);
     }
-  }, [visible, submissionStatus, refetchData]);
+  }
+
+  // Realtime (above) is the primary trigger; this poll is the fallback while a
+  // grade is in flight. Gated on tab visibility so a backgrounded tab stops
+  // polling, with one refetch on return to the foreground (US-576).
+  //
+  // SUB-11: it only runs once a submission has loaded without error (it used
+  // to poll a not-found page forever), it no longer fires an immediate
+  // duplicate of the load that just happened, and pending_review backs off
+  // (detailPollDelay) instead of reading every 5s for a 12 to 48 hour review.
+  const submissionStatus = submission?.status;
+  const pollable = Boolean(submission) && !error && !loading && isPollableStatus(submissionStatus);
+  const wasHiddenRef = useRef(false);
+  useEffect(() => {
+    if (!visible) {
+      wasHiddenRef.current = true;
+      return;
+    }
+    if (!pollable || !isPollableStatus(submissionStatus)) return;
+    const status = submissionStatus;
+    if (wasHiddenRef.current) {
+      wasHiddenRef.current = false;
+      void refetchData();
+    }
+    let n = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      timer = setTimeout(() => {
+        void refetchData();
+        n++;
+        tick();
+      }, detailPollDelay(status, n));
+    };
+    tick();
+    return () => clearTimeout(timer);
+  }, [visible, pollable, submissionStatus, refetchData]);
 
   // US-1466: tick a clock while a grade is in flight so we can show elapsed time
   // and escalate to a "taking longer than expected" message — a long-but-normal
@@ -398,7 +643,61 @@ export function SubmissionDetailPage() {
       const t = setInterval(() => setNowMs(Date.now()), 15_000);
       return () => clearInterval(t);
     }
-  }, [submissionStatus]);
+    // SUB-15: a minute tick for the held-grade countdown and the review ETA.
+    if (readyBy || submissionStatus === "pending_review") {
+      setNowMs(Date.now());
+      const t = setInterval(() => setNowMs(Date.now()), 60_000);
+      return () => clearInterval(t);
+    }
+  }, [submissionStatus, readyBy]);
+
+  function applyLinkedItem(result: LinkedItemRead) {
+    if (!result.ok) {
+      // US-3428: withhold what this read feeds, not the grade report.
+      setLinkedItem(null);
+      setLinkedItemCheckFailed(true);
+    } else {
+      setLinkedItemCheckFailed(false);
+      setLinkedItem(result.item);
+    }
+  }
+
+  function applyPhotos(result: PhotosRead) {
+    if (!result.ok) {
+      // US-3433: withhold the photos, not the grade.
+      setImages([]);
+      setImageUrls({});
+      setPhotosUnavailable(true);
+      return;
+    }
+    setPhotosUnavailable(false);
+    setImages(result.images);
+    setImageUrls(result.urls);
+    resignedRef.current = false;
+  }
+
+  // SUB-11: retry buttons re-run only their own read.
+  async function retryLinkedItem() {
+    if (!id) return;
+    const result = await readLinkedItem(id);
+    if (currentIdRef.current === id) applyLinkedItem(result);
+  }
+  async function retryPhotos() {
+    if (!id) return;
+    const result = await readPhotos(listPhotos(id));
+    if (currentIdRef.current === id) applyPhotos(result);
+  }
+
+  // SUB-11: signed URLs last 15 minutes. A grid or lightbox image that fails
+  // to load re-signs every photo once; a second failure is left alone so a
+  // truly missing file cannot loop.
+  const resignedRef = useRef(false);
+  async function resignOnce() {
+    if (resignedRef.current || images.length === 0) return;
+    resignedRef.current = true;
+    const urls = await signImages(images);
+    if (urls && currentIdRef.current === id) setImageUrls(urls);
+  }
 
   useEffect(() => {
     if (!id) return;
@@ -415,131 +714,83 @@ export function SubmissionDetailPage() {
       setSubmission(null);
       setGradeReport(null);
       setDispute(null);
+      setAppeal(null);
+      setDisputesLoaded(false);
       setLinkedItem(null);
       setImages([]);
       setImageUrls({});
 
-      // Fetch submission
-      const { data: sub, error: subError } = await supabase
+      // SUB-11: the four reads start together instead of one after another.
+      // The page renders as soon as the two it is FOR have landed.
+      const subP = supabase
         .from("submissions")
-        .select("*")
+        .select(SUBMISSION_DETAIL_COLUMNS)
         .eq("id", id!)
         .single();
-
-      if (cancelled) return;
-      if (subError || !sub) {
-        setError(subError && subError.code !== "PGRST116" ? "Couldn't load this submission. Please try again." : "Submission not found.");
-        setLoading(false);
-        return;
-      }
-      setSubmission(sub);
-
-      // Fetch grade report (US-479: active report only — a regraded submission
-      // keeps superseded history, which would break .single()).
-      const { data: reportData, error: reportError } = await supabase
+      // US-479: active report only — a regraded submission keeps superseded
+      // history, which would break .single().
+      const reportP = supabase
         .from("grade_reports")
-        .select("*")
+        .select(GRADE_REPORT_OWNER_SELECT)
         .eq("submission_id", id!)
         .is("superseded_at", null)
         .maybeSingle();
+      const linkedP = readLinkedItem(id!);
+      const photosP = readPhotos(listPhotos(id!));
 
+      const [subRes, reportRes] = await Promise.all([subP, reportP]);
       if (cancelled) return;
-      // US-1632: a TRANSIENT error here (maybeSingle doesn't error on "no report
-      // yet", so this is a real DB/network failure) previously was swallowed,
-      // leaving a completed grade stuck on "Grade Report Pending" forever.
-      // Surface it so the user can retry.
-      if (reportError) {
+      const sub = subRes.data as SubmissionDetailView | null;
+      if (subRes.error || !sub) {
+        setError(subRes.error && subRes.error.code !== "PGRST116" ? "Couldn't load this submission. Please try again." : "Submission not found.");
+        setLoading(false);
+        return;
+      }
+      // US-1632: a TRANSIENT error here (maybeSingle doesn't error on "no
+      // report yet", so this is a real DB/network failure) previously was
+      // swallowed, leaving a completed grade stuck on "Grade Report Pending"
+      // forever. Surface it so the user can retry.
+      if (reportRes.error) {
         setError("Couldn't load the grade report. Please try again.");
         setLoading(false);
         return;
       }
-      if (reportData) {
-        setGradeReport(reportData);
-      }
+      const reportData = (reportRes.data ?? null) as GradeReportOwnerView | null;
+      setSubmission(sub);
+      setGradeReport(reportData);
+      setLoading(false);
 
-      // No linked item is valid; a failed lookup must not hide an existing one.
-      const { data: linkedItemData, error: linkedItemError } = await supabase
-        .from("inventory_items")
-        .select("*")
-        .eq("submission_id", id!)
-        .maybeSingle();
+      // Fetch existing disputes for this grade report. US-1632: .maybeSingle()
+      // -- the normal zero-dispute case is NOT an error.
+      // SUB-04: grade disputes and authenticity appeals share the table (00489).
+      // Without the kind filter an appeal read as a dispute (hiding Dispute
+      // Grade), and a report carrying both made maybeSingle error forever.
+      const disputesP = reportData
+        ? Promise.all([
+            supabase
+              .from("disputes")
+              .select(DISPUTE_VIEW_COLUMNS)
+              .eq("grade_report_id", reportData.id)
+              .eq("kind", "grade")
+              .maybeSingle(),
+            supabase
+              .from("disputes")
+              .select(DISPUTE_VIEW_COLUMNS)
+              .eq("grade_report_id", reportData.id)
+              .eq("kind", "authenticity")
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle(),
+          ])
+        : Promise.resolve(null);
+
+      const [linked, photos, disputes] = await Promise.all([linkedP, photosP, disputesP]);
       if (cancelled) return;
-      if (linkedItemError) {
-        // US-3428: withhold what this read feeds, not the grade report.
-        setLinkedItem(null);
-        setLinkedItemCheckFailed(true);
-      } else {
-        setLinkedItemCheckFailed(false);
-        setLinkedItem(linkedItemData ? (linkedItemData as InventoryItemRow) : null);
-      }
-
-      // Fetch submission images
-      const { data: imagesRaw, error: imagesError } = await supabase
-        .from("submission_images")
-        .select("*")
-        .eq("submission_id", id!);
-
-      if (cancelled) return;
-      if (imagesError) {
-        // US-3433: withhold the photos, not the grade.
-        setImages([]);
-        setImageUrls({});
-        setPhotosUnavailable(true);
-        setLoading(false);
-        return;
-      }
-      setPhotosUnavailable(false);
-      const imagesData = (imagesRaw ?? []) as SubmissionImageRow[];
-      if (imagesData.length > 0) {
-        const sorted = [...imagesData].sort(
-          (a, b) => a.display_order - b.display_order
-        );
-        setImages(sorted);
-
-        // Sign all image paths in ONE request rather than one awaited round-trip
-        // per image (a submission has 5-8 photos — that was 5-8 serial calls
-        // before any thumbnail rendered). Private bucket → short-lived signed
-        // URLs (US-276).
-        const urls: Record<string, string> = {};
-        const { data: signed, error: signingError } = await supabase.storage
-          .from("submission-images")
-          .createSignedUrls(
-            sorted.map((img) => img.storage_path),
-            900,
-          );
-        if (cancelled) return;
-        if (signingError || signed?.some((entry) => entry.error)) {
-          // US-3433: a photo we cannot sign is a photo the seller cannot see,
-          // and it is the same answer as one we could not list.
-          setImages([]);
-          setImageUrls({});
-          setPhotosUnavailable(true);
-          setLoading(false);
-          return;
-        }
-        if (signed) {
-          const idByPath = new Map(sorted.map((img) => [img.storage_path, img.id]));
-          for (const entry of signed) {
-            const id = entry.path ? idByPath.get(entry.path) : undefined;
-            if (id && entry.signedUrl) urls[id] = entry.signedUrl;
-          }
-        }
-        if (cancelled) return;
-        setImageUrls(urls);
-      }
-
-      // Fetch existing dispute for this grade report. US-1632: .maybeSingle() —
-      // the normal zero-dispute case is NOT an error (.single() threw PGRST116).
-      if (reportData) {
-        const reportId = (reportData as GradeReportRow).id;
-        const { data: disputeData, error: disputeError } = await supabase
-          .from("disputes")
-          .select("*")
-          .eq("grade_report_id", reportId)
-          .maybeSingle();
-
-        if (cancelled) return;
-        if (disputeError) {
+      applyLinkedItem(linked);
+      applyPhotos(photos);
+      if (disputes) {
+        const [gradeDisputeRes, appealRes] = disputes;
+        if (gradeDisputeRes.error) {
           // US-3427: withhold the dispute action, not the report. Clearing
           // `dispute` alongside the flag keeps the two from disagreeing on a
           // retry that fails after one that succeeded.
@@ -547,12 +798,14 @@ export function SubmissionDetailPage() {
           setDisputeCheckFailed(true);
         } else {
           setDisputeCheckFailed(false);
-          setDispute(disputeData ? (disputeData as DisputeRow) : null);
+          setDispute(gradeDisputeRes.data ? (gradeDisputeRes.data as DisputeView) : null);
         }
+        // An appeal that failed to load only hides its own status card.
+        setAppeal(
+          !appealRes.error && appealRes.data ? (appealRes.data as DisputeView) : null,
+        );
       }
-
-      if (cancelled) return;
-      setLoading(false);
+      setDisputesLoaded(true);
     }
 
     void fetchData().catch(() => {
@@ -564,6 +817,27 @@ export function SubmissionDetailPage() {
       cancelled = true;
     };
   }, [id, loadAttempt]);
+
+  // SUB-11: a held grade has a known release time. Refetch once just after it
+  // instead of polling for the whole hold.
+  useEffect(() => {
+    const delay = releaseRefetchDelay(readyBy);
+    if (delay === null) return;
+    const t = setTimeout(() => void refetchData(), delay);
+    return () => clearTimeout(t);
+  }, [readyBy, refetchData]);
+
+  // SUB-11: the turnaround query is what knows a finished grade is being
+  // held. When the status moves on and there is no report to show, ask it
+  // again rather than serving the answer from before the grade finished.
+  const queryClient = useQueryClient();
+  const hasReport = Boolean(gradeReport);
+  useEffect(() => {
+    if (hasReport) return;
+    if (submissionStatus === "pending_review" || submissionStatus === "completed") {
+      void queryClient.invalidateQueries({ queryKey: ["grade-turnaround"] });
+    }
+  }, [submissionStatus, hasReport, queryClient]);
 
   // US-3427: split out so the withheld-action notice below can ask the same
   // question the button does. Everything except "do we know about an existing
@@ -581,7 +855,8 @@ export function SubmissionDetailPage() {
 
   // US-3427: `!disputeCheckFailed` is the load-bearing clause. Without it an
   // unresolved lookup reads as "no dispute exists" and offers to file a second.
-  const canDispute = disputeWindowOpen && !dispute && !disputeCheckFailed;
+  const canDispute =
+    disputeWindowOpen && disputesLoaded && !dispute && !disputeCheckFailed;
 
   /** The seller could dispute, but we could not find out whether they already have. */
   const disputeCheckUnavailable = disputeWindowOpen && disputeCheckFailed;
@@ -620,7 +895,7 @@ export function SubmissionDetailPage() {
     if (linkedItemCheckFailed) {
       const { data, error } = await supabase
         .from("inventory_items")
-        .select("*")
+        .select(LINKED_ITEM_COLUMNS)
         .eq("submission_id", submission.id)
         .maybeSingle();
       if (error) {
@@ -629,7 +904,7 @@ export function SubmissionDetailPage() {
         );
         return;
       }
-      linked = data ? (data as InventoryItemRow) : null;
+      linked = data ? (data as LinkedItemView) : null;
       setLinkedItem(linked);
       setLinkedItemCheckFailed(false);
     }
@@ -641,11 +916,22 @@ export function SubmissionDetailPage() {
       )
     );
     const flaggedSet = new Set<ImageType>(flaggedImageTypes);
-    const reusablePhotos = images
-      .filter((img) => !flaggedSet.has(img.image_type) && imageUrls[img.id])
+    // SUB-11: the page's URLs were signed when it loaded and last 15 minutes.
+    // A seller who reads the feedback for a while and then presses Retake
+    // would hand the new submission dead links, so sign fresh ones here.
+    const reusable = images.filter((img) => !flaggedSet.has(img.image_type));
+    const freshUrls = await signImages(reusable);
+    if (!freshUrls) {
+      toast.error(
+        "Couldn't prepare this submission's photos for a retake. Try again.",
+      );
+      return;
+    }
+    const reusablePhotos = reusable
+      .filter((img) => freshUrls[img.id])
       .map((img) => ({
         imageType: img.image_type,
-        signedUrl: imageUrls[img.id]!,
+        signedUrl: freshUrls[img.id]!,
       }));
 
     const retake: RetakeBridgeState = {
@@ -705,10 +991,19 @@ export function SubmissionDetailPage() {
       // (US-276), and a WORKSPACE MEMBER can file at all — the old client-side
       // disputes.insert + storage.upload were keyed to the workspace owner's id
       // and so failed the auth.uid()=user_id RLS for a non-owner member.
-      const images: string[] = [];
-      for (const photo of disputePhotos) {
-        if (photo) images.push(await fileToDataUrl(photo));
+      // SUB-10: shrink each photo before encoding, and refuse a body the edge
+      // would answer 413 (nothing filed) before sending it.
+      const prepared = await prepareEvidence(
+        disputePhotos,
+        async (file) =>
+          (await compressImage(file, EVIDENCE_MAX_WIDTH, EVIDENCE_QUALITY)).blob,
+        fileToDataUrl,
+      );
+      if (prepared.overBudget) {
+        setEvidenceTooLarge(true);
+        return;
       }
+      const images = prepared.images;
 
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
@@ -741,21 +1036,8 @@ export function SubmissionDetailPage() {
         );
       }
 
-      // Alert the platform admin to review (best-effort — never blocks filing).
-      void (async () => {
-        try {
-          await fetch(`${edgeApiUrl()}/api/notifications/dispute-filed`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ disputeId: newDispute.id }),
-          });
-        } catch {
-          /* best-effort */
-        }
-      })();
+      // SUB-05: the dispute route alerts the admins itself, keyed on the
+      // workspace owner the dispute is stored under.
 
       setDispute(newDispute);
       setSubmission((prev) =>
@@ -770,21 +1052,6 @@ export function SubmissionDetailPage() {
       toastError(err, "Failed to submit dispute");
     } finally {
       setSubmittingDispute(false);
-    }
-  }
-
-  function getDisputeStatusBadge(status: string) {
-    switch (status) {
-      case "open":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-950/50 dark:text-yellow-300 dark:border-yellow-800";
-      case "under_review":
-        return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800";
-      case "resolved":
-        return "bg-green-100 text-green-800 border-green-200 dark:bg-green-950/50 dark:text-green-300 dark:border-green-800";
-      case "rejected":
-        return "bg-red-100 text-red-800 border-red-200 dark:bg-red-950/50 dark:text-red-300 dark:border-red-800";
-      default:
-        return "";
     }
   }
 
@@ -814,6 +1081,13 @@ export function SubmissionDetailPage() {
       </div>
     );
   }
+
+  // SUB-14: a disputed grade is still the live, certified grade until it is
+  // decided, so sharing and the Showcase stay available.
+  const gradeIsShareable =
+    submission.status === "completed" || submission.status === "disputed";
+  // SUB-14: Showcase consent and the passport handoff belong to the owner.
+  const isOwnerViewing = Boolean(user && submission.user_id === user.id);
 
   // US-1466: elapsed since submission + whether an in-flight grade has crossed
   // the "taking longer than expected" threshold (drives the escalation copy).
@@ -845,16 +1119,22 @@ export function SubmissionDetailPage() {
       ]
     : [];
 
-  const defects =
-    gradeReport?.detailed_notes &&
-    typeof gradeReport.detailed_notes === "object"
-      ? Object.entries(gradeReport.detailed_notes).filter(
-          ([key]) => key.toLowerCase().includes("defect") || key.toLowerCase().includes("issue")
-        )
-      : [];
-
   return (
     <div className="space-y-6">
+      {payRetryStalledTier && submission.status === "pending" && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm"
+        >
+          <p>
+            Your credits are still arriving. Once they land, start the grade here.
+          </p>
+          <Button size="sm" onClick={() => void handleStartGrading()} disabled={startingGrade}>
+            {startingGrade && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Start grading
+          </Button>
+        </div>
+      )}
       {refreshError && (
         <div role="alert" className="space-y-2">
           <p>Couldn't refresh this grade. You're seeing the last loaded result.</p>
@@ -880,28 +1160,8 @@ export function SubmissionDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Badge
-            variant="outline"
-            className={cn(
-              submission.status === "completed" &&
-                "border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300",
-              submission.status === "processing" &&
-                "border-blue-200 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300",
-              submission.status === "pending_review" &&
-                "border-violet-200 bg-violet-100 text-violet-800 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-300",
-              submission.status === "pending" &&
-                "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300",
-              submission.status === "needs_photos" &&
-                "border-amber-200 bg-amber-100 text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300",
-              submission.status === "expired" &&
-                "border-gray-200 bg-gray-100 text-gray-600",
-              submission.status === "failed" &&
-                "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300"
-            )}
-          >
-            {formatLabel(submission.status)}
-          </Badge>
-          {submission.status === "completed" && gradeReport?.certificate_id && (
+          <SubmissionStatusBadge status={submission.status} />
+          {gradeIsShareable && gradeReport?.certificate_id && (
             // US: the header "Share Certificate" button used to be a plain Link to
             // /cert/:id — it just navigated to the page instead of offering share
             // options. Open the real share actions (native share sheet + one-tap
@@ -983,55 +1243,19 @@ export function SubmissionDetailPage() {
                   </div>
                   <div className="space-y-2">
                     <Label>Additional evidence (optional)</Label>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          const input = document.createElement("input");
-                          input.type = "file";
-                          input.accept = "image/jpeg,image/png,image/webp";
-                          input.multiple = true;
-                          input.onchange = (e) => {
-                            const files = (e.target as HTMLInputElement).files;
-                            if (files) {
-                              setDisputePhotos((prev) => [
-                                ...prev,
-                                ...Array.from(files),
-                              ]);
-                            }
-                          };
-                          input.click();
-                        }}
-                      >
-                        <Upload className="mr-1 h-4 w-4" />
-                        Upload Photos
-                      </Button>
-                      {disputePhotos.length > 0 && (
-                        <span className="text-sm text-muted-foreground">
-                          {disputePhotos.length} photo
-                          {disputePhotos.length !== 1 ? "s" : ""} selected
-                        </span>
-                      )}
-                    </div>
-                    {disputePhotos.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {disputePhotos.map((photo, i) => (
-                          <Badge
-                            key={i}
-                            variant="secondary"
-                            className="cursor-pointer"
-                            onClick={() =>
-                              setDisputePhotos((prev) =>
-                                prev.filter((_, idx) => idx !== i)
-                              )
-                            }
-                          >
-                            {photo.name} &times;
-                          </Badge>
-                        ))}
-                      </div>
+                    <DisputeEvidencePicker
+                      photos={disputePhotos}
+                      disabled={submittingDispute}
+                      onChange={(next) => {
+                        setEvidenceTooLarge(false);
+                        setDisputePhotos(next);
+                      }}
+                    />
+                    {evidenceTooLarge && (
+                      <p role="alert" className="text-sm text-brand-red-text">
+                        These photos are too large to send together. Remove one
+                        or two and try again.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -1170,6 +1394,15 @@ export function SubmissionDetailPage() {
                     {HUMAN_REVIEW.certificate} {HUMAN_REVIEW.cost}{" "}
                     {WHERE_IT_APPEARS}
                   </p>
+                  {/* SUB-15: the review's own due time, honestly. An overdue
+                      review goes to the front of the reviewers' queue. */}
+                  {gradeReport.review_due_at && (
+                    <p className="mt-1 text-sm font-medium text-violet-900 dark:text-violet-200">
+                      {Date.parse(gradeReport.review_due_at) > nowMs
+                        ? `Expected to be official by ${formatReadyBy(gradeReport.review_due_at)}.`
+                        : "Running late. It is now at the front of the review queue."}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1183,11 +1416,8 @@ export function SubmissionDetailPage() {
                   <div
                     className={cn(
                       "flex h-24 w-24 flex-shrink-0 items-center justify-center rounded-full border-4",
-                      gradeReport.overall_score > 7
-                        ? "border-emerald-500"
-                        : gradeReport.overall_score >= 5
-                          ? "border-amber-500"
-                          : "border-brand-red"
+                      // SUB-13: the same band edges as the numeral and pill.
+                      getScoreBorderColor(gradeReport.overall_score)
                     )}
                   >
                     <span
@@ -1497,44 +1727,8 @@ export function SubmissionDetailPage() {
               </CardContent>
             </Card>
 
-            {/* Defects */}
-            {gradeReport.detailed_notes &&
-              Object.keys(gradeReport.detailed_notes).length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">
-                      Detected Issues
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {defects.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {defects.map(([key, value]) => (
-                          <Badge key={key} variant="secondary">
-                            {value}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : (
-                      <ul className="space-y-1 text-sm">
-                        {Object.entries(gradeReport.detailed_notes).map(
-                          ([key, value]) => (
-                            <li key={key} className="flex items-start gap-2">
-                              <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-muted-foreground" />
-                              <span>
-                                <span className="font-medium">
-                                  {formatLabel(key)}:
-                                </span>{" "}
-                                {value}
-                              </span>
-                            </li>
-                          )
-                        )}
-                      </ul>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
+            {/* SUB-03: one row per structured flaw, never the internal notes. */}
+            <DetectedIssues defects={gradeReport.defects_found} />
 
             {/* US-1286: AI repair triage — which reversible/repairable defects
                 are worth fixing, and what that recovers in grade + resale value.
@@ -1726,9 +1920,13 @@ export function SubmissionDetailPage() {
               // for (US-3326). The report is hidden until then, by design.
               <>
                 <Clock className="h-12 w-12 text-muted-foreground/50" />
-                <h3 className="mt-4 text-lg font-medium">
-                  Ready by {formatReadyBy(readyBy)}
-                </h3>
+                {/* SUB-15: the grade exists; it is held for the turnaround the
+                    seller paid for. Say that, and count down to it. */}
+                <h3 className="mt-4 text-lg font-medium">Your grade is done</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  It will be released {formatCountdown(Date.parse(readyBy) - nowMs)}, at{" "}
+                  {formatReadyBy(readyBy)}.
+                </p>
                 <WhatHappensNext
                   status={submission.status}
                   tier={submission.service_tier ?? null}
@@ -1745,6 +1943,21 @@ export function SubmissionDetailPage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   The grade report will appear here once processing is complete.
                 </p>
+                {/* SUB-15: not a dead end. Say what happens next, and let the
+                    seller ask again rather than reload the page. */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4"
+                  onClick={() => void refetchData()}
+                >
+                  Check again
+                </Button>
+                <WhatHappensNext
+                  status={submission.status}
+                  tier={submission.service_tier ?? null}
+                  live={turnaround.live}
+                />
               </>
             )}
           </CardContent>
@@ -1757,16 +1970,25 @@ export function SubmissionDetailPage() {
           to do now the grade exists - so they are one section with one
           heading. The dispute card and the photo grid stay outside it: those
           are status and evidence, not next steps. */}
-      {submission.status === "completed" && gradeReport && (
+      {/* SUB-14: gated ONCE, and kept through a dispute. Filing one used to
+          hide the whole section, Showcase opt-out included, while the
+          certificate stayed public. */}
+      {gradeReport?.certificate_id && gradeIsShareable && (
         <section className="space-y-4">
           <h2 className="text-base font-semibold text-foreground">
             What's next
           </h2>
+          {submission.status === "disputed" && (
+            <p className="flex items-start gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              This grade is under dispute and may change. Your certificate stays
+              live until it is decided.
+            </p>
+          )}
         {/* Graded photo (US-765): the PSA-style certified image for this grade,
             ready to drop into a listing. Only once a certificate exists AND the
             grade is finalized (the cert is withheld while in review). */}
-        {submission.status === "completed" && gradeReport?.certificate_id && (
-          <Card>
+        <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <ImageIcon className="h-5 w-5 text-brand-navy dark:text-foreground" />
@@ -1788,24 +2010,31 @@ export function SubmissionDetailPage() {
               <GradedPhotoPanel certificateId={gradeReport.certificate_id} />
             </CardContent>
           </Card>
-        )}
 
         {/* US-1855: per-item consent for the public Showcase / Finds feed. Gated
             on a finalized certificate — there is nothing publishable before one,
             and the feed's own view refuses uncertified reports anyway. */}
-        {submission.status === "completed" && gradeReport?.certificate_id && (
+        {/* SUB-14: consent to publish a find is the owner's to give. A
+            member sees where it stands, read-only. */}
+        {isOwnerViewing ? (
           <ShowcaseConsentPanel
             submissionId={submission.id}
             optIn={submission.showcase_opt_in === true}
             valueCents={submission.showcase_value_cents ?? null}
           />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {submission.showcase_opt_in === true
+              ? "This find shows in the public Finds feed."
+              : "This find is not in the public Finds feed."}{" "}
+            Only the workspace owner can change that.
+          </p>
         )}
 
         {/* US-862: post-grade share prompt — nudge the seller to share their
             certificate at the moment the grade lands. Reuses CertShareActions,
             whose shared link carries ?s=share for attribution (US-769). */}
-        {submission.status === "completed" && gradeReport?.certificate_id && (
-          <Card className="border-brand-red/30 bg-brand-red/5">
+        <Card className="border-brand-red/30 bg-brand-red/5">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Share2 className="h-5 w-5 text-brand-red-text" />
@@ -1825,25 +2054,28 @@ export function SubmissionDetailPage() {
               />
             </CardContent>
           </Card>
-        )}
+
+        {/* SUB-15: the condition wording, ready to paste into any listing. */}
+        <ConditionNoteCard
+          report={gradeReport}
+          certificateId={gradeReport.certificate_id}
+        />
 
         {/* US-1120: turn a fresh grade into a Garment Passport conversion surface —
             a prominent "View / Create a Garment Passport" path (no longer gated
             solely on the physical-tag panel), plus the physical-tag generator
             (US-1096) and verified-seller / buyer-guarantee trust hints. */}
-        {submission.status === "completed" && gradeReport && (
-          <GarmentPassportPanel
-            garmentId={gradeReport.garment_id ?? null}
-            submissionId={submission.id}
-          />
-        )}
+        <GarmentPassportPanel
+          garmentId={gradeReport.garment_id ?? null}
+          submissionId={submission.id}
+          canHandOff={isOwnerViewing}
+        />
 
         {/* US-1075: cross-surface activation — once a grade lands and it isn't
             already tied to a FlipDesk item, nudge the grader to turn the verified
             certificate into a listing. Dismissable + event-tracked; suppressed if
             the user opted out of product messaging. */}
-        {submission.status === "completed" && gradeReport && !linkedItem &&
-          linkedItemCheckFailed && (
+        {!linkedItem && linkedItemCheckFailed && (
           // US-3428: the nudge below says this grade is not on an item yet. We
           // do not know that, so say what we do know and offer the retry.
           <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
@@ -1852,14 +2084,13 @@ export function SubmissionDetailPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+              onClick={() => void retryLinkedItem()}
             >
               Try again
             </Button>
           </p>
         )}
-        {submission.status === "completed" && gradeReport && !linkedItem &&
-          !linkedItemCheckFailed && (
+        {!linkedItem && !linkedItemCheckFailed && (
           <CrossSurfaceNudge
             nudgeId="grade-to-flipdesk"
             icon={Tag}
@@ -1876,50 +2107,21 @@ export function SubmissionDetailPage() {
       )}
 
       {/* Dispute Status */}
+      {/* SUB-04: a grade dispute and an authenticity appeal are different
+          things with different outcomes, so each has its own card. */}
       {dispute && (
-        <Card className="border-yellow-500/60 bg-yellow-500/5">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Flag className="h-4 w-4" />
-                Dispute
-              </CardTitle>
-              <Badge
-                variant="outline"
-                className={cn(getDisputeStatusBadge(dispute.status))}
-              >
-                {formatLabel(dispute.status)}
-              </Badge>
-            </div>
-            <CardDescription>
-              Submitted {new Date(dispute.created_at).toLocaleDateString()}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Reason
-              </p>
-              <p className="text-sm">{dispute.reason}</p>
-            </div>
-            {dispute.resolution_notes && (
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  Resolution
-                </p>
-                <p className="text-sm">{dispute.resolution_notes}</p>
-              </div>
-            )}
-            {(dispute.status === "open" ||
-              dispute.status === "under_review") && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Clock className="h-4 w-4" />
-                Your dispute is being reviewed. We{"'"}ll notify you when a
-                decision is made.
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <DisputeStatusCard
+          dispute={dispute}
+          title={DISPUTE_KIND_LABEL.grade}
+          pendingCopy="Your dispute is being reviewed. We'll notify you when a decision is made."
+        />
+      )}
+      {appeal && (
+        <DisputeStatusCard
+          dispute={appeal}
+          title={DISPUTE_KIND_LABEL.authenticity}
+          pendingCopy="Your appeal is being reviewed. We'll notify you when a decision is made."
+        />
       )}
 
       {/*
@@ -1942,7 +2144,7 @@ export function SubmissionDetailPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+                onClick={() => void retryPhotos()}
               >
                 Try again
               </Button>
@@ -1981,6 +2183,7 @@ export function SubmissionDetailPage() {
                         <img
                           src={imageUrls[img.id]}
                           alt={`${img.image_type} photo`}
+                          onError={() => void resignOnce()}
                           loading="lazy"
                           decoding="async"
                           className="h-full w-full object-cover"
@@ -2016,6 +2219,7 @@ export function SubmissionDetailPage() {
           index={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
+          onImageError={() => void resignOnce()}
         />
       )}
 

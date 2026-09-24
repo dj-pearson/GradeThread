@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,22 @@ export function ShowcaseConsentPanel({
   valueCents: number | null;
 }) {
   const setConsent = useSetShowcaseConsent();
+  // SUB-14: the switch used to follow the prop alone, which only changed when
+  // a realtime event happened to arrive. Flip it at once, settle it from the
+  // server's answer, and put it back if the call fails.
+  const [checked, setChecked] = useState(optIn);
+  useEffect(() => setChecked(optIn), [optIn]);
+  const save = (next: boolean, cents: number | null) => {
+    const before = checked;
+    setChecked(next);
+    setConsent.mutate(
+      { submissionId, optIn: next, valueCents: cents },
+      {
+        onSuccess: (showcase) => setChecked(showcase.opt_in),
+        onError: () => setChecked(before),
+      },
+    );
+  };
   const [value, setValue] = useState(
     valueCents != null ? (valueCents / 100).toFixed(2) : "",
   );
@@ -64,23 +80,17 @@ export function ShowcaseConsentPanel({
       <CardContent className="space-y-4">
         <div className="flex items-center justify-between gap-4">
           <Label htmlFor="showcase-opt-in" className="text-sm font-medium">
-            {optIn ? "Showing in the feed" : "Not in the feed"}
+            {checked ? "Showing in the feed" : "Not in the feed"}
           </Label>
           <Switch
             id="showcase-opt-in"
-            checked={optIn}
+            checked={checked}
             disabled={setConsent.isPending}
-            onCheckedChange={(checked) =>
-              setConsent.mutate({
-                submissionId,
-                optIn: checked,
-                valueCents: checked ? parsedCents() : null,
-              })
-            }
+            onCheckedChange={(next) => save(next, next ? parsedCents() : null)}
           />
         </div>
 
-        {optIn ? (
+        {checked ? (
           <div className="space-y-2">
             <Label htmlFor="showcase-value" className="text-sm">
               Value to show (optional)
@@ -100,13 +110,7 @@ export function ShowcaseConsentPanel({
               <Button
                 variant="outline"
                 disabled={setConsent.isPending}
-                onClick={() =>
-                  setConsent.mutate({
-                    submissionId,
-                    optIn: true,
-                    valueCents: parsedCents(),
-                  })
-                }
+                onClick={() => save(true, parsedCents())}
               >
                 Save
               </Button>

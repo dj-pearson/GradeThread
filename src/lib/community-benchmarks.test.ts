@@ -77,20 +77,21 @@ describe("hasActiveFilters", () => {
 
 describe("fetchCommunityBenchmarks", () => {
   it("sends every filter to the RPC, so the SERVER narrows the cohort", () => {
-    return fetchCommunityBenchmarks("2026-01-01", {
+    return fetchCommunityBenchmarks("2026-01-01", "owner-1", {
       brand: " Carhartt ",
       category: "outerwear",
       size: "L",
       priceMin: 20,
       priceMax: 150,
     }).then(() => {
-      expect(rpc).toHaveBeenCalledWith("community_benchmarks", {
+      expect(rpc).toHaveBeenCalledWith("community_benchmarks_v2", {
         p_period_start: "2026-01-01",
         p_brand: "Carhartt",
         p_category: "outerwear",
         p_size: "L",
         p_price_min: 20,
         p_price_max: 150,
+        p_owner_id: "owner-1",
       });
     });
   });
@@ -99,25 +100,26 @@ describe("fetchCommunityBenchmarks", () => {
     // Omitting them would let the SQL defaults apply, which happens to be the
     // same result — but it would also mean a future param could be forgotten
     // silently. The typed args object makes that a compile error instead.
-    return fetchCommunityBenchmarks(null).then(() => {
-      expect(rpc).toHaveBeenCalledWith("community_benchmarks", {
+    return fetchCommunityBenchmarks(null, "owner-1").then(() => {
+      expect(rpc).toHaveBeenCalledWith("community_benchmarks_v2", {
         p_period_start: null,
         p_brand: null,
         p_category: null,
         p_size: null,
         p_price_min: null,
         p_price_max: null,
+        p_owner_id: "owner-1",
       });
     });
   });
 
   it("surfaces the RPC error rather than returning an empty snapshot", async () => {
     rpc.mockResolvedValue({ data: null, error: { message: "permission denied" } });
-    await expect(fetchCommunityBenchmarks(null)).rejects.toThrow("permission denied");
+    await expect(fetchCommunityBenchmarks(null, "owner-1")).rejects.toThrow("permission denied");
   });
 
   it("refuses an empty body instead of rendering zeros as community truth", async () => {
     rpc.mockResolvedValue({ data: null, error: null });
-    await expect(fetchCommunityBenchmarks(null)).rejects.toThrow(/No benchmark data/);
+    await expect(fetchCommunityBenchmarks(null, "owner-1")).rejects.toThrow(/No benchmark data/);
   });
 });

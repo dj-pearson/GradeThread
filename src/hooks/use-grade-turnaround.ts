@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useAuthStore } from "@/stores/auth-store";
 import type { GradeTierKey } from "@/lib/constants";
 import type { LiveTurnaround } from "@/lib/grading-journey";
 
@@ -24,8 +25,12 @@ interface TurnaroundResponse {
 }
 
 export function useGradeTurnaround(enabled = true): GradeTurnaround {
+  // SUB-11: the release times belong to one workspace's grades, so the cache
+  // is keyed by the effective owner. Callers invalidate the ["grade-turnaround"]
+  // prefix when a grade finishes.
+  const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId ?? s.user?.id ?? null);
   const { data } = useQuery({
-    queryKey: ["grade-turnaround"],
+    queryKey: ["grade-turnaround", ownerId],
     enabled,
     queryFn: async (): Promise<TurnaroundResponse> => {
       const res = await edgeFetch("/api/grade/turnaround");

@@ -125,7 +125,7 @@ export function CommunityInsightsWidget({ limit = 3 }: { limit?: number }) {
   const periodStart = presetStart("12mo");
   const { data, isLoading, isError } = useQuery({
     queryKey: communityBenchmarksKey(tenantKey, periodStart),
-    queryFn: () => fetchCommunityBenchmarks(periodStart),
+    queryFn: () => fetchCommunityBenchmarks(periodStart, tenantKey as string),
     enabled: !!tenantKey,
     staleTime: 5 * 60 * 1000,
   });
