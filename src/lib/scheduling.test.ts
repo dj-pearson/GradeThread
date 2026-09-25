@@ -133,6 +133,35 @@ describe("dropHealth (SD-3)", () => {
   it("a fresh claim reads as publishing", () => {
     expect(dropHealth({ ...base, publish_claimed_at: at(-60_000) }, NOW)).toBe("publishing");
   });
+  it("a fresh claim whose attempt already failed is not publishing", () => {
+    // The cron's failure patch does not clear publish_claimed_at.
+    expect(
+      dropHealth(
+        {
+          scheduled_publish_at: at(-2 * 60_000),
+          publish_claimed_at: at(-90_000),
+          publish_failed_at: at(-30_000),
+          publish_attempts: 1,
+          publish_error: "Missing item specific",
+        },
+        NOW,
+      ),
+    ).toBe("retrying");
+  });
+  it("a new claim taken after an earlier failure is publishing again", () => {
+    expect(
+      dropHealth(
+        {
+          ...base,
+          publish_claimed_at: at(-30_000),
+          publish_failed_at: at(-6 * 60_000),
+          publish_attempts: 2,
+          publish_error: "x",
+        },
+        NOW,
+      ),
+    ).toBe("publishing");
+  });
   it("a stale claim does not", () => {
     expect(dropHealth({ ...base, publish_claimed_at: at(-11 * 60_000) }, NOW)).toBe("scheduled");
   });

@@ -131,6 +131,7 @@ export function FlipdeskScheduledDropsPage() {
     isError,
     refetch,
     isFetching,
+    dataUpdatedAt,
   } = useScheduledDrops();
   // Memoized so the `?? []` fallback does not mint a new array each render —
   // several useMemos below take it as a dependency.
@@ -152,12 +153,15 @@ export function FlipdeskScheduledDropsPage() {
 
   // SD-3/SD-4: what the cron has done with each drop, read once per refresh.
   // `now` is taken with the rows so a row's state and the Past-due split agree.
+  // Keyed on dataUpdatedAt as well as the rows: an unchanged refetch hands back
+  // the SAME array (structural sharing), so keying on `drops` alone froze the
+  // clock and a drop never turned overdue or left "Upcoming" on an open page.
   const { healthById, now } = useMemo(() => {
-    const at = Date.now();
+    const at = Math.max(Date.now(), dataUpdatedAt);
     const map = new Map<string, DropHealth>();
     for (const d of drops) map.set(d.id, dropHealth(d, at));
     return { healthById: map, now: at };
-  }, [drops]);
+  }, [drops, dataUpdatedAt]);
   const healthOf = (d: ScheduledDropRow): DropHealth =>
     healthById.get(d.id) ?? "scheduled";
   const needsAttention = useMemo(
@@ -227,7 +231,10 @@ export function FlipdeskScheduledDropsPage() {
   // The roving tabstop. One cell in the grid is focusable at a time; the arrow
   // keys move it, which is what makes a 35-cell grid traversable without 35
   // tab presses.
-  const [focusedDay, setFocusedDay] = useState(1);
+  // Seeded to today, which is where the month on screen opens.
+  const [focusedDay, setFocusedDay] = useState(
+    () => zoneCalendarDate(new Date(), detectTimezone()).day,
+  );
   const focusedCellRef = useRef<HTMLDivElement | null>(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
 
@@ -265,6 +272,8 @@ export function FlipdeskScheduledDropsPage() {
     setView({ y, m: m - 1 });
     setOpenDayNum(d);
     setFocusedDay(d);
+    // "Go to day" can be clicked after the dialog closed; open it on the day.
+    setDayOpen(true);
   }
 
   function onGridKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {

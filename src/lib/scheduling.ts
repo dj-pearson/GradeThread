@@ -323,6 +323,7 @@ export interface DropHealthInput {
   publish_error?: string | null;
   publish_attempts?: number | null;
   publish_claimed_at?: string | null;
+  publish_failed_at?: string | null;
   synced_to_ebay_at?: string | null;
 }
 
@@ -339,7 +340,12 @@ export function dropHealth(row: DropHealthInput, now: number = Date.now()): Drop
     return "blocked";
   }
   const claimed = row.publish_claimed_at ? Date.parse(row.publish_claimed_at) : NaN;
-  if (Number.isFinite(claimed) && now - claimed < PUBLISH_CLAIM_STALE_MS) {
+  // The cron's failure write leaves the claim in place, so a claim is only a
+  // publish in flight when no failure has been stamped since it was taken.
+  // Without this a drop that just failed read "Publishing now" for ten minutes.
+  const failed = row.publish_failed_at ? Date.parse(row.publish_failed_at) : NaN;
+  const attemptFinished = Number.isFinite(failed) && failed >= claimed;
+  if (Number.isFinite(claimed) && now - claimed < PUBLISH_CLAIM_STALE_MS && !attemptFinished) {
     return "publishing";
   }
   if (attempts > 0 && row.publish_error) return "retrying";

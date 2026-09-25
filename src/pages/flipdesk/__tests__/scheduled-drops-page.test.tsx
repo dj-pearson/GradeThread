@@ -16,7 +16,20 @@ const state = {
   isFetching: false,
   listingsReads: 0,
   itemReads: 0,
+  updatedAt: 0,
 };
+
+// The real query hands back the SAME data object when a refetch returns equal
+// rows (structural sharing); only dataUpdatedAt moves. Mirror that.
+const dataCache = new WeakMap<ScheduledDropRow[], { rows: ScheduledDropRow[]; truncated: boolean; limit: number }>();
+function dataFor(rows: ScheduledDropRow[]) {
+  let d = dataCache.get(rows);
+  if (!d) {
+    d = { rows, truncated: false, limit: 500 };
+    dataCache.set(rows, d);
+  }
+  return d;
+}
 
 function builder(table: string) {
   if (table === "listings") state.listingsReads += 1;
@@ -37,7 +50,8 @@ vi.mock("@/hooks/use-scheduled-drops", async (orig) => ({
   ...(await orig<typeof import("@/hooks/use-scheduled-drops")>()),
   useScheduledDrops: () => ({
     // A background refetch keeps isLoading false; only isFetching flips.
-    data: { rows: state.rows, truncated: false, limit: 500 },
+    data: dataFor(state.rows),
+    dataUpdatedAt: state.updatedAt,
     isLoading: false,
     isError: false,
     isFetching: state.isFetching,
@@ -99,6 +113,7 @@ beforeEach(() => {
   state.isFetching = false;
   state.listingsReads = 0;
   state.itemReads = 0;
+  state.updatedAt = 0;
 });
 
 afterEach(() => {
@@ -186,6 +201,25 @@ describe("stuck drops lead the page (SD-4)", () => {
     const cells = Array.from(document.querySelectorAll('[role="gridcell"][aria-label]'));
     const labelled = cells.filter((c) => c.getAttribute("aria-label")!.includes("overdue"));
     expect(labelled).toHaveLength(1);
+  });
+});
+
+describe("an open page keeps its clock (review fix)", () => {
+  it("a drop turns overdue after an unchanged refetch", async () => {
+    const realNow = Date.now();
+    state.rows = [row("edge", -9 * 60_000)];
+    state.updatedAt = realNow;
+    await render();
+    expect(document.body.textContent).not.toContain("Needs attention");
+    const spy = vi.spyOn(Date, "now").mockReturnValue(realNow + 3 * 60_000);
+    try {
+      // Same rows array, so the same data object: only dataUpdatedAt moves.
+      state.updatedAt = realNow + 3 * 60_000;
+      await render();
+      expect(document.body.textContent).toContain("Needs attention (1)");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 
