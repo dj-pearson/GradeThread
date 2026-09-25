@@ -27,9 +27,19 @@ vi.mock("@/hooks/use-auth", () => ({
 vi.mock("@/lib/account-export", () => ({
   buildAccountExport: () => buildAccountExport(),
 }));
-vi.mock("@/lib/download", () => ({ downloadBlob: vi.fn() }));
+const downloadBlob = vi.fn();
+vi.mock("@/lib/download", () => ({
+  downloadBlob: (...args: unknown[]) => downloadBlob(...args),
+}));
 vi.mock("@/lib/edge-fetch", () => ({ edgeFetch: vi.fn() }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+const toastSuccess = vi.fn();
+const toastError = vi.fn();
+vi.mock("sonner", () => ({
+  toast: {
+    success: (...a: unknown[]) => toastSuccess(...a),
+    error: (...a: unknown[]) => toastError(...a),
+  },
+}));
 
 import { DataSettingsTab } from "@/components/settings/data-settings-tab";
 import { useAccountExportStore } from "@/stores/account-export-store";
@@ -126,6 +136,37 @@ describe("DataSettingsTab export in-flight state", () => {
       firstExport(new Blob(["zip"]));
     });
     expect(exportButton().disabled).toBe(true);
+  });
+});
+
+describe("DataSettingsTab export when storage refuses writes", () => {
+  it("still downloads and shows success when setItem throws", async () => {
+    downloadBlob.mockClear();
+    toastSuccess.mockClear();
+    toastError.mockClear();
+    // src/test/setup.ts swaps in an in-memory localStorage that is not a
+    // Storage instance, so spy on the object itself rather than the prototype.
+    const spy = vi
+      .spyOn(localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("full", "QuotaExceededError");
+      });
+    try {
+      mount();
+      await act(async () => {
+        exportButton().click();
+      });
+      await act(async () => {
+        resolveExport!(new Blob(["zip"]));
+      });
+      expect(downloadBlob).toHaveBeenCalledTimes(1);
+      expect(toastSuccess).toHaveBeenCalledWith(
+        "Your data export has been downloaded.",
+      );
+      expect(toastError).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

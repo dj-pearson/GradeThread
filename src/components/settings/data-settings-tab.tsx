@@ -10,7 +10,7 @@ import { downloadBlob } from "@/lib/download";
 import { buildAccountExport } from "@/lib/account-export";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { toastError } from "@/lib/toast-error";
-import { readStored } from "@/lib/safe-storage";
+import { readStored, writeStored } from "@/lib/safe-storage";
 import { isExportingFor, useAccountExportStore } from "@/stores/account-export-store";
 
 const EXPORT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -51,12 +51,14 @@ export function DataSettingsTab() {
       const blob = await buildAccountExport((stage, pct) => {
         store.progress(user.id, stage, pct);
       });
-      localStorage.setItem(key, String(Date.now()));
-
+      // Download first. The cooldown stamp is a convenience; when storage is
+      // blocked or full a bare setItem threw here and the finished ZIP was
+      // lost behind "Failed to export data." writeStored swallows that.
       downloadBlob(
         blob,
         `gradethread-export-${new Date().toISOString().split("T")[0]}.zip`,
       );
+      writeStored(key, String(Date.now()));
 
       toast.success("Your data export has been downloaded.");
     } catch (err) {
