@@ -111,14 +111,70 @@ export function HelpReaderPage() {
 
 // ── the index ─────────────────────────────────────────────
 function HelpReaderIndexPage() {
+  // The query and the category live in the URL, so Back, Forward, a remount
+  // and opening an article and coming back all return to the same view.
   const [params, setParams] = useSearchParams();
   const query = params.get("q") ?? "";
   const [draft, setDraft] = useState(query);
-  const [categoryFilter, setCategoryFilter] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const indexQuery = useHelpReaderIndex();
   const { data } = indexQuery;
   const search = useHelpReaderSearch(query);
+
+  // Only categories that exist and have something in them are offered, and a
+  // ?category= naming anything else is ignored rather than trusted.
+  const categories = useMemo(
+    () => (data?.categories ?? []).filter((c) => (c.article_count ?? 1) > 0),
+    [data],
+  );
+  const rawCategory = params.get("category") ?? "";
+  const categoryFilter =
+    data && !(data.categories ?? []).some((c) => c.key === rawCategory) ? "" : rawCategory;
+
+  // One writer for the URL: functional, so a q change never drops the
+  // category and a category change never drops the q.
+  const updateParams = (patch: Record<string, string>, replace = false) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        for (const [k, v] of Object.entries(patch)) {
+          if (v) next.set(k, v);
+          else next.delete(k);
+        }
+        return next;
+      },
+      { replace },
+    );
+
+  // The box follows the URL (Back/Forward), not only the first render. A draft
+  // that already means this query is left alone, so a trailing space typed
+  // before the next word is not eaten when the debounce lands.
+  useEffect(() => setDraft((d) => (d.trim() === query.trim() ? d : query)), [query]);
+
+  // Typing searches after a short pause; Enter searches at once. replace:true
+  // so a typed word is one history entry, not one per keystroke.
+  useEffect(() => {
+    const next = draft.trim();
+    if (next === query.trim()) return;
+    const t = window.setTimeout(() => updateParams({ q: next }, true), 250);
+    return () => window.clearTimeout(t);
+    // updateParams is recreated each render; draft and query are what matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, query]);
+
+  // "/" jumps to the search box from anywhere on the page, except while typing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      e.preventDefault();
+      inputRef.current?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   const categoryTitle = useMemo(() => {
     const map = new Map((data?.categories ?? []).map((c) => [c.key, c.title]));
@@ -154,7 +210,9 @@ function HelpReaderIndexPage() {
   const rows = useMemo(
     () =>
       searching
-        ? (search.data?.hits ?? []).map((h) => ({
+        ? (search.data?.hits ?? [])
+            .filter((h) => !categoryFilter || h.category_key === categoryFilter)
+            .map((h) => ({
             slug: h.slug,
             title: h.title,
             summary: h.summary,
@@ -239,18 +297,25 @@ function HelpReaderIndexPage() {
         className="flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          setParams(draft.trim() ? { q: draft.trim() } : {});
+          updateParams({ q: draft.trim() });
         }}
       >
         <Label htmlFor="help-reader-q" className="sr-only">
           Search help
         </Label>
         <Input
+          ref={inputRef}
           id="help-reader-q"
           type="search"
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="What are you stuck on?"
+          minLength={2}
+          aria-describedby={draft.trim().length === 1 ? "help-reader-q-hint" : undefined}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            // Clearing the box goes straight back to browsing, no pause.
+            if (e.target.value === "") updateParams({ q: "" }, true);
+          }}
+          placeholder="What are you stuck on? Press / to search"
           autoComplete="off"
         />
         <Button type="submit">
@@ -258,19 +323,25 @@ function HelpReaderIndexPage() {
         </Button>
       </form>
 
-      {!searching && (data?.categories ?? []).length > 0 && (
+      {draft.trim().length === 1 && (
+        <p id="help-reader-q-hint" className="text-sm text-muted-foreground">
+          Type at least two letters to search.
+        </p>
+      )}
+
+      {categories.length > 0 && (
         <Select
           value={categoryFilter || "all"}
-          onValueChange={(v) => setCategoryFilter(v === "all" ? "" : v)}
+          onValueChange={(v) => updateParams({ category: v === "all" ? "" : v })}
         >
           <SelectTrigger className="w-64" aria-label="Filter by category">
             <SelectValue placeholder="All categories" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All categories</SelectItem>
-            {(data?.categories ?? []).map((c) => (
+            {categories.map((c) => (
               <SelectItem key={c.key} value={c.key}>
-                {c.title}
+                {c.title} ({c.article_count ?? 0})
               </SelectItem>
             ))}
           </SelectContent>
@@ -294,14 +365,37 @@ function HelpReaderIndexPage() {
       {!active.isLoading && !active.isError && rows.length === 0 && (
         <EmptyState
           icon={searching ? Search : LifeBuoy}
-          title={searching ? `Nothing matched "${query}"` : "Nothing published yet"}
+          title={
+            categoryFilter
+              ? searching
+                ? `Nothing in ${categoryTitle(categoryFilter)} matched "${query}"`
+                : `No articles in ${categoryTitle(categoryFilter)} yet`
+              : searching
+                ? `Nothing matched "${query}"`
+                : "Nothing published yet"
+          }
           description={
             searching
               ? "Try different words, or open a ticket and we'll answer it."
-              : "Articles are on the way."
+              : categoryFilter
+                ? "Try another category."
+                : "Articles are on the way."
           }
+          {...(categoryFilter
+            ? {
+                action: {
+                  label: "Show all categories",
+                  onClick: () => updateParams({ category: "" }),
+                },
+              }
+            : {})}
           {...(searching
-            ? { action: { label: "Open a support ticket", to: "/dashboard/support" } }
+            ? {
+                [categoryFilter ? "secondaryAction" : "action"]: {
+                  label: "Open a support ticket",
+                  to: "/dashboard/support",
+                },
+              }
             : {})}
         />
       )}

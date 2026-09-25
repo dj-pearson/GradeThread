@@ -351,3 +351,110 @@ describe("H9: ranked search, editor-ordered browse", () => {
     expect(text()).toContain("Internal");
   });
 });
+
+describe("H10: query and category live in the URL", () => {
+  const input = () => container.querySelector<HTMLInputElement>("#help-reader-q")!;
+  const setInput = async (value: string) => {
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input(), value);
+      input().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await settle();
+  };
+  const searchHandler: Handler = (path) => {
+    if (path.startsWith("/api/help/search")) {
+      return res({
+        query: "x",
+        hits: [
+          { slug: "refunds", title: "Refund hit", summary: "", category_key: "billing", visibility: "public", rank: 1 },
+          { slug: "drafts", title: "Draft hit", summary: "", category_key: "listing", visibility: "public", rank: 0.5 },
+        ],
+        viewer: "member",
+      });
+    }
+    if (path === "/api/help") return defaultIndex();
+    const m = /^\/api\/help\/([a-z0-9-]+)$/.exec(path);
+    return res({ article: articleView(m?.[1] ?? "x"), category: CATEGORIES[0], viewer: "member" });
+  };
+
+  it("Back after two searches puts the earlier query back in the box", async () => {
+    handler = searchHandler;
+    render("/dashboard/help?q=ab");
+    await settle(20);
+    await go("/dashboard/help?q=cd");
+    expect(input().value).toBe("cd");
+    await go(-1);
+    expect(input().value).toBe("ab");
+  });
+
+  it("clearing the box returns to the browse view", async () => {
+    handler = searchHandler;
+    render("/dashboard/help?q=refund");
+    await settle(20);
+    expect(text()).toContain("Refund hit");
+    await setInput("");
+    await settle(20);
+    expect(router.state.location.search).toBe("");
+    expect(text()).toContain("Title refunds");
+    expect(text()).not.toContain("Refund hit");
+  });
+
+  it("typing searches after a pause, without a submit", async () => {
+    handler = searchHandler;
+    render("/dashboard/help");
+    await settle(20);
+    await setInput("refund");
+    await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+    await settle(20);
+    expect(new URLSearchParams(router.state.location.search).get("q")).toBe("refund");
+    expect(text()).toContain("Refund hit");
+  });
+
+  it("?category= survives opening an article and coming Back", async () => {
+    handler = searchHandler;
+    render("/dashboard/help?category=billing");
+    await settle(20);
+    expect(text()).toContain("Title refunds");
+    expect(text()).not.toContain("Title drafts");
+    await go("/dashboard/help/refunds");
+    await go(-1);
+    await settle(20);
+    expect(text()).toContain("Title refunds");
+    expect(text()).not.toContain("Title drafts");
+  });
+
+  it("search honours the category filter", async () => {
+    handler = searchHandler;
+    render("/dashboard/help?q=fees&category=billing");
+    await settle(20);
+    expect(text()).toContain("Refund hit");
+    expect(text()).not.toContain("Draft hit");
+  });
+
+  it("an unknown ?category= is ignored rather than emptying the page", async () => {
+    handler = searchHandler;
+    render("/dashboard/help?category=nope");
+    await settle(20);
+    expect(text()).toContain("Title refunds");
+    expect(text()).toContain("Title drafts");
+  });
+
+  it("one letter shows the two-letter hint instead of searching", async () => {
+    handler = searchHandler;
+    render("/dashboard/help");
+    await settle(20);
+    await setInput("r");
+    expect(text()).toContain("Type at least two letters to search.");
+  });
+
+  it("'/' focuses the search box", async () => {
+    handler = searchHandler;
+    render("/dashboard/help");
+    await settle(20);
+    await act(async () => {
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "/", bubbles: true }));
+    });
+    expect(document.activeElement).toBe(input());
+  });
+});
