@@ -82,9 +82,18 @@ async function listRequests(status: string): Promise<RequestRow[]> {
   return out;
 }
 
-/** One CSV cell: quote + escape. Pure, exported for tests. */
+/**
+ * One CSV cell: quote + escape. Pure, exported for tests.
+ *
+ * MC-03: a cell starting with = + - @ TAB or CR is read as a formula by Excel
+ * and Sheets even inside quotes, so a ship_name of =HYPERLINK(...) would run
+ * when the operator opened the vendor file. The OWASP rule is a leading single
+ * quote. Done HERE, at export, because rows stored before the seller route
+ * started refusing such values are still in the table.
+ */
 export function csvCell(v: string | number | null): string {
-  const s = v == null ? "" : String(v);
+  let s = v == null ? "" : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return `"${s.replace(/"/g, '""')}"`;
 }
 

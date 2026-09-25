@@ -24,6 +24,22 @@ Deno.test("csvCell quotes and escapes", () => {
   assertEquals(csvCell(7), '"7"');
 });
 
+Deno.test("MC-03: csvCell defuses spreadsheet formulas", () => {
+  assertEquals(csvCell("=1+1"), `"'=1+1"`);
+  assertEquals(csvCell("-5"), `"'-5"`);
+  assertEquals(csvCell("+1"), `"'+1"`);
+  assertEquals(csvCell("@SUM(A1)"), `"'@SUM(A1)"`);
+  assertEquals(csvCell("\tx"), `"'\tx"`);
+  assertEquals(csvCell("\rx"), `"'\rx"`);
+  assertEquals(
+    csvCell('=HYPERLINK("http://x","y")'),
+    `"'=HYPERLINK(""http://x"",""y"")"`,
+  );
+  // A plain name, and a hyphen that is not the first character, are unchanged.
+  assertEquals(csvCell("Pat Doe"), '"Pat Doe"');
+  assertEquals(csvCell("Mary-Jane"), '"Mary-Jane"');
+});
+
 Deno.test("requestsToCsv emits the vendor columns in order", () => {
   const csv = requestsToCsv([
     {
