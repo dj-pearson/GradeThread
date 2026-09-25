@@ -223,3 +223,24 @@ describe("a shipped card can be replaced (MC-09)", () => {
     expect(src).toMatch(/reason === "ok" \? \(\s*<Button/);
   });
 });
+
+describe("measuring comes first (MC-10)", () => {
+  it("the Measure block is the first card on the page", () => {
+    const src = read(PAGE);
+    const measure = src.indexOf('<CardTitle className="text-base">Measure an item</CardTitle>');
+    expect(measure).toBeGreaterThan(-1);
+    for (const later of ["How to shoot with it", "Print at home (free)", "Get a card mailed to you"]) {
+      expect(measure).toBeLessThan(src.indexOf(later));
+    }
+  });
+
+  it("the stale To-list tab comment is gone", () => {
+    expect(read(PAGE)).not.toContain("To-list tab");
+  });
+
+  it("the how-to folds away once the owner is set up", () => {
+    const src = read(PAGE);
+    expect(src).toMatch(/<details\s+open=\{!isSetUp\}/);
+    expect(src).toMatch(/const isSetUp = Boolean\(request \|\| cardSource\)/);
+  });
+});

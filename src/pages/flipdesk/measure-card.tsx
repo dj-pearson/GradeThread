@@ -70,6 +70,10 @@ interface CardRequestState {
     can_request: boolean;
     reason: CardRequestEligibilityReason;
   };
+  // MC-10: the owner's cataloged items (null when the count failed) and the
+  // card on record for the owner, returned by the same GET.
+  waiting_count?: number | null;
+  card?: { source: "download" | "mail" | null; version: number | null };
 }
 
 const CAPTURE_DOS = [
@@ -150,6 +154,12 @@ export function FlipdeskMeasureCardPage() {
   });
   const request = data?.request ?? null;
   const reason = data?.eligibility.reason ?? "free_plan";
+  const waitingCount = data?.waiting_count ?? null;
+  const cardSource = data?.card?.source ?? null;
+  const cardVersion = data?.card?.version ?? null;
+  // MC-10: once the owner has a card (printed or requested), the how-to is
+  // reference material and starts folded away.
+  const isSetUp = Boolean(request || cardSource);
 
   const [form, setForm] = useState({
     ship_name: "",
@@ -239,73 +249,88 @@ export function FlipdeskMeasureCardPage() {
       <PageHeader
         icon={Ruler}
         title="MeasureCard"
-        subtitle="Print the card and lay it next to the garment. One photo is enough: we read the measurements off the card, you drag to fix any that look wrong, and we add a tidy measurements photo to your listing."
-              actions={<PageHelp slug="using-the-measurecard" />}
+        subtitle="Lay the card beside a garment, take one photo, and we read the measurements."
+        actions={<PageHelp slug="using-the-measurecard" />}
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">How to shoot with it</CardTitle>
-          <CardDescription>
-            One photo: the garment flat, the card beside it, camera top-down.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* US-2540: the instructions said "all four black squares" to people
-              who had never seen one. */}
-          <MeasureCardDiagram className="mx-auto max-w-sm" />
-          <div className="grid gap-4 sm:grid-cols-2">
-          <ul className="space-y-1.5 text-sm">
-            {CAPTURE_DOS.map((d) => (
-              <li key={d} className="flex gap-2">
-                <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                {d}
-              </li>
-            ))}
-          </ul>
-          <ul className="space-y-1.5 text-sm">
-            {CAPTURE_DONTS.map((d) => (
-              <li key={d} className="flex gap-2">
-                <X className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-                {d}
-              </li>
-            ))}
-          </ul>
-          </div>
-        </CardContent>
-      </Card>
+      {/* MC-10: the work that is waiting comes first, with the page's only
+          primary button. US-2231 AC1 is why it exists at all: the page used
+          to describe the card and dead-end.
 
-      {/* US-2231 AC1: the page described the capability and dead-ended. Every
-          control on it produced an ARTEFACT — a PDF to print, a card to mail —
-          and none of them led to the thing the artefact is for. A seller who
-          finished reading had to already know that measuring happens on an
-          item, and where to find one.
-
-          Points at the To-list tab rather than the inventory root: that is
-          where pre-listed items sit (statusParamToTab folds cataloged /
-          measured / photographed into it), so the seller lands on the set that
-          actually needs measuring instead of their whole catalog. Uses
-          ?status=cataloged rather than ?tab=to_list because status is the
-          documented external entry point the Overview grid and Kanban links
-          already use, and it survives a tab rename. */}
+          ?status=cataloged lands on the Unlisted tab (statusParamToTab folds
+          every pre-listed stage into it) filtered to cataloged, which is the
+          set waiting_count counts. status is the documented external entry
+          point, so the link survives a tab rename. */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Measure an item</CardTitle>
           <CardDescription>
-            Measurements are captured on the item itself, next to its photos —
-            open an item that is ready to list and fill in the measurement
-            fields with the card in frame.
+            Measurements are captured on the item itself, next to its photos.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button asChild>
-            <Link to="/dashboard/flipdesk/inventory?status=cataloged">
-              <Ruler className="mr-2 h-4 w-4" />
-              Go to items ready to measure
-            </Link>
-          </Button>
+          {waitingCount === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nothing waiting. Catalog an item first.
+            </p>
+          ) : (
+            <Button asChild>
+              <Link to="/dashboard/flipdesk/inventory?status=cataloged">
+                <Ruler className="mr-2 h-4 w-4" />
+                {waitingCount == null
+                  ? "Go to items ready to measure"
+                  : `${waitingCount} ${waitingCount === 1 ? "item" : "items"} waiting to be measured`}
+              </Link>
+            </Button>
+          )}
         </CardContent>
       </Card>
+
+      {/* MC-10: the seller's card setup, stated as a fact the page knows. */}
+      {!isLoading && !isError ? (
+        <p className="text-sm text-muted-foreground" data-testid="mc-your-card">
+          {cardSource
+            ? `Your card: v${cardVersion ?? "?"}, ${cardSource === "mail" ? "mailed to you" : "printed at home"}.`
+            : request
+              ? "Your card is on its way by mail."
+              : "No card yet. Print one below, or request one by mail."}
+        </p>
+      ) : null}
+
+      <details
+        open={!isSetUp}
+        className="group rounded-xl border bg-card text-card-foreground"
+      >
+        <summary className="cursor-pointer px-6 py-4 text-base font-semibold">
+          How to shoot with it
+        </summary>
+        <div className="space-y-4 px-6 pb-6">
+          <p className="text-sm text-muted-foreground">
+            One photo: the garment flat, the card beside it, camera top-down.
+          </p>
+          {/* US-2540: the instructions said "all four black squares" to people
+              who had never seen one. */}
+          <MeasureCardDiagram className="mx-auto max-w-sm" />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <ul className="space-y-1.5 text-sm">
+              {CAPTURE_DOS.map((d) => (
+                <li key={d} className="flex gap-2">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                  {d}
+                </li>
+              ))}
+            </ul>
+            <ul className="space-y-1.5 text-sm">
+              {CAPTURE_DONTS.map((d) => (
+                <li key={d} className="flex gap-2">
+                  <X className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                  {d}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </details>
 
       <Card>
         <CardHeader>
@@ -325,7 +350,7 @@ export function FlipdeskMeasureCardPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button onClick={downloadPdf}>
+          <Button variant="outline" onClick={downloadPdf}>
             <Download className="mr-2 h-4 w-4" />
             Download the print-at-home PDF
           </Button>
@@ -557,7 +582,9 @@ export function FlipdeskMeasureCardPage() {
                 />
               </div>
               <div className="flex items-end">
-                <Button type="submit">Review address</Button>
+                <Button type="submit" variant="outline">
+                  Review address
+                </Button>
               </div>
             </form>
             )

@@ -170,3 +170,17 @@ Deno.test("MC-08: state is required for US, CA and AU only", () => {
     assertEquals(r.value.state, "");
   }
 });
+
+// ── MC-10: the waiting count is the owner's, and only the owner's ────────────
+
+Deno.test("MC-10: GET /card-request counts the owner's cataloged items only", () => {
+  const at = ROUTE.indexOf('flipdeskMeasureRoutes.get("/card-request"');
+  const body = ROUTE.slice(at, ROUTE.indexOf("\n});", at));
+  assert(
+    /\.from\("inventory_items"\)\s*\.select\("id", \{ count: "exact", head: true \}\)\s*\.eq\("user_id", ownerId\)\s*\.eq\("status", "cataloged"\)/
+      .test(body),
+    "the waiting count must be a head count scoped to ownerId",
+  );
+  assert(body.includes("waiting_count:"));
+  assert(body.includes("source: owner?.measure_card_source ?? null"));
+});

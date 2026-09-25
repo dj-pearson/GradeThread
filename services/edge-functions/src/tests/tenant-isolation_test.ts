@@ -5058,6 +5058,47 @@ Deno.test({
   },
 });
 
+// MC-10: GET /card-request now returns waiting_count, a head count of the
+// owner's cataloged inventory_items. B's number must be B's own: it is checked
+// against B's cataloged rows read back through PostgREST with B's JWT, where
+// RLS plus an explicit user_id filter can only ever return B's items.
+Deno.test({
+  name: "MC-10: B's measure waiting_count counts only B's own items",
+  ignore: !CONFIGURED || !Deno.env.get("SUPABASE_URL"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/measure/card-request`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = await res.json() as { waiting_count?: number | null };
+    assertEquals(res.status, 200, "B reads B's own measure summary");
+    if (body.waiting_count == null) return; // count unavailable: nothing leaked
+
+    const bId = JSON.parse(atob(B_JWT!.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")))
+      .sub as string;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    const check = await fetch(
+      `${supabaseUrl}/rest/v1/inventory_items?user_id=eq.${bId}&status=eq.cataloged&select=id`,
+      {
+        headers: {
+          Authorization: `Bearer ${B_JWT!}`,
+          apikey: anon,
+          Prefer: "count=exact",
+          Range: "0-0",
+        },
+      },
+    );
+    await check.body?.cancel();
+    const total = Number((check.headers.get("content-range") ?? "").split("/")[1]);
+    if (!Number.isFinite(total)) return; // REST unavailable here; skip the compare
+    assertEquals(
+      body.waiting_count,
+      total,
+      "B's waiting_count differs from B's own cataloged items: it counted another tenant's",
+    );
+  },
+});
+
 // ── US-2595: flipdesk-measure autofill (US-268 workspace scope) ──────────────
 //
 // POST /autofill takes an item_id from the request body and, when it finds the

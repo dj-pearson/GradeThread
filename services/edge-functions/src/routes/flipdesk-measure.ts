@@ -775,9 +775,16 @@ export function cardRequestEligibility(input: {
 
 // The seller's latest mail request (any status) plus whether they may make
 // one, both for the WORKSPACE OWNER's tenant — drives the tools page.
+//
+// MC-10: also the page's "what is waiting" facts, so one GET renders it:
+//   waiting_count  the owner's inventory_items at status 'cataloged' (a head
+//                  count, scoped .eq("user_id", ownerId)); null if the count
+//                  failed, which the page shows as no number rather than zero.
+//   card           users.measure_card_source / _version for the owner, so the
+//                  page can say which card they have and fold the how-to.
 flipdeskMeasureRoutes.get("/card-request", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const [reqRes, ownerRes] = await Promise.all([
+  const [reqRes, ownerRes, waitingRes] = await Promise.all([
     supabaseAdmin
       .from("measure_card_requests")
       .select("id, status, card_version, requested_at, shipped_at, tracking_number, tracking_carrier")
@@ -787,23 +794,39 @@ flipdeskMeasureRoutes.get("/card-request", async (c) => {
       .maybeSingle(),
     supabaseAdmin
       .from("users")
-      .select("flipdesk_plan")
+      .select("flipdesk_plan, measure_card_source, measure_card_version")
       .eq("id", ownerId)
       .maybeSingle(),
+    supabaseAdmin
+      .from("inventory_items")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", ownerId)
+      .eq("status", "cataloged"),
   ]);
   if (reqRes.error || ownerRes.error) {
     return c.json({ error: "Could not load your request." }, 500);
   }
+  if (waitingRes.error) {
+    console.error("[measure-card] waiting count failed:", waitingRes.error.message);
+  }
   const data = reqRes.data as Parameters<typeof requestSummary>[0] | null;
-  const ownerPlan = (ownerRes.data as { flipdesk_plan: string | null } | null)
-    ?.flipdesk_plan;
+  const owner = ownerRes.data as {
+    flipdesk_plan: string | null;
+    measure_card_source: string | null;
+    measure_card_version: number | null;
+  } | null;
   return c.json({
     request: data ? requestSummary(data) : null,
     eligibility: cardRequestEligibility({
       role: c.get("workspaceRole"),
-      ownerPlan,
+      ownerPlan: owner?.flipdesk_plan,
       latestStatus: data?.status ?? null,
     }),
+    waiting_count: waitingRes.error ? null : (waitingRes.count ?? 0),
+    card: {
+      source: owner?.measure_card_source ?? null,
+      version: owner?.measure_card_version ?? null,
+    },
   });
 });
 

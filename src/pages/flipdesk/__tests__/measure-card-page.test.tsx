@@ -219,3 +219,41 @@ describe("a shipped card (MC-09)", () => {
     expect(button("Lost or damaged? Request a replacement card")).toBeUndefined();
   });
 });
+
+describe("the work that is waiting comes first (MC-10)", () => {
+  it("shows the live count on the Measure block, before the how-to", async () => {
+    await mount({ ...OK, waiting_count: 12, card: { source: null, version: null } });
+    const t = text();
+    expect(t).toContain("12 items waiting to be measured");
+    expect(t.indexOf("12 items waiting")).toBeLessThan(t.indexOf("How to shoot with it"));
+    const link = container!.querySelector('a[href="/dashboard/flipdesk/inventory?status=cataloged"]');
+    expect(link?.textContent).toContain("12 items waiting");
+  });
+
+  it("says so when nothing is waiting", async () => {
+    await mount({ ...OK, waiting_count: 0, card: { source: null, version: null } });
+    expect(text()).toContain("Nothing waiting. Catalog an item first.");
+  });
+
+  it("renders only one primary button", async () => {
+    await mount({ ...OK, waiting_count: 3, card: { source: null, version: null } });
+    // shadcn's default variant is the only one using bg-primary.
+    const primary = Array.from(
+      container!.querySelectorAll("button, a[data-slot='button']"),
+    ).filter((b) => /(^|\s)bg-primary(\s|$)/.test(b.className));
+    expect(primary).toHaveLength(1);
+    expect(primary[0]!.textContent).toContain("3 items waiting");
+  });
+
+  it("folds the how-to away and states the card once the seller is set up", async () => {
+    await mount({ ...OK, waiting_count: 1, card: { source: "download", version: 2 } });
+    expect(container!.querySelector("details")?.open).toBe(false);
+    expect(text()).toContain("Your card: v2, printed at home.");
+  });
+
+  it("opens the how-to for someone with no card yet", async () => {
+    await mount({ ...OK, waiting_count: 1, card: { source: null, version: null } });
+    expect(container!.querySelector("details")?.open).toBe(true);
+    expect(text()).toContain("No card yet.");
+  });
+});
