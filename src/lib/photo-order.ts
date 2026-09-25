@@ -47,3 +47,18 @@ export function canonicalPhotoSort<
     return a.sort_order - b.sort_order;
   });
 }
+
+/**
+ * sort_order for a batch of new photos on an item with none yet, in the order
+ * given: each is placed at its canonical position as if uploaded one by one.
+ * So the tag shot picked first still lands after the front and back, and the
+ * front stays the cover.
+ */
+export function batchSortOrders(types: ReadonlyArray<FlipdeskPhotoType | string>): number[] {
+  const seen: { photo_type: FlipdeskPhotoType | string }[] = [];
+  return types.map((t) => {
+    const order = nextUploadSortOrder(seen, t);
+    seen.push({ photo_type: t });
+    return order;
+  });
+}

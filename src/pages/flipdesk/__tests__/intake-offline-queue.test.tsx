@@ -21,7 +21,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/supabase", () => ({ supabase: { from: mocks.from, rpc: mocks.rpc } }));
 vi.mock("@/lib/offline-queue", () => ({ enqueueIntake: mocks.enqueueIntake }));
-vi.mock("@/lib/item-photo-upload", () => ({ uploadItemPhoto: mocks.uploadItemPhoto }));
+vi.mock("@/lib/item-photo-upload", async (orig) => ({
+  ...(await orig<typeof import("@/lib/item-photo-upload")>()),
+  uploadItemPhoto: mocks.uploadItemPhoto,
+}));
 vi.mock("@/hooks/use-offline-intake", () => ({
   useOfflineIntakeSync: () => ({ pending: 0, online: false, refresh: mocks.refresh, sync: vi.fn() }),
 }));
@@ -203,7 +206,7 @@ describe("intake offline save", () => {
       extras.photos.map((p) => [(p.blob as File).name, p.photoType, p.photoRole, p.sortOrder]),
     ).toEqual([
       ["front.jpg", "front", null, 0],
-      ["back.jpg", "back", null, 1],
+      ["back.jpg", "back", null, 100],
     ]);
 
     expect(mocks.from).not.toHaveBeenCalled();

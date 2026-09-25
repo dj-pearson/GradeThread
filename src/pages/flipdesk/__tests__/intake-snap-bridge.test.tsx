@@ -22,7 +22,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/supabase", () => ({ supabase: { from: mocks.from, rpc: mocks.rpc } }));
 vi.mock("@/lib/offline-queue", () => ({ enqueueIntake: mocks.enqueueIntake }));
-vi.mock("@/lib/item-photo-upload", () => ({ uploadItemPhoto: mocks.uploadItemPhoto }));
+vi.mock("@/lib/item-photo-upload", async (orig) => ({
+  ...(await orig<typeof import("@/lib/item-photo-upload")>()),
+  uploadItemPhoto: mocks.uploadItemPhoto,
+}));
 vi.mock("@/hooks/use-offline-intake", () => ({
   useOfflineIntakeSync: () => ({ pending: 0, online: false, refresh: mocks.refresh, sync: vi.fn() }),
 }));

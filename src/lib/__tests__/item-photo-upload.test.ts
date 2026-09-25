@@ -53,6 +53,7 @@ vi.mock("@/lib/macro-photo-quality", () => ({
   assessMacroPhoto: () => ({ message: null }),
   measureMacroPhoto: async () => null,
   uploadMaxWidthFor: () => 2400,
+  isMacroPhotoType: (t: string) => t === "tag",
 }));
 
 import { PhotoPrepError, uploadItemPhoto } from "@/lib/item-photo-upload";
@@ -275,5 +276,17 @@ describe("local preparation failures are marked as such", () => {
     h.uploadError = { statusCode: "403", message: "new row violates row-level security policy" };
     const err = await uploadItemPhoto({ ...baseInput, file: original() }).catch((e) => e);
     expect(err).not.toBeInstanceOf(PhotoPrepError);
+  });
+});
+
+describe("macro slots cap the long edge", () => {
+  it("passes { maxEdge } for a tag shot and a plain width for a front", async () => {
+    const encoded = new Blob([new Uint8Array([9])], { type: "image/webp" });
+    h.compress.mockResolvedValue({ blob: encoded, width: 10, height: 10 });
+    await uploadItemPhoto({ ...baseInput, photoType: "tag", file: original() });
+    expect(h.compress.mock.calls[0]![1]).toEqual({ maxEdge: 2400 });
+    h.compress.mockClear();
+    await uploadItemPhoto({ ...baseInput, file: original() });
+    expect(h.compress.mock.calls[0]![1]).toBe(2400);
   });
 });

@@ -36,6 +36,12 @@ export interface StagedPhoto {
   photoType: FlipdeskPhotoType;
   /** The qualifier saying what this photo shows; null for a slot that takes none. */
   photoRole?: string | null;
+  /**
+   * The item_photos row id this photo will be uploaded under, fixed when it
+   * is staged so a retry (online, or later from the queue) targets the same
+   * storage path and row instead of making a second copy.
+   */
+  photoId?: string;
 }
 
 /** Slot identity is (type, role), so a suit can hold three separate tag slots. */
@@ -131,6 +137,7 @@ export function IntakePhotoStager({
         previewUrl: URL.createObjectURL(file),
         photoType: slot.photoType,
         photoRole: slot.photoRole,
+        photoId: crypto.randomUUID(),
       });
     }
     setCounter(n);

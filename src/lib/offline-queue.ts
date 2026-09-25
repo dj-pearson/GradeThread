@@ -160,6 +160,31 @@ export async function enqueueIntake(
   await runTx("readwrite", (s) => s.add(record));
 }
 
+/**
+ * Photos of an item that IS saved but whose uploads failed online. They wait
+ * in the queue under the item's id and upload on the next flush, the same as
+ * the photos of an item that was queued whole.
+ */
+export async function enqueuePhotosForItem(args: {
+  itemId: string;
+  ownerId: string;
+  title: string;
+  queuedBy: string;
+  photos: QueuedIntakePhoto[];
+}): Promise<void> {
+  if (args.photos.length === 0) return;
+  const record: QueuedIntake = {
+    id: args.itemId,
+    createdAt: Date.now(),
+    queuedBy: args.queuedBy,
+    payload: { user_id: args.ownerId, title: args.title },
+    newSourceName: null,
+    itemSaved: true,
+    photos: args.photos.map((p) => ({ ...p, id: p.id ?? crypto.randomUUID() })),
+  };
+  await runTx("readwrite", (s) => s.put(record));
+}
+
 async function putQueuedIntake(record: QueuedIntake): Promise<void> {
   await runTx("readwrite", (s) => s.put(record));
 }

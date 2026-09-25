@@ -53,7 +53,8 @@ import { BulkIntake } from "@/components/flipdesk/bulk-intake";
 import { SnapCatalog } from "@/components/flipdesk/snap-catalog";
 import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
 import { useOfflineIntakeSync } from "@/hooks/use-offline-intake";
-import { enqueueIntake } from "@/lib/offline-queue";
+import { enqueueIntake, enqueuePhotosForItem } from "@/lib/offline-queue";
+import { batchSortOrders } from "@/lib/photo-order";
 import {
   isDraftAlreadySaved,
   offlineSavedMessage,
@@ -78,7 +79,7 @@ import {
 } from "@/components/flipdesk/intake-photo-stager";
 import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 import { useLatestRun } from "@/hooks/use-latest-run";
-import { uploadItemPhoto } from "@/lib/item-photo-upload";
+import { PhotoPrepError, uploadInPool, uploadItemPhoto } from "@/lib/item-photo-upload";
 import { Switch } from "@/components/ui/switch";
 import { useReviewFlowEnabled, useSetReviewFlow } from "@/hooks/use-review-flow";
 import { firstPhotoMsFrom, reviewPath } from "@/lib/review-flow";
@@ -545,6 +546,16 @@ export function FlipdeskIntakePage() {
           targetPrice: snapCarry?.targetPrice ?? null,
         });
 
+      // Canonical order (front, back, tag, ...) whatever order they were
+      // picked in, so the tag shot never becomes the cover. The photo id is
+      // fixed per staged photo, so an online try and a queued retry agree.
+      const orders = batchSortOrders(stagedPhotos.map((p) => p.photoType));
+      const photoPlan = stagedPhotos.map((staged, i) => ({
+        staged,
+        sortOrder: orders[i]!,
+        photoId: staged.photoId ?? crypto.randomUUID(),
+      }));
+
       // Offline, or a network failure below: persist to the IndexedDB queue
       // and flush on reconnect. The draft id rides along as the item id, so
       // an online try that did land is found, not duplicated.
@@ -553,12 +564,13 @@ export function FlipdeskIntakePage() {
           queuedBy: user.id,
           id: draftId,
           newSourceName,
-          photos: stagedPhotos.map((p, i) => ({
-            blob: p.file,
-            name: p.file.name,
-            photoType: p.photoType,
-            photoRole: p.photoRole ?? null,
-            sortOrder: i,
+          photos: photoPlan.map((p) => ({
+            blob: p.staged.file,
+            name: p.staged.file.name,
+            photoType: p.staged.photoType,
+            photoRole: p.staged.photoRole ?? null,
+            sortOrder: p.sortOrder,
+            id: p.photoId,
           })),
         });
         await offline.refresh();
@@ -615,31 +627,66 @@ export function FlipdeskIntakePage() {
       const newId = draftId;
 
       // US-2546 AC2: the staged photos go up through the SAME core the item
-      // page uses (src/lib/item-photo-upload.ts). A failure here must not read
-      // as a failed save — the item exists, so say what happened and let the
-      // seller finish on the item page.
+      // page uses (src/lib/item-photo-upload.ts), three at a time, each retried
+      // once. A failure here must not read as a failed save: the item exists.
+      // Photos that still fail go to the offline queue against this item and
+      // finish on their own; only one this device cannot prepare is lost.
       if (newId && stagedPhotos.length > 0) {
-        let uploaded = 0;
-        for (const [i, staged] of stagedPhotos.entries()) {
+        const outcomes = await uploadInPool(photoPlan, (p) =>
+          uploadItemPhoto({
+            file: p.staged.file,
+            itemId: newId,
+            ownerFolder: workspaceOwnerId,
+            photoType: p.staged.photoType,
+            photoRole: p.staged.photoRole ?? null,
+            sortOrder: p.sortOrder,
+            photoId: p.photoId,
+          }),
+        );
+        const uploaded = outcomes.filter((o) => o.ok).length;
+        const retryable = outcomes.filter(
+          (o) => !o.ok && !(o.error instanceof PhotoPrepError),
+        );
+        let queued = 0;
+        if (retryable.length > 0) {
           try {
-            await uploadItemPhoto({
-              file: staged.file,
+            await enqueuePhotosForItem({
               itemId: newId,
-              ownerFolder: workspaceOwnerId,
-              photoType: staged.photoType,
-              photoRole: staged.photoRole ?? null,
-              sortOrder: i,
+              ownerId: workspaceOwnerId,
+              title: form.title.trim(),
+              queuedBy: user.id,
+              photos: retryable.map((o) => ({
+                blob: o.task.staged.file,
+                name: o.task.staged.file.name,
+                photoType: o.task.staged.photoType,
+                photoRole: o.task.staged.photoRole ?? null,
+                sortOrder: o.task.sortOrder,
+                id: o.task.photoId,
+              })),
             });
-            uploaded++;
-          } catch (photoErr) {
-            if (import.meta.env.DEV) {
-              console.warn("[intake] photo upload failed:", photoErr);
-            }
+            queued = retryable.length;
+            await offline.refresh();
+          } catch {
+            /* no IndexedDB: reported as missing below */
           }
         }
         await qc.invalidateQueries({ queryKey: ["item_photos", newId] });
-        const shortfall = photoShortfallMessage(stagedPhotos.length, uploaded);
+        if (queued > 0) {
+          toast.message(
+            `${queued} photo${queued === 1 ? "" : "s"} will finish uploading on their own.`,
+          );
+        }
+        const shortfall = photoShortfallMessage(stagedPhotos.length, uploaded + queued);
         if (shortfall) toast.warning(shortfall);
+        // US-2136: a macro shot too soft to read is worth saying once.
+        const soft = outcomes
+          .filter((o) => o.ok && o.result?.macro && !o.result.macro.ok)
+          .map((o) => o.task.staged.photoType);
+        if (soft.length > 0) {
+          toast.warning(
+            `The ${[...new Set(soft)].join(", ")} photo${soft.length === 1 ? " looks" : "s look"} too soft to read. Retake ${soft.length === 1 ? "it" : "them"} from the item page.`,
+          );
+        }
       }
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });

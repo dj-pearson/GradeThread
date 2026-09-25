@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   enqueueIntake: vi.fn(),
+  enqueuePhotosForItem: vi.fn(),
   refresh: vi.fn(),
   from: vi.fn(),
   rpc: vi.fn(),
@@ -28,8 +29,14 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/supabase", () => ({ supabase: { from: mocks.from, rpc: mocks.rpc } }));
-vi.mock("@/lib/offline-queue", () => ({ enqueueIntake: mocks.enqueueIntake }));
-vi.mock("@/lib/item-photo-upload", () => ({ uploadItemPhoto: mocks.uploadItemPhoto }));
+vi.mock("@/lib/offline-queue", () => ({
+  enqueueIntake: mocks.enqueueIntake,
+  enqueuePhotosForItem: mocks.enqueuePhotosForItem,
+}));
+vi.mock("@/lib/item-photo-upload", async (orig) => ({
+  ...(await orig<typeof import("@/lib/item-photo-upload")>()),
+  uploadItemPhoto: mocks.uploadItemPhoto,
+}));
 vi.mock("@/hooks/use-offline-intake", () => ({
   useOfflineIntakeSync: () => ({ pending: 0, online: true, refresh: mocks.refresh, sync: vi.fn() }),
 }));
@@ -98,23 +105,42 @@ vi.mock("@/components/flipdesk/intake-photo-stager", () => ({
     photos: unknown[];
     onChange: (next: unknown[]) => void;
   }) => (
-    <button
-      type="button"
-      data-staged={photos.length}
-      onClick={() =>
-        onChange([
-          {
-            id: "s1",
-            file: new File(["f"], "front.jpg", { type: "image/jpeg" }),
-            previewUrl: "",
-            photoType: "front",
-            photoRole: null,
-          },
-        ])
-      }
-    >
-      stage photos
-    </button>
+    <>
+      <button
+        type="button"
+        data-staged={photos.length}
+        onClick={() =>
+          onChange([
+            {
+              id: "s1",
+              file: new File(["f"], "front.jpg", { type: "image/jpeg" }),
+              previewUrl: "",
+              photoType: "front",
+              photoRole: null,
+            },
+          ])
+        }
+      >
+        stage photos
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          onChange(
+            (["tag", "front", "back", "detail"] as const).map((t, i) => ({
+              id: `p${i}`,
+              file: new File([t], `${t}.jpg`, { type: "image/jpeg" }),
+              previewUrl: "",
+              photoType: t,
+              photoRole: null,
+              photoId: `00000000-0000-4000-8000-00000000000${i}`,
+            })),
+          )
+        }
+      >
+        stage four
+      </button>
+    </>
   ),
 }));
 
@@ -225,6 +251,7 @@ beforeEach(() => {
     mocks.toastWarning,
     mocks.lookup,
     mocks.extract,
+    mocks.enqueuePhotosForItem,
   ])
     m.mockReset();
   mocks.can.mockReset().mockReturnValue(true);
@@ -468,5 +495,48 @@ describe("AI review panel on intake", () => {
     const row = insert.mock.calls[0]![0] as { description: string; garment_type: string | null };
     expect(row.description).toBe("Soft wool coat.");
     expect(row.garment_type).not.toBe("dress");
+  });
+});
+
+describe("photo uploads after an online save", () => {
+  it("runs at most three at once, keeps canonical order, and queues a photo that fails twice", async () => {
+    const insert = insertChain(() => Promise.resolve({ data: { id: "x" }, error: null }));
+    mocks.enqueuePhotosForItem.mockResolvedValue(undefined);
+    let active = 0;
+    let peak = 0;
+    const calls: Array<{ photoType: string; sortOrder: number }> = [];
+    mocks.uploadItemPhoto.mockImplementation(async (input: { photoType: string; sortOrder: number }) => {
+      calls.push(input);
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 5));
+      active--;
+      if (input.photoType === "front") throw new Error("503 from storage");
+      return { macro: { ok: true } };
+    });
+    await renderPage();
+    await typeTitle("Wool coat");
+    await click("stage four");
+    await click("Save & Add another");
+    for (let i = 0; i < 5; i++) await flush();
+
+    expect(peak).toBeLessThanOrEqual(3);
+    const order = Object.fromEntries(calls.map((c) => [c.photoType, c.sortOrder]));
+    expect(order.front).toBe(0);
+    expect(order.front).toBeLessThan(order.back!);
+    expect(order.back).toBeLessThan(order.tag!);
+    // front failed, was retried once, then queued.
+    expect(calls.filter((c) => c.photoType === "front")).toHaveLength(2);
+    const draftId = (insert.mock.calls[0]![0] as { id: string }).id;
+    expect(mocks.enqueuePhotosForItem).toHaveBeenCalledTimes(1);
+    const arg = mocks.enqueuePhotosForItem.mock.calls[0]![0] as {
+      itemId: string;
+      photos: Array<{ photoType: string; sortOrder: number; id: string }>;
+    };
+    expect(arg.itemId).toBe(draftId);
+    expect(arg.photos).toEqual([
+      expect.objectContaining({ photoType: "front", sortOrder: 0, id: "00000000-0000-4000-8000-000000000001" }),
+    ]);
+    expect(mocks.toastWarning).not.toHaveBeenCalled();
   });
 });

@@ -24,6 +24,7 @@ vi.mock("@/lib/item-photo-upload", () => ({
 import {
   clearOfflineIntakeQueue,
   enqueueIntake,
+  enqueuePhotosForItem,
   flushIntakeQueue,
   MAX_PHOTO_ATTEMPTS,
   queuedIntakeCount,
@@ -275,6 +276,26 @@ describe("the queue belongs to whoever queued it", () => {
     await clearOfflineIntakeQueue();
     const names = (await indexedDB.databases()).map((d) => d.name);
     expect(names).not.toContain("flipdesk-offline");
+    expect(await queuedIntakeCount(ME)).toBe(0);
+  });
+});
+
+describe("photos of an item saved online", () => {
+  it("upload on the next flush against that item, with no second insert", async () => {
+    await enqueuePhotosForItem({
+      itemId: "item-1",
+      ownerId: OWNER,
+      title: "Wool coat",
+      queuedBy: ME,
+      photos: [{ ...photo("a.jpg", 100), id: "p-1" }],
+    });
+    expect(await queuedIntakeCount(ME)).toBe(1);
+    const res = await flushIntakeQueue(ME);
+    expect(upsert).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ synced: 0, failed: 0, photosPending: 0 });
+    expect(uploadItemPhoto).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: "item-1", ownerFolder: OWNER, sortOrder: 100, photoId: "p-1" }),
+    );
     expect(await queuedIntakeCount(ME)).toBe(0);
   });
 });
