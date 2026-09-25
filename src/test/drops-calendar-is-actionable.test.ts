@@ -56,9 +56,8 @@ describe("a drop can be changed from the calendar (US-2522)", () => {
     const src = read(HOOK);
     // Not "set them all to X" — the gaps between a day's staggered drops are
     // the whole reason someone staggered them.
-    expect(src).toMatch(
-      /new Date\(d\.scheduled_publish_at\)\.getTime\(\) \+ minutes \* 60_000/,
-    );
+    // SD-6: whole days move on the seller's wall clock, not by 1440 minutes.
+    expect(src).toMatch(/shiftInZone\(d\.scheduled_publish_at, timeZone, shift\)/);
   });
 });
 

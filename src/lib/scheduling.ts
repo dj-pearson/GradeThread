@@ -311,3 +311,38 @@ export function dropHealthNote(
       return null;
   }
 }
+
+/** A shift a seller asks for: whole calendar days, clock minutes, or both. */
+export interface DropShift {
+  days?: number;
+  minutes?: number;
+}
+
+/**
+ * Move an instant by `days` calendar days IN `timeZone`, then by `minutes` of
+ * absolute time (SD-6). A day is not 1440 minutes on a DST change night, so
+ * "+1 day" on a 7:00 PM drop has to land on 7:00 PM the next day, not 6 or 8.
+ */
+export function shiftInZone(iso: string, timeZone: string, shift: DropShift): string {
+  const days = shift.days ?? 0;
+  const minutes = shift.minutes ?? 0;
+  let t = Date.parse(iso);
+  if (days !== 0) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(isoToZonedInput(iso, timeZone));
+    if (m) {
+      const [, y, mo, d, h, mi] = m;
+      // Noon-UTC anchor, as in nextPresetUtc, so the calendar arithmetic never
+      // drifts across a DST boundary.
+      const anchor = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d) + days, 12));
+      t = zonedWallTimeToUtc(
+        anchor.getUTCFullYear(),
+        anchor.getUTCMonth() + 1,
+        anchor.getUTCDate(),
+        Number(h),
+        Number(mi),
+        timeZone,
+      ).getTime();
+    }
+  }
+  return new Date(t + minutes * 60_000).toISOString();
+}

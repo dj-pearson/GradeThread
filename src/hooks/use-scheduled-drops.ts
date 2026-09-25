@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchCapped } from "@/lib/paged-read";
-import { assertFutureDrop } from "@/lib/scheduling";
+import { assertFutureDrop, shiftInZone, type DropShift } from "@/lib/scheduling";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -201,19 +201,22 @@ export interface DropBatchResult {
 }
 
 /**
- * Shift a set of drops by the same number of minutes, keeping their order and
- * the gaps between them. Each row moves relative to ITS OWN time, so a day's
- * staggered drops stay staggered.
+ * Shift a set of drops by the same amount, keeping their order and the gaps
+ * between them. Each row moves relative to ITS OWN time, so a day's staggered
+ * drops stay staggered. Whole days move on the wall clock in `timeZone`
+ * (SD-6), so a 7:00 PM drop stays at 7:00 PM across a DST change.
  */
 export function useShiftDrops() {
   const invalidate = useInvalidateDrops();
   return useMutation({
     mutationFn: async ({
       drops,
-      minutes,
+      shift,
+      timeZone,
     }: {
       drops: { id: string; scheduled_publish_at: string }[];
-      minutes: number;
+      shift: DropShift;
+      timeZone: string;
     }): Promise<DropBatchResult> => {
       // One UPDATE per row: they all move to DIFFERENT times, so there is no
       // single-statement version of this. These are direct PostgREST writes
@@ -221,9 +224,7 @@ export function useShiftDrops() {
       // Sequential so a partial failure leaves a readable count behind.
       const planned = drops.map((d) => ({
         id: d.id,
-        next: new Date(
-          new Date(d.scheduled_publish_at).getTime() + minutes * 60_000,
-        ).toISOString(),
+        next: shiftInZone(d.scheduled_publish_at, timeZone, shift),
       }));
       // Checked for every row BEFORE any write, so a refused shift leaves the
       // day exactly as it was rather than half moved.

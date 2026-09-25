@@ -10,6 +10,7 @@ import {
   dropHealth,
   MAX_SCHEDULED_PUBLISH_ATTEMPTS,
   PUBLISH_CLAIM_STALE_MS,
+  shiftInZone,
 } from "./scheduling";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -162,5 +163,30 @@ describe("the client mirrors the cron's constants (SD-3)", () => {
     );
     expect(m, "constant not found in the publish-due route").not.toBeNull();
     expect(Number(m![1]) * 60_000).toBe(PUBLISH_CLAIM_STALE_MS);
+  });
+});
+
+describe("shiftInZone keeps the wall-clock hour across DST (SD-6)", () => {
+  const CHI = "America/Chicago";
+  it("+1 day across fall-back lands on the same 7:00 PM", () => {
+    const iso = zonedInputToIso("2026-10-31T19:00", CHI)!;
+    const out = shiftInZone(iso, CHI, { days: 1 });
+    expect(isoToZonedInput(out, CHI)).toBe("2026-11-01T19:00");
+    // 25 hours of absolute time, not 24.
+    expect(Date.parse(out) - Date.parse(iso)).toBe(25 * 3_600_000);
+  });
+  it("+1 day across spring-forward lands on the same 7:00 PM", () => {
+    const iso = zonedInputToIso("2026-03-07T19:00", CHI)!;
+    const out = shiftInZone(iso, CHI, { days: 1 });
+    expect(isoToZonedInput(out, CHI)).toBe("2026-03-08T19:00");
+    expect(Date.parse(out) - Date.parse(iso)).toBe(23 * 3_600_000);
+  });
+  it("-1 day walks back the same way", () => {
+    const iso = zonedInputToIso("2026-11-01T19:00", CHI)!;
+    expect(isoToZonedInput(shiftInZone(iso, CHI, { days: -1 }), CHI)).toBe("2026-10-31T19:00");
+  });
+  it("minutes are absolute time", () => {
+    const iso = "2026-06-15T00:00:00.000Z";
+    expect(shiftInZone(iso, CHI, { minutes: 60 })).toBe("2026-06-15T01:00:00.000Z");
   });
 });

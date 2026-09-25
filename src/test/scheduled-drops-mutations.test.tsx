@@ -136,7 +136,8 @@ describe("drop writes that change nothing (SD-1)", () => {
           { id: "a", scheduled_publish_at: new Date(soon).toISOString() },
           { id: "b", scheduled_publish_at: new Date(soon + 60_000).toISOString() },
         ],
-        minutes: 60,
+        shift: { minutes: 60 },
+        timeZone: "UTC",
       });
     });
     expect(result).toMatchObject({ moved: 1, unchanged: 1, failed: 0, movedIds: ["a"] });
@@ -156,7 +157,8 @@ describe("drop writes that change nothing (SD-1)", () => {
           { id: "a", scheduled_publish_at: new Date(soon).toISOString() },
           { id: "b", scheduled_publish_at: new Date(soon).toISOString() },
         ],
-        minutes: 60,
+        shift: { minutes: 60 },
+        timeZone: "UTC",
       });
     });
     expect(result).toMatchObject({ moved: 1, unchanged: 0, failed: 1 });
@@ -191,7 +193,8 @@ describe("drop writes into the past (SD-2)", () => {
             { id: "a", scheduled_publish_at: new Date(Date.now() + 86_400_000 * 2).toISOString() },
             { id: "b", scheduled_publish_at: new Date(Date.now() + 30 * 60_000).toISOString() },
           ],
-          minutes: -60,
+          shift: { minutes: -60 },
+          timeZone: "UTC",
         });
       } catch (e) {
         caught = e;

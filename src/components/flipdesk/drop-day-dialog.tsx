@@ -26,8 +26,10 @@ import {
   isoToZonedInput,
   dropNeedsAttention,
   MIN_DROP_LEAD_MS,
+  shiftInZone,
   zonedInputToIso,
   type DropHealth,
+  type DropShift,
 } from "@/lib/scheduling";
 import { DropHealthTag } from "@/components/flipdesk/drop-health-tag";
 
@@ -48,12 +50,15 @@ export interface DayDrop {
   healthNote: string | null;
 }
 
-/** Offered shifts, in minutes. A day slips by an hour far more often than by five. */
-const SHIFTS = [
-  { label: "Back 1 day", minutes: -1440 },
-  { label: "Back 1 hour", minutes: -60 },
-  { label: "+1 hour", minutes: 60 },
-  { label: "+1 day", minutes: 1440 },
+/**
+ * Offered shifts. A day slips by an hour far more often than by five. Days
+ * move on the wall clock (SD-6); hours move as absolute time.
+ */
+const SHIFTS: { key: string; label: string; shift: DropShift }[] = [
+  { key: "-1d", label: "Back 1 day", shift: { days: -1 } },
+  { key: "-1h", label: "Back 1 hour", shift: { minutes: -60 } },
+  { key: "+1h", label: "+1 hour", shift: { minutes: 60 } },
+  { key: "+1d", label: "+1 day", shift: { days: 1 } },
 ];
 
 export function DropDayDialog({
@@ -107,19 +112,15 @@ export function DropDayDialog({
   }
 
   /** SD-2: which of this day's drops a shift would push into the past. */
-  function shiftPlan(minutes: number) {
+  function shiftPlan(by: DropShift) {
     const future = drops.filter(
-      (d) =>
-        assertFutureDrop(
-          new Date(Date.parse(d.scheduled_publish_at) + minutes * 60_000).toISOString(),
-          now,
-        ).ok,
+      (d) => assertFutureDrop(shiftInZone(d.scheduled_publish_at, timeZone, by), now).ok,
     );
     return { future, past: drops.length - future.length };
   }
 
-  async function shiftAll(minutes: number) {
-    const plan = shiftPlan(minutes);
+  async function shiftAll(by: DropShift) {
+    const plan = shiftPlan(by);
     if (plan.future.length === 0) return;
     if (plan.past > 0) {
       const ok = await confirm({
@@ -131,7 +132,7 @@ export function DropDayDialog({
     }
     const targets = plan.future;
     try {
-      const r = await shift.mutateAsync({ drops: targets, minutes });
+      const r = await shift.mutateAsync({ drops: targets, shift: by, timeZone });
       const missed = r.unchanged + r.failed;
       if (r.moved === 0) {
         toast.error(
@@ -173,10 +174,10 @@ export function DropDayDialog({
           <div className="flex flex-wrap items-center gap-2 rounded-md border p-2">
             <span className="text-sm font-medium">Shift the whole day</span>
             {SHIFTS.map((s) => {
-              const plan = shiftPlan(s.minutes);
+              const plan = shiftPlan(s.shift);
               return (
                 <Button
-                  key={s.minutes}
+                  key={s.key}
                   size="sm"
                   variant="outline"
                   // Every drop would land in the past: nothing to offer.
@@ -186,7 +187,7 @@ export function DropDayDialog({
                       ? "Every drop would land in the past."
                       : undefined
                   }
-                  onClick={() => void shiftAll(s.minutes)}
+                  onClick={() => void shiftAll(s.shift)}
                 >
                   {s.label}
                 </Button>
