@@ -114,7 +114,7 @@ describe("times survive the round trip through a timezone (US-2522)", () => {
 
 describe("dialog copy is plain ASCII punctuation (SD-2)", () => {
   it("has no minus sign or em dash in the shift labels or toasts", () => {
-    expect(read(DIALOG)).not.toMatch(/[−—]/);
+    expect(read(DIALOG)).not.toMatch(/[\u2212\u2014]/);
   });
 });
 

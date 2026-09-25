@@ -656,8 +656,8 @@ export function FlipdeskScheduledDropsPage() {
                     than only linking away to a draft. */
                 <div
                   role="grid"
-                  // The grid itself is never the focus target — one cell holds the
-                  // roving tabstop — but a role=grid that handles keys has to be
+                  // The grid itself is never the focus target (one cell holds the
+                  // roving tabstop), but a role=grid that handles keys has to be
                   // focusable for the handler to be reachable at all.
                   tabIndex={-1}
                   aria-label={`Scheduled drops for ${MONTH_NAMES[view.m]} ${view.y}`}
