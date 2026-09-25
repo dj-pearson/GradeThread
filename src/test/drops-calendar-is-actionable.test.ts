@@ -134,3 +134,11 @@ describe("drop titles come from the drops read (SD-8)", () => {
     expect(page).not.toContain('from("inventory_items")');
   });
 });
+
+describe("an open page keeps up with the cron (SD-9)", () => {
+  it("the drops read refetches on an interval, foreground only", () => {
+    const src = read(HOOK);
+    expect(src).toMatch(/refetchInterval: \(query\) => dropsRefetchInterval/);
+    expect(src).toContain("refetchIntervalInBackground: false");
+  });
+});

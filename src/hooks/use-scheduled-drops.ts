@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchCapped } from "@/lib/paged-read";
-import { assertFutureDrop, shiftInZone, type DropShift } from "@/lib/scheduling";
+import {
+  assertFutureDrop,
+  dropHealth,
+  PUBLISH_CLAIM_STALE_MS,
+  shiftInZone,
+  type DropShift,
+} from "@/lib/scheduling";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -73,6 +79,27 @@ export function dropTitle(row: Pick<ScheduledDropRow, "listing_title" | "item_ti
   return row.listing_title?.trim() || row.item_title?.trim() || "Untitled draft";
 }
 
+/** SD-9: how often an open page re-reads, and faster while the cron is busy. */
+export const DROPS_REFETCH_MS = 60_000;
+export const DROPS_REFETCH_BUSY_MS = 20_000;
+
+/**
+ * Re-read every 20s while any drop is publishing or due within ten minutes
+ * either side of now, else every minute. The cron runs every five minutes, so
+ * a page left open used to show drops it had already published or failed.
+ */
+export function dropsRefetchInterval(
+  rows: readonly ScheduledDropRow[] | undefined,
+  now: number = Date.now(),
+): number {
+  const busy = (rows ?? []).some((r) => {
+    if (dropHealth(r, now) === "publishing") return true;
+    const t = Date.parse(r.scheduled_publish_at);
+    return Number.isFinite(t) && Math.abs(t - now) <= PUBLISH_CLAIM_STALE_MS;
+  });
+  return busy ? DROPS_REFETCH_BUSY_MS : DROPS_REFETCH_MS;
+}
+
 /**
  * Every scheduled drop, soonest first.
  *
@@ -87,6 +114,9 @@ export function useScheduledDrops() {
     queryKey: [SCHEDULED_DROPS_KEY, user?.id],
     enabled: !!user,
     staleTime: 30_000,
+    // Visible tab only, the same posture as the Best Offers inbox (use-ebay.ts).
+    refetchInterval: (query) => dropsRefetchInterval(query.state.data?.rows),
+    refetchIntervalInBackground: false,
     queryFn: () =>
       fetchCapped<ScheduledDropRow>(async (limit) => {
         const { data, error } = await supabase
