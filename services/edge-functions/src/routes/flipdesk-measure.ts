@@ -830,6 +830,11 @@ export const MAIL_FIELD_LIMITS = {
   postal_code: 20,
 } as const;
 
+// MC-08: the countries whose addresses need a state / province / region line.
+// Elsewhere (GB, IE, NZ) the field is optional and stored as ''. MIRRORED in
+// src/pages/flipdesk/measure-card.tsx; a Vitest guard compares them.
+export const STATE_REQUIRED_COUNTRIES = ["US", "CA", "AU"] as const;
+
 // A cell starting with one of these is read as a formula by Excel and Sheets
 // (OWASP CSV injection). The fulfilment CSV defends stored rows on export too
 // (admin-measure-cards.ts csvCell); refusing them here keeps new ones out.
@@ -869,16 +874,21 @@ export function validateMailAddress(
       fields: tooLong,
     };
   }
+  const country = raw("country").toUpperCase() || "US";
+  const needsState = (STATE_REQUIRED_COUNTRIES as readonly string[]).includes(
+    country,
+  );
   if (
-    !value.ship_name || !value.address_line1 || !value.city || !value.state ||
-    !value.postal_code
+    !value.ship_name || !value.address_line1 || !value.city ||
+    (needsState && !value.state) || !value.postal_code
   ) {
     return {
       ok: false,
-      error: "Name, address, city, state, and postal code are required.",
+      error: needsState
+        ? "Name, address, city, state, and postal code are required."
+        : "Name, address, city, and postal code are required.",
     };
   }
-  const country = raw("country").toUpperCase() || "US";
   if (!/^[A-Z]{2}$/.test(country)) {
     return {
       ok: false,

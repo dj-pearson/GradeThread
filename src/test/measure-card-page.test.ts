@@ -30,7 +30,7 @@ describe("the mail form is not US-only by accident (US-2540)", () => {
 
   it("labels the region and postal fields for the chosen country", () => {
     const src = read(PAGE);
-    expect(src).toMatch(/isUs \? "State" : "State \/ Province \/ Region"/);
+    expect(src).toMatch(/isUs\s*\?\s*"State"\s*:\s*needsState\s*\?\s*"State \/ Province \/ Region"/);
     expect(src).toMatch(/isUs \? "ZIP" : "Postal code"/);
   });
 
@@ -160,5 +160,54 @@ describe("the new request is shown from the POST response (MC-07)", () => {
     const src = read(PAGE);
     expect(src).toContain("refetchOnWindowFocus: true");
     expect(src).toContain("staleTime: 60_000");
+  });
+});
+
+describe("the address form matches what the server accepts (MC-08)", () => {
+  const limits = (src: string) => {
+    const m = /const MAIL_FIELD_LIMITS = \{([^}]+)\}/.exec(src);
+    expect(m, "MAIL_FIELD_LIMITS is missing").toBeTruthy();
+    return Object.fromEntries(
+      [...m![1]!.matchAll(/([a-z_0-9]+):\s*(\d+)/g)].map((x) => [x[1], Number(x[2])]),
+    );
+  };
+
+  it("the page and the server agree on every field limit", () => {
+    const page = limits(read(PAGE));
+    expect(page).toEqual(limits(read(ROUTE)));
+    expect(Object.keys(page)).toHaveLength(6);
+  });
+
+  it("the page and the server agree on where a state is required", () => {
+    const list = (src: string) => {
+      const m = /const STATE_REQUIRED_COUNTRIES = \[([^\]]+)\]/.exec(src);
+      expect(m).toBeTruthy();
+      return [...m![1]!.matchAll(/"([A-Z]{2})"/g)].map((x) => x[1]);
+    };
+    expect(list(read(PAGE))).toEqual(list(read(ROUTE)));
+    expect(list(read(PAGE))).toEqual(["US", "CA", "AU"]);
+  });
+
+  it("every input carries an autofill hint and a length cap", () => {
+    const src = read(PAGE);
+    for (const hint of [
+      "name",
+      "address-line1",
+      "address-line2",
+      "address-level2",
+      "address-level1",
+      "postal-code",
+      "country",
+    ]) {
+      expect(src).toContain(`autoComplete="${hint}"`);
+    }
+    for (const key of ["ship_name", "address_line1", "address_line2", "city", "state", "postal_code"]) {
+      expect(src).toContain(`maxLength={MAIL_FIELD_LIMITS.${key}}`);
+    }
+  });
+
+  it("country comes before the fields it changes", () => {
+    const src = read(PAGE);
+    expect(src.indexOf('htmlFor="mc-country"')).toBeLessThan(src.indexOf('htmlFor="mc-name"'));
   });
 });

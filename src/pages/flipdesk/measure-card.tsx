@@ -100,6 +100,24 @@ const MAIL_COUNTRIES: { code: string; name: string }[] = [
   { code: "NZ", name: "New Zealand" },
 ];
 
+// MC-08: the longest value the server accepts for each field. MIRRORED from
+// MAIL_FIELD_LIMITS in services/edge-functions/src/routes/flipdesk-measure.ts
+// the same way MAIL_COUNTRIES is; a Vitest guard compares the two. The server
+// refuses anything longer rather than shortening it, so the input stops the
+// seller at the limit instead of letting them type an address we will bounce.
+const MAIL_FIELD_LIMITS = {
+  ship_name: 120,
+  address_line1: 200,
+  address_line2: 200,
+  city: 120,
+  state: 80,
+  postal_code: 20,
+} as const;
+
+// MC-08: where an address has a state / province line. MIRRORED from
+// STATE_REQUIRED_COUNTRIES on the server. Elsewhere it is optional.
+const STATE_REQUIRED_COUNTRIES = ["US", "CA", "AU"] as const;
+
 const STATUS_LABEL: Record<CardRequest["status"], string> = {
   requested: "Requested — in the fulfillment queue",
   exported: "Sent to the print vendor",
@@ -146,14 +164,26 @@ export function FlipdeskMeasureCardPage() {
     country: "US",
   });
   const [submitting, setSubmitting] = useState(false);
+  // MC-08: the address is never echoed back by the server, so this is the
+  // seller's only chance to catch a typo before a card goes to the wrong door.
+  const [reviewing, setReviewing] = useState(false);
   const isUs = form.country === "US";
+  const needsState = (STATE_REQUIRED_COUNTRIES as readonly string[]).includes(
+    form.country,
+  );
+  const countryName =
+    MAIL_COUNTRIES.find((c) => c.code === form.country)?.name ?? form.country;
 
   function set(key: keyof typeof form, v: string) {
     setForm((f) => ({ ...f, [key]: v }));
   }
 
-  async function submitRequest(e: React.FormEvent) {
+  function startReview(e: React.FormEvent) {
     e.preventDefault();
+    setReviewing(true);
+  }
+
+  async function submitRequest() {
     setSubmitting(true);
     try {
       const res = await edgeFetch("/api/flipdesk/measure/card-request", {
@@ -162,12 +192,16 @@ export function FlipdeskMeasureCardPage() {
       });
       const json = (await res.json().catch(() => ({}))) as {
         error?: string;
+        fields?: Record<string, string>;
         request?: CardRequest;
       };
       if (!res.ok) {
         toast.error(json.error ?? "Could not submit the request.");
+        // A field the server refused has to be edited, so go back to the form.
+        if (json.fields) setReviewing(false);
         return;
       }
+      setReviewing(false);
       toast.success("Card request received — we'll mail it out shortly.");
       // MC-07: the POST already returns the new request, so use it rather
       // than paying for a second GET to learn what we were just told.
@@ -368,68 +402,55 @@ export function FlipdeskMeasureCardPage() {
               above works with the same pipeline, or upgrade to have one mailed.
             </p>
           ) : (
-            <form onSubmit={(e) => void submitRequest(e)} className="grid gap-3 sm:grid-cols-2">
+            reviewing ? (
+            <div className="space-y-3">
+              <div className="rounded-md border p-3 text-sm">
+                <p className="font-medium">We will mail it to:</p>
+                <address
+                  data-testid="mc-review"
+                  className="mt-1 not-italic text-muted-foreground"
+                >
+                  <span className="block text-foreground">{form.ship_name}</span>
+                  <span className="block">{form.address_line1}</span>
+                  {form.address_line2 ? (
+                    <span className="block">{form.address_line2}</span>
+                  ) : null}
+                  <span className="block">
+                    {[form.city, form.state, form.postal_code]
+                      .filter(Boolean)
+                      .join(", ")}
+                  </span>
+                  <span className="block">{countryName}</span>
+                </address>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setReviewing(false)}
+                  disabled={submitting}
+                >
+                  Edit
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void submitRequest()}
+                  disabled={submitting}
+                >
+                  {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Confirm and request
+                </Button>
+              </div>
+            </div>
+            ) : (
+            <form onSubmit={startReview} className="grid gap-3 sm:grid-cols-2">
+              {/* MC-08: country first, because it decides what the fields
+                  below are called and whether a state is needed. */}
               <div className="sm:col-span-2 space-y-1">
-                <Label htmlFor="mc-name">Full name</Label>
-                <Input
-                  id="mc-name"
-                  value={form.ship_name}
-                  onChange={(e) => set("ship_name", e.target.value)}
-                  required
-                />
-              </div>
-              <div className="sm:col-span-2 space-y-1">
-                <Label htmlFor="mc-a1">Address line 1</Label>
-                <Input
-                  id="mc-a1"
-                  value={form.address_line1}
-                  onChange={(e) => set("address_line1", e.target.value)}
-                  required
-                />
-              </div>
-              <div className="sm:col-span-2 space-y-1">
-                <Label htmlFor="mc-a2">Address line 2 (optional)</Label>
-                <Input
-                  id="mc-a2"
-                  value={form.address_line2}
-                  onChange={(e) => set("address_line2", e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="mc-city">City</Label>
-                <Input
-                  id="mc-city"
-                  value={form.city}
-                  onChange={(e) => set("city", e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-1">
-                {/* US-2540: "State" and "ZIP" are US words. The field is
-                    required, so a seller in a country without either had to
-                    invent something to get past it. */}
-                <Label htmlFor="mc-state">
-                  {isUs ? "State" : "State / Province / Region"}
-                </Label>
-                <Input
-                  id="mc-state"
-                  value={form.state}
-                  onChange={(e) => set("state", e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="mc-zip">{isUs ? "ZIP" : "Postal code"}</Label>
-                <Input
-                  id="mc-zip"
-                  value={form.postal_code}
-                  onChange={(e) => set("postal_code", e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-1">
                 <Label htmlFor="mc-country">Country</Label>
                 <Select
+                  name="country"
+                  autoComplete="country"
                   value={form.country}
                   onValueChange={(v) => set("country", v)}
                 >
@@ -445,13 +466,85 @@ export function FlipdeskMeasureCardPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="sm:col-span-2 space-y-1">
+                <Label htmlFor="mc-name">Full name</Label>
+                <Input
+                  id="mc-name"
+                  autoComplete="name"
+                  maxLength={MAIL_FIELD_LIMITS.ship_name}
+                  value={form.ship_name}
+                  onChange={(e) => set("ship_name", e.target.value)}
+                  required
+                />
+              </div>
+              <div className="sm:col-span-2 space-y-1">
+                <Label htmlFor="mc-a1">Address line 1</Label>
+                <Input
+                  id="mc-a1"
+                  autoComplete="address-line1"
+                  maxLength={MAIL_FIELD_LIMITS.address_line1}
+                  value={form.address_line1}
+                  onChange={(e) => set("address_line1", e.target.value)}
+                  required
+                />
+              </div>
+              <div className="sm:col-span-2 space-y-1">
+                <Label htmlFor="mc-a2">Address line 2 (optional)</Label>
+                <Input
+                  id="mc-a2"
+                  autoComplete="address-line2"
+                  maxLength={MAIL_FIELD_LIMITS.address_line2}
+                  value={form.address_line2}
+                  onChange={(e) => set("address_line2", e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="mc-city">City</Label>
+                <Input
+                  id="mc-city"
+                  autoComplete="address-level2"
+                  maxLength={MAIL_FIELD_LIMITS.city}
+                  value={form.city}
+                  onChange={(e) => set("city", e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                {/* US-2540: "State" and "ZIP" are US words. MC-08: and only
+                    US, CA and AU addresses need the line at all. */}
+                <Label htmlFor="mc-state">
+                  {isUs
+                    ? "State"
+                    : needsState
+                      ? "State / Province / Region"
+                      : "State / Province / Region (optional)"}
+                </Label>
+                <Input
+                  id="mc-state"
+                  autoComplete="address-level1"
+                  maxLength={MAIL_FIELD_LIMITS.state}
+                  value={form.state}
+                  onChange={(e) => set("state", e.target.value)}
+                  required={needsState}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="mc-zip">{isUs ? "ZIP" : "Postal code"}</Label>
+                <Input
+                  id="mc-zip"
+                  autoComplete="postal-code"
+                  inputMode={isUs ? "numeric" : "text"}
+                  maxLength={MAIL_FIELD_LIMITS.postal_code}
+                  value={form.postal_code}
+                  onChange={(e) => set("postal_code", e.target.value)}
+                  required
+                />
+              </div>
               <div className="flex items-end">
-                <Button type="submit" disabled={submitting}>
-                  {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Request my card
-                </Button>
+                <Button type="submit">Review address</Button>
               </div>
             </form>
+            )
           )}
         </CardContent>
       </Card>

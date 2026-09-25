@@ -15,7 +15,12 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { cardRequestEligibility, validateMailAddress, MAIL_FIELD_LIMITS } = await import(
+const {
+  cardRequestEligibility,
+  validateMailAddress,
+  MAIL_FIELD_LIMITS,
+  STATE_REQUIRED_COUNTRIES,
+} = await import(
   "../routes/flipdesk-measure.ts"
 );
 
@@ -148,4 +153,20 @@ Deno.test("MC-02: the POST no longer slices fields", () => {
   assert(!body.includes(".slice(0, max)"));
   assert(body.includes("validateMailAddress(body)"));
   assert(body.includes("fields: checked.fields"));
+});
+
+// ── MC-08: state only where an address has one ─────────────────────────────
+
+Deno.test("MC-08: state is required for US, CA and AU only", () => {
+  assertEquals([...STATE_REQUIRED_COUNTRIES], ["US", "CA", "AU"]);
+  for (const country of ["US", "CA", "AU"]) {
+    const r = validateMailAddress({ ...GOOD, country, state: "" });
+    assert(!r.ok, `${country} without a state should be refused`);
+    assert(r.error.includes("state"));
+  }
+  for (const country of ["GB", "IE", "NZ"]) {
+    const r = validateMailAddress({ ...GOOD, country, state: "" });
+    assert(r.ok, `${country} without a state should pass`);
+    assertEquals(r.value.state, "");
+  }
 });
