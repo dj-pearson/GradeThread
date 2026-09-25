@@ -14,7 +14,10 @@ vi.mock("@/lib/supabase", () => ({
     }),
   },
 }));
-vi.mock("@/lib/sentry", () => ({ captureException: vi.fn() }));
+const captureException = vi.fn();
+vi.mock("@/lib/sentry", () => ({
+  captureException: (...args: unknown[]) => captureException(...args),
+}));
 const uploadItemPhoto = vi.fn();
 vi.mock("@/lib/item-photo-upload", () => ({
   uploadItemPhoto: (...args: unknown[]) => uploadItemPhoto(...args),
@@ -25,6 +28,8 @@ import {
   clearOfflineIntakeQueue,
   enqueueIntake,
   enqueuePhotosForItem,
+  flushIntakeQueueExclusive,
+  queueCounts,
   flushIntakeQueue,
   MAX_PHOTO_ATTEMPTS,
   queuedIntakeCount,
@@ -297,5 +302,41 @@ describe("photos of an item saved online", () => {
       expect.objectContaining({ itemId: "item-1", ownerFolder: OWNER, sortOrder: 100, photoId: "p-1" }),
     );
     expect(await queuedIntakeCount(ME)).toBe(0);
+  });
+});
+
+describe("flushing from anywhere", () => {
+  it("a second concurrent flush does nothing", async () => {
+    await enqueueIntake(payload, { queuedBy: ME });
+    let release!: () => void;
+    upsert.mockImplementation(
+      (row: { id: string }) =>
+        new Promise((r) => {
+          release = () => r({ data: [{ id: row.id }], error: null });
+        }),
+    );
+    const first = flushIntakeQueueExclusive(ME);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(await flushIntakeQueueExclusive(ME)).toBeNull();
+    release();
+    expect(await first).toMatchObject({ synced: 1 });
+    expect(upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("a dropped connection on a photo is not reported to Sentry", async () => {
+    captureException.mockReset();
+    await enqueueIntake(payload, { queuedBy: ME, photos: [photo("a.jpg", 0)] });
+    uploadItemPhoto.mockRejectedValue(new TypeError("Failed to fetch"));
+    const res = await flushIntakeQueue(ME);
+    expect(res).toMatchObject({ synced: 1, photosPending: 1 });
+    expect(captureException).not.toHaveBeenCalled();
+  });
+
+  it("counts items and photos separately, and returns the ids it synced", async () => {
+    await enqueueIntake(payload, { queuedBy: ME, id: "item-a", photos: [photo("a.jpg", 0), photo("b.jpg", 1)] });
+    expect(await queueCounts(ME)).toEqual({ itemsPending: 1, photosPending: 2 });
+    expect(await queueCounts(OTHER)).toEqual({ itemsPending: 0, photosPending: 0 });
+    const res = await flushIntakeQueue(ME);
+    expect(res.syncedIds).toEqual(["item-a"]);
   });
 });

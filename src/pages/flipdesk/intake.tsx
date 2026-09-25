@@ -52,7 +52,7 @@ import { SkuAutoHint } from "@/components/flipdesk/sku-auto-hint";
 import { BulkIntake } from "@/components/flipdesk/bulk-intake";
 import { SnapCatalog } from "@/components/flipdesk/snap-catalog";
 import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
-import { useOfflineIntakeSync } from "@/hooks/use-offline-intake";
+import { useOfflineIntakeStatus } from "@/hooks/use-offline-intake";
 import { enqueueIntake, enqueuePhotosForItem } from "@/lib/offline-queue";
 import { batchSortOrders } from "@/lib/photo-order";
 import {
@@ -254,7 +254,7 @@ export function FlipdeskIntakePage() {
   const [measurements, setMeasurements] = useState<
     Record<string, number | string>
   >({});
-  const offline = useOfflineIntakeSync();
+  const offline = useOfflineIntakeStatus();
 
   // AI Fill state
   const aiExtract = useAiExtract();
@@ -845,11 +845,11 @@ export function FlipdeskIntakePage() {
           automatically when you reconnect.
         </div>
       )}
-      {offline.pending > 0 && (
+      {(offline.pending > 0 || offline.photosPending > 0) && (
         <div className="flex items-center gap-2 rounded-lg border border-brand-navy/30 bg-brand-navy/5 p-3 text-sm">
           <CloudUpload className="h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
-          {offline.pending} item{offline.pending === 1 ? "" : "s"} queued
-          offline{offline.online ? " — syncing…" : "."}
+          {queueLine(offline.pending, offline.photosPending)}
+          {offline.online ? ". Syncing..." : "."}
         </div>
       )}
 
@@ -1253,6 +1253,14 @@ export function FlipdeskIntakePage() {
       </AlertDialog>
     </div>
   );
+}
+
+/** "2 items and 3 photos queued offline", without the empty half. */
+function queueLine(items: number, photos: number): string {
+  const parts: string[] = [];
+  if (items > 0) parts.push(`${items} item${items === 1 ? "" : "s"}`);
+  if (photos > 0) parts.push(`${photos} photo${photos === 1 ? "" : "s"}`);
+  return `${parts.join(" and ")} queued offline`;
 }
 
 function AiMark() {

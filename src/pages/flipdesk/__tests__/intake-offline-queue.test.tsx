@@ -26,7 +26,7 @@ vi.mock("@/lib/item-photo-upload", async (orig) => ({
   uploadItemPhoto: mocks.uploadItemPhoto,
 }));
 vi.mock("@/hooks/use-offline-intake", () => ({
-  useOfflineIntakeSync: () => ({ pending: 0, online: false, refresh: mocks.refresh, sync: vi.fn() }),
+  useOfflineIntakeStatus: () => ({ pending: 0, photosPending: 0, online: false, refresh: mocks.refresh }),
 }));
 vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), {

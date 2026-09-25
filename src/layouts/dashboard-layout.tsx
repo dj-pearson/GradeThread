@@ -22,6 +22,7 @@ import { PastDueBanner } from "@/components/billing/past-due-banner";
 import { ImpersonationBanner } from "@/components/admin/impersonation-banner";
 import { SupportChatWidget } from "@/components/support/support-chat-widget";
 import { MobileTabBar } from "@/components/dashboard/mobile-tab-bar";
+import { OfflineIntakeSync } from "@/hooks/use-offline-intake";
 
 export function DashboardLayout() {
   // Subscribe to realtime submission updates for toast notifications
@@ -91,6 +92,8 @@ export function DashboardLayout() {
       </div>
       {/* Global Cmd/Ctrl-K command palette */}
       <CommandPalette />
+      {/* Drains the offline intake queue from any page, not only Add item. */}
+      <OfflineIntakeSync />
       {/* Global "?" keyboard-shortcuts reference */}
       <ShortcutsHelp />
       {/* First-login onboarding */}

@@ -13,7 +13,10 @@ const DB_NAME = "flipdesk-offline";
 const DB_VERSION = 2;
 const STORE = "intake-queue";
 const BY_USER = "queuedBy";
-const BY_CREATED = "createdAt";
+// [queuedBy, createdAt]: one user's records, oldest first, as keys only, so a
+// flush never loads every queued photo into memory at once.
+const BY_USER_CREATED = "queuedBy_createdAt";
+const FLUSH_LOCK = "flipdesk-offline-flush";
 
 // A staged intake photo held as bytes. IndexedDB stores Blobs natively, so a
 // photo taken with no signal is not lost when the form resets.
@@ -71,6 +74,8 @@ export const MAX_PHOTO_ATTEMPTS = 5;
 
 export interface FlushResult {
   synced: number;
+  /** Item ids inserted by this flush, for a "Review N items" link. */
+  syncedIds: string[];
   failed: number;
   /**
    * US-2364: why the first failure failed. A queue that retries forever without
@@ -106,11 +111,32 @@ function openDb(): Promise<IDBDatabase> {
         ? req.transaction!.objectStore(STORE)
         : db.createObjectStore(STORE, { keyPath: "id" });
       if (!store.indexNames.contains(BY_USER)) store.createIndex(BY_USER, BY_USER);
-      if (!store.indexNames.contains(BY_CREATED)) store.createIndex(BY_CREATED, BY_CREATED);
+      if (!store.indexNames.contains(BY_USER_CREATED)) {
+        store.createIndex(BY_USER_CREATED, [BY_USER, "createdAt"]);
+      }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      // Sign-out deletes the database; never be the handle that blocks it.
+      db.onversionchange = () => db.close();
+      resolve(db);
+    };
     req.onerror = () =>
       reject(req.error ?? new Error("Could not open the offline database."));
+  });
+}
+
+/** One request in its own transaction on an open handle. */
+function onStore<T>(
+  db: IDBDatabase,
+  mode: IDBTransactionMode,
+  build: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const tx = db.transaction(STORE, mode);
+    const req = build(tx.objectStore(STORE));
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
   });
 }
 
@@ -120,14 +146,23 @@ async function runTx<T>(
 ): Promise<T> {
   const db = await openDb();
   try {
-    return await new Promise<T>((resolve, reject) => {
-      const tx = db.transaction(STORE, mode);
-      const req = build(tx.objectStore(STORE));
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
+    return await onStore(db, mode, build);
   } finally {
     db.close();
+  }
+}
+
+// Ask once for persistent storage when something is first queued, so the
+// browser does not evict unsynced photos under storage pressure. Best-effort.
+let persistAsked = false;
+function askToPersist(): void {
+  if (persistAsked) return;
+  persistAsked = true;
+  try {
+    const storage = typeof navigator === "undefined" ? undefined : navigator.storage;
+    void storage?.persist?.().catch(() => undefined);
+  } catch {
+    /* not supported */
   }
 }
 
@@ -158,6 +193,7 @@ export async function enqueueIntake(
     })),
   };
   await runTx("readwrite", (s) => s.add(record));
+  askToPersist();
 }
 
 /**
@@ -183,27 +219,64 @@ export async function enqueuePhotosForItem(args: {
     photos: args.photos.map((p) => ({ ...p, id: p.id ?? crypto.randomUUID() })),
   };
   await runTx("readwrite", (s) => s.put(record));
-}
-
-async function putQueuedIntake(record: QueuedIntake): Promise<void> {
-  await runTx("readwrite", (s) => s.put(record));
-}
-
-async function getQueuedIntakes(queuedBy: string): Promise<QueuedIntake[]> {
-  const mine = await runTx<QueuedIntake[]>(
-    "readonly",
-    (s) => s.index(BY_USER).getAll(queuedBy) as IDBRequest<QueuedIntake[]>,
-  );
-  return mine.sort((a, b) => a.createdAt - b.createdAt);
-}
-
-async function removeQueuedIntake(id: string): Promise<void> {
-  await runTx("readwrite", (s) => s.delete(id));
+  askToPersist();
 }
 
 /** Records queued by this user. Nobody else's, and never an unowned one. */
 export async function queuedIntakeCount(queuedBy: string): Promise<number> {
   return await runTx<number>("readonly", (s) => s.index(BY_USER).count(queuedBy));
+}
+
+export interface QueueCounts {
+  /** Items whose row is not on the server yet. */
+  itemsPending: number;
+  /** Photos still to upload, for queued items and saved ones alike. */
+  photosPending: number;
+}
+
+/** What this user has waiting, split the way the intake banner says it. */
+export async function queueCounts(queuedBy: string): Promise<QueueCounts> {
+  const mine = await runTx<QueuedIntake[]>(
+    "readonly",
+    (s) => s.index(BY_USER).getAll(queuedBy) as IDBRequest<QueuedIntake[]>,
+  );
+  let itemsPending = 0;
+  let photosPending = 0;
+  for (const r of mine) {
+    if (!r.itemSaved) itemsPending++;
+    photosPending += r.photos?.length ?? 0;
+  }
+  return { itemsPending, photosPending };
+}
+
+// Set while a flush runs in THIS tab. navigator.locks covers other tabs.
+let flushingHere = false;
+
+/**
+ * Flush unless one is already running here or in another tab, in which case
+ * it returns null and does nothing: two tabs flushing at once used to upload
+ * the same photos twice.
+ */
+export async function flushIntakeQueueExclusive(
+  queuedBy: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<FlushResult | null> {
+  if (flushingHere) return null;
+  flushingHere = true;
+  try {
+    const locks =
+      typeof navigator === "undefined"
+        ? undefined
+        : (navigator as Navigator & { locks?: LockManager }).locks;
+    if (locks?.request) {
+      return await locks.request(FLUSH_LOCK, { ifAvailable: true }, async (lock) =>
+        lock ? flushIntakeQueue(queuedBy, onProgress) : null,
+      );
+    }
+    return await flushIntakeQueue(queuedBy, onProgress);
+  } finally {
+    flushingHere = false;
+  }
 }
 
 /**
@@ -234,7 +307,28 @@ export async function flushIntakeQueue(
   queuedBy: string,
   onProgress?: (done: number, total: number) => void,
 ): Promise<FlushResult> {
-  const queued = await getQueuedIntakes(queuedBy);
+  const db = await openDb();
+  try {
+    return await flushWith(db, queuedBy, onProgress);
+  } finally {
+    db.close();
+  }
+}
+
+async function flushWith(
+  db: IDBDatabase,
+  queuedBy: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<FlushResult> {
+  // Keys only, oldest first; each record is read when its turn comes.
+  const keys = await onStore(db, "readonly", (s) =>
+    s
+      .index(BY_USER_CREATED)
+      .getAllKeys(IDBKeyRange.bound([queuedBy, -Infinity], [queuedBy, Infinity])),
+  );
+  const putQueuedIntake = (r: QueuedIntake) => onStore(db, "readwrite", (s) => s.put(r));
+  const removeQueuedIntake = (id: string) => onStore(db, "readwrite", (s) => s.delete(id));
+  const syncedIds: string[] = [];
   let synced = 0;
   let failed = 0;
   let photosDropped = 0;
@@ -247,13 +341,23 @@ export async function flushIntakeQueue(
     const message = err instanceof Error ? err.message : String(err);
     if (area === "offline-intake-photo") firstPhotoError ??= message;
     else firstError ??= message;
+    // A dropped connection is the queue doing its job, not an error.
+    if (isOffline(err)) return;
     captureException(err, {
       tags: { area },
       extra: { queueRecordId: record.id },
     });
   };
-  for (let i = 0; i < queued.length; i++) {
-    let record = queued[i]!;
+  for (let i = 0; i < keys.length; i++) {
+    const stored = (await onStore(db, "readonly", (s) => s.get(keys[i]!))) as
+      | QueuedIntake
+      | undefined;
+    // Gone (another flush finished it) or not this user's: leave it alone.
+    if (!stored || stored.queuedBy !== queuedBy) {
+      onProgress?.(i + 1, keys.length);
+      continue;
+    }
+    let record = stored;
     let payload: InventoryItemInsert = record.payload;
     if (!record.itemSaved) {
       let alreadySaved = false;
@@ -304,10 +408,13 @@ export async function flushIntakeQueue(
         // without ever saying why.
         failed++;
         report(err, record, "offline-intake-flush");
-        onProgress?.(i + 1, queued.length);
+        onProgress?.(i + 1, keys.length);
         continue;
       }
-      if (!alreadySaved) synced++;
+      if (!alreadySaved) {
+        synced++;
+        syncedIds.push(record.id);
+      }
     }
 
     try {
@@ -372,10 +479,11 @@ export async function flushIntakeQueue(
       report(err, record, "offline-intake-photo");
       photosPending += record.photos?.length ?? 0;
     }
-    onProgress?.(i + 1, queued.length);
+    onProgress?.(i + 1, keys.length);
   }
   return {
     synced,
+    syncedIds,
     failed,
     firstError,
     photosDropped,
