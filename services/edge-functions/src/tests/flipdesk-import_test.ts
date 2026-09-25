@@ -319,7 +319,7 @@ Deno.test("closet: a failed effect insert rolls back the listing and the item", 
 
 Deno.test("closet: a failed listing refresh puts the item fill back", async () => {
   const LISTING = "44444444-4444-4444-8444-444444444444";
-  const row = { ...closetRow(1), brand: "Patagonia", price: 35 };
+  const row: Row = { ...closetRow(1), brand: "Patagonia", price: 35 };
   db.reset({
     flipdesk_import_runs: [runRow([row], { origin: "poshmark" })],
     inventory_items: [{
