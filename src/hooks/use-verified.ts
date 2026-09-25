@@ -77,8 +77,15 @@ export function useUpdateVerifiedProfile() {
       }
       return data.profile as VerifiedProfile;
     },
-    onSuccess: () => {
+    onSuccess: (_profile, update) => {
       queryClient.invalidateQueries({ queryKey: ["verified_profile", user?.id] });
+      // The passport tab decides whether a hop can be revealed from its own
+      // cached verified_profile_public, so going public or private (or a
+      // handle change) must refresh it too, or it keeps saying "make your
+      // profile public first" for up to its 30s stale time.
+      if (update.enabled !== undefined || update.handle !== undefined) {
+        queryClient.invalidateQueries({ queryKey: ["passport_identity_nodes", user?.id] });
+      }
     },
     onError: (err: Error) => {
       toastError(err);

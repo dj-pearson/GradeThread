@@ -203,6 +203,24 @@ describe("profile load failure (V1)", () => {
   });
 });
 
+describe("background refetch failure", () => {
+  it("keeps the form and the seller's edits when a refetch fails after a good load", () => {
+    const c = render();
+    typeInto(c.querySelector<HTMLInputElement>("#display_name")!, "Edited Name");
+    // A window-focus refetch fails: TanStack keeps the last good data.
+    profileState.isError = true;
+    act(() => {
+      root!.render(
+        <MemoryRouter>
+          <FlipdeskVerifiedPage />
+        </MemoryRouter>,
+      );
+    });
+    expect(c.textContent).not.toContain("Your Verified profile didn't load.");
+    expect(c.querySelector<HTMLInputElement>("#display_name")!.value).toBe("Edited Name");
+  });
+});
+
 describe("public switch (V2)", () => {
   it("is disabled with a hint while the handle has unsaved edits", () => {
     const c = render();

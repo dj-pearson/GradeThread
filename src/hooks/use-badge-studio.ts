@@ -133,6 +133,7 @@ export async function fetchMyCertificates(userId: string): Promise<BadgeCertific
 export type OwnedCertLookup =
   | { state: "owned"; cert: BadgeCertificate }
   | { state: "not_public" }
+  | { state: "superseded" }
   | { state: "not_owned" };
 
 /**
@@ -144,16 +145,22 @@ export async function lookupOwnedCertificate(
   userId: string,
   certId: string,
 ): Promise<OwnedCertLookup> {
+  // Not filtered on superseded_at: the seller's own regraded certificate is
+  // still theirs, and telling them it "isn't one of yours" would be false.
+  // certificate_id is UNIQUE, so this is at most one row.
   const { data, error } = await supabase
     .from("grade_reports")
-    .select(BADGE_CERT_SELECT)
+    .select(`${BADGE_CERT_SELECT}, superseded_at`)
     .eq("submissions.user_id", userId)
     .eq("certificate_id", certId)
-    .is("superseded_at", null)
     .maybeSingle();
   if (error) throw error;
   if (!data) return { state: "not_owned" };
-  const row = data as unknown as BadgeCertRow & { certificate_id: string };
+  const row = data as unknown as BadgeCertRow & {
+    certificate_id: string;
+    superseded_at?: string | null;
+  };
+  if (row.superseded_at) return { state: "superseded" };
   if (!isPubliclyShownCert(row)) return { state: "not_public" };
   const slugs = await passportSlugs([row.certificate_id]);
   return { state: "owned", cert: toCert(row, slugs.get(row.certificate_id) ?? null) };

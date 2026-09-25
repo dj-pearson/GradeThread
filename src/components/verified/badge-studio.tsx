@@ -323,6 +323,11 @@ export function BadgeStudio({ handle }: { handle?: string | null }) {
               This certificate isn't one of yours.
             </p>
           )}
+          {needsLookup && ownedLookup.data?.state === "superseded" && (
+            <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+              This item was graded again. Use its newer certificate from the list above.
+            </p>
+          )}
           {needsLookup && ownedLookup.data?.state === "not_public" && (
             <p role="alert" className="text-xs text-red-600 dark:text-red-400">
               This certificate isn't public yet, so its badge wouldn't show.

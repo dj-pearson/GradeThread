@@ -73,7 +73,7 @@ type Availability =
   | { state: "error"; reason: string };
 
 export function FlipdeskVerifiedPage() {
-  const { data, isLoading, isError, refetch, isFetching } = useVerifiedProfile();
+  const { data, isLoading, refetch, isFetching } = useVerifiedProfile();
   const update = useUpdateVerifiedProfile();
   const funnel = useBadgeFunnel();
 
@@ -243,7 +243,10 @@ export function FlipdeskVerifiedPage() {
     );
   }
 
-  if (isError || !data) {
+  // Only when there is nothing to show. A failed BACKGROUND refetch (window
+  // focus, a save's invalidation) leaves the last good profile in `data`, and
+  // swapping the form for this card mid-edit would hide what the seller typed.
+  if (!data) {
     return (
       <div className="mx-auto w-full max-w-3xl space-y-6 p-6">
         <Card>
@@ -628,7 +631,7 @@ function badgeSourceLabel(src: string): string {
 }
 
 function BadgePerformanceCard() {
-  const { data, isLoading, isError, refetch, isFetching } = useBadgeFunnel();
+  const { data, isLoading, refetch, isFetching } = useBadgeFunnel();
   if (isLoading) return <Skeleton className="h-32 w-full" />;
 
   const header = (
@@ -646,7 +649,8 @@ function BadgePerformanceCard() {
     </CardHeader>
   );
 
-  if (isError || !data) {
+  // Last good numbers stay up if only a background refetch failed.
+  if (!data) {
     return (
       <Card>
         {header}
@@ -791,7 +795,13 @@ function ProfileQrBlock({ handle }: { handle: string }) {
   return (
     <div className="flex flex-wrap items-center gap-4 pt-2">
       <div ref={wrapRef} className="rounded-md bg-white p-2">
-        <QRCodeCanvas value={value} size={128} marginSize={1} aria-label="QR code for your profile" />
+        <QRCodeCanvas
+          value={value}
+          size={128}
+          marginSize={1}
+          role="img"
+          aria-label="QR code for your profile"
+        />
       </div>
       <div className="space-y-2">
         <p className="text-sm font-medium">QR code</p>
@@ -838,7 +848,7 @@ function PassportIdentityCard({
   profilePublic: boolean;
   onGoToProfile: () => void;
 }) {
-  const { data, isLoading, isError, refetch, isFetching } = usePassportIdentityNodes();
+  const { data, isLoading, refetch, isFetching } = usePassportIdentityNodes();
   const setReveal = useSetPassportReveal();
   // One entry per hop with a request in flight, so two quick toggles on two
   // hops each stay disabled until their own request settles.
@@ -881,7 +891,7 @@ function PassportIdentityCard({
       <CardContent className="space-y-4">
         {isLoading ? (
           <Skeleton className="h-24 w-full" />
-        ) : isError || !data ? (
+        ) : !data ? (
           <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
             <span>Couldn't load your passports.</span>
             <Button

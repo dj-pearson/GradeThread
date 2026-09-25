@@ -130,3 +130,17 @@ describe("lookupOwnedCertificate", () => {
     expect(calls).toContainEqual(["grade_reports.eq", ["submissions.user_id", "uid-123"]]);
   });
 });
+
+describe("lookupOwnedCertificate on a regraded item", () => {
+  it("says the certificate was superseded rather than that it is not the caller's", async () => {
+    results.grade_reports = {
+      data: { ...row(), superseded_at: "2026-09-10T00:00:00Z" },
+      error: null,
+    };
+    const out = await lookupOwnedCertificate("uid-123", "11111111-1111-4111-8111-111111111111");
+    expect(out).toEqual({ state: "superseded" });
+    // Still owner-scoped, and no longer filtered to the active report only.
+    expect(calls).toContainEqual(["grade_reports.eq", ["submissions.user_id", "uid-123"]]);
+    expect(calls).not.toContainEqual(["grade_reports.is", ["superseded_at", null]]);
+  });
+});
