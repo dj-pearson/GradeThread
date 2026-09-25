@@ -32,9 +32,15 @@ interface HelpArticleBodyProps {
    * /help/... link stays a /help/... route.
    */
   linkFor?: (slug: string) => string;
+  /**
+   * Called just before an in-app navigation from a body link. A body shown in
+   * a Sheet passes its close handler, or the sheet stays open over the page
+   * the link went to.
+   */
+  onNavigate?: () => void;
 }
 
-export function HelpArticleBody({ html, className, linkFor }: HelpArticleBodyProps) {
+export function HelpArticleBody({ html, className, linkFor, onNavigate }: HelpArticleBodyProps) {
   const navigate = useNavigate();
 
   const onClick = (e: MouseEvent<HTMLDivElement>) => {
@@ -60,6 +66,7 @@ export function HelpArticleBody({ html, className, linkFor }: HelpArticleBodyPro
 
     const match = HELP_ARTICLE_PATH.exec(url.pathname);
     e.preventDefault();
+    onNavigate?.();
     if (match && linkFor) {
       void navigate(`${linkFor(match[1]!)}${url.hash}`);
       return;

@@ -51,7 +51,7 @@ export function HelpLink({ slug, label, className }: HelpLinkProps) {
   const index = useHelpReaderIndex();
   const listed = index.data?.articles?.find((a) => a.slug === slug);
   // Only once opened: a screen with a help button no longer costs a request.
-  const { data, isLoading } = useHelpReaderArticle(slug, { enabled: open });
+  const { data, isError, refetch } = useHelpReaderArticle(slug, { enabled: open });
   const article = data?.article;
 
   if (!listed) {
@@ -89,7 +89,14 @@ export function HelpLink({ slug, label, className }: HelpLinkProps) {
             {listed.summary && <SheetDescription>{listed.summary}</SheetDescription>}
           </SheetHeader>
 
-          {isLoading || !article ? (
+          {isError ? (
+            <div className="mt-6 space-y-2 text-sm" role="alert">
+              <p>This article didn't load.</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
+                Try again
+              </Button>
+            </div>
+          ) : !article ? (
             <div className="mt-6 space-y-3">
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-40 w-full" />
@@ -99,6 +106,7 @@ export function HelpLink({ slug, label, className }: HelpLinkProps) {
               html={article.body_html}
               className="mt-6 max-w-none text-sm"
               linkFor={inAppHelpPath}
+              onNavigate={() => setOpen(false)}
             />
           )}
 

@@ -139,12 +139,14 @@ export function TicketDeflector({ subject, onSuggestions }: TicketDeflectorProps
 }
 
 function DeflectorArticle({ slug, onClose }: { slug: string; onClose: () => void }) {
-  const { data } = useHelpReaderArticle(slug);
+  const { data, isError } = useHelpReaderArticle(slug);
   const article = data?.article;
   return (
     <>
       <SheetHeader>
-        <SheetTitle>{article?.title ?? "Loading…"}</SheetTitle>
+        <SheetTitle>
+          {article?.title ?? (isError ? "This article didn't load" : "Loading…")}
+        </SheetTitle>
         {article?.summary && <SheetDescription>{article.summary}</SheetDescription>}
       </SheetHeader>
       {article && (
@@ -152,6 +154,7 @@ function DeflectorArticle({ slug, onClose }: { slug: string; onClose: () => void
           html={article.body_html}
           className="mt-6 max-w-none text-sm"
           linkFor={inAppHelpPath}
+          onNavigate={onClose}
         />
       )}
       <p className="mt-8 text-sm text-muted-foreground">

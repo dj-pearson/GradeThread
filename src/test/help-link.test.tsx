@@ -62,4 +62,48 @@ describe("HelpLink", () => {
     expect(paths).toEqual(["/api/help"]);
     m.unmount();
   });
+
+  it("shows a retry, not an endless skeleton, when the article fails", async () => {
+    mocks.fetch.mockImplementation(async (path: string) => {
+      paths.push(path);
+      if (path === "/api/help") return res({ categories: [], articles: indexArticles, viewer: "member" });
+      return res({ error: "Not found" }, 404);
+    });
+    const m = mount(<HelpLink slug="using-the-measurecard" />, "/dashboard/flipdesk/measure-card");
+    await settle(20);
+    const button = m.container.querySelector<HTMLButtonElement>('button[aria-label="Help: Using the MeasureCard"]');
+    await act(async () => button!.click());
+    await settle(20);
+    expect(document.body.textContent).toContain("This article didn't load.");
+    expect(document.body.textContent).toContain("Try again");
+    m.unmount();
+  });
+
+  it("closes the sheet when a link in the body navigates", async () => {
+    mocks.fetch.mockImplementation(async (path: string) => {
+      paths.push(path);
+      if (path === "/api/help") return res({ categories: [], articles: indexArticles, viewer: "member" });
+      return res({
+        article: {
+          ...indexArticles[0],
+          body_html: '<p><a href="/help/flipdesk/other-article">other</a></p>',
+          faq: [],
+          related_slugs: [],
+        },
+        category: null,
+        viewer: "member",
+      });
+    });
+    const m = mount(<HelpLink slug="using-the-measurecard" />, "/dashboard/flipdesk/measure-card");
+    await settle(20);
+    const button = m.container.querySelector<HTMLButtonElement>('button[aria-label="Help: Using the MeasureCard"]');
+    await act(async () => button!.click());
+    await settle(20);
+    const link = document.body.querySelector<HTMLAnchorElement>('a[href="/help/flipdesk/other-article"]');
+    expect(link).toBeTruthy();
+    await act(async () => link!.click());
+    await settle(20);
+    expect(document.body.querySelector('a[href="/help/flipdesk/other-article"]')).toBeNull();
+    m.unmount();
+  });
 });
