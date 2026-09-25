@@ -271,9 +271,9 @@ export function FlipdeskVerifiedPage() {
           <PageHelp slug="becoming-a-verified-seller" />
         </div>
         <p className="text-muted-foreground">
-          Turn every grade you've earned into a public trust profile buyers can
-          verify — and a badge you embed in your listings. The grade buyers can't
-          fake becomes the reason they buy from you.
+          Turn the grades you've earned into a public profile buyers can
+          check, and a badge you add to your listings. Buyers can't fake a
+          grade, so it gives them a reason to buy from you.
         </p>
       </div>
 
@@ -292,7 +292,7 @@ export function FlipdeskVerifiedPage() {
         <TabsContent value="profile" className="space-y-6">
       {/* US-2543 AC4: what the handle, name and bio you are typing actually
           look like. The standalone stats grid that used to sit here is inside
-          it — the same two numbers, shown where they appear to a buyer. */}
+          it: the same two numbers, shown where they appear to a buyer. */}
       <VerifiedProfilePreview
         handle={normalizedHandle}
         savedHandle={savedHandle}
@@ -322,6 +322,8 @@ export function FlipdeskVerifiedPage() {
                 <Input
                   id="handle"
                   value={handle}
+                  aria-describedby="handle-status"
+                  aria-invalid={availability.state === "error" || undefined}
                   placeholder="your-store-name"
                   autoCapitalize="none"
                   spellCheck={false}
@@ -342,12 +344,26 @@ export function FlipdeskVerifiedPage() {
                 </div>
               </div>
             </div>
-            {availability.state === "error" && (
-              <p className="text-xs text-red-600 dark:text-red-400">{availability.reason}</p>
-            )}
-            {availability.state === "ok" && (
-              <p className="text-xs text-green-600 dark:text-green-400">Available</p>
-            )}
+            {/* Always mounted, so screen readers announce each change. */}
+            <p
+              id="handle-status"
+              role="status"
+              className={
+                availability.state === "error"
+                  ? "text-xs text-red-600 dark:text-red-400"
+                  : availability.state === "ok"
+                    ? "text-xs text-green-600 dark:text-green-400"
+                    : "text-xs text-muted-foreground"
+              }
+            >
+              {availability.state === "error"
+                ? availability.reason
+                : availability.state === "ok"
+                  ? "Available"
+                  : availability.state === "checking"
+                    ? "Checking..."
+                    : ""}
+            </p>
           </div>
 
           {/* Display name */}
@@ -380,10 +396,11 @@ export function FlipdeskVerifiedPage() {
               value={bio}
               maxLength={280}
               rows={3}
-              placeholder="What you sell, your story — keep it short (280 chars)."
+              aria-describedby="bio-count"
+              placeholder="What you sell and your story. Keep it short (280 characters)."
               onChange={(e) => setBio(e.target.value)}
             />
-            <p className="text-right text-xs text-muted-foreground">
+            <p id="bio-count" className="text-right text-xs text-muted-foreground">
               {bio.length}/280
             </p>
           </div>
@@ -411,7 +428,8 @@ export function FlipdeskVerifiedPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between rounded-lg border p-4">
+          <div className="divide-y">
+          <div className="flex items-center justify-between gap-4 py-3 first:pt-0">
             <div className="space-y-0.5">
               <p id="public-switch-label" className="font-medium">Public profile</p>
               <p id="public-switch-hint" className="text-sm text-muted-foreground">
@@ -431,19 +449,19 @@ export function FlipdeskVerifiedPage() {
             />
           </div>
 
-          {/* Storefront opt-in — turns the profile into a shop. Only meaningful
+          {/* Storefront opt-in: turns the profile into a shop. Only meaningful
               once the profile is public. */}
-          <div className="flex items-center justify-between rounded-lg border p-4">
+          <div className="flex items-center justify-between gap-4 py-3">
             <div className="space-y-0.5">
               <p id="storefront-switch-label" className="font-medium">Show my listings (storefront)</p>
               <p id="storefront-switch-hint" className="text-sm text-muted-foreground">
-                List your active items on your profile — graded items show their
-                grade and link to the certificate, the rest link to their
+                List your active items on your profile. Graded items show their
+                grade and link to the certificate. The rest link to their
                 marketplace listing.
               </p>
             </div>
             <Switch
-              checked={showListings}
+              checked={isLive && showListings}
               disabled={!isLive || update.isPending}
               onCheckedChange={handleShowListingsToggle}
               aria-labelledby="storefront-switch-label"
@@ -453,7 +471,7 @@ export function FlipdeskVerifiedPage() {
 
           {/* US-1126: auto-embed verified credentials in generated listing
               descriptions. Only meaningful once the profile is public. */}
-          <div className="flex items-center justify-between rounded-lg border p-4">
+          <div className="flex items-center justify-between gap-4 py-3">
             <div className="space-y-0.5">
               <p id="embed-switch-label" className="font-medium">Add my credentials to listings</p>
               <p id="embed-switch-hint" className="text-sm text-muted-foreground">
@@ -463,13 +481,23 @@ export function FlipdeskVerifiedPage() {
               </p>
             </div>
             <Switch
-              checked={embedInListings}
+              checked={isLive && embedInListings}
               disabled={!isLive || update.isPending}
               onCheckedChange={handleEmbedInListingsToggle}
               aria-labelledby="embed-switch-label"
               aria-describedby="embed-switch-hint"
             />
           </div>
+          </div>
+
+          {/* While private, both switches read Off: they have no effect, and
+              showing On would say otherwise. The saved choice comes back when
+              the profile goes public. */}
+          {!isLive && (
+            <p className="text-sm text-muted-foreground">
+              These turn back on when your profile is public.
+            </p>
+          )}
 
           {isLive && liveUrl && (
             <div className="space-y-3">
@@ -524,10 +552,10 @@ export function FlipdeskVerifiedPage() {
         </Card>
       )}
 
-      {/* US-1760: badge funnel — clicks by source + referral conversions. */}
+      {/* US-1760: badge funnel: clicks by source + referral conversions. */}
       {isLive && <BadgePerformanceCard />}
 
-      {/* US-1759/1761: badge studio — storefront (when public), per-item cert
+      {/* US-1759/1761: badge studio: storefront (when public), per-item cert
           and passport snippets. */}
       <div id="badge-studio" className="scroll-mt-6">
         <BadgeStudio handle={isLive ? savedHandle : null} />
@@ -546,7 +574,7 @@ export function FlipdeskVerifiedPage() {
   );
 }
 
-// US-1760: the seller's badge funnel — how much traffic + signups their embedded
+// US-1760: the seller's badge funnel: how much traffic + signups their embedded
 // badges drove. Clicks are attributed from the ?s= source when a buyer lands on a
 // certificate or this profile from an off-platform badge; conversions reuse the
 // referral ledger. The card is always shown once the profile is live: an error
@@ -667,7 +695,7 @@ function BadgePerformanceCard() {
             })}
           </div>
         )}
-        {/* US-1913 AC5: the A/B a seller actually wants — does putting my
+        {/* US-1913 AC5: the A/B a seller actually wants: does putting my
             standing on the badge earn more clicks than the plain one? Shown
             only once at least one status badge has been clicked, so a seller
             who never turned it on isn't asked to read a row of zeroes. */}

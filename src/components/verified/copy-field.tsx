@@ -21,10 +21,10 @@ export function CopyField({
     try {
       await navigator.clipboard.writeText(value);
       setCopied(true);
-      toast.success("Copied to clipboard");
+      toast.success(label ? `Copied: ${label}` : "Copied to clipboard");
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      toast.error("Couldn't copy — select and copy manually.");
+      toast.error("Couldn't copy. Select the text and copy it yourself.");
     }
   }
 
@@ -48,7 +48,7 @@ export function CopyField({
           variant="outline"
           size="icon"
           onClick={copy}
-          aria-label="Copy to clipboard"
+          aria-label={label ? `Copy ${label}` : "Copy to clipboard"}
           className="flex-shrink-0"
         >
           {copied ? (

@@ -452,3 +452,35 @@ describe("passport identity tab (V11)", () => {
     expect(c.querySelector("#handle")).not.toBeNull();
   });
 });
+
+describe("switch rows and form accessibility (V12)", () => {
+  it("while private, storefront and embed read Off with one hint", () => {
+    setProfile(profile({ enabled: false, show_listings: true, embed_in_listings: true }));
+    const c = render();
+    expect(switchByLabel("storefront-switch-label").getAttribute("aria-checked")).toBe("false");
+    expect(switchByLabel("embed-switch-label").getAttribute("aria-checked")).toBe("false");
+    expect(c.textContent).toContain("These turn back on when your profile is public.");
+  });
+
+  it("while live, they show the saved choice and no hint", () => {
+    setProfile(profile({ enabled: true, show_listings: true, embed_in_listings: false }));
+    const c = render();
+    expect(switchByLabel("storefront-switch-label").getAttribute("aria-checked")).toBe("true");
+    expect(switchByLabel("embed-switch-label").getAttribute("aria-checked")).toBe("false");
+    expect(c.textContent).not.toContain("These turn back on");
+  });
+
+  it("the handle input is described by a live status node", () => {
+    const c = render();
+    const input = c.querySelector<HTMLInputElement>("#handle")!;
+    const id = input.getAttribute("aria-describedby");
+    expect(id).toBe("handle-status");
+    expect(c.querySelector(`#${id}`)?.getAttribute("role")).toBe("status");
+    expect(c.querySelector("#bio")?.getAttribute("aria-describedby")).toBe("bio-count");
+  });
+
+  it("the page source carries no em dash", async () => {
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync("src/pages/flipdesk/verified.tsx", "utf8")).not.toContain("—");
+  });
+});

@@ -124,7 +124,7 @@ function StatusToggle({
 // below the confirmed-outcome floor the edge renders the plain badge, so a
 // seller who flips this on early sees exactly what they had.
 const STATUS_HINT =
-  "Adds your Grade Integrity tier, level and confirmed-accuracy share — but " +
+  "Adds your Grade Integrity tier, level and confirmed-accuracy share, but " +
   "only once you've earned them. The image is redrawn on every view, so your " +
   "badge stays current without re-pasting the code.";
 
@@ -224,8 +224,8 @@ export function BadgeStudio({ handle }: { handle?: string | null }) {
               hint={STATUS_HINT}
             />
             <div className="rounded-lg border bg-muted/30 p-4">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Preview
+              <p className="mb-2 text-sm font-medium text-muted-foreground">
+                What buyers see
               </p>
               <img
                 src={verifiedSellerBadgeUrl(handle, sellerFormat, sellerVariant)}
@@ -281,7 +281,7 @@ export function BadgeStudio({ handle }: { handle?: string | null }) {
             </Select>
           ) : (
             <p className="text-sm text-muted-foreground">
-              No certificates yet — grade an item to get a badge. You can also
+              No certificates yet. Grade an item to get a badge. You can also
               paste a certificate link below.
             </p>
           )}
@@ -375,8 +375,8 @@ export function BadgeStudio({ handle }: { handle?: string | null }) {
 
                   {/* Live preview */}
                   <div className="rounded-lg border bg-muted/30 p-4">
-                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Preview
+                    <p className="mb-2 text-sm font-medium text-muted-foreground">
+                      What buyers see
                     </p>
                     <BadgePreview
                       format={f.id}
@@ -404,7 +404,7 @@ export function BadgeStudio({ handle }: { handle?: string | null }) {
                   </p>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Links to this item's complete public record — every grade,
+                  Links to this item's complete public record: every grade,
                   listing and ownership hop. There's no passport image, so use the
                   HTML link where HTML is allowed and the text elsewhere.
                 </p>
