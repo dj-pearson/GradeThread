@@ -64,11 +64,24 @@ export const MAX_OVERRIDE_MINUTES = 240;
 /** A value correction above this is almost certainly cents typed as dollars. */
 export const MAX_OVERRIDE_CENTS = 100_000_00;
 
+/**
+ * Dollars typed by a person, as whole cents. NaN stays NaN for validation.
+ * "$1,200" is how people write money, so the $, commas and spaces go
+ * (WMT-08) rather than turning a real answer into "type a number".
+ */
+export function dollarsToCents(text: string): number {
+  const cleaned = text.replace(/[$,\s]/g, "");
+  if (cleaned === "") return Number.NaN;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? Math.round(n * 100) : Number.NaN;
+}
+
 export type ValidationError =
   | "not_a_number"
   | "not_finite"
   | "negative"
   | "zero_minutes"
+  | "not_whole_minutes"
   | "above_minutes_bound"
   | "above_value_bound"
   | "range_inverted"
@@ -127,6 +140,14 @@ export function validateOverride(
 
   if (kind === "task_minutes") {
     errors.push(...check(value.amount, false, MAX_OVERRIDE_MINUTES));
+    // WMT-08: the route rounds, so 7.5 would be stored as 8 without a word.
+    // Say so instead.
+    if (
+      typeof value.amount === "number" && Number.isFinite(value.amount) &&
+      !Number.isInteger(value.amount)
+    ) {
+      errors.push("not_whole_minutes");
+    }
   } else if (kind === "remaining_cost") {
     errors.push(...check(value.amount, true, MAX_OVERRIDE_CENTS));
   } else {
@@ -314,12 +335,20 @@ export function differenceFromOverride(args: {
   key: string;
   decision: MinutesDecision;
   remainingBudgetMinutes: number;
+  /**
+   * What the plan already charges this task (WMT-04). A task that is IN the
+   * plan has its minutes spent already, so only the growth has to fit in what
+   * is left: a 28-minute job in a 30-minute plan going to 29 still fits.
+   * Absent, the task is treated as not yet charged.
+   */
+  chargedMinutes?: number;
 }): PlanDifference {
+  const growth = args.decision.minutes - (args.chargedMinutes ?? 0);
   return {
     key: args.key,
     beforeMinutes: args.decision.withoutOverride,
     afterMinutes: args.decision.minutes,
-    nowDoesNotFit: args.decision.minutes > args.remainingBudgetMinutes,
+    nowDoesNotFit: growth > args.remainingBudgetMinutes,
   };
 }
 
@@ -434,4 +463,32 @@ export function suppressionVerdictFor(
     sessionId: args.sessionId ?? null,
     urgentShipping: args.urgentShipping,
   });
+}
+
+/**
+ * The stored set-asides of one kind that are parking this task: item-wide or
+ * this step, and for a skip, this session only. Distinct by the two keys the
+ * reset route narrows on.
+ */
+export function parkingRows(
+  book: OverrideBook,
+  args: {
+    itemId: string;
+    actionKey: string;
+    sessionId?: string | null;
+    kind: SuppressionKind;
+  },
+): Array<{ actionKey: string | null; sessionId: string | null }> {
+  const seen = new Set<string>();
+  const out: Array<{ actionKey: string | null; sessionId: string | null }> = [];
+  for (const s of book.suppressions) {
+    if (s.inventoryItemId !== args.itemId || s.kind !== args.kind) continue;
+    if (s.actionKey !== null && s.actionKey !== args.actionKey) continue;
+    if (s.kind === "skip_session" && s.sessionId !== (args.sessionId ?? null)) continue;
+    const key = `${s.actionKey ?? ""}|${s.sessionId ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ actionKey: s.actionKey, sessionId: s.sessionId });
+  }
+  return out;
 }

@@ -30,8 +30,13 @@
 // because missing it costs a defect rather than a margin.
 
 import type { CandidateAction, WorkCandidate, WorkContext, WorkTool } from "@/lib/work-candidates";
-import { estimateDuration, isUnestimated, type DurationResult } from "@/lib/work-duration";
-import { isComplete, type ValueResult } from "@/lib/work-value";
+import {
+  estimateDuration,
+  isUnestimated,
+  type DurationEstimate,
+  type DurationResult,
+} from "@/lib/work-duration";
+import { isComplete, type EvidenceSource, type ValueResult } from "@/lib/work-value";
 
 /** Bumped when the ORDERING changes, so two plans can be told apart. */
 export const RANKER_VERSION = 1;
@@ -50,6 +55,10 @@ export const RANK_TIERS = [
   "urgent_shipping",
   "valued_work",
   "research",
+  // WMT-14: valued, and worth nothing or less once fees and the costs still
+  // ahead come off. Kept in the plan, below the work that pays, so the seller
+  // can see it and decide rather than have it silently outrank nothing.
+  "below_cost",
   "unvalued",
 ] as const;
 export type RankTier = (typeof RANK_TIERS)[number];
@@ -58,12 +67,34 @@ const TIER_ORDER: Record<RankTier, number> = {
   urgent_shipping: 0,
   valued_work: 1,
   research: 2,
-  unvalued: 3,
+  below_cost: 3,
+  unvalued: 4,
 };
 
 export interface RankConflict {
   kind: "cannot_fit" | "tools_missing" | "wrong_context";
   message: string;
+}
+
+/**
+ * The ONE duration resolved for a task (WMT-04).
+ *
+ * Carried on the ranked task so the scheduler, the rows, the header, "Why
+ * this one?" and the session snapshot all read the same minutes the ranker
+ * ranked on. Before this each of them called estimateDuration({action}) with
+ * no override and no learned value, so a seller's corrected time never
+ * showed and the ranker's cannot_fit check used a different cost from the
+ * scheduler's. Null when nobody has estimated the step.
+ */
+export interface RankedDuration extends DurationEstimate {
+  /** How many of the seller's own jobs a learned figure came from. */
+  sampleCount: number | null;
+}
+
+/** A DurationResult as the ranked task carries it. */
+export function rankedDurationOf(d: DurationResult): RankedDuration | null {
+  if (isUnestimated(d)) return null;
+  return { ...d, sampleCount: d.learnedFrom?.sampleCount ?? null };
 }
 
 export interface RankedTask {
@@ -78,8 +109,20 @@ export interface RankedTask {
   score: number | null;
   /** Active minutes for everything this item still needs to be sale-ready. */
   chainMinutes: number;
+  /** This task's own resolved minutes (WMT-04). Null when unestimated. */
+  duration: RankedDuration | null;
   /** The conservative (low) end of the contribution, or null. */
   conservativeCents: number | null;
+  /**
+   * The value estimate the ranker ranked on, kept as the plan's snapshot
+   * (WMT-05) so "Why this one?" and the session record read it instead of
+   * rebuilding it from half the inputs.
+   */
+  value: ValueResult;
+  /** Where the price came from, or null when there was no complete estimate. */
+  valueSource: EvidenceSource | null;
+  /** True when the value is the seller's own corrected range. */
+  valueFromOverride: boolean;
   dueAt: string | null;
   /**
    * Carried through from the candidate so the scheduler (R1 07/12) can keep
@@ -119,6 +162,8 @@ export interface RankTaskInput {
   remainingActions: readonly CandidateAction[];
   /** When this work became available, ISO. The oldest-first tie-break. */
   unfinishedSince?: string | null;
+  /** True when `value` came from the seller's corrected range (US-3182). */
+  valueFromOverride?: boolean;
 }
 
 export interface RankInput {
@@ -203,6 +248,24 @@ function isUrgentShipping(task: RankTaskInput, nowMs: number): boolean {
 }
 
 /**
+ * Is this a parcel the seller already owes a buyer? (WMT-13)
+ *
+ * Every pack_ship candidate is a sale that has not shipped, and a sale that
+ * has not shipped goes first whatever its deadline says: a missed ship-by
+ * costs a defect on the seller's account, not a margin. An unknown or
+ * estimated date is still a date somebody is waiting on, so this does not
+ * ask for one. isUrgentCandidate above is the stricter question -- a
+ * confirmed deadline inside the window -- and decides the order WITHIN the
+ * tier, so a date nobody promised never jumps a date somebody did.
+ *
+ * EXPORTED so a set-aside can never hide one either (US-3182 made the same
+ * rule for urgent parcels). One answer, read in both places.
+ */
+export function isOwedParcel(candidate: Pick<WorkCandidate, "action">): boolean {
+  return candidate.action === "pack_ship";
+}
+
+/**
  * Why this task cannot be done as planned, or null.
  *
  * The candidate builder already drops work the seller cannot do, so these fire
@@ -280,7 +343,9 @@ export function rankWork(input: RankInput): RankedTask[] {
       ? null
       : conflictFor(task, input, ownMinutes);
 
-    const urgent = isUrgentShipping(task, nowMs);
+    // WMT-13: every unshipped sale, not only a confirmed deadline inside the
+    // window. The window still orders them (compareRanked).
+    const urgent = isOwedParcel(task.candidate);
     const estimate = isComplete(task.value) ? task.value : null;
 
     let tier: RankTier;
@@ -305,6 +370,11 @@ export function rankWork(input: RankInput): RankedTask[] {
         chain !== null && chain > 0
       ? conservativeCents / chain
       : null;
+    if (tier === "valued_work" && score !== null && score <= 0) {
+      // WMT-14: a job that loses money per minute does not compete on rate
+      // with jobs that make it.
+      tier = "below_cost";
+    }
 
     ranked.push({
       key: task.candidate.key,
@@ -313,7 +383,11 @@ export function rankWork(input: RankInput): RankedTask[] {
       tier,
       score,
       chainMinutes: chain ?? 0,
+      duration: rankedDurationOf(own),
       conservativeCents,
+      value: task.value,
+      valueSource: isComplete(task.value) ? task.value.evidence : null,
+      valueFromOverride: task.valueFromOverride === true,
       dueAt: task.candidate.shipBy.at,
       prerequisiteKeys: task.candidate.prerequisiteKeys,
       conflict,
@@ -322,7 +396,7 @@ export function rankWork(input: RankInput): RankedTask[] {
     });
   }
 
-  return ranked.sort((a, b) => compareRanked(a, b, input.tasks));
+  return ranked.sort((a, b) => compareRanked(a, b, input.tasks, nowMs));
 }
 
 /**
@@ -365,17 +439,24 @@ function compareRanked(
   a: RankedTask,
   b: RankedTask,
   tasks: readonly RankTaskInput[],
+  nowMs: number,
 ): number {
   if (TIER_ORDER[a.tier] !== TIER_ORDER[b.tier]) {
     return TIER_ORDER[a.tier] - TIER_ORDER[b.tier];
   }
   if (a.tier === "urgent_shipping") {
-    // Soonest deadline first. A conflict does not demote it: the seller most
-    // needs to see the parcel they cannot ship.
+    // A CONFIRMED deadline inside the window first (WMT-13): an estimated
+    // date can be a day early and an unknown one is not a date at all, so
+    // neither jumps a parcel eBay actually named a day for.
+    const ua = dueSoon(a.key, tasks, nowMs);
+    const ub = dueSoon(b.key, tasks, nowMs);
+    if (ua !== ub) return ua ? -1 : 1;
+    // Then soonest deadline first. A conflict does not demote it: the seller
+    // most needs to see the parcel they cannot ship.
     const da = parseInstant(a.dueAt);
     const db = parseInstant(b.dueAt);
     if (da !== db) return (da ?? Number.MAX_SAFE_INTEGER) - (db ?? Number.MAX_SAFE_INTEGER);
-  } else if (a.tier === "valued_work") {
+  } else if (a.tier === "valued_work" || a.tier === "below_cost") {
     if (a.score !== b.score) return (b.score ?? 0) - (a.score ?? 0);
   }
   const da = parseInstant(a.dueAt);
@@ -389,17 +470,14 @@ function compareRanked(
   return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
 }
 
+function dueSoon(key: string, tasks: readonly RankTaskInput[], nowMs: number): boolean {
+  const t = tasks.find((x) => x.candidate.key === key);
+  return t ? isUrgentCandidate(t.candidate, nowMs) : false;
+}
+
 function sinceOf(key: string, tasks: readonly RankTaskInput[]): string {
   const t = tasks.find((x) => x.candidate.key === key);
   // An absent timestamp sorts LAST among ties rather than first: work whose
   // age nobody recorded should not jump ahead of work that is provably old.
   return t?.unfinishedSince ?? "￿";
-}
-
-/** Convenience for callers that only have candidates. */
-export function remainingActionsFrom(c: WorkCandidate): CandidateAction[] {
-  const prereqs = c.prerequisiteKeys
-    .map((k) => k.split(":").slice(1).join(":"))
-    .filter((a): a is CandidateAction => a.length > 0);
-  return [...prereqs, c.action];
 }

@@ -14,6 +14,7 @@ import {
   SUPPRESSION_KINDS,
   decideMinutes,
   differenceFromOverride,
+  dollarsToCents,
   isSuppressed,
   isTrainingData,
   snoozeUntil,
@@ -260,6 +261,25 @@ describe("the difference is shown, not applied silently (AC2, AC4)", () => {
     expect(d.nowDoesNotFit).toBe(false);
   });
 
+  it("WMT-04: only the growth has to fit -- a 28-of-30 job going to 29 still fits", () => {
+    // The task is already in the plan: 28 minutes charged, 2 left over. The
+    // old check compared 29 against the 2 left and called it a misfit.
+    const d = differenceFromOverride({
+      key: "k",
+      decision: decideMinutes({ overrideMinutes: 29, learnedMinutes: null, defaultMinutes: 28 }),
+      remainingBudgetMinutes: 2,
+      chargedMinutes: 28,
+    });
+    expect(d.nowDoesNotFit).toBe(false);
+    const over = differenceFromOverride({
+      key: "k",
+      decision: decideMinutes({ overrideMinutes: 31, learnedMinutes: null, defaultMinutes: 28 }),
+      remainingBudgetMinutes: 2,
+      chargedMinutes: 28,
+    });
+    expect(over.nowDoesNotFit).toBe(true);
+  });
+
   it("not fitting is a FACT, not a refusal", () => {
     // The correction is still recorded; the seller is told what it costs.
     const d = differenceFromOverride({
@@ -310,3 +330,19 @@ function codeOf(rel: string): string {
     .filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*"))
     .join("\n");
 }
+
+describe("WMT-08: money as people type it, and whole minutes", () => {
+  it("strips $, commas and spaces", () => {
+    expect(dollarsToCents("$1,200")).toBe(120000);
+    expect(dollarsToCents(" 40.5 ")).toBe(4050);
+    expect(dollarsToCents("$")).toBeNaN();
+    expect(dollarsToCents("forty")).toBeNaN();
+  });
+
+  it("refuses a fractional duration rather than rounding it silently", () => {
+    const r = validateOverride("task_minutes", { amount: 7.5 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors).toContain("not_whole_minutes");
+    expect(validateOverride("task_minutes", { amount: 7 }).ok).toBe(true);
+  });
+});

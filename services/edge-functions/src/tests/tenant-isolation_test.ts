@@ -11096,6 +11096,26 @@ Deno.test({
         path: "/api/flipdesk/planner/suppressions/reset",
         body: { inventory_item_id: itemId },
       },
+      // WMT-02: the reset now narrows by action_key and session_id. A
+      // narrower delete is still a delete on A's rows, so the scoped shapes
+      // must be refused exactly like the wide one -- a null action_key
+      // included, since that is the item-wide dismiss B would most like to
+      // clear.
+      {
+        label: "POST /suppressions/reset (scoped skip)",
+        path: "/api/flipdesk/planner/suppressions/reset",
+        body: {
+          inventory_item_id: itemId,
+          kind: "skip_session",
+          action_key: "photograph",
+          session_id: "00000000-0000-4000-8000-00000000abcd",
+        },
+      },
+      {
+        label: "POST /suppressions/reset (item-wide dismiss)",
+        path: "/api/flipdesk/planner/suppressions/reset",
+        body: { inventory_item_id: itemId, kind: "dismiss", action_key: null },
+      },
     ];
 
     for (const w of writes) {

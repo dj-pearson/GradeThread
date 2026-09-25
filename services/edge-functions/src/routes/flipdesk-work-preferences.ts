@@ -21,13 +21,13 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import {
-  applyWorkPreferencesPatch,
   defaultWorkPreferences,
   parseWorkPreferencesPatch,
   rowToWorkPreferences,
   SETTINGS_VERSION,
   workPreferencesResponse,
   type WorkPreferences,
+  type WorkPreferencesPatch,
   type WorkPreferencesRow,
 } from "../lib/work-preferences.ts";
 
@@ -63,6 +63,28 @@ async function loadPreferences(ownerId: string): Promise<WorkPreferences> {
   return rowToWorkPreferences(data as WorkPreferencesRow | null);
 }
 
+/** The columns a validated patch names, and no others. */
+export function patchToColumns(
+  patch: WorkPreferencesPatch,
+): Record<string, unknown> {
+  const row: Record<string, unknown> = {};
+  if (patch.defaultSessionMinutes !== undefined) {
+    row.default_session_minutes = patch.defaultSessionMinutes;
+  }
+  if (patch.workContext !== undefined) row.work_context = patch.workContext;
+  if (patch.availableTools !== undefined) {
+    row.available_tools = patch.availableTools;
+  }
+  // An explicit null clears the target, so the key test decides, not `??`.
+  if ("hourlyTargetAmount" in patch) {
+    row.hourly_target_amount = patch.hourlyTargetAmount ?? null;
+  }
+  if (patch.hourlyTargetCurrency !== undefined) {
+    row.hourly_target_currency = patch.hourlyTargetCurrency;
+  }
+  return row;
+}
+
 flipdeskWorkPreferencesRoutes.get("/", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const prefs = await loadPreferences(ownerId);
@@ -89,23 +111,24 @@ flipdeskWorkPreferencesRoutes.patch("/", async (c) => {
     );
   }
 
-  const current = await loadPreferences(ownerId);
-  const next = applyWorkPreferencesPatch(current, parsed.patch);
-
-  const { error } = await supabaseAdmin
+  // WMT-01: write ONLY the columns the patch names. This used to read the row,
+  // merge, and upsert every column -- and the read falls back to defaults on
+  // any error, so one failed read turned a minutes save into "camera only, no
+  // hourly target". Two single-field saves also overwrote each other. An
+  // upsert that names one column updates one column; a first insert takes the
+  // 00817 column defaults for the rest.
+  const { data, error } = await supabaseAdmin
     .from("flipdesk_work_preferences")
     .upsert(
       {
         user_id: ownerId, // US-268: from the context, never from the body
-        default_session_minutes: next.defaultSessionMinutes,
-        work_context: next.workContext,
-        available_tools: next.availableTools,
-        hourly_target_amount: next.hourlyTargetAmount,
-        hourly_target_currency: next.hourlyTargetCurrency,
+        ...patchToColumns(parsed.patch),
         settings_version: SETTINGS_VERSION,
       },
       { onConflict: "user_id" },
-    );
+    )
+    .select(SELECT_COLUMNS)
+    .single();
   if (error) {
     return failSafe(
       c,
@@ -116,5 +139,8 @@ flipdeskWorkPreferencesRoutes.patch("/", async (c) => {
     );
   }
 
-  return c.json(workPreferencesResponse(next));
+  // The response is what was stored, not a merge the route guessed at.
+  return c.json(
+    workPreferencesResponse(rowToWorkPreferences(data as WorkPreferencesRow)),
+  );
 });

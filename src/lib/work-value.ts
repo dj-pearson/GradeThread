@@ -81,6 +81,13 @@ export interface PriceEvidence {
   source: EvidenceSource;
   /** When the evidence was observed, ISO. Null when nobody recorded it. */
   observedAt: string | null;
+  /**
+   * The top of a range the SELLER set (WMT-14). When present, amountCents is
+   * the bottom, both ends go through the same fees and costs, and no band is
+   * added: the seller already said how wide it is, and widening it again
+   * undid their correction.
+   */
+  highAmountCents?: number | null;
 }
 
 /** Everything the estimate could not get. Named, so a surface can ask for it. */
@@ -90,6 +97,8 @@ export type MissingInput =
   | "shipping_cost"
   | "supplies_cost"
   | "fee_schedule"
+  /** No marketplace yet, so eBay's fees were assumed (WMT-14). */
+  | "fee_schedule_assumed"
   | "currency";
 
 export interface ValueEstimate {
@@ -147,6 +156,18 @@ export interface ValueInput {
   shippingCents?: number | null;
   /** Mailer, tape and label. Same treatment as shipping. */
   suppliesCents?: number | null;
+  /**
+   * Anything else still to spend before this sells, as the seller corrected
+   * it (WMT-14). A FUTURE cost, so it comes off the contribution the planner
+   * ranks on; spentCents above only moves the whole-item figure, which is why
+   * the "remaining cost" correction used to change nothing about the rank.
+   */
+  futureCostCents?: number | null;
+  /**
+   * TRUE when the caller picked the fee schedule because the item has no
+   * marketplace yet (WMT-14). The estimate is made, and `missing` says so.
+   */
+  feeScheduleAssumed?: boolean;
 }
 
 /**
@@ -181,6 +202,7 @@ function isSupportedMarketplace(m: string | null): m is SupportedFeeMarketplace 
  */
 export function estimateWorkValue(input: ValueInput): ValueResult {
   const missing: MissingInput[] = [];
+  if (input.feeScheduleAssumed) missing.push("fee_schedule_assumed");
 
   const currency = input.currency ?? SUPPORTED_CURRENCY;
   if (currency !== SUPPORTED_CURRENCY) {
@@ -253,7 +275,10 @@ export function estimateWorkValue(input: ValueInput): ValueResult {
   });
   const feesCents = Math.round(feeOnly.fees * 100);
 
-  const futureCosts = shipping + supplies;
+  // A cost the SELLER stated is known to the cent, so it comes off both ends
+  // of the band rather than shrinking it: the uncertainty is in the price.
+  const statedFutureCost = positiveCents(input.futureCostCents) ?? 0;
+  const futureCosts = shipping + supplies + statedFutureCost;
   // The costs still ahead. The purchase is NOT here: it is spent either way,
   // and charging it against the next hour is the sunk-cost error AC1 names.
   const remainingContributionCents = expectedCents - feesCents - futureCosts;
@@ -270,14 +295,31 @@ export function estimateWorkValue(input: ValueInput): ValueResult {
     : input.evidence.source === "seller_estimate"
     ? 0.2
     : 0.3;
-  const band = Math.round(Math.abs(remainingContributionCents) * spread);
+  const band = Math.round(Math.abs(remainingContributionCents + statedFutureCost) * spread);
+
+  // WMT-14: a seller's own range keeps its width. The top goes through the
+  // same fees and the same costs as the bottom, and nothing is added.
+  const rangeHigh = positiveCents(input.evidence.highAmountCents);
+  let lowCents = remainingContributionCents - band;
+  let highCents = remainingContributionCents + band;
+  if (rangeHigh !== null && rangeHigh >= evidenceAmount) {
+    const highFees = Math.round(
+      estimateListingProfit({
+        price: rangeHigh / 100,
+        feeRate: EBAY_FEE_RATE,
+        fixedFee: EBAY_FIXED_FEE,
+      }).fees * 100,
+    );
+    lowCents = remainingContributionCents;
+    highCents = rangeHigh - highFees - futureCosts;
+  }
 
   return {
     complete: true,
     wholeItemProfitCents,
     remainingContributionCents,
-    lowCents: remainingContributionCents - band,
-    highCents: remainingContributionCents + band,
+    lowCents,
+    highCents,
     evidence: input.evidence.source,
     observedAt: input.evidence.observedAt ?? null,
     missing,

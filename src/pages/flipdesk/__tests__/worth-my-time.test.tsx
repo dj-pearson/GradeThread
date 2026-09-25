@@ -12,10 +12,24 @@ import { resolve } from "node:path";
 // these cases hold is the SCREEN: what it says, what it refuses to say, and
 // what it does when a request fails.
 
+const PREFS = {
+  defaultSessionMinutes: 30,
+  workContext: "home",
+  availableTools: ["camera", "measuring_tape"],
+  hourlyTargetAmount: null,
+  hourlyTargetSet: false,
+  sessionMinutePresets: [15, 30, 60],
+  minSessionMinutes: 5,
+  maxSessionMinutes: 240,
+  workTools: [],
+};
+let prefsOver: Record<string, unknown> = {};
 const buildMock = vi.fn();
 const savePrefsMock = vi.fn(() => Promise.resolve({}));
 const startSessionMock = vi.fn(() => Promise.resolve({}));
 const toastError = vi.fn();
+const resetSuppressionMock = vi.fn<(args: unknown) => Promise<unknown>>(() => Promise.resolve({}));
+let sessionOver: Record<string, unknown> | null = null;
 
 vi.mock("sonner", () => ({ toast: { error: toastError, success: vi.fn() } }));
 
@@ -24,18 +38,9 @@ vi.mock("@/hooks/use-planner", async () => {
   return {
     ...actual,
     useWorkPreferences: () => ({
-      data: {
-        defaultSessionMinutes: 30,
-        workContext: "home",
-        availableTools: ["camera", "measuring_tape"],
-        hourlyTargetAmount: null,
-        hourlyTargetSet: false,
-        sessionMinutePresets: [15, 30, 60],
-        minSessionMinutes: 5,
-        maxSessionMinutes: 240,
-        workTools: [],
-      },
+      data: { ...PREFS, ...prefsOver },
       isError: false,
+      isSuccess: true,
     }),
     useSaveWorkPreferences: () => ({ mutateAsync: savePrefsMock }),
     useBuildPlan: () => ({ mutateAsync: buildMock, isPending: false }),
@@ -44,7 +49,7 @@ vi.mock("@/hooks/use-planner", async () => {
     // its own behaviour has its own suite (session-runner.test.tsx) rather
     // than being re-asserted through every case here.
     useCurrentSession: () => ({
-      data: { session: null, tasks: [] },
+      data: { session: sessionOver, tasks: [] },
       isLoading: false,
       isError: false,
       refetch: vi.fn(),
@@ -71,11 +76,12 @@ vi.mock("@/hooks/use-planner", async () => {
     useSaveOverride: () => ({ mutateAsync: vi.fn(), isPending: false }),
     useResetOverride: () => ({ mutateAsync: vi.fn(), isPending: false }),
     useSuppress: () => ({ mutateAsync: vi.fn(), isPending: false }),
-    useResetSuppression: () => ({ mutateAsync: vi.fn(), isPending: false }),
+    useResetSuppression: () => ({ mutateAsync: resetSuppressionMock, isPending: false }),
   };
 });
 
 const { WorthMyTimePage } = await import("@/pages/flipdesk/worth-my-time");
+const { useAuthStore } = await import("@/stores/auth-store");
 
 function plan(over: Record<string, unknown> = {}) {
   return {
@@ -99,7 +105,20 @@ function plan(over: Record<string, unknown> = {}) {
         tier: "valued_work",
         score: 100,
         chainMinutes: 5,
+        // WMT-04: the ranker's resolved duration, which every surface reads.
+        duration: {
+          low: 3, typical: 5, high: 9, family: "measure", setupMinutes: 2,
+          unattendedMinutes: 0, source: "default", version: 1, sampleCount: null,
+        },
         conservativeCents: 4800,
+        // WMT-05: the value snapshot the ranker ranked on.
+        value: {
+          complete: true, wholeItemProfitCents: 5000, remainingContributionCents: 6000,
+          lowCents: 4800, highCents: 7200, evidence: "seller_estimate",
+          observedAt: "2026-09-20T00:00:00.000Z", missing: [], horizonDays: 30,
+        },
+        valueSource: "seller_estimate",
+        valueFromOverride: false,
         dueAt: null,
         prerequisiteKeys: [],
         conflict: null,
@@ -214,7 +233,21 @@ afterEach(() => {
   container = null;
 });
 
+/** Open every disclosure on the page, the way a click on its summary does. */
+function openAll(): void {
+  act(() => {
+    for (const d of Array.from(document.querySelectorAll("details"))) {
+      d.open = true;
+      d.dispatchEvent(new Event("toggle"));
+    }
+  });
+}
+
 beforeEach(() => {
+  prefsOver = {};
+  sessionOver = null;
+  resetSuppressionMock.mockReset();
+  resetSuppressionMock.mockResolvedValue({});
   buildMock.mockReset();
   savePrefsMock.mockReset();
   savePrefsMock.mockResolvedValue({});
@@ -291,10 +324,20 @@ describe("why this task (US-3181)", () => {
     buildMock.mockResolvedValue(plan());
     renderPage();
     await click("30 minutes");
+    openAll();
     const t = text();
     expect(t).toContain("Left on this item");
     // The R1 default is a guess and says so, rather than reading as measured.
     expect(t).toContain("starting guess");
+  });
+
+  it("WMT-05: shows the Worth range from the snapshot, not a rebuilt value", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    openAll();
+    expect(text()).toContain("Worth: $48.00 to $72.00, if it sells");
+    expect(text()).toContain("The value is the price you typed.");
   });
 
   it("shows NO confidence percentage anywhere", async () => {
@@ -412,9 +455,34 @@ describe("what the plan says (AC3)", () => {
       .find((li) => li.textContent?.includes("Carhartt Detroit jacket"))!;
     expect(row).toBeTruthy();
     expect(row.textContent).toContain("Measure");
-    expect(row.textContent).toContain("about 5 min");
+    // WMT-04: what the plan CHARGED, with the setup it paid, so the rows add
+    // up to the headline.
+    expect(row.textContent).toContain("about 9 min +2 to set up");
     expect(row.textContent).toContain("A-14");
     expect(row.textContent).toContain("Closest to being ready to sell");
+  });
+
+  it("WMT-04: the rows plus their setup add up to the headline", async () => {
+    buildMock.mockResolvedValue(plan({
+      plan: {
+        ...plan().plan,
+        tasks: [
+          { key: "item-1:measure", itemId: "item-1", family: "measure", activeMinutes: 9, overheadMinutes: 2, startsAtMinute: 0 },
+          { key: "item-2:measure", itemId: "item-2", family: "measure", activeMinutes: 9, overheadMinutes: 0, startsAtMinute: 11 },
+        ],
+        plannedMinutes: 20,
+      },
+    }));
+    renderPage();
+    await click("30 minutes");
+    const rows = Array.from(document.querySelectorAll("ol > li"));
+    const sum = rows.reduce((s, li) => {
+      const t = li.textContent ?? "";
+      const m = /about (\d+) min(?: \+(\d+) to set up)?/.exec(t);
+      return s + Number(m?.[1] ?? 0) + Number(m?.[2] ?? 0);
+    }, 0);
+    expect(sum).toBe(20);
+    expect(document.getElementById("wmt-plan")!.textContent).toContain("about 20 minutes");
   });
 
   // US-3448: this asserts the SHAPE of the link, and it once passed against a
@@ -492,9 +560,11 @@ describe("the states a seller actually hits (AC5)", () => {
     }));
     renderPage();
     await click("15 minutes");
-    const alert = document.querySelector('[role="alert"]')!;
-    expect(alert.textContent).toContain("18 minutes");
-    expect(alert.textContent).toContain("Try 20 minutes instead");
+    // WMT-12: one polite summary for every conflict, not an alert each.
+    const status = container!.querySelector('[data-testid="wmt-conflicts"]')!;
+    expect(status.getAttribute("role")).toBe("status");
+    expect(status.textContent).toContain("18 minutes");
+    expect(status.textContent).toContain("Try 20 minutes instead");
   });
 
   it("A FAILED REQUEST DOES NOT ERASE THE SAVED PLAN", async () => {
@@ -577,6 +647,263 @@ describe("accessibility (AC6)", () => {
     }));
     renderPage();
     await click("15 minutes");
-    expect(document.querySelector('[role="alert"]')).toBeTruthy();
+    const status = container!.querySelector('[data-testid="wmt-conflicts"]');
+    expect(status?.getAttribute("role")).toBe("status");
+    expect(status?.textContent).toContain("Won't fit.");
+  });
+});
+
+describe("the setup, edited where the plan is (WMT-06)", () => {
+  it("says how many jobs a missing tool holds back, and one tap adds it", async () => {
+    prefsOver = { availableTools: ["camera"] };
+    buildMock.mockResolvedValue(plan({
+      gated: [
+        { itemId: "a", action: "measure", reason: "tools", missing: ["measuring_tape"] },
+        { itemId: "b", action: "measure", reason: "tools", missing: ["measuring_tape"] },
+      ],
+    }));
+    renderPage();
+    await click("30 minutes");
+    savePrefsMock.mockClear();
+    expect(has("2 jobs need a tape measure.")).toBe(true);
+    await click("I have one");
+    // ONE patch, naming only the tools.
+    expect(savePrefsMock).toHaveBeenCalledTimes(1);
+    expect(savePrefsMock.mock.calls[0]).toEqual([
+      { available_tools: ["camera", "measuring_tape"] },
+    ]);
+    expect(has("You changed something since this plan was built")).toBe(true);
+  });
+
+  it("a tool chip sends only available_tools and marks the plan stale", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    savePrefsMock.mockClear();
+    const chip = buttonNamed("Steamer");
+    expect(chip.getAttribute("aria-pressed")).toBe("false");
+    await click("Steamer");
+    expect(savePrefsMock.mock.calls).toEqual([
+      [{ available_tools: ["camera", "measuring_tape", "steamer"] }],
+    ]);
+    expect(has("You changed something since this plan was built")).toBe(true);
+  });
+
+  it("no longer sends the seller to the inventory screen to change it", () => {
+    renderPage();
+    const link = Array.from(document.querySelectorAll("a"))
+      .find((a) => a.textContent?.includes("Change your setup"));
+    expect(link).toBeUndefined();
+    expect(document.getElementById("wmt-setup")).not.toBeNull();
+  });
+});
+
+describe("the plan survives an 'Open item' round trip (WMT-11)", () => {
+  function signInAs(id: string, workspaceOwner: string | null = null) {
+    act(() => {
+      useAuthStore.setState({
+        user: { id } as never,
+        activeWorkspaceOwnerId: workspaceOwner,
+      });
+    });
+  }
+  function unmount() {
+    act(() => root?.unmount());
+    container?.remove();
+    root = null;
+    container = null;
+  }
+  afterEach(() => {
+    useAuthStore.setState({ user: null, activeWorkspaceOwnerId: null });
+    sessionStorage.clear();
+  });
+
+  it("build, leave, come back: the same plan, with its time stamp", async () => {
+    signInAs("owner-a");
+    buildMock.mockResolvedValue(plan({ takenAt: new Date().toISOString() }));
+    renderPage();
+    await click("30 minutes");
+    expect(has("Carhartt Detroit jacket")).toBe(true);
+    unmount();
+
+    // A fresh query client too: the tab's storage is what brings it back.
+    renderPage();
+    await settle();
+    expect(has("Carhartt Detroit jacket")).toBe(true);
+    expect(has(/Plan from \d{1,2}:\d{2}(am|pm)/)).toBe(true);
+    expect(buildMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("another workspace's plan never shows", async () => {
+    signInAs("owner-a");
+    buildMock.mockResolvedValue(plan({ takenAt: new Date().toISOString() }));
+    renderPage();
+    await click("30 minutes");
+    expect(has("Carhartt Detroit jacket")).toBe(true);
+    signInAs("owner-a", "owner-b");
+    await settle();
+    expect(has("Carhartt Detroit jacket")).toBe(false);
+  });
+
+  it("an old plan says when it is from, and offers a rebuild", async () => {
+    signInAs("owner-a");
+    buildMock.mockResolvedValue(
+      plan({ takenAt: new Date(Date.now() - 20 * 60_000).toISOString() }),
+    );
+    renderPage();
+    await click("30 minutes");
+    expect(has(/This plan is from/)).toBe(true);
+    expect(buttonNamed("Build it again")).toBeTruthy();
+  });
+});
+
+describe("the page UX pass (WMT-12)", () => {
+  it("Enter in the minutes box builds a plan", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await typeCustom("45");
+    const form = document.getElementById("wmt-custom")!.closest("form")!;
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await settle();
+    expect(buildMock).toHaveBeenCalledTimes(1);
+    expect(buildMock.mock.calls[0]![0]!.budgetMinutes).toBe(45);
+  });
+
+  it("does not re-save the minutes when they already are the default", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    expect(savePrefsMock).not.toHaveBeenCalled();
+  });
+
+  it("a conflict's button builds with the suggested budget", async () => {
+    buildMock.mockResolvedValue(plan({
+      plan: {
+        tasks: [], plannedMinutes: 0, unusedMinutes: 10, omitted: [],
+        conflicts: [{ key: "x", needsMinutes: 18, proposedBudgetMinutes: 20, message: "Won't fit." }],
+        smallestEligibleMinutes: null, consideredCount: 1, version: 1,
+      },
+      pullList: [],
+    }));
+    renderPage();
+    await click("15 minutes");
+    await click("Plan 20 minutes");
+    expect(buildMock.mock.calls[1]![0]!.budgetMinutes).toBe(20);
+  });
+
+  it("the empty state offers the shortest job's minutes", async () => {
+    buildMock.mockResolvedValue(plan({
+      plan: {
+        tasks: [], plannedMinutes: 0, unusedMinutes: 5, omitted: [], conflicts: [],
+        smallestEligibleMinutes: 11, consideredCount: 1, version: 1,
+      },
+      pullList: [],
+    }));
+    renderPage();
+    await click("15 minutes");
+    await click("Plan 11 minutes");
+    expect(buildMock.mock.calls[1]![0]!.budgetMinutes).toBe(11);
+  });
+
+  it("mixed set-asides each show their own reason, and Bring back undoes just that one", async () => {
+    buildMock.mockResolvedValue(plan({
+      suppressed: [
+        { itemId: "a", itemTitle: "Levi 501 jeans", actionKey: "photograph", reason: "snooze" },
+        { itemId: "b", itemTitle: "Pendleton shirt", actionKey: "measure", reason: "dismiss" },
+      ],
+    }));
+    renderPage();
+    await click("30 minutes");
+    expect(has("2 jobs are set aside")).toBe(true);
+    expect(has("Set aside for a week.")).toBe(true);
+    expect(has("You told us to stop suggesting this.")).toBe(true);
+    expect(has("Levi 501 jeans")).toBe(true);
+    expect(has("Pendleton shirt")).toBe(true);
+    const bringBack = Array.from(document.querySelectorAll("button"))
+      .filter((b) => b.textContent?.trim() === "Bring back");
+    expect(bringBack).toHaveLength(2);
+    await act(async () => {
+      bringBack[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+    expect(resetSuppressionMock).toHaveBeenCalledTimes(1);
+    expect(resetSuppressionMock.mock.calls[0]![0]).toEqual({
+      inventoryItemId: "b",
+      kind: "dismiss",
+      actionKey: null,
+      sessionId: null,
+    });
+    expect(has("Back on the list")).toBe(true);
+    expect(has("You changed something since this plan was built")).toBe(true);
+  });
+
+  it("with a session open, says why there is no Start button", async () => {
+    sessionOver = { id: "s1", state: "planned", budget_minutes: 30, revision: 1 };
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    expect(has("Start working through this")).toBe(false);
+    expect(has("You have a session going.")).toBe(true);
+  });
+
+  it("the headline is the big type, and takes focus after a build", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    const h2 = document.getElementById("wmt-plan")!;
+    expect(h2.className).toContain("text-xl");
+    expect(h2.className).toContain("tabular-nums");
+    expect(document.activeElement).toBe(h2);
+  });
+
+  it("says how many more jobs were left out past the first twelve", async () => {
+    const p = plan();
+    (p.plan as { omitted: unknown[] }).omitted = Array.from({ length: 15 }, (_, i) => ({
+      key: `x${i}:measure`, reason: "no_time_left", minutes: 9,
+    }));
+    buildMock.mockResolvedValue(p);
+    renderPage();
+    await click("30 minutes");
+    expect(has("...and 3 more.")).toBe(true);
+  });
+
+  it("no em-dash separators remain in the page or the runner", () => {
+    for (const f of [
+      "src/pages/flipdesk/worth-my-time.tsx",
+      "src/components/flipdesk/session-runner.tsx",
+    ]) {
+      const raw = readFileSync(resolve(process.cwd(), f), "utf8");
+      expect(raw.includes(" \u2014 "), f).toBe(false);
+    }
+  });
+});
+
+describe("the Ship today strip (WMT-13)", () => {
+  it("lists parcels due within a day and plans just them in one tap", async () => {
+    const due = new Date(Date.now() + 3 * 3_600_000).toISOString();
+    const p = plan({
+      shipToday: [{
+        key: "item-1:measure", itemId: "item-1", itemTitle: "Levi 501 jeans",
+        at: due, confidence: "confirmed",
+      }],
+    });
+    buildMock.mockResolvedValue(p);
+    renderPage();
+    await click("30 minutes");
+    expect(has("Ship today")).toBe(true);
+    expect(has("Levi 501 jeans")).toBe(true);
+    expect(has(/due by/)).toBe(true);
+    await click("Plan the parcels first");
+    // high 9 + setup 2 = 11, rounded up to 15.
+    expect(buildMock.mock.calls[1]![0]!.budgetMinutes).toBe(15);
+  });
+
+  it("shows no strip when nothing is due", async () => {
+    buildMock.mockResolvedValue(plan({ shipToday: [] }));
+    renderPage();
+    await click("30 minutes");
+    expect(has("Ship today")).toBe(false);
   });
 });

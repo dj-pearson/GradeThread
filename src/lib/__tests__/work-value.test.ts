@@ -287,3 +287,41 @@ describe("purity (AC6)", () => {
     }));
   });
 });
+
+describe("WMT-14: assumed fees, future costs and the seller's own range", () => {
+  const base = {
+    marketplace: "ebay",
+    evidence: { amountCents: 5000, source: "seller_estimate" as const, observedAt: null },
+    purchaseCents: 800,
+    shippingCents: 900,
+    suppliesCents: 100,
+  };
+
+  it("an assumed fee schedule is estimated AND named in missing", () => {
+    const r = estimateWorkValue({ ...base, feeScheduleAssumed: true });
+    expect(r.complete).toBe(true);
+    expect(r.missing).toContain("fee_schedule_assumed");
+  });
+
+  it("a $15 remaining cost lowers the conservative figure by exactly $15", () => {
+    const before = estimateWorkValue(base);
+    const after = estimateWorkValue({ ...base, futureCostCents: 1500 });
+    if (!before.complete || !after.complete) throw new Error("expected complete");
+    expect(after.remainingContributionCents).toBe(before.remainingContributionCents - 1500);
+    // A stated cost is known to the cent: it moves both ends, not the width.
+    expect(before.lowCents - after.lowCents).toBe(1500);
+    expect(before.highCents - after.highCents).toBe(1500);
+  });
+
+  it("a seller range keeps its width: both ends go through fees, nothing is added", () => {
+    const r = estimateWorkValue({
+      ...base,
+      evidence: { ...base.evidence, amountCents: 4000, highAmountCents: 6000 },
+    });
+    if (!r.complete) throw new Error("expected complete");
+    expect(r.lowCents).toBe(r.remainingContributionCents);
+    const fees = (p: number) => Math.round((p / 100 * EBAY_FEE_RATE + EBAY_FIXED_FEE) * 100);
+    expect(r.lowCents).toBe(4000 - fees(4000) - 1000);
+    expect(r.highCents).toBe(6000 - fees(6000) - 1000);
+  });
+});

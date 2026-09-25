@@ -3,6 +3,7 @@ import {
   binOf,
   candidateFor,
   candidatesFor,
+  candidatesWithGates,
   MAX_HANDLING_DAYS,
   shipDeadlineOf,
   type CandidateContext,
@@ -217,7 +218,16 @@ describe("exclusions (AC4)", () => {
 describe("context and tools (AC4)", () => {
   it("drops physical work on a phone", () => {
     expect(candidateFor(item({}), PHONE)).toBeNull();
-    expect(candidateFor(item({ status: "sold" }), PHONE)).toBeNull();
+  });
+
+  it("WMT-06: a paid parcel is never dropped, whatever the setup", () => {
+    // It goes through to the ranker, which flags it (wrong_context or
+    // tools_missing) so the seller SEES the parcel they cannot ship tonight.
+    expect(candidateFor(item({ status: "sold" }), PHONE)?.action).toBe("pack_ship");
+    expect(
+      candidateFor(item({ status: "sold" }), { workContext: "home", availableTools: [] })
+        ?.action,
+    ).toBe("pack_ship");
   });
 
   it("drops physical work on a phone EVEN WITH every tool in the bag", () => {
@@ -225,7 +235,6 @@ describe("context and tools (AC4)", () => {
     // a garment that is at home, and this is the case that proves the rule is
     // the context rather than the tools.
     expect(candidateFor(item({}), PHONE_EQUIPPED)).toBeNull();
-    expect(candidateFor(item({ status: "sold" }), PHONE_EQUIPPED)).toBeNull();
     expect(
       candidateFor(item({ measurements: { chest: 22 } }), PHONE_EQUIPPED),
     ).toBeNull();
@@ -260,7 +269,31 @@ describe("context and tools (AC4)", () => {
 
   it("a missing tool is not partial possibility", () => {
     const nothing: CandidateContext = { workContext: "home", availableTools: [] };
-    expect(candidateFor(item({ status: "sold" }), nothing)).toBeNull();
+    expect(candidateFor(item({}), nothing)).toBeNull();
+    expect(candidateFor(item({ measurements: { chest: 22 } }), nothing)).toBeNull();
+  });
+
+  it("WMT-06: work held back by the setup is COUNTED, with the tool it needs", () => {
+    const cameraOnly: CandidateContext = { workContext: "home", availableTools: ["camera"] };
+    const r = candidatesWithGates(
+      [
+        item({ id: "a" }),
+        item({ id: "b" }),
+        item({ id: "c", measurements: { chest: 22 } }),
+        item({ id: "d", status: "sold" }),
+      ],
+      cameraOnly,
+    );
+    expect(r.candidates.map((c) => c.key)).toEqual(["c:photograph", "d:pack_ship"]);
+    expect(r.gated).toEqual([
+      { itemId: "a", action: "measure", reason: "tools", missing: ["measuring_tape"] },
+      { itemId: "b", action: "measure", reason: "tools", missing: ["measuring_tape"] },
+    ]);
+    // Away from the table the physical work is gated on context, not tools.
+    const away = candidatesWithGates([item({ id: "a" })], PHONE_EQUIPPED);
+    expect(away.gated).toEqual([
+      { itemId: "a", action: "measure", reason: "context", missing: [] },
+    ]);
   });
 });
 

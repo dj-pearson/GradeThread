@@ -9,6 +9,7 @@
 
 import { describe, it, expect } from "vitest";
 import {
+  confirmableMinutes,
   HIDDEN_NOISE_FLOOR_MS,
   hiddenMsDuring,
   reconcile,
@@ -289,5 +290,23 @@ describe("reconcile: a report, never a gate (AC2)", () => {
       expect(note.toLowerCase()).not.toContain("you didn't");
       expect(note.toLowerCase()).not.toContain("you have not");
     }
+  });
+});
+
+describe("confirmableMinutes (WMT-09)", () => {
+  it("refuses an empty box rather than reading it as zero", () => {
+    expect(confirmableMinutes("")).toBeNull();
+    expect(confirmableMinutes("  ")).toBeNull();
+    expect(confirmableMinutes("0")).toBeNull();
+  });
+  it("refuses anything past 240 or not a number", () => {
+    expect(confirmableMinutes("241")).toBeNull();
+    expect(confirmableMinutes("9999")).toBeNull();
+    expect(confirmableMinutes("abc")).toBeNull();
+  });
+  it("rounds a real duration to whole minutes", () => {
+    expect(confirmableMinutes("12")).toBe(12);
+    expect(confirmableMinutes("12.6")).toBe(13);
+    expect(confirmableMinutes("240")).toBe(240);
   });
 });

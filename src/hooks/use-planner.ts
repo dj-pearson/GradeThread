@@ -18,13 +18,26 @@
 // mid-session would come back to an empty screen and assume their evening's
 // work was gone.
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { getFreshAccessToken } from "@/lib/auth-token";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
 import { supabase } from "@/lib/supabase";
 import { ITEM_LIST_SELECT, type ItemListRow } from "@/lib/item-list-columns";
-import { candidatesFor, type WorkCandidate } from "@/lib/work-candidates";
+import {
+  candidatesFor,
+  candidatesWithGates,
+  EXCLUDED_STATUSES,
+  type GatedWork,
+  type SaleFacts,
+  type WorkCandidate,
+} from "@/lib/work-candidates";
 import { estimateDuration, isUnestimated } from "@/lib/work-duration";
 import {
   learnDurations,
@@ -33,12 +46,17 @@ import {
   type RawObservation,
   type WorkContext,
 } from "@/lib/work-duration-learning";
-import { estimateWorkValue, type ValueResult } from "@/lib/work-value";
+import {
+  estimateWorkValue,
+  type PriceEvidence,
+  type ValueInput,
+  type ValueResult,
+} from "@/lib/work-value";
 import { adviseOnItem, type AdviceResult } from "@/lib/work-advice";
 import {
-  isUrgentCandidate,
+  isOwedParcel,
   rankWork,
-  remainingActionsFrom,
+  URGENT_WINDOW_HOURS,
   type RankedTask,
 } from "@/lib/work-ranker";
 import {
@@ -274,13 +292,16 @@ export function toOverrideBook(json: {
   };
 }
 
+async function fetchOverrides(): Promise<OverrideBook> {
+  return toOverrideBook(await edgeJson("/api/flipdesk/planner/overrides"));
+}
+
 export function useWorkOverrides(enabled = true) {
   return useQuery<OverrideBook>({
     queryKey: ["planner_overrides"],
     enabled,
     staleTime: 60 * 1000,
-    queryFn: async () =>
-      toOverrideBook(await edgeJson("/api/flipdesk/planner/overrides")),
+    queryFn: fetchOverrides,
   });
 }
 
@@ -376,7 +397,17 @@ export function useResetSuppression() {
   return useMutation<
     unknown,
     PlannerError,
-    { inventoryItemId: string; kind?: SuppressionKind }
+    {
+      inventoryItemId: string;
+      kind?: SuppressionKind;
+      /**
+       * WMT-02: which set-aside to undo. Null is a real value (the item-wide
+       * row, or no session) and is sent as null; undefined is left out.
+       * Without these the server deleted every set-aside on the item.
+       */
+      actionKey?: string | null;
+      sessionId?: string | null;
+    }
   >({
     mutationFn: (a) =>
       edgeJson("/api/flipdesk/planner/suppressions/reset", {
@@ -384,6 +415,8 @@ export function useResetSuppression() {
         body: JSON.stringify({
           inventory_item_id: a.inventoryItemId,
           ...(a.kind ? { kind: a.kind } : {}),
+          ...(a.actionKey !== undefined ? { action_key: a.actionKey } : {}),
+          ...(a.sessionId !== undefined ? { session_id: a.sessionId } : {}),
         }),
       }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["planner_overrides"] }),
@@ -430,6 +463,25 @@ export interface PreparedPlan {
   suppressed: PlanSuppressionNote[];
   /** The corrections this plan was built with (US-3182). */
   book: OverrideBook;
+  /**
+   * Work held back only by the seller's setup (WMT-06), so the page can say
+   * "9 jobs need a tape measure" instead of showing a short plan with no
+   * reason.
+   */
+  gated: GatedWork[];
+  /** Sold parcels due within a day, soonest first (WMT-13). */
+  shipToday: ShipTodayEntry[];
+}
+
+/** One parcel for the "Ship today" strip (WMT-13). */
+export interface ShipTodayEntry {
+  key: string;
+  itemId: string;
+  itemTitle: string | null;
+  /** The deadline, ISO. */
+  at: string;
+  /** Whether the marketplace named it or it was worked out from handling days. */
+  confidence: WorkCandidate["shipBy"]["confidence"];
 }
 
 export interface BuildPlanArgs {
@@ -461,6 +513,8 @@ export interface BuildPlanArgs {
  */
 export interface PlanSuppressionNote {
   itemId: string;
+  /** So the set-aside list can name the garment (WMT-12). */
+  itemTitle: string | null;
   actionKey: string;
   reason: "skip_session" | "snooze" | "dismiss";
 }
@@ -473,29 +527,121 @@ export interface PlanSuppressionNote {
  * photos -- pulling those for four hundred items to build a thirty-minute plan
  * would be several megabytes to decide what to do first.
  */
-export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
+export async function buildPlan(
+  args: BuildPlanArgs,
+  qc?: QueryClient,
+): Promise<PreparedPlan> {
   const { activeWorkspaceOwnerId, user } = useAuthStore.getState();
-  const ownerId = activeWorkspaceOwnerId ?? user?.id;
-  const { data, error } = await supabase
-    .from("items_full")
-    .select(ITEM_LIST_SELECT)
-    .eq("user_id", ownerId ?? "")
-    .order("updated_at", { ascending: false })
-    .limit(PLAN_ITEM_LIMIT);
+  const ownerId = activeWorkspaceOwnerId ?? user?.id ?? null;
+  // WMT-07: no owner is a signed-out seller, not an empty stock. `?? ""` used
+  // to run the read against no one and show "no unfinished work".
+  if (!ownerId) throw new Error("You must be signed in.");
+
+  // WMT-07: every input read at once. The page used to wait for the
+  // overrides refetch before the item read even started.
+  const [itemsRead, freshBook, freshLearned, salesRead, soldRead] = await Promise.all([
+    supabase
+      .from("items_full")
+      .select(ITEM_LIST_SELECT)
+      .eq("user_id", ownerId)
+      // Only rows that can be work. Without this, listed and archived stock
+      // filled the 400-row window before any sourced item was read. `sold`
+      // is read on its own below.
+      .not("status", "in", `(${[...EXCLUDED_STATUSES, "sold"].join(",")})`)
+      // Oldest first, so unfinished work that has waited longest is read
+      // before this week's.
+      .order("updated_at", { ascending: true })
+      .limit(PLAN_ITEM_LIMIT),
+    // A corrections read that FAILS rejects the build. Falling back to an
+    // empty book would bring back every job the seller dismissed.
+    args.book !== undefined || !qc
+      ? Promise.resolve(args.book)
+      : qc.fetchQuery({
+        queryKey: ["planner_overrides"],
+        queryFn: fetchOverrides,
+        staleTime: 0,
+      }),
+    // Learned pace is an improvement, not a safety net: without it every
+    // estimate is the labelled default, so a failed read degrades rather
+    // than refuses.
+    args.learned !== undefined || !qc
+      ? Promise.resolve(args.learned ?? null)
+      : qc.ensureQueryData({
+        queryKey: ["planner_learned_durations"],
+        queryFn: fetchLearned,
+        staleTime: LEARNED_STALE_MS,
+      }).catch(() => null),
+    // WMT-13: the ship-by facts live on the SALE row (00768), not the item,
+    // so without this every parcel's deadline read as unknown. RLS-scoped
+    // with the anon client, and owner-filtered as well.
+    // Same filter and bound as the Ship queue (use-ship-queue.ts): a
+    // cancelled or refunded sale is not a parcel, and its ship_by must not
+    // overwrite the live sale's for the same item.
+    supabase
+      .from("sales")
+      .select("inventory_item_id,ship_by,handling_days,sold_at")
+      .eq("user_id", ownerId)
+      .eq("status", "completed")
+      .is("shipped_at", null)
+      .order("ship_by", { ascending: true, nullsFirst: false })
+      .limit(500),
+    // Sold stock is read ON ITS OWN. In the oldest-first window above, a
+    // parcel sold today is the NEWEST row, so a seller with 400 older
+    // unfinished items never had it read at all -- and an owed parcel is the
+    // one job the plan must never miss.
+    supabase
+      .from("items_full")
+      .select(ITEM_LIST_SELECT)
+      .eq("user_id", ownerId)
+      .eq("status", "sold")
+      .order("updated_at", { ascending: true })
+      .limit(PLAN_ITEM_LIMIT),
+  ]);
+  const { data, error } = itemsRead;
   if (error) throw new Error(error.message);
-  const items = (data ?? []) as unknown as ItemListRow[];
+  if (soldRead.error) throw new Error(soldRead.error.message);
+  const soldItems = (soldRead.data ?? []) as unknown as ItemListRow[];
+  const soldIds = new Set(soldItems.map((i) => i.id));
+  const items = [
+    ...soldItems,
+    ...((data ?? []) as unknown as ItemListRow[]).filter((i) => !soldIds.has(i.id)),
+  ];
+  const truncated = (data ?? []).length >= PLAN_ITEM_LIMIT ||
+    soldItems.length >= PLAN_ITEM_LIMIT;
 
   const now = args.now ?? new Date().toISOString();
   const nowMs = Date.parse(now);
-  const book = args.book ?? emptyBook(now);
+  const book = freshBook ?? emptyBook(now);
+  const learnedResult = freshLearned ?? null;
 
-  const allCandidates = candidatesFor(items, {
+  // A failed sales read degrades to unknown deadlines rather than refusing
+  // the plan: every unshipped sale still goes first (isOwedParcel), it just
+  // cannot say by when.
+  const saleFacts: SaleFacts = {};
+  for (const row of (salesRead.error ? [] : salesRead.data ?? []) as {
+    inventory_item_id: string | null;
+    ship_by: string | null;
+    handling_days: number | null;
+    sold_at: string | null;
+  }[]) {
+    // First wins: the read is soonest ship_by first, so an item with two
+    // open sales keeps the earlier deadline.
+    if (!row.inventory_item_id || saleFacts[row.inventory_item_id]) continue;
+    saleFacts[row.inventory_item_id] = {
+      shipByDate: row.ship_by,
+      handlingDays: row.handling_days,
+      soldAt: row.sold_at,
+    };
+  }
+
+  const { candidates: allCandidates, gated } = candidatesWithGates(items, {
     workContext: args.workContext,
     availableTools: args.availableTools as never,
+    saleFacts,
   });
 
   // ── what the seller set aside (AC3) ───────────────────────────────
-  // ⚠ isUrgentCandidate is the RANKER'S own test, imported rather than
+  // ⚠ isOwedParcel is the RANKER'S own test, imported rather than
   // rewritten. Two implementations of "urgent" would eventually disagree
   // about one parcel on one evening, and that is the evening it matters.
   const suppressed: PlanSuppressionNote[] = [];
@@ -504,10 +650,17 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
       itemId: c.itemId,
       actionKey: c.action,
       sessionId: args.sessionId ?? null,
-      urgentShipping: isUrgentCandidate(c, Number.isFinite(nowMs) ? nowMs : 0),
+      // WMT-13: a set-aside never hides a parcel somebody paid for, however
+      // far off (or unknown) its deadline.
+      urgentShipping: isOwedParcel(c),
     });
     if (!verdict.suppressed) return true;
-    suppressed.push({ itemId: c.itemId, actionKey: c.action, reason: verdict.reason });
+    suppressed.push({
+      itemId: c.itemId,
+      itemTitle: c.itemTitle ?? null,
+      actionKey: c.action,
+      reason: verdict.reason,
+    });
     return false;
   });
 
@@ -525,7 +678,7 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
         action,
         overrideTypicalMinutes: minutesOverrideFor(book, itemId, String(action)),
         learned: learnedTypicalFor(
-          args.learned ?? undefined,
+          learnedResult ?? undefined,
           String(action),
           args.workContext,
         ) ?? null,
@@ -533,35 +686,18 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
     tasks: candidates.map((c) => {
       const item = byId.get(c.itemId);
       const corrected = valueOverrideFor(book, c.itemId);
-      const value: ValueResult = estimateWorkValue({
-        marketplace: item?.listing_platform ?? null,
-        // A corrected range is the seller telling us what it SELLS for, so it
-        // enters as evidence at the conservative end -- the end the ranker
-        // sorts on. The high is kept in the book for the row to show; running
-        // it through the fee schedule a second time would widen a range the
-        // seller already narrowed.
-        evidence: corrected
-          ? { amountCents: corrected.lowCents, source: "seller_estimate", observedAt: now }
-          : item?.target_price != null
-          ? {
-            amountCents: Math.round(item.target_price * 100),
-            source: "seller_estimate",
-            observedAt: item.updated_at ?? null,
-          }
-          : null,
-        purchaseCents: item?.purchase_price != null
-          ? Math.round(item.purchase_price * 100)
-          : null,
-        // "What is still left to spend on this." It lands in spentCents
-        // because that is the field that DEDUCTS; the name is about when the
-        // money moved, and the planner only cares that it comes off.
-        spentCents: costOverrideFor(book, c.itemId),
-      });
+      // WMT-14: ONE builder for the value inputs, shared with the runner's
+      // advice, so the two can never value the same garment differently.
+      const value: ValueResult = item
+        ? estimateWorkValue(valueInputFor(item, book, now))
+        : estimateWorkValue({ marketplace: null, evidence: null });
       return {
         candidate: c,
         value,
-        remainingActions: remainingActionsFrom(c),
+        // WMT-05: the whole chain to sale-ready, not just this step.
+        remainingActions: c.remainingActions,
         unfinishedSince: item?.created_at ?? null,
+        valueFromOverride: corrected != null,
       };
     }),
   });
@@ -579,18 +715,38 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
     ranked: batched.ordered,
   });
 
+  // WMT-13: parcels due within a day (or already late), soonest first, for
+  // the "Ship today" strip above the plan.
+  const shipToday: ShipTodayEntry[] = candidates
+    .filter((c) => {
+      if (!isOwedParcel(c) || !c.shipBy.at) return false;
+      const due = Date.parse(c.shipBy.at);
+      return Number.isFinite(due) && Number.isFinite(nowMs) &&
+        due - nowMs <= URGENT_WINDOW_HOURS * 3_600_000;
+    })
+    .map((c) => ({
+      key: c.key,
+      itemId: c.itemId,
+      itemTitle: c.itemTitle ?? null,
+      at: c.shipBy.at!,
+      confidence: c.shipBy.confidence,
+    }))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+
   return {
     plan,
     ranked: batched.ordered,
     candidates,
+    shipToday,
     groups: batched.groups,
     pullList: batched.pullList,
     budgetMinutes: args.budgetMinutes,
     takenAt: now,
     itemsRead: items.length,
-    truncated: items.length >= PLAN_ITEM_LIMIT,
+    truncated,
     suppressed,
     book,
+    gated,
   };
 }
 
@@ -639,20 +795,24 @@ function toObservations(rows: readonly ObservationRow[]): RawObservation[] {
   return out;
 }
 
+async function fetchLearned(): Promise<LearningResult> {
+  const body = await edgeJson<{ observations: ObservationRow[] }>(
+    "/api/flipdesk/planner/observations",
+  );
+  return learnDurations(toObservations(body.observations ?? []));
+}
+
+// Longer than the session read: a median over twenty samples does not move
+// between two clicks of the picker, and re-reading the whole history on every
+// plan would be paying for an answer that cannot have changed.
+const LEARNED_STALE_MS = 10 * 60 * 1000;
+
 export function useLearnedDurations(enabled = true) {
   return useQuery<LearningResult>({
     queryKey: ["planner_learned_durations"],
     enabled,
-    // Longer than the session read: a median over twenty samples does not
-    // move between two clicks of the picker, and re-reading the whole history
-    // on every plan would be paying for an answer that cannot have changed.
-    staleTime: 10 * 60 * 1000,
-    queryFn: async () => {
-      const body = await edgeJson<{ observations: ObservationRow[] }>(
-        "/api/flipdesk/planner/observations",
-      );
-      return learnDurations(toObservations(body.observations ?? []));
-    },
+    staleTime: LEARNED_STALE_MS,
+    queryFn: fetchLearned,
   });
 }
 
@@ -783,9 +943,100 @@ export function useWorkOutcomes(enabled = true) {
 }
 
 export function useBuildPlan() {
+  const qc = useQueryClient();
   return useMutation<PreparedPlan, Error, BuildPlanArgs>({
-    mutationFn: buildPlan,
+    mutationFn: (args) => buildPlan(args, qc),
   });
+}
+
+// ── The built plan, kept across "Open item" round trips (WMT-11) ────────
+
+/** A plan older than this is flagged as possibly out of date. */
+export const PLAN_STALE_MS = 15 * 60 * 1000;
+
+const planKey = (ownerId: string | null) => ["planner_plan", ownerId] as const;
+const planStorageKey = (ownerId: string) => `wmt-plan:${ownerId}`;
+
+function currentOwnerId(): string | null {
+  const { activeWorkspaceOwnerId, user } = useAuthStore.getState();
+  return activeWorkspaceOwnerId ?? user?.id ?? null;
+}
+
+/**
+ * The plan saved for this owner in this tab, or null.
+ *
+ * sessionStorage, not localStorage: a plan is about this sitting, and one
+ * left for tomorrow would describe a stock that has moved. Every access is
+ * wrapped, because storage throws in private windows and blocked-site modes.
+ */
+export function readStoredPlan(ownerId: string | null): PreparedPlan | null {
+  if (!ownerId) return null;
+  try {
+    const raw = sessionStorage.getItem(planStorageKey(ownerId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PreparedPlan;
+    // The shape check that matters: a plan the page cannot render is worse
+    // than no plan.
+    if (
+      typeof parsed?.takenAt !== "string" ||
+      !Array.isArray(parsed?.plan?.tasks) ||
+      !Array.isArray(parsed?.ranked) ||
+      !Array.isArray(parsed?.candidates)
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPlan(ownerId: string | null, plan: PreparedPlan | null): void {
+  if (!ownerId) return;
+  try {
+    if (plan) sessionStorage.setItem(planStorageKey(ownerId), JSON.stringify(plan));
+    else sessionStorage.removeItem(planStorageKey(ownerId));
+  } catch {
+    // A plan that cannot be remembered is still a plan on screen.
+  }
+}
+
+/** Forget the built plan for one owner, in memory and in the tab. */
+export function clearPlannerPlan(qc: QueryClient, ownerId: string | null): void {
+  qc.removeQueries({ queryKey: planKey(ownerId), exact: true });
+  writeStoredPlan(ownerId, null);
+}
+
+/**
+ * The plan on screen, keyed by workspace owner (WMT-11).
+ *
+ * Every row links out to its item, and coming back used to remount the page
+ * with no plan. Keyed by OWNER so another workspace's plan never shows, and
+ * restored from sessionStorage when the in-memory copy is gone.
+ */
+export function usePlannerPlan() {
+  const qc = useQueryClient();
+  const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId ?? s.user?.id ?? null);
+  const query = useQuery<PreparedPlan | null>({
+    queryKey: planKey(ownerId),
+    // Restored synchronously as initial data, never fetched: a queryFn that
+    // resolved after a build would overwrite the fresh plan with the stored
+    // one. With initial data and staleTime Infinity it does not run.
+    initialData: () => readStoredPlan(ownerId),
+    queryFn: () => readStoredPlan(ownerId),
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
+  const setPlan = useCallback(
+    (plan: PreparedPlan) => {
+      qc.setQueryData(planKey(ownerId), plan);
+      writeStoredPlan(ownerId, plan);
+    },
+    [qc, ownerId],
+  );
+  const clear = useCallback(() => clearPlannerPlan(qc, ownerId), [qc, ownerId]);
+  return { plan: query.data ?? null, ownerId, setPlan, clear };
 }
 
 // ── The session (R1 09/12, on the edge) ─────────────────────────────
@@ -806,6 +1057,11 @@ export interface PlannerSessionTask {
   observed_minutes?: number | null;
   confirmed_minutes?: number | null;
   correction_minutes?: number | null;
+  /**
+   * When the running task started, by the server's clock (WMT-09). Only the
+   * active task carries it; a reload reads it back instead of losing it.
+   */
+  started_at?: string | null;
   actionable: boolean;
 }
 
@@ -838,7 +1094,12 @@ export function useStartSession() {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: (next) => qc.setQueryData(["planner_session"], next),
+    onSuccess: (next) => {
+      qc.setQueryData(["planner_session"], next);
+      // WMT-11: the plan became the session. Keeping it would leave the old
+      // list under the runner, where it reads as a second to-do list.
+      clearPlannerPlan(qc, currentOwnerId());
+    },
     // No onError handler on purpose (AC5): a failure leaves the cached session
     // exactly as it was. Clearing it would show a seller whose connection
     // dropped an empty screen and let them assume the evening was lost.
@@ -913,18 +1174,90 @@ export function planToSessionTasks(plan: PreparedPlan): Record<string, unknown>[
   return plan.plan.tasks.map((t) => {
     const r = ranked.get(t.key);
     const c = r ? candidates.get(r.itemId) : undefined;
-    const d = r ? estimateDuration({ action: r.action as never }) : null;
     return {
       inventory_item_id: r?.itemId ?? null,
       item_title: c?.itemTitle ?? null,
       action_key: r?.action ?? null,
       prerequisite_keys: r?.prerequisiteKeys ?? [],
       bin: c?.bin?.value ?? null,
-      estimate_minutes: d && !isUnestimated(d) ? d.typical : null,
+      // WMT-04: the ranker's resolved minutes, so a seller's correction or
+      // learned pace is what the session records, not the bare default.
+      estimate_minutes: r?.duration?.typical ?? null,
       estimate_value_cents: r?.conservativeCents ?? null,
-      estimate_source: r?.tier ?? null,
+      // WMT-05: where the PRICE came from (sold_comp, seller_estimate,
+      // active_asking), which is what the scorecard groups on. This used to
+      // send the rank tier, which no scorecard source matches, so every
+      // session read "unknown".
+      estimate_source: r?.valueSource ?? null,
     };
   });
+}
+
+// ── The value inputs for one garment (WMT-14) ───────────────────────
+
+/** A dollars column as whole cents, or null when absent or not positive. */
+function dollarsCents(v: number | null | undefined): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
+  return Math.round(v * 100);
+}
+
+/**
+ * What estimateWorkValue is told about one item.
+ *
+ * FEES. An item with no marketplace yet is almost always headed for eBay, and
+ * refusing to value it left measure, photograph and price jobs -- most of a
+ * plan -- ranked as "can't estimate". So eBay's schedule is ASSUMED, and
+ * `fee_schedule_assumed` lands in `missing` so "Why this one?" says so. An
+ * item that names another marketplace is still refused: that is a known fee
+ * schedule this code does not model, not an unknown one.
+ *
+ * EVIDENCE, strongest first: the seller's own corrected range; the price a
+ * SOLD item actually went for; the seller's target price; and last the list
+ * price, which is an asking price and enters discounted.
+ */
+export function valueInputFor(
+  item: ItemListRow,
+  book: OverrideBook | null,
+  now: string,
+): ValueInput {
+  const corrected = book ? valueOverrideFor(book, item.id) : null;
+  const sold = item.status === "sold" || item.status === "shipped";
+  const salePrice = dollarsCents(item.sale_price);
+  const target = dollarsCents(item.target_price);
+  const listed = dollarsCents(item.list_price);
+
+  let evidence: PriceEvidence | null = null;
+  if (corrected) {
+    // The seller's range, as a range: both ends, no extra band.
+    evidence = {
+      amountCents: corrected.lowCents,
+      highAmountCents: corrected.highCents,
+      source: "seller_estimate",
+      observedAt: now,
+    };
+  } else if (sold && salePrice !== null) {
+    evidence = { amountCents: salePrice, source: "sold_comp", observedAt: item.updated_at ?? null };
+  } else if (target !== null) {
+    evidence = { amountCents: target, source: "seller_estimate", observedAt: item.updated_at ?? null };
+  } else if (listed !== null) {
+    evidence = { amountCents: listed, source: "active_asking", observedAt: item.updated_at ?? null };
+  }
+
+  const platform = item.listing_platform ?? null;
+  return {
+    marketplace: platform ?? "ebay",
+    feeScheduleAssumed: platform === null,
+    evidence,
+    purchaseCents: item.purchase_price != null && Number.isFinite(item.purchase_price)
+      ? Math.round(item.purchase_price * 100)
+      : null,
+    // Recorded postage where the row has it. A zero is the column default,
+    // not a free parcel, so it falls through to the labelled fallback.
+    shippingCents: dollarsCents(item.shipping_cost),
+    // "What is still left to spend on this", as the seller corrected it. A
+    // FUTURE cost, so it moves the rank.
+    futureCostCents: book ? costOverrideFor(book, item.id) : null,
+  };
 }
 
 // ── Advice for the task in hand (R2 03/06, US-3180) ─────────────────
@@ -952,19 +1285,7 @@ export function adviseOnCurrentItem(args: {
     String(item.status ?? ""),
   );
 
-  const value = estimateWorkValue({
-    marketplace: item.listing_platform ?? null,
-    evidence: item.target_price != null
-      ? {
-        amountCents: Math.round(item.target_price * 100),
-        source: "seller_estimate",
-        observedAt: item.updated_at ?? null,
-      }
-      : null,
-    purchaseCents: item.purchase_price != null
-      ? Math.round(item.purchase_price * 100)
-      : null,
-  });
+  const value = estimateWorkValue(valueInputFor(item, null, new Date().toISOString()));
 
   // The minutes still ahead on the prep ladder, from the same candidate
   // builder the plan uses.
@@ -976,7 +1297,7 @@ export function adviseOnCurrentItem(args: {
     availableTools: ["camera", "measuring_tape", "steamer", "packing_supplies"],
   });
   const mine = candidates.find((c) => c.itemId === item.id) ?? null;
-  const remaining = mine ? remainingActionsFrom(mine) : [];
+  const remaining = mine ? mine.remainingActions : [];
   const remainingMinutes = remaining.reduce((sum, a) => {
     const d = estimateDuration({ action: a });
     return sum + (isUnestimated(d) ? 0 : d.typical);
@@ -998,8 +1319,3 @@ export function adviseOnCurrentItem(args: {
   });
 }
 
-/** Minutes a task is estimated at, for the row. Null when nobody knows. */
-export function taskMinutes(action: string): number | null {
-  const d = estimateDuration({ action: action as never });
-  return isUnestimated(d) ? null : d.typical;
-}

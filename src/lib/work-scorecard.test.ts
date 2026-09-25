@@ -57,7 +57,8 @@ function task(over: Partial<PlannedTask> = {}): PlannedTask {
 describe("the three numbers stay three numbers (AC2)", () => {
   it("reports projection, realized money and the rate separately", () => {
     const s = buildScorecard({ outcomes: [outcome()], tasks: [task()] });
-    expect(s.projectedNetCents).toBe(3000);
+    // Sold, so its guess is not a projection any more (WMT-10).
+    expect(s.projected).toEqual({ available: false, reason: "nothing_unsold" });
     expect(s.realized).toEqual({ available: true, cents: 4000 });
     // $40.00 in 30 minutes is $80.00 an hour.
     expect(s.profitPerTrackedHour).toEqual({ available: true, cents: 8000 });
@@ -79,7 +80,8 @@ describe("the three numbers stay three numbers (AC2)", () => {
       ],
       tasks: [task()],
     });
-    expect(s.projectedNetCents).toBe(12000);
+    // Only the unsold garment is projected (WMT-10).
+    expect(s.projected).toEqual({ available: true, cents: 9000 });
     expect(s.realized).toEqual({ available: true, cents: 4000 });
     expect(s.profitPerTrackedHour).toEqual({ available: true, cents: 8000 });
   });
@@ -434,3 +436,55 @@ function codeOf(rel: string): string {
     .filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*"))
     .join("\n");
 }
+
+describe("the projection is only the unsold half (WMT-10)", () => {
+  it("one sold plus one pending item projects the pending one only", () => {
+    const s = buildScorecard({
+      outcomes: [
+        outcome(),
+        outcome({
+          inventoryItemId: "item-2",
+          state: "pending",
+          estimatedNetCents: 2500,
+          recordedNetCents: null,
+          saleId: null,
+        }),
+      ],
+      tasks: [task()],
+    });
+    expect(s.projected).toEqual({ available: true, cents: 2500 });
+  });
+
+  it("an empty range gives a reason, never $0.00", () => {
+    const s = buildScorecard({ outcomes: [], tasks: [] });
+    expect(s.projected).toEqual({ available: false, reason: "nothing_in_range" });
+  });
+
+  it("jobs for deleted items sit outside the projection and the source tally", () => {
+    const gone = outcome({
+      inventoryItemId: "",
+      state: "unmatchable",
+      estimatedNetCents: 7000,
+      recordedNetCents: null,
+      saleId: null,
+    });
+    const s = buildScorecard({ outcomes: [gone, gone], tasks: [] });
+    expect(s.unmatchableJobs).toBe(2);
+    expect(s.projected.available).toBe(false);
+    expect(s.forecast.bySource.sold_comp).toBe(0);
+  });
+
+  it("an abandoned plan is not a session and carries nothing", () => {
+    const s = buildScorecard({
+      outcomes: [],
+      tasks: [
+        task({ sessionId: "gone", sessionState: "abandoned", taskState: "pending", confirmedMinutes: 10 }),
+        task({ taskId: "t2", sessionId: "live", sessionState: "active", taskState: "pending", inventoryItemId: "item-2" }),
+      ],
+    });
+    expect(s.work.sessions).toBe(1);
+    expect(s.work.carriedForwardItems).toBe(0);
+    // The abandoned plan's confirmed minutes are still real work.
+    expect(s.work.confirmedMinutes).toBe(40);
+  });
+});

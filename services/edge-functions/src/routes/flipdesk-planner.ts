@@ -38,7 +38,7 @@
 // task id is matched through its session; an inventory item is matched through
 // inventory_items.user_id.
 
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
@@ -177,6 +177,12 @@ interface TaskRow {
   observed_minutes: number | null;
   confirmed_minutes: number | null;
   correction_minutes: number | null;
+  /**
+   * NOT A COLUMN. When the running task last started, by the SERVER's clock,
+   * read from its latest task_started timing event (WMT-09). Set by
+   * loadTasks on the active task only.
+   */
+  started_at?: string | null;
 }
 
 const SESSION_COLUMNS =
@@ -303,6 +309,10 @@ function sessionBody(session: SessionRow, tasks: TaskRow[]) {
         observed_minutes: t.observed_minutes,
         confirmed_minutes: t.confirmed_minutes,
         correction_minutes: t.correction_minutes,
+        // WMT-09: so a reload mid-task offers the minutes that really passed
+        // rather than the planner's guess. Null on every task but the active
+        // one.
+        started_at: t.state === "active" ? t.started_at ?? null : null,
         // A task whose item was deleted keeps its history and stops being
         // work. The null id is what says so (US-3167 AC4).
         actionable: t.inventory_item_id !== null &&
@@ -319,7 +329,24 @@ async function loadTasks(sessionId: string, ownerId: string): Promise<TaskRow[]>
     .eq("user_id", ownerId) // US-268
     .order("position", { ascending: true })
     .limit(MAX_PLAN_TASKS);
-  return (data as TaskRow[] | null) ?? [];
+  const tasks = (data as TaskRow[] | null) ?? [];
+  // WMT-09: one owner-scoped read for the running task's start. The runner
+  // kept this only in memory, so after a reload "Done" offered the estimate,
+  // and one tap stored the planner's guess as confirmed minutes.
+  const active = tasks.find((t) => t.state === "active");
+  if (active) {
+    const { data: ev } = await supabaseAdmin
+      .from("flipdesk_work_timing_events")
+      .select("occurred_at")
+      .eq("task_id", active.id)
+      .eq("user_id", ownerId) // US-268
+      .eq("kind", "task_started")
+      .order("occurred_at", { ascending: false })
+      .limit(1);
+    const row = (ev as { occurred_at: string }[] | null)?.[0];
+    active.started_at = row?.occurred_at ?? null;
+  }
+  return tasks;
 }
 
 // ── POST /sessions ────────────────────────────────────────────────
@@ -508,6 +535,16 @@ flipdeskPlannerRoutes.post("/sessions", async (c) => {
 const OVERRIDE_KINDS = ["task_minutes", "value_range", "remaining_cost"] as const;
 const SUPPRESSION_KINDS = ["skip_session", "snooze", "dismiss"] as const;
 
+/**
+ * The same ceilings src/lib/work-overrides.ts refuses in the form (WMT-02).
+ * The edge cannot import the SPA module, so they are mirrored, and
+ * flipdesk-planner_test.ts fails if the two ever disagree. Without them a
+ * caller that is not the form could store a 9,999-minute task and every plan
+ * after it would have no room for anything else.
+ */
+export const MAX_OVERRIDE_MINUTES = 240;
+export const MAX_OVERRIDE_CENTS = 100_000_00;
+
 /** Bounded like every other list read here. */
 const MAX_OVERRIDE_ROWS = 500;
 
@@ -613,6 +650,18 @@ flipdeskPlannerRoutes.put("/overrides", async (c) => {
   if (kind === "value_range" && (low === null || high === null || low > high)) {
     return jsonError(c, 400, "A range needs a low and a high, with the low first.");
   }
+  // Same sentences as OVERRIDE_ERROR_COPY in src/lib/work-overrides-copy.ts.
+  if (kind === "task_minutes" && minutes !== null && minutes > MAX_OVERRIDE_MINUTES) {
+    return jsonError(c, 400, "That's longer than a whole session. Check the number.");
+  }
+  const centsInPlay = kind === "remaining_cost"
+    ? [cents]
+    : kind === "value_range"
+    ? [low, high]
+    : [];
+  if (centsInPlay.some((v) => v !== null && v > MAX_OVERRIDE_CENTS)) {
+    return jsonError(c, 400, "That looks like dollars typed as cents. Check the number.");
+  }
 
   const row = {
     inventory_item_id: itemId,
@@ -624,8 +673,9 @@ flipdeskPlannerRoutes.put("/overrides", async (c) => {
     high_cents: kind === "value_range" ? high : null,
     // WHAT IT REPLACED (AC2). Without it "reset to our estimate" has nothing
     // to reset to, and a seller who corrected a number in March has no way
-    // back. Stored as the client saw it, because that is what they overrode.
-    original_json: body.original ?? null,
+    // back. Stored as the client saw it, because that is what they overrode --
+    // but only the numbers (WMT-02), so a body cannot park an unbounded blob.
+    original_json: originalOf(body.original),
     source: "seller",
   };
 
@@ -645,6 +695,23 @@ flipdeskPlannerRoutes.put("/overrides", async (c) => {
   }
   return c.json({ override: data });
 });
+
+/**
+ * What a correction replaced, reduced to the shape the form sends:
+ * `{amount}` or `{lowCents, highCents}`. Anything else is dropped rather than
+ * stored as-is.
+ */
+export function originalOf(v: unknown): Record<string, number> | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const num = (x: unknown) => typeof x === "number" && Number.isFinite(x) ? x : null;
+  const amount = num(o.amount);
+  if (amount !== null) return { amount };
+  const lowCents = num(o.lowCents);
+  const highCents = num(o.highCents);
+  if (lowCents !== null && highCents !== null) return { lowCents, highCents };
+  return null;
+}
 
 /** Reset to our estimate (AC1). Deletes the correction, keeps nothing behind. */
 flipdeskPlannerRoutes.post("/overrides/reset", async (c) => {
@@ -745,6 +812,12 @@ flipdeskPlannerRoutes.post("/suppressions/reset", async (c) => {
   if (!(await ownsItem(ownerId, itemId))) return jsonError(c, 404, "Item not found.");
 
   // US-1552 again: equality predicates only, never .or() on a delete.
+  //
+  // WMT-02: scoped to the ONE set-aside the seller is undoing. "Put it back"
+  // on a photograph skip used to send only the item, and the delete took the
+  // item-wide dismiss and every snooze on other steps with it. When the body
+  // names action_key or session_id -- null included -- that key is a
+  // predicate: null matches null with .is(), never "any".
   const kind = str(body.kind);
   let q = supabaseAdmin
     .from("flipdesk_work_suppressions")
@@ -752,6 +825,14 @@ flipdeskPlannerRoutes.post("/suppressions/reset", async (c) => {
     .eq("owner_user_id", ownerId) // US-268
     .eq("inventory_item_id", itemId);
   if (kind !== null) q = q.eq("kind", kind);
+  if ("action_key" in body) {
+    const action = str(body.action_key);
+    q = action === null ? q.is("action_key", null) : q.eq("action_key", action);
+  }
+  if ("session_id" in body) {
+    const sessionId = str(body.session_id);
+    q = sessionId === null ? q.is("session_id", null) : q.eq("session_id", sessionId);
+  }
   const { error } = await q;
   if (error) {
     return failSafe(c, 500, "Couldn't undo that.", error, "planner.suppressions.reset");
@@ -786,13 +867,14 @@ const OUTCOME_SALE_COLUMNS =
 flipdeskPlannerRoutes.get("/outcomes", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
 
-  // Only tasks that carry an estimate snapshot: a task with none was never a
-  // prediction and there is nothing to score it against.
+  // EVERY task, with or without an estimate snapshot (WMT-10). One with none
+  // was never a prediction, and the pure layer already leaves it out of the
+  // comparison; it is still work the seller did, and filtering it here meant
+  // the scorecard never counted it as a job finished or a minute confirmed.
   const { data: taskData, error: taskErr } = await supabaseAdmin
     .from("flipdesk_work_session_tasks")
     .select(OUTCOME_TASK_COLUMNS)
     .eq("user_id", ownerId) // US-268
-    .not("estimate_value_cents", "is", null)
     .order("estimate_taken_at", { ascending: false })
     .limit(MAX_OUTCOME_ITEMS);
   if (taskErr) {
@@ -1102,11 +1184,33 @@ flipdeskPlannerRoutes.post("/sessions/:id/:action", async (c) => {
   if (target === "active" && !session.started_at) {
     patch.started_at = new Date().toISOString();
   }
-  if (target === "completed" || target === "abandoned") {
-    patch.ended_at = new Date().toISOString();
+  const ending = target === "completed" || target === "abandoned";
+  if (ending) patch.ended_at = new Date().toISOString();
+
+  const { data: moved, error } = await supabaseAdmin
+    .from("flipdesk_work_sessions")
+    .update(patch)
+    .eq("id", session.id)
+    .eq("user_id", ownerId) // US-268
+    // THE REVISION IS IN THE PREDICATE, not only in the check above. A check
+    // followed by an unguarded write is two tabs both passing and the second
+    // one winning silently.
+    .eq("revision", session.revision)
+    .select("id");
+  if (error) {
+    return failSafe(c, 500, "Couldn't update that session.", error, "planner.session");
+  }
+  if (!moved || moved.length === 0) {
+    // WMT-03: zero rows is the race lost, not a success. Answer with the
+    // true state so the client recovers without replaying the action.
+    return staleRefusal(c, ownerId, session.id);
+  }
+
+  if (ending) {
     // A session that ends releases its active task rather than leaving one
     // running forever. `pending` and not `skipped`: the seller did not choose
-    // to skip it, they stopped working.
+    // to skip it, they stopped working. AFTER the session write (WMT-03), so
+    // a refused end does not leave a running job released.
     await supabaseAdmin
       .from("flipdesk_work_session_tasks")
       .update({ state: "pending" })
@@ -1115,25 +1219,16 @@ flipdeskPlannerRoutes.post("/sessions/:id/:action", async (c) => {
       .eq("state", "active");
   }
 
-  const { error } = await supabaseAdmin
-    .from("flipdesk_work_sessions")
-    .update(patch)
-    .eq("id", session.id)
-    .eq("user_id", ownerId) // US-268
-    // THE REVISION IS IN THE PREDICATE, not only in the check above. A check
-    // followed by an unguarded write is two tabs both passing and the second
-    // one winning silently.
-    .eq("revision", session.revision);
-  if (error) {
-    return failSafe(c, 500, "Couldn't update that session.", error, "planner.session");
-  }
-
   const fresh = await loadOwnedSession(ownerId, sessionId);
   const tasks = await loadTasks(sessionId, ownerId);
   return c.json(sessionBody(fresh ?? session, tasks));
 });
 
 // ── POST /tasks/:id/:action ───────────────────────────────────────
+
+/** The window a confirmed duration must fall in (WMT-09). */
+export const MIN_CONFIRMED_MINUTES = 1;
+export const MAX_CONFIRMED_MINUTES = 240;
 
 const TASK_ACTIONS: Record<string, { state: TaskState; event: TimingEventKind | null }> = {
   start: { state: "active", event: "task_started" },
@@ -1161,6 +1256,19 @@ flipdeskPlannerRoutes.post("/tasks/:id/:action", async (c) => {
   if (!owned) return jsonError(c, 404, "Task not found.");
   const { task, session } = owned;
 
+  // WMT-03: a finished or thrown-away session takes no more task actions. The
+  // task transitions alone would let a pending task on a completed session
+  // start, and the "start starts the session" step below would then find it
+  // not planned and leave a running job inside a closed session.
+  if (!(OPEN_SESSION_STATES as readonly string[]).includes(session.state)) {
+    const tasks = await loadTasks(session.id, ownerId);
+    return c.json({
+      error: "That session has ended, so its jobs can't change now.",
+      code: "session_closed",
+      ...sessionBody(session, tasks),
+    }, 409);
+  }
+
   const rev = checkRevision(body.revision, session.revision);
   if (!rev.ok) {
     const tasks = await loadTasks(session.id, ownerId);
@@ -1169,6 +1277,23 @@ flipdeskPlannerRoutes.post("/tasks/:id/:action", async (c) => {
       code: rev.refusal.code,
       ...sessionBody(session, tasks),
     }, 409);
+  }
+
+  // WMT-09: confirmed minutes are what the learner trains on, so a number
+  // outside a real session is refused rather than stored. Zero is refused
+  // too: the runner used to send Number("") as a free task.
+  if (action === "complete" && body.confirmed_minutes != null) {
+    const m = body.confirmed_minutes;
+    if (
+      typeof m !== "number" || !Number.isFinite(m) ||
+      Math.round(m) < MIN_CONFIRMED_MINUTES || Math.round(m) > MAX_CONFIRMED_MINUTES
+    ) {
+      return jsonError(
+        c,
+        400,
+        `Minutes have to be between ${MIN_CONFIRMED_MINUTES} and ${MAX_CONFIRMED_MINUTES}.`,
+      );
+    }
   }
 
   const move = canTransitionTask(task.state, spec.state);
@@ -1216,14 +1341,31 @@ flipdeskPlannerRoutes.post("/tasks/:id/:action", async (c) => {
     if (confirmed !== null) patch.confirmed_minutes = confirmed;
   }
 
-  const { error } = await supabaseAdmin
+  const { data: changed, error } = await supabaseAdmin
     .from("flipdesk_work_session_tasks")
     .update(patch)
     .eq("id", task.id)
     .eq("user_id", ownerId) // US-268
-    .eq("state", task.state); // and the state we read, so a race loses
+    .eq("state", task.state) // and the state we read, so a race loses
+    .select("id");
   if (error) {
+    // WMT-03: the one-active-task index. Two tabs starting two jobs is a
+    // conflict the seller can act on, not a 500.
+    if ((error as { code?: string }).code === "23505") {
+      const tasks = await loadTasks(session.id, ownerId);
+      return c.json({
+        error: "Another job is already running.",
+        code: "task_already_active",
+        ...sessionBody(session, tasks),
+      }, 409);
+    }
     return failSafe(c, 500, "Couldn't update that task.", error, "planner.task");
+  }
+  if (!changed || changed.length === 0) {
+    // The state predicate matched nothing: another request moved this task
+    // first. Reporting success here would record a start or a finish that
+    // did not happen.
+    return staleRefusal(c, ownerId, session.id);
   }
 
   // US-3177: STARTING A TASK STARTS THE SESSION. A session is created
@@ -1269,6 +1411,25 @@ flipdeskPlannerRoutes.post("/tasks/:id/:action", async (c) => {
   const tasks = await loadTasks(session.id, ownerId);
   return c.json(sessionBody(fresh ?? session, tasks));
 });
+
+/**
+ * WMT-03: a write whose guard matched no row lost a race. 409 with the
+ * session as it now stands, the same recovery shape as a stale revision.
+ */
+async function staleRefusal(
+  c: Context,
+  ownerId: string,
+  sessionId: string,
+): Promise<Response> {
+  const fresh = await loadOwnedSession(ownerId, sessionId);
+  if (!fresh) return jsonError(c, 404, "Session not found.");
+  const tasks = await loadTasks(sessionId, ownerId);
+  return c.json({
+    error: "Something changed this session before that landed.",
+    code: "stale",
+    ...sessionBody(fresh, tasks),
+  }, 409);
+}
 
 async function invalidate(task: TaskRow, ownerId: string): Promise<void> {
   await supabaseAdmin

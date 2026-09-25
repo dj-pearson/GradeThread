@@ -13,6 +13,14 @@
 
 import type { ExplainFact } from "@/lib/work-explain";
 import type { OmissionReason } from "@/lib/work-scheduler";
+import { MIN_SAMPLES } from "@/lib/work-duration-learning";
+
+const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+
+/** A small count as a word, so the copy follows the learner's threshold. */
+function countWord(n: number): string {
+  return WORDS[n] ?? String(n);
+}
 
 export const EXPLAIN_FACT_COPY: Record<ExplainFact, string> = {
   urgent_deadline: "This one has to go out soon.",
@@ -20,11 +28,15 @@ export const EXPLAIN_FACT_COPY: Record<ExplainFact, string> = {
   best_rate: "It returns the most for the time it still needs.",
   needs_price_research: "It needs a price before we can rank it properly.",
   cannot_estimate_value: "We can't put a number on this one yet.",
+  below_cost: "Once fees and the costs still ahead come off, this one is likely to lose money.",
+  fee_schedule_assumed:
+    "It isn't listed anywhere yet, so we assumed eBay's fees.",
   timing_is_default: "The minutes are our starting guess, not your pace.",
   timing_is_learned: "The minutes come from your own finished jobs.",
   timing_is_override: "The minutes are the ones you set.",
   value_from_sold_comp: "The value comes from something that actually sold.",
   value_from_seller_estimate: "The value is the price you typed.",
+  value_from_override: "The value is the range you set for planning.",
   // The weakest evidence there is, and it says so.
   value_from_asking_price:
     "The value comes from an asking price. Nobody has paid it.",
@@ -52,5 +64,6 @@ export const WOULD_CHANGE_COPY: Partial<Record<ExplainFact, string>> = {
   value_from_asking_price: "Find something that actually sold at this price.",
   value_inputs_missing: "Record the real costs and the range will tighten.",
   deadline_unknown: "Confirm the ship-by date and we'll stop guessing.",
-  timing_is_default: "Finish five of these and we'll use your own pace.",
+  timing_is_default:
+    `Finish ${countWord(MIN_SAMPLES)} of these and we'll use your own pace.`,
 };

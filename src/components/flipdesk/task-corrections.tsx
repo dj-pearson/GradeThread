@@ -18,7 +18,7 @@
 // /planner/overrides and /planner/suppressions. No price, no grade, no
 // status, nothing the books read. The garment's own screens own those.
 
-import { useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -30,12 +30,16 @@ import {
   useResetSuppression,
   useSaveOverride,
   useSuppress,
+  useWorkOverrides,
 } from "@/hooks/use-planner";
 import {
   costOverrideFor,
   decideMinutes,
   differenceFromOverride,
+  dollarsToCents as toCents,
+  emptyBook,
   minutesOverrideFor,
+  parkingRows,
   suppressionVerdictFor,
   validateOverride,
   valueOverrideFor,
@@ -56,16 +60,10 @@ function dollars(cents: number | null | undefined): string {
   return (cents / 100).toFixed(2);
 }
 
-/** Dollars typed by a person, as whole cents. NaN stays NaN for validation. */
-function toCents(text: string): number {
-  const n = Number(text.trim());
-  return Number.isFinite(n) ? Math.round(n * 100) : Number.NaN;
-}
-
-function Errors({ codes }: { codes: readonly string[] }) {
+function Errors({ id, codes }: { id: string; codes: readonly string[] }) {
   if (codes.length === 0) return null;
   return (
-    <ul role="alert" className="text-xs text-destructive">
+    <ul id={id} role="alert" className="text-xs text-destructive">
       {codes.map((c) => (
         <li key={c}>
           {OVERRIDE_ERROR_COPY[c as keyof typeof OVERRIDE_ERROR_COPY] ?? c}
@@ -80,10 +78,13 @@ export interface TaskCorrectionsProps {
   actionKey: string;
   /** What the planner says today, before any correction. Null when unknown. */
   estimateMinutes: number | null;
-  /** Everything the seller has already corrected or set aside. */
-  book: OverrideBook;
   /** Minutes still unspent in the plan on screen, for the fit warning. */
   remainingBudgetMinutes: number;
+  /**
+   * What the plan already charges this task (WMT-04), so the fit warning asks
+   * whether the GROWTH fits rather than the whole new number.
+   */
+  chargedMinutes?: number;
   /** The open session, so a skip applies to this sitting and no other. */
   sessionId?: string | null;
   /** True when the ranker calls this an urgent shipment (AC3). */
@@ -92,16 +93,43 @@ export interface TaskCorrectionsProps {
   onChanged?: () => void;
 }
 
-export function TaskCorrections({
+/**
+ * WMT-08: KEYED ON THE TASK. The runner shows one task after another in the
+ * same place, and the fields used to be seeded once, so the minutes typed for
+ * one garment were still in the box for the next. A new key is a fresh panel.
+ */
+export function TaskCorrections(props: TaskCorrectionsProps) {
+  return <CorrectionsPanel key={`${props.itemId}:${props.actionKey}`} {...props} />;
+}
+
+function CorrectionsPanel({
   itemId,
   actionKey,
   estimateMinutes,
-  book,
   remainingBudgetMinutes,
+  chargedMinutes,
   sessionId,
   urgentShipping,
   onChanged,
 }: TaskCorrectionsProps) {
+  // WMT-08: the LIVE corrections, not the book the plan was built with. A
+  // save or a set-aside invalidates this query, so "Use our estimate" and
+  // "Put it back" appear the moment the change lands instead of after a
+  // rebuild. A failed read is an empty book: the controls still work.
+  const overrides = useWorkOverrides();
+  const fallbackBook = useMemo(() => emptyBook(new Date().toISOString()), []);
+  const book: OverrideBook = overrides.data ?? fallbackBook;
+  const uid = useId();
+  const ids = {
+    minutes: `${uid}-min`,
+    minutesErr: `${uid}-min-err`,
+    low: `${uid}-low`,
+    high: `${uid}-high`,
+    valueErr: `${uid}-value-err`,
+    cost: `${uid}-cost`,
+    costErr: `${uid}-cost-err`,
+  };
+
   const savedMinutes = minutesOverrideFor(book, itemId, actionKey);
   const savedValue = valueOverrideFor(book, itemId);
   const savedCost = costOverrideFor(book, itemId);
@@ -141,6 +169,7 @@ export function TaskCorrections({
         defaultMinutes: estimateMinutes,
       }),
       remainingBudgetMinutes,
+      chargedMinutes,
     })
     : null;
 
@@ -202,7 +231,24 @@ export function TaskCorrections({
         kind,
         sessionId: kind === "skip_session" ? sessionId ?? null : null,
       });
-      toast.success(SUPPRESSION_STATE_COPY[kind]);
+      // WMT-08: an Undo that resets exactly the row just written, scoped the
+      // same way it was saved (WMT-02).
+      toast.success(SUPPRESSION_STATE_COPY[kind], {
+        action: {
+          label: "Undo",
+          onClick: () => {
+            void unsuppress
+              .mutateAsync({
+                inventoryItemId: itemId,
+                kind,
+                actionKey: kind === "dismiss" ? null : actionKey,
+                sessionId: kind === "skip_session" ? sessionId ?? null : null,
+              })
+              .then(() => onChanged?.())
+              .catch((err) => toastError(err, "Couldn't undo that."));
+          },
+        },
+      });
       onChanged?.();
     } catch (err) {
       toastError(err, "Couldn't set that aside.");
@@ -210,8 +256,30 @@ export function TaskCorrections({
   }
 
   async function putBack() {
+    if (!parked.suppressed) return;
+    const kind = parked.reason;
+    // WMT-02: undo the set-aside this panel SHOWS and no other. Each row that
+    // is parking this task under that kind is reset by its own action_key and
+    // session_id, so a skip on this step no longer takes the item-wide
+    // dismiss or another step's snooze with it.
+    const rows = parkingRows(book, { itemId, actionKey, sessionId, kind });
+    const targets = rows.length > 0
+      ? rows
+      : [{
+        actionKey: kind === "dismiss" ? null : actionKey,
+        // A skip is stored against its session, so the fallback has to name
+        // it too or the reset matches nothing and still says "Back on the list".
+        sessionId: kind === "skip_session" ? sessionId ?? null : null,
+      }];
     try {
-      await unsuppress.mutateAsync({ inventoryItemId: itemId });
+      for (const r of targets) {
+        await unsuppress.mutateAsync({
+          inventoryItemId: itemId,
+          kind,
+          actionKey: r.actionKey,
+          sessionId: r.sessionId,
+        });
+      }
       toast.success("Back on the list.");
       onChanged?.();
     } catch (err) {
@@ -220,9 +288,13 @@ export function TaskCorrections({
   }
 
   return (
-    <details className="text-xs">
-      <summary className="cursor-pointer underline">Change or set aside</summary>
-      <div className="mt-2 w-72 space-y-4 rounded-lg bg-muted/50 p-3 text-left">
+    <details className="text-xs open:basis-full">
+      <summary className="inline-flex min-h-11 cursor-pointer items-center underline">
+        Change or set aside
+      </summary>
+      {/* WMT-12: full width on a phone, capped beside the row on a wider
+          screen, so an open panel never scrolls the page sideways. */}
+      <div className="mt-2 w-full space-y-4 rounded-lg bg-muted/50 p-3 text-left sm:max-w-sm">
         {/* AC3: the one line that has to be right. */}
         {verdict.reason === "urgent_shipping_overrides_suppression" && (
           <p role="status" className="font-medium">
@@ -231,29 +303,37 @@ export function TaskCorrections({
         )}
         {verdict.reason === "snooze_expired" && <p>{SNOOZE_EXPIRED_COPY}</p>}
 
-        <div className="space-y-1.5">
-          <Label htmlFor={`min-${itemId}-${actionKey}`}>
-            How long does this really take?
-          </Label>
+        {/* WMT-08: each group is a form, so Enter saves it. */}
+        <form
+          className="space-y-1.5"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (busy || minutes.trim() === "") return;
+            void commit("task_minutes", { amountMinutes: Number(minutes) });
+          }}
+        >
+          <Label htmlFor={ids.minutes}>How long does this really take?</Label>
           <div className="flex gap-2">
             <Input
-              id={`min-${itemId}-${actionKey}`}
+              id={ids.minutes}
+              data-field="minutes"
               className="w-20"
               inputMode="numeric"
               placeholder={estimateMinutes != null ? String(estimateMinutes) : "20"}
               value={minutes}
+              aria-invalid={(errors.task_minutes ?? []).length > 0}
+              aria-describedby={(errors.task_minutes ?? []).length > 0
+                ? ids.minutesErr
+                : undefined}
               onChange={(e) => setMinutes(e.target.value)}
             />
-            <Button
-              size="sm"
-              disabled={busy || minutes.trim() === ""}
-              onClick={() =>
-                void commit("task_minutes", { amountMinutes: Number(minutes) })}
-            >
+            <Button type="submit" size="sm" disabled={busy || minutes.trim() === ""}>
               Save
             </Button>
             {savedMinutes != null && (
               <Button
+                type="button"
                 size="sm"
                 variant="outline"
                 disabled={busy}
@@ -263,7 +343,7 @@ export function TaskCorrections({
               </Button>
             )}
           </div>
-          <Errors codes={errors.task_minutes ?? []} />
+          <Errors id={ids.minutesErr} codes={errors.task_minutes ?? []} />
           {preview && preview.beforeMinutes !== preview.afterMinutes && (
             <p className="text-muted-foreground">
               We said about {preview.beforeMinutes} min. You're saying{" "}
@@ -273,43 +353,62 @@ export function TaskCorrections({
                 : ""}
             </p>
           )}
-        </div>
+        </form>
 
-        <div className="space-y-1.5">
-          <Label htmlFor={`low-${itemId}`}>What do you think it sells for?</Label>
+        <form
+          className="space-y-1.5"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (busy || low.trim() === "" || high.trim() === "") return;
+            void commit("value_range", {
+              lowCents: toCents(low),
+              highCents: toCents(high),
+            });
+          }}
+        >
+          <Label htmlFor={ids.low}>What do you think it sells for?</Label>
           <div className="flex items-center gap-2">
             <Input
-              id={`low-${itemId}`}
+              id={ids.low}
+              data-field="low"
               className="w-20"
               inputMode="decimal"
               placeholder="30"
               value={low}
+              aria-invalid={(errors.value_range ?? []).length > 0}
+              aria-describedby={(errors.value_range ?? []).length > 0
+                ? ids.valueErr
+                : undefined}
               onChange={(e) => setLow(e.target.value)}
             />
             <span className="text-muted-foreground">to</span>
             <Input
+              id={ids.high}
+              data-field="high"
               aria-label="Highest it sells for, in dollars"
               className="w-20"
               inputMode="decimal"
               placeholder="50"
               value={high}
+              aria-invalid={(errors.value_range ?? []).length > 0}
+              aria-describedby={(errors.value_range ?? []).length > 0
+                ? ids.valueErr
+                : undefined}
               onChange={(e) => setHigh(e.target.value)}
             />
           </div>
           <div className="flex gap-2">
             <Button
+              type="submit"
               size="sm"
               disabled={busy || low.trim() === "" || high.trim() === ""}
-              onClick={() =>
-                void commit("value_range", {
-                  lowCents: toCents(low),
-                  highCents: toCents(high),
-                })}
             >
               Save
             </Button>
             {savedValue && (
               <Button
+                type="button"
                 size="sm"
                 variant="outline"
                 disabled={busy}
@@ -319,34 +418,43 @@ export function TaskCorrections({
               </Button>
             )}
           </div>
-          <Errors codes={errors.value_range ?? []} />
+          <Errors id={ids.valueErr} codes={errors.value_range ?? []} />
           {/* AC1, said out loud where a seller can read it. */}
           <p className="text-muted-foreground">
             Planning only. It doesn't change your listing price.
           </p>
-        </div>
+        </form>
 
-        <div className="space-y-1.5">
-          <Label htmlFor={`cost-${itemId}`}>Anything left to spend on it?</Label>
+        <form
+          className="space-y-1.5"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (busy || cost.trim() === "") return;
+            void commit("remaining_cost", { amountCents: toCents(cost) });
+          }}
+        >
+          <Label htmlFor={ids.cost}>Anything left to spend on it?</Label>
           <div className="flex gap-2">
             <Input
-              id={`cost-${itemId}`}
+              id={ids.cost}
+              data-field="cost"
               className="w-20"
               inputMode="decimal"
               placeholder="0"
               value={cost}
+              aria-invalid={(errors.remaining_cost ?? []).length > 0}
+              aria-describedby={(errors.remaining_cost ?? []).length > 0
+                ? ids.costErr
+                : undefined}
               onChange={(e) => setCost(e.target.value)}
             />
-            <Button
-              size="sm"
-              disabled={busy || cost.trim() === ""}
-              onClick={() =>
-                void commit("remaining_cost", { amountCents: toCents(cost) })}
-            >
+            <Button type="submit" size="sm" disabled={busy || cost.trim() === ""}>
               Save
             </Button>
             {savedCost != null && (
               <Button
+                type="button"
                 size="sm"
                 variant="outline"
                 disabled={busy}
@@ -356,8 +464,8 @@ export function TaskCorrections({
               </Button>
             )}
           </div>
-          <Errors codes={errors.remaining_cost ?? []} />
-        </div>
+          <Errors id={ids.costErr} codes={errors.remaining_cost ?? []} />
+        </form>
 
         <div className="space-y-1.5">
           <p className="font-medium">Not now</p>

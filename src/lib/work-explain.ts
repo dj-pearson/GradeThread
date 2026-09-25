@@ -50,12 +50,15 @@ export const EXPLAIN_FACTS = [
   "best_rate",
   "needs_price_research",
   "cannot_estimate_value",
+  "below_cost",
+  "fee_schedule_assumed",
   "timing_is_default",
   "timing_is_learned",
   "timing_is_override",
   "value_from_sold_comp",
   "value_from_seller_estimate",
   "value_from_asking_price",
+  "value_from_override",
   "value_inputs_missing",
   "clears_hourly_target",
   "below_hourly_target",
@@ -232,6 +235,8 @@ export function explainTask(input: ExplainInput): TaskExplanation {
     facts.push("best_rate");
   } else if (task.tier === "research") {
     facts.push("needs_price_research");
+  } else if (task.tier === "below_cost") {
+    facts.push("below_cost");
   } else if (task.tier === "unvalued") {
     facts.push("cannot_estimate_value");
   }
@@ -245,11 +250,19 @@ export function explainTask(input: ExplainInput): TaskExplanation {
   // ── where the money came from (AC2, AC3) ─────────────────────────
   const value = valueFacts(input.value, task);
   if (value.evidence === "sold_comp") facts.push("value_from_sold_comp");
-  if (value.evidence === "seller_estimate") facts.push("value_from_seller_estimate");
+  // WMT-05: a range the seller corrected is theirs, and says so, rather than
+  // reading as "the price you typed" on an item that has none.
+  if (task.valueFromOverride) facts.push("value_from_override");
+  else if (value.evidence === "seller_estimate") facts.push("value_from_seller_estimate");
   // THE ONE THAT MATTERS MOST. An unsold listing at $200 is evidence that
   // $200 did not sell, and a plan built on one should read as the guess it is.
   if (value.evidence === "active_asking") facts.push("value_from_asking_price");
-  if (value.missing.length > 0) facts.push("value_inputs_missing");
+  // WMT-14: no marketplace yet, so eBay's fees were assumed. Said on its own
+  // line, because it is a guess about the channel rather than a missing cost.
+  if (value.missing.includes("fee_schedule_assumed")) facts.push("fee_schedule_assumed");
+  if (value.missing.some((m) => m !== "fee_schedule_assumed")) {
+    facts.push("value_inputs_missing");
+  }
 
   if (!input.hourlyTargetSet) facts.push("no_hourly_target_set");
   else if (task.meetsHourlyTarget === true) facts.push("clears_hourly_target");

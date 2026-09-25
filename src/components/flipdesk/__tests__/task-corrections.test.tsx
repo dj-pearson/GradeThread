@@ -18,10 +18,13 @@ const resetMutate = vi.fn<Call>(() => Promise.resolve({}));
 const suppressMutate = vi.fn<Call>(() => Promise.resolve({}));
 const unsuppressMutate = vi.fn<Call>(() => Promise.resolve({}));
 const toastErrorMock = vi.fn();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let liveBook: any = null;
 
 vi.mock("@/lib/toast-error", () => ({ toastError: toastErrorMock }));
+const toastSuccess = vi.fn();
 vi.mock("sonner", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+  toast: { error: vi.fn(), success: toastSuccess },
 }));
 vi.mock("@/hooks/use-planner", async () => {
   const actual = await vi.importActual<Record<string, unknown>>("@/hooks/use-planner");
@@ -31,6 +34,8 @@ vi.mock("@/hooks/use-planner", async () => {
     useResetOverride: () => ({ mutateAsync: resetMutate, isPending: false }),
     useSuppress: () => ({ mutateAsync: suppressMutate, isPending: false }),
     useResetSuppression: () => ({ mutateAsync: unsuppressMutate, isPending: false }),
+    // WMT-08: the panel reads the LIVE book itself.
+    useWorkOverrides: () => ({ data: liveBook }),
   };
 });
 
@@ -49,10 +54,39 @@ function book(over: Record<string, unknown> = {}) {
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
+let qcForTest: QueryClient | null = null;
+
+function tree(props: Record<string, unknown>) {
+  return h(
+    QueryClientProvider,
+    { client: qcForTest! },
+    h(TaskCorrections, {
+      itemId: "item-1",
+      actionKey: "photograph",
+      estimateMinutes: 8,
+      remainingBudgetMinutes: 30,
+      ...props,
+    } as never),
+  );
+}
+
+/** Re-render as the live query would after an invalidation, or with a new task. */
+function rerender(props: Record<string, unknown> = {}): void {
+  act(() => root!.render(tree(props)));
+  const d = container!.querySelector("details");
+  act(() => {
+    if (d) d.open = true;
+  });
+}
+
 function render(props: Record<string, unknown> = {}): void {
+  const { book: given, ...rest } = props;
+  liveBook = given ?? book();
+  props = rest;
   container = document.createElement("div");
   document.body.appendChild(container);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  qcForTest = qc;
   act(() => {
     root = createRoot(container!);
     root.render(
@@ -63,7 +97,6 @@ function render(props: Record<string, unknown> = {}): void {
           itemId: "item-1",
           actionKey: "photograph",
           estimateMinutes: 8,
-          book: book(),
           remainingBudgetMinutes: 30,
           ...props,
         } as never),
@@ -134,7 +167,7 @@ afterEach(() => {
 describe("correcting an estimate (AC1, AC2)", () => {
   it("sends the minutes scoped to THIS step", async () => {
     render();
-    type("#min-item-1-photograph", "20");
+    type("[data-field=minutes]", "20");
     await click("Save", 0);
     expect(saveMutate).toHaveBeenCalledTimes(1);
     expect(saveMutate.mock.calls[0]![0]).toMatchObject({
@@ -147,14 +180,14 @@ describe("correcting an estimate (AC1, AC2)", () => {
 
   it("keeps what it replaced, so reset has something to go back to", async () => {
     render();
-    type("#min-item-1-photograph", "20");
+    type("[data-field=minutes]", "20");
     await click("Save", 0);
     expect(saveMutate.mock.calls[0]![0]).toMatchObject({ original: { amount: 8 } });
   });
 
   it("shows the difference BEFORE it is saved", async () => {
     render({ remainingBudgetMinutes: 12 });
-    type("#min-item-1-photograph", "45");
+    type("[data-field=minutes]", "45");
     expect(body()).toContain("We said about 8 min. You're saying 45.");
     expect(body()).toContain("more than the time left");
     // Still not written: the preview is the point.
@@ -163,14 +196,14 @@ describe("correcting an estimate (AC1, AC2)", () => {
 
   it("a change that fits is not flagged as not fitting", () => {
     render({ remainingBudgetMinutes: 30 });
-    type("#min-item-1-photograph", "12");
+    type("[data-field=minutes]", "12");
     expect(body()).toContain("We said about 8 min. You're saying 12.");
     expect(body()).not.toContain("more than the time left");
   });
 
   it("refuses zero minutes with a sentence, and sends nothing", async () => {
     render();
-    type("#min-item-1-photograph", "0");
+    type("[data-field=minutes]", "0");
     await click("Save", 0);
     expect(saveMutate).not.toHaveBeenCalled();
     expect(body()).toContain("Zero minutes isn't a real answer");
@@ -178,7 +211,7 @@ describe("correcting an estimate (AC1, AC2)", () => {
 
   it("refuses a duration longer than a session rather than clamping it", async () => {
     render();
-    type("#min-item-1-photograph", "6000");
+    type("[data-field=minutes]", "6000");
     await click("Save", 0);
     expect(saveMutate).not.toHaveBeenCalled();
     expect(body()).toContain("longer than a whole session");
@@ -186,7 +219,7 @@ describe("correcting an estimate (AC1, AC2)", () => {
 
   it("refuses an inverted range and reports it once", async () => {
     render();
-    type("#low-item-1", "90");
+    type("[data-field=low]", "90");
     const highs = Array.from(container!.querySelectorAll("input"));
     const high = highs.find((i) =>
       i.getAttribute("aria-label")?.startsWith("Highest")
@@ -213,7 +246,7 @@ describe("a correction is not a price (AC1)", () => {
 
   it("sends money at the ITEM, never scoped to one step", async () => {
     render();
-    type("#cost-item-1", "0");
+    type("[data-field=cost]", "0");
     await click("Save", 2);
     expect(saveMutate.mock.calls[0]![0]).toMatchObject({
       kind: "remaining_cost",
@@ -224,7 +257,7 @@ describe("a correction is not a price (AC1)", () => {
 
   it("accepts a recorded zero cost, which a duration may not be", async () => {
     render();
-    type("#cost-item-1", "0");
+    type("[data-field=cost]", "0");
     await click("Save", 2);
     expect(saveMutate).toHaveBeenCalledTimes(1);
   });
@@ -326,7 +359,49 @@ describe("setting aside (AC3)", () => {
     });
     expect(body()).toContain("Set aside for a week.");
     await click("Put it back");
-    expect(unsuppressMutate.mock.calls[0]![0]).toEqual({ inventoryItemId: "item-1" });
+    // WMT-02: the reset names the row it undoes, so nothing else goes with it.
+    expect(unsuppressMutate.mock.calls[0]![0]).toEqual({
+      inventoryItemId: "item-1",
+      kind: "snooze",
+      actionKey: null,
+      sessionId: null,
+    });
+  });
+
+  it("putting back a skip leaves the item-wide dismiss and other steps alone", async () => {
+    // A skip on this step and a snooze on another. The panel shows the skip,
+    // and "Put it back" must reset only that one row.
+    render({
+      sessionId: "sess-1",
+      book: book({
+        suppressions: [
+          {
+            inventoryItemId: "item-1",
+            actionKey: "photograph",
+            kind: "skip_session",
+            sessionId: "sess-1",
+            until: null,
+            createdAt: NOW,
+          },
+          {
+            inventoryItemId: "item-1",
+            actionKey: "measure",
+            kind: "snooze",
+            sessionId: null,
+            until: daysFromNow(3),
+            createdAt: NOW,
+          },
+        ],
+      }),
+    });
+    await click("Put it back");
+    expect(unsuppressMutate).toHaveBeenCalledTimes(1);
+    expect(unsuppressMutate.mock.calls[0]![0]).toEqual({
+      inventoryItemId: "item-1",
+      kind: "skip_session",
+      actionKey: "photograph",
+      sessionId: "sess-1",
+    });
   });
 
   it("an expired snooze reads as expired rather than as nothing", () => {
@@ -408,10 +483,112 @@ describe("keyboard and failure (AC7)", () => {
   it("a failed save says so and leaves the typed number alone", async () => {
     saveMutate.mockRejectedValueOnce(new Error("nope"));
     render();
-    type("#min-item-1-photograph", "20");
+    type("[data-field=minutes]", "20");
     await click("Save", 0);
     expect(toastErrorMock).toHaveBeenCalled();
-    const el = container!.querySelector("#min-item-1-photograph") as HTMLInputElement;
+    const el = container!.querySelector("[data-field=minutes]") as HTMLInputElement;
     expect(el.value).toBe("20");
+  });
+});
+
+describe("the live book and a fresh panel per task (WMT-08)", () => {
+  const MINUTES_OVERRIDE = {
+    inventoryItemId: "item-1",
+    actionKey: "photograph",
+    kind: "task_minutes",
+    value: { amount: 20, lowCents: null, highCents: null },
+    originalValue: null,
+    source: "seller",
+    updatedAt: NOW,
+  };
+
+  it("after a save, 'Use our estimate' appears without a rebuild", async () => {
+    render();
+    expect(body()).not.toContain("Use our estimate");
+    saveMutate.mockImplementationOnce(() => {
+      liveBook = book({ overrides: [MINUTES_OVERRIDE] });
+      return Promise.resolve({});
+    });
+    type("[data-field=minutes]", "20");
+    await click("Save");
+    rerender();
+    expect(body()).toContain("Use our estimate");
+  });
+
+  it("after a snooze, 'Put it back' appears, and the toast can undo it", async () => {
+    render();
+    suppressMutate.mockImplementationOnce(() => {
+      liveBook = book({
+        suppressions: [{
+          inventoryItemId: "item-1",
+          actionKey: "photograph",
+          kind: "snooze",
+          sessionId: null,
+          until: daysFromNow(7),
+          createdAt: NOW,
+        }],
+      });
+      return Promise.resolve({});
+    });
+    await click("Not for a week");
+    rerender();
+    expect(body()).toContain("Put it back");
+    const opts = toastSuccess.mock.calls[toastSuccess.mock.calls.length - 1]![1] as {
+      action: { label: string; onClick: () => void };
+    };
+    expect(opts.action.label).toBe("Undo");
+    await act(async () => {
+      opts.action.onClick();
+    });
+    expect(unsuppressMutate.mock.calls[unsuppressMutate.mock.calls.length - 1]![0]).toEqual({
+      inventoryItemId: "item-1",
+      kind: "snooze",
+      actionKey: "photograph",
+      sessionId: null,
+    });
+  });
+
+  it("moving to the next task clears what was typed for the last one", () => {
+    render();
+    type("[data-field=minutes]", "17");
+    type("[data-field=cost]", "4");
+    rerender({ itemId: "item-2", actionKey: "measure" });
+    const min = container!.querySelector("[data-field=minutes]") as HTMLInputElement;
+    const cost = container!.querySelector("[data-field=cost]") as HTMLInputElement;
+    expect(min.value).toBe("");
+    expect(cost.value).toBe("");
+  });
+
+  it("'$1,200' is money, not a typo", async () => {
+    render();
+    type("[data-field=cost]", "$1,200");
+    await click("Save", 2);
+    expect(saveMutate.mock.calls[0]![0]).toMatchObject({
+      kind: "remaining_cost",
+      amountCents: 120000,
+    });
+  });
+
+  it("half minutes are refused with a sentence, and nothing is sent", async () => {
+    render();
+    type("[data-field=minutes]", "7.5");
+    await click("Save");
+    expect(body()).toContain("Use whole minutes.");
+    expect(saveMutate).not.toHaveBeenCalled();
+    const min = container!.querySelector("[data-field=minutes]")!;
+    expect(min.getAttribute("aria-invalid")).toBe("true");
+    const described = min.getAttribute("aria-describedby")!;
+    expect(document.getElementById(described)?.textContent).toContain("Use whole minutes.");
+  });
+
+  it("Enter in the minutes field saves", async () => {
+    render();
+    type("[data-field=minutes]", "20");
+    const form = container!.querySelector("[data-field=minutes]")!.closest("form")!;
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await settle();
+    expect(saveMutate).toHaveBeenCalledTimes(1);
   });
 });

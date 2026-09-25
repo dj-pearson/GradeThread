@@ -200,6 +200,38 @@ describe("an interruption (AC1, AC6)", () => {
   });
 });
 
+describe("ending a session (WMT-03)", () => {
+  it("a planned session hides Pause and can be thrown away in two taps", async () => {
+    sessionState = session({ state: "planned" });
+    render();
+    await settle();
+    expect(() => buttonNamed("Pause")).toThrow();
+    expect(() => buttonNamed("Finish for now")).toThrow();
+    await click("Throw this plan away");
+    expect(sessionMutate).not.toHaveBeenCalled();
+    expect(body()).toContain("End this session? 1 job you haven't done will be kept");
+    await click("End session");
+    expect(sessionMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "s1", action: "abandon", revision: 4 }),
+    );
+  });
+
+  it("'Finish for now' asks first, and 'Keep going' sends nothing", async () => {
+    sessionState = session({}, [task(), task({ id: "task-2", position: 2 })]);
+    render();
+    await settle();
+    await click("Finish for now");
+    expect(body()).toContain("2 jobs you haven't done");
+    await click("Keep going");
+    expect(sessionMutate).not.toHaveBeenCalled();
+    await click("Finish for now");
+    await click("End session");
+    expect(sessionMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "complete" }),
+    );
+  });
+});
+
 describe("a reload (AC1)", () => {
   it("restores whatever the server says, including a running task", async () => {
     sessionState = session({}, [task({ state: "active" })]);
@@ -298,6 +330,33 @@ describe("corrected timing (AC3, AC6)", () => {
     );
   });
 
+  it("after a reload mid-task, offers the minutes the server's clock saw (WMT-09)", async () => {
+    const started = new Date(Date.now() - 17 * 60_000).toISOString();
+    sessionState = session({}, [
+      task({ state: "active", estimate_minutes: 5, started_at: started }),
+    ]);
+    render();
+    await settle();
+    await click("Done");
+    const input = document.getElementById("wmt-minutes") as HTMLInputElement;
+    expect(input.value).toBe("17");
+  });
+
+  it("never pre-fills the estimate, and an empty box cannot save (WMT-09)", async () => {
+    sessionState = session({}, [task({ state: "active", estimate_minutes: 5 })]);
+    render();
+    await settle();
+    await click("Done");
+    const input = document.getElementById("wmt-minutes") as HTMLInputElement;
+    expect(input.value).toBe("");
+    expect(buttonNamed("Save and move on").disabled).toBe(true);
+    const form = document.querySelector("form[aria-labelledby]")!;
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(taskMutate).not.toHaveBeenCalled();
+  });
+
   it("'Not yet' records nothing at all", async () => {
     sessionState = session({}, [task({ state: "active" })]);
     render();
@@ -348,9 +407,10 @@ describe("a double click and two tabs (AC4)", () => {
     await click("Start this one");
     await click("Start this one");
     const attempts = taskMutate.mock.calls.map((c) => c[0].attempt);
-    // Pressing start again is a real second entry into the state, so it DOES
-    // increment -- what must not happen is two events for one press.
-    expect(new Set(attempts).size).toBe(attempts.length);
+    // Pressing start again after a start that LANDED is a real second entry,
+    // so it increments. The failed one may still have reached the server, so
+    // its retry keeps the number and the server dedups it (WMT-09).
+    expect(attempts).toEqual([1, 2, 2]);
   });
 
   it("a stale revision shows the server's truth instead of re-sending", async () => {
@@ -543,7 +603,7 @@ describe("accessibility", () => {
     await settle();
     expect(document.getElementById("wmt-session")).toBeTruthy();
     await click("Done");
-    const group = document.querySelector('[role="group"]')!;
+    const group = document.querySelector("form[aria-labelledby]")!;
     expect(group.getAttribute("aria-labelledby")).toBe("wmt-confirm");
     expect(document.getElementById("wmt-confirm")?.textContent)
       .toBe("How long did that actually take?");

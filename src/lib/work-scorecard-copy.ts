@@ -14,6 +14,7 @@
 // sentence around it. Every label below is written so that a seller who reads only
 // the label, and never the note under it, still is not misled.
 
+import type { EstimateSource } from "@/lib/work-outcomes";
 import type { UnavailableReason } from "@/lib/work-scorecard";
 
 export const SCORECARD_STAT_LABELS = {
@@ -27,6 +28,7 @@ export const UNAVAILABLE_COPY: Record<UnavailableReason, string> = {
   no_completed_sales: "Nothing from this work has sold yet.",
   costs_not_recorded: "We can't say: the costs on these sales were never recorded.",
   no_tracked_time: "We can't say: no confirmed minutes against these sales.",
+  nothing_unsold: "Nothing unsold from these dates has a guess on it.",
 };
 
 /**
@@ -74,3 +76,34 @@ export const HORIZON_COPY = (days: number): string =>
 export const INCOMPLETE_COSTS_COPY = (n: number): string =>
   `${n} sold ${n === 1 ? "item is" : "items are"} left out above because ` +
   `${n === 1 ? "its" : "their"} costs were never recorded.`;
+
+/** Where an estimate's price came from, in words a seller uses (WMT-10). */
+export const SOURCE_WORDS: Record<EstimateSource, string> = {
+  sold_comp: "sold listings like it",
+  seller_estimate: "your own price",
+  active_asking: "asking prices on live listings",
+  unknown: "a source we didn't record",
+};
+
+/** "$5.00 under", "$12.00 over" or "right on" the guess (WMT-10). */
+export function gapWords(cents: number, money: (c: number) => string): string {
+  if (cents === 0) return "right on";
+  return `${money(Math.abs(cents))} ${cents < 0 ? "under" : "over"}`;
+}
+
+export const GAP_COPY = (
+  low: number,
+  high: number,
+  middle: number,
+  money: (c: number) => string,
+): string =>
+  `Per item, the result came in anywhere from ${gapWords(low, money)} to ` +
+  `${gapWords(high, money)} the guess. The middle one came in ` +
+  `${gapWords(middle, money)}.`;
+
+export const UNMATCHABLE_COPY = (n: number): string =>
+  `${n} ${n === 1 ? "job was" : "jobs were"} for items you've since deleted, ` +
+  "so they're left out of the figures above.";
+
+export const plural = (n: number, one: string, many: string): string =>
+  `${n} ${n === 1 ? one : many}`;

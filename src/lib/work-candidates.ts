@@ -85,6 +85,12 @@ export interface WorkCandidate {
   action: CandidateAction;
   /** Keys of the candidates that must finish first, in order. */
   prerequisiteKeys: string[];
+  /**
+   * Every step this item still owes to be sale-ready, this one included
+   * (WMT-05). The ranker divides the item's value by the minutes of ALL of
+   * them, so an item one step from listing outranks one five steps away.
+   */
+  remainingActions: CandidateAction[];
   /** Contexts this task can run in. A physical task is `home` only. */
   requiredContext: WorkContext[];
   requiredTools: WorkTool[];
@@ -216,14 +222,44 @@ function prerequisitesFor(
 ): CandidateAction[] {
   const index = PREP_CHAIN.indexOf(action);
   if (index <= 0) return [];
+  const done = doneSteps(item);
+  return PREP_CHAIN.slice(0, index).filter((step) => done[step] !== true);
+}
+
+/** Which prep steps the item's FACTS say are done. Publish never is here. */
+function doneSteps(item: ItemListRow): Record<string, boolean> {
   const facts = factsOf(item);
-  const done: Record<string, boolean> = {
+  return {
     measure: facts.hasMeasurements,
     photograph: facts.hasRequiredPhotos,
     price_research: facts.hasTargetPrice,
     draft_review: facts.hasDraftListing,
   };
-  return PREP_CHAIN.slice(0, index).filter((step) => done[step] !== true);
+}
+
+/**
+ * Everything this item still owes from `action` to a live listing: any
+ * unfinished step before it, the action itself, and every later PREP_CHAIN
+ * step not yet done (WMT-05).
+ *
+ * The earlier version rebuilt the chain from prerequisite keys, which only
+ * ever hold the steps BEFORE the action. nextAction always offers the first
+ * unfinished step, so that was the action alone in practice, and the ranker
+ * divided an item's whole value by one step's minutes.
+ *
+ * A step off the chain (review_grade, pack_ship) is just itself: grading is
+ * optional and a parcel is the end of the line.
+ */
+export function remainingStepsFrom(
+  item: ItemListRow,
+  action: CandidateAction,
+): CandidateAction[] {
+  const before = prerequisitesFor(item, action);
+  const index = PREP_CHAIN.indexOf(action);
+  if (index < 0) return [...before, action];
+  const done = doneSteps(item);
+  const after = PREP_CHAIN.slice(index + 1).filter((step) => done[step] !== true);
+  return [...before, action, ...after];
 }
 
 /**
@@ -294,8 +330,15 @@ export function shipDeadlineOf(input: ShipDeadlineInput): ShipDeadline {
   };
 }
 
-/** Item statuses that are not work at all (AC4). */
-const EXCLUDED_STATUSES = new Set([
+/**
+ * Item statuses that are not work at all (AC4).
+ *
+ * EXPORTED (WMT-07) so the plan's item read can filter on the same list. The
+ * read used to take the 400 most recently updated rows of ANY status, so a
+ * seller with a busy listed catalogue filled the window with work that is not
+ * work and never saw their sourced stock.
+ */
+export const EXCLUDED_STATUSES: ReadonlySet<string> = new Set([
   // The seller took these out of the pipeline on purpose.
   "archived",
   "keeping",
@@ -311,6 +354,10 @@ const EXCLUDED_STATUSES = new Set([
   "listed",
   // Handed to the carrier; nothing physical left.
   "shipped",
+  // Back from a buyer. nextAction offers "relist or write off", which is a
+  // decision rather than work, so it never becomes a candidate anyway; listing
+  // it here keeps it out of the read too.
+  "returned",
 ]);
 
 /**
@@ -349,16 +396,44 @@ function mechanismFor(
 }
 
 /**
+ * Work the seller COULD do but not with the setup they have (WMT-06).
+ *
+ * Counted rather than dropped in silence. The default setup is camera-only,
+ * so every measure job used to vanish with nothing on screen to say why; a
+ * count per missing tool is what lets the page say "9 jobs need a tape
+ * measure" and offer the one tap that fixes it.
+ */
+export interface GatedWork {
+  itemId: string;
+  action: CandidateAction;
+  reason: "tools" | "context";
+  /** The tools that are missing. Empty for a context gate. */
+  missing: WorkTool[];
+}
+
+export interface CandidateSet {
+  candidates: WorkCandidate[];
+  gated: GatedWork[];
+}
+
+/**
  * Is this item work the seller can actually start?
  *
- * Returns the candidate, or null with nothing said. A planner that explained
- * every exclusion would be a list of things the seller cannot do, which is the
- * opposite of the feature.
+ * Returns the candidate, or null with nothing said. Work that is only held
+ * back by the seller's setup is reported by candidatesWithGates instead.
  */
 export function candidateFor(
   item: ItemListRow,
   ctx: CandidateContext,
 ): WorkCandidate | null {
+  const r = evaluate(item, ctx);
+  return r !== null && "key" in r ? r : null;
+}
+
+function evaluate(
+  item: ItemListRow,
+  ctx: CandidateContext,
+): WorkCandidate | GatedWork | null {
   const status = String(item.status ?? "");
   if (EXCLUDED_STATUSES.has(status)) return null;
 
@@ -379,13 +454,23 @@ export function candidateFor(
 
   const spec = ACTION_SPEC[action];
 
+  // WMT-06: A PAID PARCEL IS NEVER GATED. Somebody has bought it and the
+  // clock is the marketplace's, so it goes through to the ranker even with no
+  // packing supplies or away from home -- where conflictFor flags it as
+  // tools_missing or wrong_context and the seller SEES it. Dropping it here
+  // was how a sold item disappeared from the plan on a camera-only setup.
+  const soldParcel = action === "pack_ship";
+
   // The seller has to be somewhere it can be done (AC4).
-  if (!spec.context.includes(ctx.workContext)) return null;
+  if (!soldParcel && !spec.context.includes(ctx.workContext)) {
+    return { itemId: item.id, action, reason: "context", missing: [] };
+  }
 
   // ...and hold the tools. A missing tape measure does not make measuring
   // partly possible.
-  for (const tool of spec.tools) {
-    if (!ctx.availableTools.includes(tool)) return null;
+  const missing = spec.tools.filter((t) => !ctx.availableTools.includes(t));
+  if (!soldParcel && missing.length > 0) {
+    return { itemId: item.id, action, reason: "tools", missing };
   }
 
   const prerequisites = prerequisitesFor(item, action);
@@ -396,6 +481,7 @@ export function candidateFor(
     itemTitle: item.item_title ?? null,
     action,
     prerequisiteKeys: prerequisites.map((p) => `${item.id}:${p}`),
+    remainingActions: remainingStepsFrom(item, action),
     requiredContext: spec.context,
     requiredTools: spec.tools,
     completionEvidence: spec.evidence,
@@ -415,10 +501,25 @@ export function candidatesFor(
   items: readonly ItemListRow[],
   ctx: CandidateContext,
 ): WorkCandidate[] {
-  const out: WorkCandidate[] = [];
+  return candidatesWithGates(items, ctx).candidates;
+}
+
+/**
+ * Every candidate, plus the work held back only by the seller's setup
+ * (WMT-06). The planner uses this so the page can count what a missing tool
+ * is costing rather than showing a short plan with no reason.
+ */
+export function candidatesWithGates(
+  items: readonly ItemListRow[],
+  ctx: CandidateContext,
+): CandidateSet {
+  const candidates: WorkCandidate[] = [];
+  const gated: GatedWork[] = [];
   for (const item of items) {
-    const c = candidateFor(item, ctx);
-    if (c) out.push(c);
+    const r = evaluate(item, ctx);
+    if (r === null) continue;
+    if ("key" in r) candidates.push(r);
+    else gated.push(r);
   }
-  return out;
+  return { candidates, gated };
 }

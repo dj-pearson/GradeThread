@@ -12,10 +12,16 @@
 
 import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
+import { Hono } from "hono";
+import { installFakePostgrest } from "./_fake-postgrest.ts";
 import {
+  flipdeskPlannerRoutes,
+  MAX_OVERRIDE_CENTS,
+  MAX_OVERRIDE_MINUTES,
   MAX_PLAN_TASKS,
   MAX_BUDGET_MINUTES,
   MIN_BUDGET_MINUTES,
+  originalOf,
   parsePlanTasks,
 } from "../routes/flipdesk-planner.ts";
 import {
@@ -386,4 +392,248 @@ Deno.test("US-3177: an unowned item drops its whole task, id and title", () => {
     "a refused plan must close the session row it already created",
   );
   assert(refusal.includes('.eq("user_id", ownerId)'), "US-268: and scope that close");
+});
+
+// ── WMT-02: scoped put-back, bounded corrections ────────────────────
+
+const OWNER = "11111111-1111-4111-8111-111111111111";
+const ITEM = "22222222-2222-4222-8222-222222222222";
+const SESSION = "33333333-3333-4333-8333-333333333333";
+
+function plannerApp() {
+  const a = new Hono<{ Variables: { userId: string; workspaceOwnerId: string } }>();
+  a.use("*", async (c, next) => {
+    c.set("userId", OWNER);
+    await next();
+  });
+  a.route("/", flipdeskPlannerRoutes);
+  return a;
+}
+
+async function send(method: string, path: string, body: unknown) {
+  const res = await plannerApp().request(path, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, json: await res.json() };
+}
+
+Deno.test("WMT-02: putting back a photograph skip leaves the item-wide dismiss", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset({
+      inventory_items: [{ id: ITEM, user_id: OWNER }],
+      flipdesk_work_suppressions: [
+        { id: "dismiss", owner_user_id: OWNER, inventory_item_id: ITEM, action_key: null, kind: "dismiss", session_id: null },
+        { id: "skip", owner_user_id: OWNER, inventory_item_id: ITEM, action_key: "photograph", kind: "skip_session", session_id: SESSION },
+        { id: "snooze", owner_user_id: OWNER, inventory_item_id: ITEM, action_key: "measure", kind: "snooze", session_id: null },
+        // Same kind, other step: a kind-only delete would take this too.
+        { id: "skip-measure", owner_user_id: OWNER, inventory_item_id: ITEM, action_key: "measure", kind: "skip_session", session_id: SESSION },
+      ],
+    });
+    const r = await send("POST", "/suppressions/reset", {
+      inventory_item_id: ITEM,
+      kind: "skip_session",
+      action_key: "photograph",
+      session_id: SESSION,
+    });
+    assertEquals(r.status, 200);
+    assertEquals(
+      db.tables.flipdesk_work_suppressions.map((x) => x.id).sort(),
+      ["dismiss", "skip-measure", "snooze"],
+    );
+
+    // And putting back the dismiss (action_key null) takes only the dismiss:
+    // a null key is "no key", not "any key".
+    await send("POST", "/suppressions/reset", {
+      inventory_item_id: ITEM,
+      kind: "dismiss",
+      action_key: null,
+    });
+    assertEquals(
+      db.tables.flipdesk_work_suppressions.map((x) => x.id).sort(),
+      ["skip-measure", "snooze"],
+    );
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("WMT-02: a 9,999-minute correction is refused and nothing is stored", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset({ inventory_items: [{ id: ITEM, user_id: OWNER }] });
+    const r = await send("PUT", "/overrides", {
+      inventory_item_id: ITEM,
+      kind: "task_minutes",
+      action_key: "photograph",
+      amount_minutes: 9999,
+    });
+    assertEquals(r.status, 400);
+    assert(String(r.json.error).includes("longer than a whole session"));
+    const cost = await send("PUT", "/overrides", {
+      inventory_item_id: ITEM,
+      kind: "remaining_cost",
+      amount_cents: MAX_OVERRIDE_CENTS + 1,
+    });
+    assertEquals(cost.status, 400);
+    assertEquals(db.writes("flipdesk_work_overrides").length, 0);
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("WMT-02: original_json keeps only the numbers it replaced", () => {
+  assertEquals(originalOf({ amount: 12, note: "x".repeat(10_000) }), { amount: 12 });
+  assertEquals(originalOf({ lowCents: 100, highCents: 200, extra: [1] }), {
+    lowCents: 100,
+    highCents: 200,
+  });
+  assertEquals(originalOf("a string"), null);
+  assertEquals(originalOf([1, 2]), null);
+  assertEquals(originalOf({ junk: true }), null);
+});
+
+Deno.test("WMT-02: the edge ceilings match the form's", () => {
+  const src = Deno.readTextFileSync(
+    new URL("../../../../src/lib/work-overrides.ts", import.meta.url),
+  );
+  const num = (name: string) => {
+    const m = new RegExp(`export const ${name} = ([0-9_]+);`).exec(src);
+    assert(m, `${name} is gone from src/lib/work-overrides.ts`);
+    return Number(m[1].replaceAll("_", ""));
+  };
+  assertEquals(MAX_OVERRIDE_MINUTES, num("MAX_OVERRIDE_MINUTES"));
+  assertEquals(MAX_OVERRIDE_CENTS, num("MAX_OVERRIDE_CENTS"));
+});
+
+// ── WMT-03: a planned session can end; closed sessions take no task actions ──
+
+function sessionSeed(state: string, taskState = "pending") {
+  return {
+    inventory_items: [{ id: ITEM, user_id: OWNER, status: "sourced" }],
+    flipdesk_work_sessions: [{
+      id: SESSION,
+      user_id: OWNER,
+      state,
+      revision: 3,
+      budget_minutes: 30,
+      work_context: "home",
+      available_tools: ["camera"],
+      started_at: null,
+      ended_at: null,
+    }],
+    flipdesk_work_session_tasks: [{
+      id: "task-1",
+      session_id: SESSION,
+      user_id: OWNER,
+      inventory_item_id: ITEM,
+      item_title_snapshot: "Jacket",
+      position: 0,
+      state: taskState,
+      action_key: "photograph",
+    }],
+  };
+}
+
+Deno.test("WMT-03: a planned session can be thrown away", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset(sessionSeed("planned"));
+    const r = await send("POST", `/sessions/${SESSION}/abandon`, { revision: 3 });
+    assertEquals(r.status, 200);
+    assertEquals(r.json.session.state, "abandoned");
+    assertEquals(db.tables.flipdesk_work_sessions[0].state, "abandoned");
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("WMT-03: a task action on a completed session is refused", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset(sessionSeed("completed"));
+    const r = await send("POST", "/tasks/task-1/start", { revision: 3 });
+    assertEquals(r.status, 409);
+    assertEquals(r.json.code, "session_closed");
+    assertEquals(r.json.session.state, "completed", "the true state comes back");
+    assertEquals(db.tables.flipdesk_work_session_tasks[0].state, "pending");
+    assertEquals(db.writes("flipdesk_work_session_tasks").length, 0);
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("WMT-03: a session write that matches no row is a 409, not a success", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset(sessionSeed("active", "active"));
+    // Another tab bumps the revision between our read and our write. The
+    // fake answers the read first, so move the row as the PATCH arrives.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = ((input: Request | URL | string, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(String(input), init);
+      if (req.method === "PATCH" && req.url.includes("flipdesk_work_sessions")) {
+        db.tables.flipdesk_work_sessions[0].revision = 4;
+      }
+      return realFetch(req);
+    }) as typeof fetch;
+    try {
+      const r = await send("POST", `/sessions/${SESSION}/complete`, { revision: 3 });
+      assertEquals(r.status, 409);
+      assertEquals(r.json.code, "stale");
+      // And the running job was NOT released by a refused end.
+      assertEquals(db.tables.flipdesk_work_session_tasks[0].state, "active");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  } finally {
+    db.restore();
+  }
+});
+
+// ── WMT-09: the server's start time, and no impossible minutes ──────────
+
+Deno.test("WMT-09: the running task carries the server's start time", async () => {
+  const db = installFakePostgrest();
+  try {
+    const seed = sessionSeed("active", "active");
+    db.reset({
+      ...seed,
+      flipdesk_work_timing_events: [
+        { id: "e1", task_id: "task-1", user_id: OWNER, kind: "task_started", occurred_at: "2026-09-21T10:00:00.000Z" },
+        { id: "e2", task_id: "task-1", user_id: OWNER, kind: "task_started", occurred_at: "2026-09-21T11:00:00.000Z" },
+        // Another tenant's event on the same task id must never be read.
+        { id: "e3", task_id: "task-1", user_id: "someone-else", kind: "task_started", occurred_at: "2026-09-21T11:30:00.000Z" },
+      ],
+    });
+    const res = await plannerApp().request("/sessions/current");
+    assertEquals(res.status, 200);
+    const body = await res.json();
+    assertEquals(body.tasks[0].started_at, "2026-09-21T11:00:00.000Z");
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("WMT-09: 9,999 confirmed minutes is refused and nothing moves", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset(sessionSeed("active", "active"));
+    const r = await send("POST", "/tasks/task-1/complete", {
+      revision: 3,
+      confirmed_minutes: 9999,
+    });
+    assertEquals(r.status, 400);
+    const zero = await send("POST", "/tasks/task-1/complete", {
+      revision: 3,
+      confirmed_minutes: 0,
+    });
+    assertEquals(zero.status, 400);
+    assertEquals(db.tables.flipdesk_work_session_tasks[0].state, "active");
+    assertEquals(db.writes("flipdesk_work_session_tasks").length, 0);
+  } finally {
+    db.restore();
+  }
 });
