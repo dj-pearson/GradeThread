@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3497",
+  "nextId": "US-3512",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4972,6 +4972,181 @@
         "Sabotage proof: restoring the old status='sold' predicate in either function turns the proof red (counts 3 vs 1), and restoring the fix turns it green; both runs recorded in the completion note.",
         "Migration triple (US-1108): idempotent SQL applied twice cleanly, EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts bumped in the same commit, self-record footer, held-migrations.json and PENDING_MIGRATIONS.md entries.",
         "Sold tab UI copy (tab label, empty state, soldAgg strip in src/pages/flipdesk/listings.tsx) says 'completed sales' where it describes what is counted, and any vitest pinning the old predicate or copy is updated."
+      ]
+    },
+    {
+      "id": "US-3497",
+      "passes": false,
+      "title": "Web sign-in never asks for the second factor: add AAL2 step-up on the SPA",
+      "description": "As a seller who turned on 2FA, I want the website to ask for my code at sign-in, so that a stolen password alone cannot open my account on the web.",
+      "acceptanceCriteria": [
+        "A user with a verified TOTP factor who signs in with a password on the web lands on a code screen and cannot reach any /dashboard route until supabase.auth.mfa.verify succeeds (session aal = aal2); ProtectedRoute holds on aal1.",
+        "A recovery code can be used on that screen once, and the edge marks it consumed; a second use of the same code is refused.",
+        "A user with no factor signs in exactly as today (no extra screen).",
+        "MfaCard copy stops saying or implying that 2FA is enforced on the web until this ships, and says so after it does.",
+        "A vitest render test covers aal1-with-factor -> code screen, aal2 -> dashboard, and no-factor -> dashboard."
+      ]
+    },
+    {
+      "id": "US-3498",
+      "passes": false,
+      "title": "Server-side password change route (verify current password, AAL2, notify by email)",
+      "description": "As a seller changing my password, I want the change to happen on the server with my current password and 2FA checked, so that the web session is not swapped by a client-side re-auth and I am told when it changes.",
+      "acceptanceCriteria": [
+        "POST /api/account/password verifies the current password server-side, requires aal2 when the user has a factor, and updates via the admin API; wrong current password returns 400 without changing anything.",
+        "security-settings-tab.tsx no longer calls signInWithPassword to re-authenticate.",
+        "A security-change email is sent after a successful change and after MFA is disabled; disabling MFA through the edge also deletes that user's recovery codes.",
+        "tenant-isolation_test.ts has a case proving user B cannot change user A's password through this route (US-268)."
+      ]
+    },
+    {
+      "id": "US-3499",
+      "passes": false,
+      "title": "Real API quotas before overage credits go on sale",
+      "description": "As a Business workspace owner, I want each API key to have a monthly quota that credits actually extend, so that the overage credits I buy are spent on real calls.",
+      "acceptanceCriteria": [
+        "Each plan has a default monthly_quota and PATCH /api/keys/:id/quota (owner/admin only) sets a per-key override; the Developers page shows a per-key usage meter against it.",
+        "The quota debit in services/edge-functions/src/middleware/api-key-auth.ts runs after the rate limiter and idempotency replay, skips sandbox calls and refunds non-2xx responses, each pinned by a test.",
+        "The overage checkout's 409 'no key has a quota' guard in payments.ts stops firing once a quota exists, and the overage card on /dashboard/developers becomes visible only then.",
+        "A per-key monthly counter replaces the exact COUNT per call. The migration follows US-1108: idempotent SQL (re-running it is a no-op), EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts bumped in the same commit, and the self-record footer; it is listed in supabase/held-migrations.json and PENDING_MIGRATIONS.md until applied.",
+        "tenant-isolation_test.ts has a case for the quota PATCH route."
+      ]
+    },
+    {
+      "id": "US-3500",
+      "passes": false,
+      "title": "Server-side white-label branding through a non-guessable partner id",
+      "description": "As a white-label partner, I want the embed to apply the branding I saved on the server, so that nobody can impersonate my brand by editing query-string parameters.",
+      "acceptanceCriteria": [
+        "users gains an embed_partner_id (random, unique) and a new anonymous edge route returns saved branding for that id only. The migration follows US-1108: idempotent SQL (re-running it is a no-op), EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts bumped in the same commit, and the self-record footer; it is listed in supabase/held-migrations.json and PENDING_MIGRATIONS.md until applied.",
+        "functions/embed/grade/widget.ts reads branding from that route and ignores logo/colour/support query-string parameters.",
+        "The snippet on /dashboard/developers uses the partner id and carries a cache-busting version that changes when branding is saved.",
+        "A test proves a request with a forged ?logo= parameter renders the saved logo, not the forged one."
+      ]
+    },
+    {
+      "id": "US-3501",
+      "passes": false,
+      "title": "Atomic referral grant: pay both sides and enforce the per-referrer cap in one transaction",
+      "description": "As GradeThread, I want a referral reward to be granted in one database transaction, so that a partial failure or two concurrent grants cannot double-pay or exceed the per-referrer cap.",
+      "acceptanceCriteria": [
+        "A SECURITY DEFINER function locks the referral event and referrer rows, checks the cap, and grants referrer and referee credits in one transaction; it is callable only by service_role. The migration follows US-1108: idempotent SQL (re-running it is a no-op), EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts bumped in the same commit, and the self-record footer; it is listed in supabase/held-migrations.json and PENDING_MIGRATIONS.md until applied.",
+        "services/edge-functions/src/routes/referrals.ts uses it instead of two grant_grade_credits calls.",
+        "A --dsn proof script (scripts/check-referral-grant-atomic.mjs) shows two concurrent grants past the cap produce exactly one reward, and a failure on the second side rolls back the first; it is wired into the db lane.",
+        "Referral grants write referral-specific ledger reasons (referral_reward, referral_milestone, referral_signup, campaign_code) instead of the generic reason."
+      ]
+    },
+    {
+      "id": "US-3502",
+      "passes": false,
+      "title": "Atomic campaign-code redemption cap",
+      "description": "As GradeThread, I want a campaign code's redemption limit enforced by one conditional update, so that a burst of redemptions cannot exceed max_redemptions.",
+      "acceptanceCriteria": [
+        "Redemption increments redemption_count with UPDATE ... WHERE redemption_count < max_redemptions RETURNING inside an SQL function; zero rows returned means the code is exhausted. The migration follows US-1108: idempotent SQL (re-running it is a no-op), EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts bumped in the same commit, and the self-record footer; it is listed in supabase/held-migrations.json and PENDING_MIGRATIONS.md until applied.",
+        "The edge redeem path returns the existing exhausted error when the function returns no row.",
+        "A --dsn proof runs N+5 concurrent redemptions against a cap of N and ends with exactly N."
+      ]
+    },
+    {
+      "id": "US-3503",
+      "passes": false,
+      "title": "Consignor money: fix consignor_pnl, allocate manual payouts, and make POST /payouts idempotent",
+      "description": "As a consignment seller, I want what I owe each consignor to be computed the same way the payout engine pays it, so that returned sales, rounding and concurrent payouts never pay someone twice.",
+      "acceptanceCriteria": [
+        "consignor_pnl counts only completed sales, applies per-item GREATEST(net,0) and the engine's rounding, and exposes an unclamped balance and clawback_pending. The migration follows US-1108: idempotent SQL (re-running it is a no-op), EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts bumped in the same commit, and the self-record footer; it is listed in supabase/held-migrations.json and PENDING_MIGRATIONS.md until applied.",
+        "A --dsn parity script proves consignor_pnl's balance matches the engine in services/edge-functions/src/lib/consignor-payout.ts for a fixture with a returned sale and a sub-cent split.",
+        "POST /api/flipdesk/consignment/payouts accepts an idempotency key backed by a unique partial index on (user_id, idempotency_key); two identical requests create one payout row and one Stripe transfer.",
+        "Two different concurrent payouts for the same consignor cannot both pass the overpay check (proved by a --dsn or route test)."
+      ]
+    },
+    {
+      "id": "US-3504",
+      "passes": false,
+      "title": "Stripe account.updated webhook for consignor and affiliate Connect accounts",
+      "description": "As a seller or creator, I want my Connect account status to update as soon as Stripe changes it, so that payouts unlock without me revisiting the page.",
+      "acceptanceCriteria": [
+        "A Connect webhook endpoint verifies the signature with its own secret and updates payouts_enabled from capabilities.transfers === 'active' plus payouts_enabled, for both consignors and affiliate accounts.",
+        "Duplicate deliveries are idempotent via the existing webhook event ledger.",
+        "vault/10-ops/env-reference.md and vault/10-ops/edge-container-settings.md name the new secret; OPERATOR: add the endpoint in the Stripe dashboard and the secret in Coolify."
+      ]
+    },
+    {
+      "id": "US-3505",
+      "passes": false,
+      "title": "Listing template default: one atomic write for web and native",
+      "description": "As a seller, I want setting a default template to be one transaction on every client, so that a failure or a race never leaves me with zero or two defaults.",
+      "acceptanceCriteria": [
+        "A BEFORE INSERT/UPDATE trigger (with an advisory lock per owner) clears other defaults when a row becomes default, replacing clearDefault in services/edge-functions/src/routes/flipdesk-templates.ts. The migration follows US-1108: idempotent SQL (re-running it is a no-op), EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts bumped in the same commit, and the self-record footer; it is listed in supabase/held-migrations.json and PENDING_MIGRATIONS.md until applied.",
+        "A --dsn proof (scripts/check-template-default-atomic.mjs) shows two concurrent default switches end with exactly one default, and a sabotage run without the trigger ends with zero or two.",
+        "iOS and Android TemplateService write through the edge route (workspace owner scoped) instead of the 00317 RPCs keyed on auth.uid()."
+      ]
+    },
+    {
+      "id": "US-3506",
+      "passes": false,
+      "title": "Import undo as a durable job with a per-row transactional apply",
+      "description": "As a seller undoing a large import, I want the undo to run as a resumable job and each imported row to be applied atomically, so that a restart mid-import or mid-undo never leaves orphans or a stuck run.",
+      "acceptanceCriteria": [
+        "flipdesk_import_runs gains an 'undoing' status and undo counts; the reclaim cron resumes a stale undo, replacing the 10-minute takeover in services/edge-functions/src/routes/flipdesk-import.ts. The migration follows US-1108: idempotent SQL (re-running it is a no-op), EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts bumped in the same commit, and the self-record footer; it is listed in supabase/held-migrations.json and PENDING_MIGRATIONS.md until applied.",
+        "An import_apply_row function writes the item, listing, sale and effect in one transaction, and inventory_items gains import_run_id.",
+        "One open run per seller is enforced by a partial unique index, and POST /runs returns 409 with the open run id.",
+        "Tests cover a crash between item and effect writes (no orphan) and an undo resumed after a restart."
+      ]
+    },
+    {
+      "id": "US-3507",
+      "passes": false,
+      "title": "Help: per-user vote dedupe, rate limits on help POSTs, and a stored-body sanitize backfill",
+      "description": "As GradeThread, I want help feedback and analytics to be one vote per person and rate limited, and every stored help body to be clean, so that the help numbers are honest and old rows carry no unsafe markup.",
+      "acceptanceCriteria": [
+        "help_feedback gets a partial unique index on (article_slug, content_version, owner_user_id) and the reader vote upserts. The migration follows US-1108: idempotent SQL (re-running it is a no-op), EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts bumped in the same commit, and the self-record footer; it is listed in supabase/held-migrations.json and PENDING_MIGRATIONS.md until applied.",
+        "POST /api/help/feedback, /deflected and /view have a rate limiter and input validation in services/edge-functions/src/routes/help-center.ts, with rate-limit tests.",
+        "scripts/sanitize-help-bodies.mjs runs --dry-run by default and --apply rewrites body_html through the same sanitizer the edge uses, then lists /help/* paths to purge; OPERATOR: run it against prod once.",
+        "The sanitizer allowlist keeps s/del (strikethrough) so editor strikethrough survives."
+      ]
+    },
+    {
+      "id": "US-3508",
+      "passes": false,
+      "title": "Verified: handle redirects after rename and grade stats in SQL",
+      "description": "As a Verified seller, I want old links to my handle to redirect after a rename and my grade stats to be counted in the database, so that pasted badges never break or free my old handle and my numbers are complete.",
+      "acceptanceCriteria": [
+        "A verified_handle_history table records old handles; /verified/<old> and /badge/verified/<old> answer 301 to the current handle, and an old handle cannot be claimed by someone else. The migration follows US-1108: idempotent SQL (re-running it is a no-op), EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts bumped in the same commit, and the self-record footer; it is listed in supabase/held-migrations.json and PENDING_MIGRATIONS.md until applied.",
+        "A SECURITY DEFINER stats function (superseded_at IS NULL, no 1,000-row cap, errors thrown) replaces loadSellerGradeStats in verified.ts, ai-listing.ts and description-render.ts together.",
+        "A badge_funnel GROUP BY function replaces the in-JS aggregation and the 50,000-row admin cap."
+      ]
+    },
+    {
+      "id": "US-3509",
+      "passes": false,
+      "title": "Scheduled drops: make shift and spread atomic",
+      "description": "As a seller moving a day's drops, I want a shift or spread to succeed or fail as a whole, so that a mid-way failure never leaves half my drops moved.",
+      "acceptanceCriteria": [
+        "An RPC shifts or spreads a list of the caller's scheduled drops in one transaction, refusing any drop the cron is already publishing. The migration follows US-1108: idempotent SQL (re-running it is a no-op), EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts bumped in the same commit, and the self-record footer; it is listed in supabase/held-migrations.json and PENDING_MIGRATIONS.md until applied.",
+        "src/pages/flipdesk/scheduled-drops.tsx calls it instead of per-row updates, and Undo calls it with the previous times.",
+        "A --dsn proof shows a failure on one row leaves every row unchanged, and a row owned by another seller is refused."
+      ]
+    },
+    {
+      "id": "US-3510",
+      "passes": false,
+      "title": "iOS CI is red on main: push-contract category with null kind and extension-queue rules",
+      "description": "As a developer, I want iOS CI green on main, so that a real iOS regression is visible instead of hidden behind four known failures.",
+      "acceptanceCriteria": [
+        "contracts/push-contract.json category index 8 (marketing) has a non-null kind, or the Swift decoder accepts a nullable kind; test_category_allCases_listsAll and test_deepLink_everyKnownCategory_resolvesToARoute pass.",
+        "ExtensionQueueService offers no lifecycle actions for depop and never pushes an unselectable channel; test_ebayAndShopifyOfferNothingHere and test_anUnselectableChannelIsNeverPushed pass.",
+        "iOS CI 'Build + test' is green on main after the fix."
+      ]
+    },
+    {
+      "id": "US-3511",
+      "passes": false,
+      "title": "Pin the Supabase CLI version in CI so setup stops failing on GitHub's rate limit",
+      "description": "As a developer, I want CI to install a fixed Supabase CLI version, so that jobs stop failing in setup with 'Failed to resolve latest Supabase CLI release: rate limit exceeded'.",
+      "acceptanceCriteria": [
+        "Every supabase/setup-cli@v1 step in .github/workflows (db-migrations.yml, money-cert-integration.yml, tenant-isolation.yml) sets version to one pinned release instead of latest.",
+        "A vitest guard fails if any workflow uses supabase/setup-cli with version latest or no version.",
+        "The pinned version is recorded in one place and the guard names it."
       ]
     }
   ]
