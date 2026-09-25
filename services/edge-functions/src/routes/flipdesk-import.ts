@@ -151,6 +151,14 @@ flipdeskImportRoutes.get("/runs/:id", async (c) => {
   return c.json({ run: data });
 });
 
+/** An undo claim older than this whose run never reached "undone" is dead. */
+export const UNDO_CLAIM_STALE_MS = 10 * 60 * 1000;
+
+export function isStaleUndoClaim(undoneAt: string, nowMs: number): boolean {
+  const t = Date.parse(undoneAt);
+  return Number.isFinite(t) && nowMs - t > UNDO_CLAIM_STALE_MS;
+}
+
 // ── POST /runs/:id/undo — put the catalog back ───────────────────────────
 //
 // Items the run CREATED are deleted, along with the listing and sale rows it
@@ -180,19 +188,29 @@ flipdeskImportRoutes.post("/runs/:id/undo", async (c) => {
   if (!run) return c.json({ error: "Import not found" }, 404);
 
   const r = run as { status: string; undone_at: string | null };
-  if (r.undone_at) return c.json({ error: "This import was already undone." }, 409);
+  if (r.status === "undone") return c.json({ error: "This import was already undone." }, 409);
   if (r.status === "pending" || r.status === "running") {
     return c.json({ error: "Wait for the import to finish first." }, 409);
   }
+  // A claim whose undo never finished (the process died mid-undo) would
+  // otherwise block Undo forever: undone_at set, status never "undone".
+  // Past UNDO_CLAIM_STALE_MS the claim is taken over, keyed on its exact
+  // value so two takeovers still cannot both win.
+  const staleClaim = r.undone_at !== null && isStaleUndoClaim(r.undone_at, Date.now());
+  if (r.undone_at && !staleClaim) {
+    return c.json({ error: "An undo is already running for this import." }, 409);
+  }
 
   const claimedAt = new Date().toISOString();
-  const { data: claim, error: claimErr } = await supabaseAdmin
+  const claimQuery = supabaseAdmin
     .from("flipdesk_import_runs")
     .update({ undone_at: claimedAt })
     .eq("id", runId)
     .eq("user_id", ownerId)
-    .is("undone_at", null)
-    .in("status", ["completed", "failed"])
+    .in("status", ["completed", "failed"]);
+  const { data: claim, error: claimErr } = await (
+    staleClaim ? claimQuery.eq("undone_at", r.undone_at!) : claimQuery.is("undone_at", null)
+  )
     .select("id")
     .maybeSingle();
   if (claimErr) {

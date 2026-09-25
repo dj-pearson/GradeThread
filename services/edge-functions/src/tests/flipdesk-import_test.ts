@@ -415,3 +415,21 @@ Deno.test("a non-uuid run id is a 404 on read and on undo", async () => {
   // Nothing reached the database.
   assertEquals(db.calls.length, 0);
 });
+
+Deno.test("an undo that died mid-way can be retried once its claim is stale", async () => {
+  await importThenComplete([{ row: 2, title: "Tee" }]);
+  // A claim left behind by a process that died before finishing the undo.
+  theRun().undone_at = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+  const res = await app().request(`/runs/${RUN}/undo`, { method: "POST" });
+  assertEquals(res.status, 200);
+  assertEquals(theRun().status, "undone");
+  assertEquals((db.tables.inventory_items ?? []).length, 0);
+});
+
+Deno.test("a fresh undo claim still blocks a second undo", async () => {
+  await importThenComplete([{ row: 2, title: "Tee" }]);
+  theRun().undone_at = new Date().toISOString();
+  const res = await app().request(`/runs/${RUN}/undo`, { method: "POST" });
+  assertEquals(res.status, 409);
+  assertEquals(db.tables.inventory_items!.length, 1);
+});

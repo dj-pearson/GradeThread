@@ -46,9 +46,16 @@ export function isOpenRun(run: Pick<ImportRun, "status"> | null | undefined): bo
 }
 
 /** A finished run that still has something to put back. */
-export function canUndoRun(run: ImportRun): boolean {
+/** Mirrors UNDO_CLAIM_STALE_MS in the edge import route. */
+export const UNDO_CLAIM_STALE_MS = 10 * 60 * 1000;
+
+export function canUndoRun(run: ImportRun, nowMs: number = Date.now()): boolean {
+  // undone_at set while status is not "undone" is an undo in progress, or a
+  // dead one the server lets a retry take over once it is stale.
+  const claimFree =
+    !run.undone_at || nowMs - Date.parse(run.undone_at) > UNDO_CLAIM_STALE_MS;
   return (
-    !run.undone_at &&
+    claimFree &&
     (run.status === "completed" || run.status === "failed") &&
     run.inserted_count + run.updated_count > 0
   );

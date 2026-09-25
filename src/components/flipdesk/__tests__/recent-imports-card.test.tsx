@@ -34,7 +34,12 @@ describe("recent imports helpers", () => {
     expect(canUndoRun(run({}))).toBe(true);
     expect(canUndoRun(run({ status: "failed" }))).toBe(true);
     expect(canUndoRun(run({ status: "running" }))).toBe(false);
-    expect(canUndoRun(run({ undone_at: "2026-09-21T00:00:00Z" }))).toBe(false);
+    // An undo in progress blocks a second one...
+    const claimed = Date.parse("2026-09-21T00:00:00Z");
+    expect(canUndoRun(run({ undone_at: "2026-09-21T00:00:00Z" }), claimed + 60_000)).toBe(false);
+    // ...until its claim is stale, which means the undo died mid-way.
+    expect(canUndoRun(run({ undone_at: "2026-09-21T00:00:00Z" }), claimed + 11 * 60_000)).toBe(true);
+    expect(canUndoRun(run({ status: "undone", undone_at: "2026-09-21T00:00:00Z" }))).toBe(false);
     expect(canUndoRun(run({ inserted_count: 0, updated_count: 0 }))).toBe(false);
     expect(isOpenRun(run({ status: "pending" }))).toBe(true);
   });
