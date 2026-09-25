@@ -23,6 +23,34 @@ function textFile(name: string, value: string): ZipInputFile {
   return { name, data: new TextEncoder().encode(value) };
 }
 
+type ExportQuery = {
+  order: (
+    c: string,
+    o: { ascending: boolean },
+  ) => {
+    range: (
+      a: number,
+      b: number,
+    ) => Promise<{
+      data: unknown[] | null;
+      error: { message: string } | null;
+    }>;
+  };
+};
+
+/**
+ * Whose rows a record set holds. RLS is NOT enough on its own: the SELECT
+ * policies on inventory_items, sales, submissions, submission_images and
+ * grade_reports also admit workspace members (00451), so a member's "personal
+ * data" archive used to include the owner's inventory and sales, and the
+ * financial summary counted them as the member's revenue. Every read names its
+ * owner column; the two tables with no owner column of their own are filtered
+ * to the caller's own submissions after the read.
+ */
+export type ExportScope =
+  | { col: string; id: string }
+  | { submissionIds: ReadonlySet<string> };
+
 /**
  * One record set for the export, read WHOLE and read HONESTLY.
  *
@@ -45,34 +73,28 @@ function textFile(name: string, value: string): ZipInputFile {
  * worse than no archive.
  *
  * Loosely typed on purpose: a few PII tables (push_device_tokens,
- * feedback_messages) aren't in the generated Database types, and RLS scopes
- * every row here to the caller regardless (US-381).
+ * feedback_messages) aren't in the generated Database types. Every read is
+ * filtered to the caller by `scope` on top of RLS (US-381).
  */
-async function exportRows<T>(table: string, columns = "*"): Promise<T[]> {
+async function exportRows<T>(
+  table: string,
+  scope: ExportScope,
+  columns = "*",
+): Promise<T[]> {
   const client = supabase as unknown as {
     from: (t: string) => {
       select: (cols: string) => {
-        order: (
-          c: string,
-          o: { ascending: boolean },
-        ) => {
-          range: (
-            a: number,
-            b: number,
-          ) => Promise<{
-            data: unknown[] | null;
-            error: { message: string } | null;
-          }>;
-        };
-      };
+        eq: (c: string, v: string) => ExportQuery;
+      } & ExportQuery;
     };
   };
-  return fetchAllPages<T>(async (from, to) => {
+  const rows = await fetchAllPages<T>(async (from, to) => {
     // Ordered by primary key, so a page boundary cannot repeat or skip a row
     // the way an unordered read can once the table is being written to.
-    const { data, error } = await client
-      .from(table)
-      .select(columns)
+    const selected = client.from(table).select(columns);
+    const scoped: ExportQuery =
+      "col" in scope ? selected.eq(scope.col, scope.id) : selected;
+    const { data, error } = await scoped
       .order("id", { ascending: true })
       .range(from, to);
     if (error) {
@@ -82,11 +104,22 @@ async function exportRows<T>(table: string, columns = "*"): Promise<T[]> {
     }
     return (data ?? []) as T[];
   });
+  if ("submissionIds" in scope) {
+    // Filtered after paging, never inside a page: fetchAllPages advances by
+    // what arrived, so a page shrunk by a filter would end the read early.
+    return rows.filter((r) =>
+      scope.submissionIds.has(
+        String((r as { submission_id?: unknown }).submission_id),
+      ),
+    );
+  }
+  return rows;
 }
 
 /**
- * Gathers ALL of the signed-in user's data for a GDPR SAR / CCPA export (RLS
- * scopes every query) and packages it into a downloadable ZIP. Image binaries
+ * Gathers ALL of the signed-in user's data for a GDPR SAR / CCPA export (each
+ * query is filtered to the caller's own rows, not only RLS-scoped) and
+ * packages it into a downloadable ZIP. Image binaries
  * are excluded (documented in README) — the archive lists each image's storage
  * path. Sensitive secrets are NEVER exported: api_keys exclude key_hash and
  * marketplace_connections exclude the encrypted OAuth tokens (US-381).
@@ -94,6 +127,17 @@ async function exportRows<T>(table: string, columns = "*"): Promise<T[]> {
 export async function buildAccountExport(
   onProgress: ExportProgress
 ): Promise<Blob> {
+  // The caller's id. Every read below is filtered to it explicitly (see
+  // ExportScope); getSession reads the local session and makes no request.
+  const { data: sessionData } = await supabase.auth.getSession();
+  const me = sessionData.session?.user?.id;
+  if (!me) {
+    throw new Error(
+      "Your export could not be completed: you are not signed in. Please sign in and try again.",
+    );
+  }
+  const mine = { col: "user_id", id: me } as const;
+
   onProgress("Fetching profile…", 6);
   // US-1442: include the user's own profile row (identity + business/ship-from
   // details) so the new fields are part of the GDPR/CCPA export. RLS scopes
@@ -103,6 +147,7 @@ export async function buildAccountExport(
     .select(
       "id, email, full_name, avatar_url, business_name, use_case, created_at, updated_at",
     )
+    .eq("id", me)
     .maybeSingle();
   // An unread profile row is not an absent one. Left unchecked this shipped
   // `profile.json` as `null` — the export saying GradeThread holds no account
@@ -138,16 +183,22 @@ export async function buildAccountExport(
     : null;
 
   onProgress("Fetching submissions…", 8);
-  const submissions = await exportRows<SubmissionRow>("submissions");
+  const submissions = await exportRows<SubmissionRow>("submissions", mine);
+
+  // grade_reports and submission_images have no owner column; they belong to
+  // the caller when their submission does.
+  const ownSubmissions = {
+    submissionIds: new Set(submissions.map((r) => r.id)),
+  };
 
   onProgress("Fetching grade reports…", 18);
-  const gradeReports = await exportRows<GradeReportRow>("grade_reports");
+  const gradeReports = await exportRows<GradeReportRow>("grade_reports", ownSubmissions);
 
   onProgress("Fetching inventory…", 28);
-  const inventory = await exportRows<InventoryItemRow>("inventory_items");
+  const inventory = await exportRows<InventoryItemRow>("inventory_items", mine);
 
   onProgress("Fetching sales…", 38);
-  const sales = await exportRows<SaleRow>("sales");
+  const sales = await exportRows<SaleRow>("sales", mine);
 
   // US-381: the remaining tables that hold the user's PII / records. Each is
   // RLS-scoped to the caller. Secret-bearing tables are column-restricted so a
@@ -165,29 +216,36 @@ export async function buildAccountExport(
     feedback,
     sources,
   ] = await Promise.all([
-    exportRows("disputes"),
+    exportRows("disputes", mine),
     exportRows(
       "api_keys",
+      mine,
       "id, name, key_prefix, scopes, last_used_at, last_rotated_at, expires_at, created_at",
     ),
-    exportRows("notifications"),
-    exportRows("push_device_tokens"),
-    exportRows("workspace_members"),
-    exportRows("workspace_invitations"),
+    exportRows("notifications", mine),
+    exportRows("push_device_tokens", mine),
+    // The caller's own memberships, not the roster of a workspace they sit in.
+    exportRows("workspace_members", { col: "member_id", id: me }),
+    // Invitations the caller sent.
+    exportRows("workspace_invitations", { col: "invited_by", id: me }),
     exportRows(
       "marketplace_connections",
+      mine,
       "id, marketplace, account_handle, is_active, scopes, last_synced_at, created_at, updated_at",
     ),
-    exportRows("payout_imports"),
-    exportRows("feedback_messages"),
-    exportRows("sources"),
+    exportRows("payout_imports", mine),
+    exportRows("feedback_messages", mine),
+    exportRows("sources", mine),
   ]);
 
   onProgress("Listing image references…", 70);
   // These become `image_paths` on every submission. A dropped read here would
   // have told the person their graded photos do not exist, in the one file
   // that documents where to ask for the binaries.
-  const images = await exportRows<SubmissionImageRow>("submission_images");
+  const images = await exportRows<SubmissionImageRow>(
+    "submission_images",
+    ownSubmissions,
+  );
 
   // Image BINARIES are excluded (private bucket — public URLs don't resolve and
   // signed URLs would expire before the archive is opened). We list each image's
@@ -256,7 +314,7 @@ export async function buildAccountExport(
     "  notifications.json        your in-app notifications",
     "  device_tokens.json        push-notification device registrations",
     "  workspace_memberships.json workspaces you belong to",
-    "  workspace_invitations.json invitations involving you",
+    "  workspace_invitations.json invitations you sent",
     "  marketplace_connections.json connected marketplaces (OAuth tokens excluded)",
     "  payout_imports.json       imported payout records",
     "  feedback.json             feedback messages you sent",

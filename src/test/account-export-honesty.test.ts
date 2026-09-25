@@ -76,3 +76,27 @@ describe("the account export never reports a failed read as an empty record set"
     expect(src.slice(conn, conn + 300)).toContain("account_handle");
   });
 });
+
+describe("the account export reads only the caller's own rows", () => {
+  // RLS on inventory_items, sales, submissions, submission_images and
+  // grade_reports also admits workspace members (00451), so a read scoped by
+  // RLS alone put the owner's inventory and sales in a member's archive.
+  it("every exportRows call names a scope", () => {
+    const calls = [...src.matchAll(/exportRows(?:<[^>]+>)?\(\s*([^)]*?)\)/gs)]
+      // skip the declaration itself
+      .filter((m) => !m[0].includes("table: string"));
+    expect(calls.length).toBeGreaterThanOrEqual(15);
+    const unscoped = calls
+      .map((m) => (m[1] ?? "").split(",").map((a) => a.trim()).filter(Boolean))
+      .filter((args) => args.length < 2)
+      .map((args) => args[0]);
+    expect(unscoped).toEqual([]);
+  });
+
+  it("the helper applies the scope filter before ordering", () => {
+    const at = src.indexOf("async function exportRows");
+    const body = src.slice(at, at + 1500);
+    expect(body).toMatch(/\.eq\(scope\.col, scope\.id\)/);
+    expect(body).toContain("submissionIds");
+  });
+});
