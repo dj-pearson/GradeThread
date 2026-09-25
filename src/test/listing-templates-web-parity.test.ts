@@ -218,10 +218,15 @@ describe("the page can create, edit and delete (US-2877 AC1)", () => {
   it("the condition list is the shared one", () => {
     // A hand-typed second list of eBay conditions is how a template ends up
     // holding a value eBay rejects at publish.
-    expect(editor).toContain('import { EBAY_CONDITION_OPTIONS } from "@/lib/constants"');
+    // The editor's fallback is TEMPLATE_CONDITION_OPTIONS, which is the shared
+    // list with one apparel relabel (USED_EXCELLENT reads "Pre-owned - Good"),
+    // derived by map() so it carries exactly the shared values.
+    const lib = read("src/lib/flipdesk-templates.ts");
+    expect(lib).toMatch(/TEMPLATE_CONDITION_OPTIONS[^=]*=\s*EBAY_CONDITION_OPTIONS\.map\(/);
+    expect(editor).not.toMatch(/value:\s*"USED_/);
     // Used as the fallback list, not merely imported. When eBay restricts the
     // chosen category, the editor narrows to eBay's own options instead.
-    expect((editor.match(/EBAY_CONDITION_OPTIONS/g) ?? []).length).toBeGreaterThan(1);
+    expect((editor.match(/TEMPLATE_CONDITION_OPTIONS/g) ?? []).length).toBeGreaterThan(1);
     expect(editor).toContain("useEbayCategoryConditions");
   });
 });

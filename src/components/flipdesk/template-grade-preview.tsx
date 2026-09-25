@@ -1,9 +1,5 @@
-import {
-  APPAREL_CONDITION_LABELS,
-  EBAY_CONDITION_ENUM_TO_ID,
-  EBAY_CONDITION_OPTIONS,
-} from "@/lib/constants";
 import { conditionOverstatesGrade, mapGradeToApparelCondition } from "@/lib/ebay-prefill";
+import { templateConditionLabel as conditionLabel } from "@/lib/flipdesk-templates";
 
 // "Preview on a graded item": what a template's fixed condition means next to
 // the condition GradeThread's grade would pick for the same garment. A template
@@ -13,13 +9,6 @@ import { conditionOverstatesGrade, mapGradeToApparelCondition } from "@/lib/ebay
 
 /** The sample grades shown: a near-new garment and a well-worn one. */
 const PREVIEW_GRADES = [9.0, 6.0] as const;
-
-/** What a clothing buyer reads for a condition value. */
-function conditionLabel(value: string): string {
-  const id = EBAY_CONDITION_ENUM_TO_ID[value];
-  const apparel = id ? APPAREL_CONDITION_LABELS[id] : undefined;
-  return apparel ?? EBAY_CONDITION_OPTIONS.find((o) => o.value === value)?.label ?? value;
-}
 
 export interface TemplateGradePreviewProps {
   ebayCondition: string;

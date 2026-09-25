@@ -32,6 +32,15 @@ function paint(
 }
 
 describe("SamplePickerBody", () => {
+  it("keeps every row a list item, with the group role inside it", () => {
+    const html = paint();
+    // A role on the li replaces listitem, and a ul of non-items fails axe's
+    // list rule.
+    expect(html).not.toMatch(/<li[^>]*role=/);
+    expect(html.match(/<li/g)?.length).toBe(STARTER_SNIPPETS.length);
+    expect(html.match(/role="group"/g)?.length).toBe(STARTER_SNIPPETS.length);
+  });
+
   it("shows every sample's whole body, not just its name", () => {
     const html = paint();
     for (const s of STARTER_SNIPPETS) {

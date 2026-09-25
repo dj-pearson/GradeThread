@@ -33,7 +33,6 @@ import {
   useEbayPolicies,
 } from "@/hooks/use-ebay";
 import { toastError } from "@/lib/toast-error";
-import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
 import {
   CONDITION_NOTE_MAX,
   DESCRIPTION_TEMPLATE_MAX,
@@ -41,6 +40,7 @@ import {
   SPECIFIC_VALUE_MAX,
   SPECIFICS_MAX,
   TEMPLATES_QUERY_KEY,
+  TEMPLATE_CONDITION_OPTIONS,
   TEMPLATE_NAME_MAX,
   TemplateApiError,
   type ListingTemplate,
@@ -150,7 +150,7 @@ function CharCount({ id, value, max }: { id: string; value: string; max: number 
 }
 
 function staticConditionLabel(value: string): string {
-  return EBAY_CONDITION_OPTIONS.find((o) => o.value === value)?.label ?? value;
+  return TEMPLATE_CONDITION_OPTIONS.find((o) => o.value === value)?.label ?? value;
 }
 
 /** A stable fingerprint of what Save would send, for the dirty check. */
@@ -319,7 +319,7 @@ export function TemplateEditorDialog({
   const restricted = conditionsQuery.data?.restricted === true;
   const conditionOptions: ReadonlyArray<{ value: string; label: string }> = restricted
     ? conditionsQuery.data!.options
-    : EBAY_CONDITION_OPTIONS;
+    : TEMPLATE_CONDITION_OPTIONS;
   const conditionRejected =
     restricted &&
     editor.ebayCondition !== "" &&
@@ -647,7 +647,8 @@ export function TemplateEditorDialog({
                     value={editor.shippingPolicyId}
                     placeholder="Shipping policy ID"
                     onChange={(e) => {
-                      const shippingPolicyId = e.target.value;
+                      // Policy ids are digits; the server refuses anything else.
+                      const shippingPolicyId = e.target.value.replace(/\D/g, "");
                       setEditor((s) => ({ ...s, shippingPolicyId }));
                     }}
                   />
@@ -657,7 +658,8 @@ export function TemplateEditorDialog({
                     value={editor.returnPolicyId}
                     placeholder="Return policy ID"
                     onChange={(e) => {
-                      const returnPolicyId = e.target.value;
+                      // Policy ids are digits; the server refuses anything else.
+                      const returnPolicyId = e.target.value.replace(/\D/g, "");
                       setEditor((s) => ({ ...s, returnPolicyId }));
                     }}
                   />
@@ -667,7 +669,8 @@ export function TemplateEditorDialog({
                     value={editor.paymentPolicyId}
                     placeholder="Payment policy ID"
                     onChange={(e) => {
-                      const paymentPolicyId = e.target.value;
+                      // Policy ids are digits; the server refuses anything else.
+                      const paymentPolicyId = e.target.value.replace(/\D/g, "");
                       setEditor((s) => ({ ...s, paymentPolicyId }));
                     }}
                   />

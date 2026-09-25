@@ -115,12 +115,14 @@ export function SamplePickerBody({
             s.name;
           const renamed = on && finalName !== s.name;
           return (
-            <li
-              key={s.id}
-              role="group"
-              aria-labelledby={`sample-${s.id}-name`}
-              className="flex items-start gap-3 py-3"
-            >
+            // The group role sits on a div inside the li: on the li itself it
+            // would replace listitem and leave the ul with no list items.
+            <li key={s.id} className="py-3">
+              <div
+                role="group"
+                aria-labelledby={`sample-${s.id}-name`}
+                className="flex items-start gap-3"
+              >
               <Checkbox
                 id={`sample-${s.id}`}
                 className="mt-1"
@@ -167,6 +169,7 @@ export function SamplePickerBody({
                     {s.note}
                   </span>
                 )}
+              </div>
               </div>
             </li>
           );

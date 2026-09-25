@@ -1,5 +1,9 @@
 import { edgeFetch } from "@/lib/edge-fetch";
-import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
+import {
+  APPAREL_CONDITION_LABELS,
+  EBAY_CONDITION_ENUM_TO_ID,
+  EBAY_CONDITION_OPTIONS,
+} from "@/lib/constants";
 
 // US-2877. Saved listing templates, on the web.
 //
@@ -293,6 +297,28 @@ export function templateChanges(
   return out;
 }
 
+/**
+ * What a clothing buyer reads for a template's condition. Apparel label first:
+ * USED_EXCELLENT (3000) is "Pre-owned - Good" in a clothing leaf, and the
+ * starter picker, the grade preview and publish all say so. The generic list's
+ * "Pre-owned - Excellent" for it would contradict all three.
+ */
+export function templateConditionLabel(value: string): string {
+  const id = EBAY_CONDITION_ENUM_TO_ID[value];
+  const apparel = id ? APPAREL_CONDITION_LABELS[id] : undefined;
+  return apparel ?? EBAY_CONDITION_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
+
+/**
+ * The editor's condition list when eBay has not narrowed it to a category:
+ * the shared list, with USED_EXCELLENT relabelled to what a clothing buyer sees
+ * for it, so it does not read as a second "Excellent".
+ */
+export const TEMPLATE_CONDITION_OPTIONS: ReadonlyArray<{ value: string; label: string }> =
+  EBAY_CONDITION_OPTIONS.map((o) =>
+    o.value === "USED_EXCELLENT" ? { ...o, label: "Pre-owned - Good (apparel)" } : o,
+  );
+
 /** One thing a template sets, as a chip on its list row. */
 export interface TemplateChip {
   label: string;
@@ -308,11 +334,7 @@ export interface TemplateChip {
 export function templateChips(t: ListingTemplate): TemplateChip[] {
   const chips: TemplateChip[] = [];
   if (t.ebay_condition) {
-    chips.push({
-      label:
-        EBAY_CONDITION_OPTIONS.find((o) => o.value === t.ebay_condition)?.label ??
-        t.ebay_condition,
-    });
+    chips.push({ label: templateConditionLabel(t.ebay_condition) });
   }
   if (t.condition_description) chips.push({ label: "Condition note" });
   if (t.description_template) chips.push({ label: "Footer" });

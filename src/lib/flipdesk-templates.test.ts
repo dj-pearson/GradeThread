@@ -12,7 +12,11 @@ import {
   nextSortOrder,
   saveErrorNextStep,
   specificRowProblems,
+  templateChips,
+  templateConditionLabel,
+  type ListingTemplate,
 } from "@/lib/flipdesk-templates";
+import { STARTER_TEMPLATES } from "@/lib/starter-templates";
 
 function reply(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -144,5 +148,38 @@ describe("deleteConfirmText", () => {
   it("says so when the default is the only template", () => {
     const a = row("a", "A", true);
     expect(deleteConfirmText(a, [a])).toContain("start with no template");
+  });
+});
+
+describe("template condition labels", () => {
+  const row = (ebay_condition: string | null): ListingTemplate =>
+    ({
+      id: "t1",
+      user_id: "u1",
+      name: "T",
+      description_template: null,
+      ebay_condition,
+      condition_description: null,
+      item_specifics: {},
+      ebay_category_id: null,
+      return_policy_id: null,
+      shipping_policy_id: null,
+      payment_policy_id: null,
+      is_default: false,
+      sort_order: 0,
+      created_at: "",
+      updated_at: "",
+    }) as ListingTemplate;
+
+  it("names USED_EXCELLENT the way a clothing buyer sees it", () => {
+    expect(templateConditionLabel("USED_EXCELLENT")).toBe("Pre-owned - Good");
+    expect(templateConditionLabel("PRE_OWNED_EXCELLENT")).toBe("Pre-owned - Excellent");
+  });
+
+  it("gives a starter's row chip the same condition the sample picker showed", () => {
+    for (const s of STARTER_TEMPLATES) {
+      const shown = s.details?.find((d) => d.label === "Condition")?.value;
+      expect(templateChips(row(s.ebayCondition))[0]?.label).toBe(shown);
+    }
   });
 });
