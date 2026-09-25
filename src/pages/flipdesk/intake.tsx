@@ -260,11 +260,19 @@ export function FlipdeskIntakePage() {
         ([k, v]) => v !== INITIAL[k as keyof FormState],
       ) ||
       Object.keys(measurements).length > 0);
-  const guard = useNavigationGuard(dirty);
+  // Only the single form has a draft to lose, and only it renders the dialog.
+  // A ?mode= change keeps this component (and the draft) mounted, so it is a
+  // tab switch, not a leave: blocking it froze Bulk and Snap behind a dialog
+  // that was never on screen.
+  const mode = params.get("mode");
+  const guard = useNavigationGuard(
+    dirty && !mode,
+    (current, next) => next.pathname !== current.pathname,
+  );
 
   // Alternate intake modes are separate workspaces.
-  if (params.get("mode") === "bulk") return <BulkIntake />;
-  if (params.get("mode") === "snap") return <SnapCatalog />;
+  if (mode === "bulk") return <BulkIntake />;
+  if (mode === "snap") return <SnapCatalog />;
 
   function patch<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -591,6 +599,11 @@ export function FlipdeskIntakePage() {
               Quick intake form. Save & Add another to catalog a batch from the
               same source.
             </p>
+            {dirty && (
+              <p className="text-sm text-muted-foreground">
+                Your draft stays here while you switch.
+              </p>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
