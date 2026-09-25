@@ -39,7 +39,7 @@ describe("a drop can be changed from the calendar (US-2522)", () => {
 
   it("unscheduling clears the time and leaves the draft alone", () => {
     const src = read(HOOK);
-    expect(src).toMatch(/scheduled_publish_at: null/);
+    expect(src).toMatch(/writeDropTime\(id, null\)/);
     // Only a draft is schedulable, so only a draft may be moved from here.
     expect(src).toMatch(/\.eq\("listing_status", "draft"\)/);
     // US-1552: `.or()` on a mutation is rejected by the production PostgREST
@@ -56,9 +56,8 @@ describe("a drop can be changed from the calendar (US-2522)", () => {
     const src = read(HOOK);
     // Not "set them all to X" — the gaps between a day's staggered drops are
     // the whole reason someone staggered them.
-    expect(src).toMatch(
-      /new Date\(d\.scheduled_publish_at\)\.getTime\(\) \+ minutes \* 60_000/,
-    );
+    // SD-6: whole days move on the seller's wall clock, not by 1440 minutes.
+    expect(src).toMatch(/shiftInZone\(d\.scheduled_publish_at, timeZone, shift\)/);
   });
 });
 
@@ -72,7 +71,9 @@ describe("the calendar reads as a calendar (US-2522)", () => {
       expect(src, `${key} does not move the cursor`).toContain(key);
     }
     // A roving tabstop, not 35 tab stops.
-    expect(src).toMatch(/tabIndex=\{cell\.day === focusedDay \? 0 : -1\}/);
+    // SD-12: clamped to the month on screen, so a month change cannot strand it.
+    expect(src).toMatch(/tabIndex=\{cell\.day === tabDay \? 0 : -1\}/);
+    expect(src).toMatch(/const tabDay = Math\.min\(focusedDay, daysInView\)/);
     // And real focus follows it, or the arrows move a highlight nothing announces.
     expect(src).toMatch(/focusedCellRef\.current\?\.focus\(\)/);
   });
@@ -87,8 +88,8 @@ describe("the calendar reads as a calendar (US-2522)", () => {
   it("Upcoming is no longer a silent cap at 12", () => {
     const src = read(PAGE);
     expect(src).not.toMatch(/drops\.slice\(0, 12\)/);
-    expect(src).toMatch(/showAllUpcoming \? drops : drops\.slice\(0, UPCOMING_PREVIEW\)/);
-    expect(src).toContain("Show all ${drops.length}");
+    expect(src).toMatch(/showAllUpcoming \? upcomingDrops : upcomingDrops\.slice\(0, UPCOMING_PREVIEW\)/);
+    expect(src).toContain("Show all ${upcomingDrops.length}");
   });
 });
 
@@ -108,5 +109,38 @@ describe("times survive the round trip through a timezone (US-2522)", () => {
   it("an empty or malformed value yields no instant", () => {
     expect(zonedInputToIso("", "America/New_York")).toBeNull();
     expect(zonedInputToIso("not-a-date", "America/New_York")).toBeNull();
+  });
+});
+
+describe("dialog copy is plain ASCII punctuation (SD-2)", () => {
+  it("has no minus sign or em dash in the shift labels or toasts", () => {
+    expect(read(DIALOG)).not.toMatch(/[\u2212\u2014]/);
+  });
+});
+
+describe("the drops read matches the cron's view of a row (SD-3)", () => {
+  it("selects the publish health columns and adds no platform filter", () => {
+    const src = read(HOOK);
+    for (const col of ["publish_attempts", "synced_to_ebay_at", "publish_claimed_at", "publish_error"]) {
+      expect(src).toMatch(new RegExp(`SCHEDULED_DROPS_SELECT =[^;]*${col}`));
+    }
+    expect(src).not.toMatch(/\.eq\("platform"/);
+  });
+});
+
+describe("drop titles come from the drops read (SD-8)", () => {
+  it("embeds the item title and the page runs no second title query", () => {
+    expect(read(HOOK)).toMatch(/SCHEDULED_DROPS_SELECT =[^;]*inventory_items\(title\)/);
+    const page = read(PAGE);
+    expect(page).not.toContain("scheduled_drops_titles");
+    expect(page).not.toContain('from("inventory_items")');
+  });
+});
+
+describe("an open page keeps up with the cron (SD-9)", () => {
+  it("the drops read refetches on an interval, foreground only", () => {
+    const src = read(HOOK);
+    expect(src).toMatch(/refetchInterval: \(query\) => dropsRefetchInterval/);
+    expect(src).toContain("refetchIntervalInBackground: false");
   });
 });

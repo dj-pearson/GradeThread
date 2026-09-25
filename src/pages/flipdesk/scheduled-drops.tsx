@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
-import { useQuery } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { TruncatedNotice } from "@/components/flipdesk/truncated-notice";
 import {
+  dropTitle,
+  useSalesHourOfWeek,
   useScheduledDrops,
   type ScheduledDropRow as HookScheduledDropRow,
 } from "@/hooks/use-scheduled-drops";
@@ -32,10 +34,22 @@ import {
 } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
-import { supabase } from "@/lib/supabase";
-import { useAuthStore } from "@/stores/auth-store";
-import { COMMON_TIMEZONES, detectTimezone, formatInZone } from "@/lib/scheduling";
+import {
+  bestDropSlots,
+  nextPresetUtc,
+  COMMON_TIMEZONES,
+  detectTimezone,
+  dropHealth,
+  dropHealthNote,
+  dropNeedsAttention,
+  formatInZone,
+  formatTimeInZone,
+  zoneCalendarDate,
+  type DropHealth,
+} from "@/lib/scheduling";
+import { DropHealthTag } from "@/components/flipdesk/drop-health-tag";
 import { cn } from "@/lib/utils";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { DropDayDialog } from "@/components/flipdesk/drop-day-dialog";
 import { PageHelp } from "@/components/help/page-help";
 import { Term } from "@/components/help/term";
@@ -51,29 +65,29 @@ import { Term } from "@/components/help/term";
 type ScheduledDropRow = HookScheduledDropRow;
 
 // US-2522: how many drops a day cell shows before it collapses to "+N more".
-// Four rows is what fits without the calendar row growing past the fold.
+// Three rows is what fits without the calendar row growing past the fold.
 const VISIBLE_PER_DAY = 3;
+
+// SD-13: where the Month/Agenda choice is kept, per viewer.
+const LAYOUT_KEY = "gt.scheduled-drops.layout";
 
 // How many upcoming drops the list shows before it offers the rest.
 const UPCOMING_PREVIEW = 12;
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAY_NAMES = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+];
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
 
-// The calendar date (Y/M/D, 1-based month) an instant falls on in a given zone.
-function zoneYmd(iso: string, timeZone: string): { y: number; m: number; d: number } {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
-    .format(new Date(iso))
-    .split("-");
-  return { y: Number(parts[0]), m: Number(parts[1]), d: Number(parts[2]) };
+/** ", 1 overdue, 2 retrying" for a day cell's accessible name (SD-4). */
+function healthSummary(states: DropHealth[]): string {
+  const counts = new Map<DropHealth, number>();
+  for (const h of states) if (h !== "scheduled") counts.set(h, (counts.get(h) ?? 0) + 1);
+  return Array.from(counts, ([h, n]) => `, ${n} ${h}`).join("");
 }
 
 function fmtMoney(n: number | null | undefined): string {
@@ -82,20 +96,31 @@ function fmtMoney(n: number | null | undefined): string {
 }
 
 export function FlipdeskScheduledDropsPage() {
-  const user = useAuthStore((s) => s.user);
   const [timeZone, setTimeZone] = useState(() => detectTimezone());
+  // SD-13: phones get the agenda; wider screens pick Month or Agenda, and the
+  // choice is remembered per viewer (a convenience, so storage may fail).
+  const isWide = useMediaQuery("(min-width: 640px)", true);
+  const [layout, setLayout] = useState<"month" | "agenda">(() => {
+    try {
+      return localStorage.getItem(LAYOUT_KEY) === "agenda" ? "agenda" : "month";
+    } catch {
+      return "month";
+    }
+  });
+  const chooseLayout = (next: "month" | "agenda") => {
+    setLayout(next);
+    try {
+      localStorage.setItem(LAYOUT_KEY, next);
+    } catch {
+      // Private window or blocked storage: the choice lasts this visit only.
+    }
+  };
+  const showAgenda = !isWide || layout === "agenda";
   // Which month the grid shows, as a {y, m} pair (m is 0-based). Seeded to the
   // current month in the viewer's zone.
   const [view, setView] = useState(() => {
-    const now = new Date();
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: detectTimezone(),
-      year: "numeric",
-      month: "2-digit",
-    })
-      .format(now)
-      .split("-");
-    return { y: Number(parts[0]), m: Number(parts[1]) - 1 };
+    const { year, month } = zoneCalendarDate(new Date(), detectTimezone());
+    return { y: year, m: month - 1 };
   });
 
   // US-3077 AC7: the read itself is useScheduledDrops(), shared with the
@@ -106,44 +131,56 @@ export function FlipdeskScheduledDropsPage() {
     isError,
     refetch,
     isFetching,
+    dataUpdatedAt,
   } = useScheduledDrops();
   // Memoized so the `?? []` fallback does not mint a new array each render —
   // several useMemos below take it as a dependency.
   const drops = useMemo<ScheduledDropRow[]>(() => dropsRead?.rows ?? [], [dropsRead]);
 
-  // Titles fall back to the inventory item when listing_title is blank.
-  const itemIds = useMemo(
-    () => drops.map((d) => d.inventory_item_id),
-    [drops],
+  // SD-15: when this seller's own sales happen, as up to three weekday-hours.
+  // Optional: a failed or loading read simply shows no hint.
+  const salesRead = useSalesHourOfWeek();
+  const bestSlots = useMemo(
+    () => (salesRead.data ? bestDropSlots(salesRead.data.rows, timeZone) : undefined),
+    [salesRead.data, timeZone],
   );
-  // Key on the id CONTENTS, not the count — a length-only key serves the stale
-  // title map when the set turns over without changing size.
-  const itemIdsKey = useMemo(() => [...itemIds].sort().join(","), [itemIds]);
-  const { data: titles = {}, isError: titlesError, isLoading: titlesLoading, refetch: reloadTitles } = useQuery<Record<string, string>>({
-    queryKey: ["scheduled_drops_titles", user?.id, itemIdsKey],
-    enabled: itemIds.length > 0,
-    queryFn: async () => {
-      // Chunk the id list: a single `.in("id", [...])` with hundreds of UUIDs
-      // overflows the request URL length limit (ERR_FAILED on large queues) —
-      // same cap the sibling listing-performance query guards against.
-      const map: Record<string, string> = {};
-      const CHUNK = 100;
-      for (let i = 0; i < itemIds.length; i += CHUNK) {
-        const { data, error: dataReadError } = await supabase
-          .from("inventory_items")
-          .select("id, title")
-          .in("id", itemIds.slice(i, i + CHUNK));
-        if (dataReadError) throw dataReadError;
-        for (const row of (data ?? []) as { id: string; title: string | null }[]) {
-          if (row.title) map[row.id] = row.title;
-        }
-      }
-      return map;
-    },
-  });
+  const suggestedStart = useMemo(() => {
+    const top = bestSlots?.[0];
+    return top
+      ? { iso: nextPresetUtc(top, timeZone).toISOString(), label: top.label }
+      : null;
+  }, [bestSlots, timeZone]);
 
-  const titleOf = (d: ScheduledDropRow) =>
-    d.listing_title?.trim() || titles[d.inventory_item_id] || "Untitled draft";
+  // SD-3/SD-4: what the cron has done with each drop, read once per refresh.
+  // `now` is taken with the rows so a row's state and the Past-due split agree.
+  // Keyed on dataUpdatedAt as well as the rows: an unchanged refetch hands back
+  // the SAME array (structural sharing), so keying on `drops` alone froze the
+  // clock and a drop never turned overdue or left "Upcoming" on an open page.
+  const { healthById, now } = useMemo(() => {
+    const at = Math.max(Date.now(), dataUpdatedAt);
+    const map = new Map<string, DropHealth>();
+    for (const d of drops) map.set(d.id, dropHealth(d, at));
+    return { healthById: map, now: at };
+  }, [drops, dataUpdatedAt]);
+  const healthOf = (d: ScheduledDropRow): DropHealth =>
+    healthById.get(d.id) ?? "scheduled";
+  const needsAttention = useMemo(
+    () => drops.filter((d) => dropNeedsAttention(healthById.get(d.id) ?? "scheduled")),
+    [drops, healthById],
+  );
+  // Past due (or mid-publish) and still to come, split on the clock rather
+  // than listing a stuck drop under "Upcoming".
+  const pastDrops = useMemo(
+    () => drops.filter((d) => Date.parse(d.scheduled_publish_at) <= now),
+    [drops, now],
+  );
+  const upcomingDrops = useMemo(
+    () => drops.filter((d) => !(Date.parse(d.scheduled_publish_at) <= now)),
+    [drops, now],
+  );
+
+  // SD-8: the item title rides along in the drops read (dropTitle).
+  const titleOf = (d: ScheduledDropRow) => dropTitle(d);
   const isPromoted = (d: ScheduledDropRow) =>
     !d.promo_opt_out && (d.promo_rate_pct ?? 0) > 0;
 
@@ -152,8 +189,8 @@ export function FlipdeskScheduledDropsPage() {
   const dropsByDay = useMemo(() => {
     const map = new Map<string, ScheduledDropRow[]>();
     for (const d of drops) {
-      const { y, m, d: day } = zoneYmd(d.scheduled_publish_at, timeZone);
-      const key = `${y}-${m}-${day}`;
+      const { year, month, day } = zoneCalendarDate(new Date(d.scheduled_publish_at), timeZone);
+      const key = `${year}-${month}-${day}`;
       const list = map.get(key) ?? [];
       list.push(d);
       map.set(key, list);
@@ -161,8 +198,10 @@ export function FlipdeskScheduledDropsPage() {
     return map;
   }, [drops, timeZone]);
 
-  // Build the calendar grid: leading blanks to the first weekday, then the days.
-  const grid = useMemo(() => {
+  // Build the calendar grid: leading blanks to the first weekday, then the
+  // days, padded and chunked into weeks. SD-12: each week is its own role=row,
+  // so every gridcell has the row parent the grid pattern requires.
+  const weeks = useMemo(() => {
     const first = new Date(Date.UTC(view.y, view.m, 1));
     const startWeekday = first.getUTCDay();
     const daysInMonth = new Date(Date.UTC(view.y, view.m + 1, 0)).getUTCDate();
@@ -171,19 +210,31 @@ export function FlipdeskScheduledDropsPage() {
     for (let day = 1; day <= daysInMonth; day++) {
       cells.push({ day, key: `${view.y}-${view.m + 1}-${day}` });
     }
-    return cells;
+    while (cells.length % 7 !== 0) cells.push(null);
+    const out: (typeof cells)[] = [];
+    for (let i = 0; i < cells.length; i += 7) out.push(cells.slice(i, i + 7));
+    return out;
   }, [view]);
 
-  const today = useMemo(() => zoneYmd(new Date().toISOString(), timeZone), [timeZone]);
+  const today = useMemo(() => {
+    const { year, month, day } = zoneCalendarDate(new Date(), timeZone);
+    return { y: year, m: month, d: day };
+  }, [timeZone]);
 
   // ── US-2522: the parts that make this a calendar you can act on ──────────
 
-  // Which day's drops are open in the dialog.
+  // Which day's drops the dialog shows, and whether it is open. SD-10: kept
+  // apart so closing does not blank the day mid exit-animation ("September
+  // null"); the day stays put until the next open.
   const [openDayNum, setOpenDayNum] = useState<number | null>(null);
+  const [dayOpen, setDayOpen] = useState(false);
   // The roving tabstop. One cell in the grid is focusable at a time; the arrow
   // keys move it, which is what makes a 35-cell grid traversable without 35
   // tab presses.
-  const [focusedDay, setFocusedDay] = useState(1);
+  // Seeded to today, which is where the month on screen opens.
+  const [focusedDay, setFocusedDay] = useState(
+    () => zoneCalendarDate(new Date(), detectTimezone()).day,
+  );
   const focusedCellRef = useRef<HTMLDivElement | null>(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
 
@@ -192,9 +243,37 @@ export function FlipdeskScheduledDropsPage() {
     [view],
   );
 
+  // SD-12: the tabstop can outlive a month change (day 31, then February), so
+  // the cell that holds it is clamped to the month on screen.
+  const tabDay = Math.min(focusedDay, daysInView);
+  // Real focus moves only after a keyboard move or Today, never on first paint.
+  const moveFocusRef = useRef(false);
+
+  /** Where the tabstop lands in a newly shown month (m is 0-based). */
+  function defaultFocusDay(y: number, m: number): number {
+    if (today.y === y && today.m === m + 1) return today.d;
+    const firstWithDrops = [...dropsByDay.keys()]
+      .map((k) => k.split("-").map(Number) as [number, number, number])
+      .filter(([ky, km]) => ky === y && km === m + 1)
+      .map(([, , kd]) => kd)
+      .sort((a, b) => a - b)[0];
+    return firstWithDrops ?? 1;
+  }
+
   function openDay(day: number) {
     setFocusedDay(day);
     setOpenDayNum(day);
+    setDayOpen(true);
+  }
+
+  // SD-10: after a whole-day shift, or on "Go to day", follow the drops to
+  // their new day instead of showing an emptied one. `m` is 1-based.
+  function goToDay(y: number, m: number, d: number) {
+    setView({ y, m: m - 1 });
+    setOpenDayNum(d);
+    setFocusedDay(d);
+    // "Go to day" can be clicked after the dialog closed; open it on the day.
+    setDayOpen(true);
   }
 
   function onGridKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
@@ -204,22 +283,37 @@ export function FlipdeskScheduledDropsPage() {
       ArrowDown: 7,
       ArrowUp: -7,
     };
+    if (e.key === "PageUp" || e.key === "PageDown") {
+      // SD-12: change month and keep the day, clamped to the new month.
+      e.preventDefault();
+      moveFocusRef.current = true;
+      const next = new Date(Date.UTC(view.y, view.m + (e.key === "PageUp" ? -1 : 1), 1));
+      const dim = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate();
+      setView({ y: next.getUTCFullYear(), m: next.getUTCMonth() });
+      setFocusedDay(Math.min(tabDay, dim));
+      return;
+    }
     let next: number | null = null;
-    if (e.key in moves) next = focusedDay + moves[e.key]!;
+    if (e.key in moves) next = tabDay + moves[e.key]!;
     else if (e.key === "Home") next = 1;
     else if (e.key === "End") next = daysInView;
     if (next == null) return;
     e.preventDefault();
-    // Stop at the month's edges rather than wrapping — a wrap that silently
-    // changes month is worse than a key that does nothing.
+    moveFocusRef.current = true;
+    // Stop at the month's edges rather than wrapping. A wrap that silently
+    // changes month is worse than a key that does nothing; PageUp/PageDown
+    // change month on purpose.
     setFocusedDay(Math.min(Math.max(next, 1), daysInView));
   }
 
   // Move real focus with the roving tabstop, or the arrow keys move a highlight
-  // a screen reader never announces.
+  // a screen reader never announces. Only after a keyboard move (SD-12): on
+  // first paint this used to pull focus into the grid before the seller asked.
   useEffect(() => {
+    if (!moveFocusRef.current) return;
+    moveFocusRef.current = false;
     focusedCellRef.current?.focus();
-  }, [focusedDay]);
+  }, [focusedDay, view]);
 
   const openDayDrops = useMemo(() => {
     if (openDayNum == null) return [];
@@ -231,26 +325,78 @@ export function FlipdeskScheduledDropsPage() {
       listing_price: d.listing_price,
       // Same fallbacks as titleOf/isPromoted, inlined: both are recreated every
       // render, so depending on them would rebuild this list every render too.
-      title:
-        d.listing_title?.trim() || titles[d.inventory_item_id] || "Untitled draft",
+      title: dropTitle(d),
       promoted: !d.promo_opt_out && (d.promo_rate_pct ?? 0) > 0,
+      health: healthById.get(d.id) ?? "scheduled",
+      healthNote: dropHealthNote(d, healthById.get(d.id) ?? "scheduled"),
     }));
-  }, [openDayNum, view, dropsByDay, titles]);
+  }, [openDayNum, view, dropsByDay, healthById]);
 
   const shiftMonth = (delta: number) => {
-    setView((v) => {
-      const next = new Date(Date.UTC(v.y, v.m + delta, 1));
-      return { y: next.getUTCFullYear(), m: next.getUTCMonth() };
-    });
+    const next = new Date(Date.UTC(view.y, view.m + delta, 1));
+    const y = next.getUTCFullYear();
+    const m = next.getUTCMonth();
+    setView({ y, m });
+    // SD-12: a stale tabstop left no focusable cell in a shorter month.
+    setFocusedDay(defaultFocusDay(y, m));
   };
 
-  const monthCount = useMemo(
+  // SD-13: the month's days, read off the buckets already built, not by
+  // re-deriving every drop's date.
+  const monthDays = useMemo(
     () =>
-      drops.filter((d) => {
-        const { y, m } = zoneYmd(d.scheduled_publish_at, timeZone);
-        return y === view.y && m === view.m + 1;
-      }).length,
-    [drops, timeZone, view],
+      [...dropsByDay.keys()]
+        .map((k) => k.split("-").map(Number) as [number, number, number])
+        .filter(([y, m]) => y === view.y && m === view.m + 1)
+        .map(([, , d]) => d)
+        .sort((a, b) => a - b),
+    [dropsByDay, view],
+  );
+  const monthCount = monthDays.reduce(
+    (n, d) => n + (dropsByDay.get(`${view.y}-${view.m + 1}-${d}`)?.length ?? 0),
+    0,
+  );
+
+  const timeOf = (d: ScheduledDropRow) => formatTimeInZone(d.scheduled_publish_at, timeZone);
+
+  // SD-12: a day cell's accessible name says what a sighted seller reads off
+  // it: the weekday, whether it is today, how many drops, the first one, and
+  // anything promoted or stuck.
+  const cellLabel = (day: number, isToday: boolean, dayDrops: ScheduledDropRow[]) => {
+    const weekday = WEEKDAY_NAMES[new Date(Date.UTC(view.y, view.m, day)).getUTCDay()];
+    const parts = [`${weekday}, ${MONTH_NAMES[view.m]} ${day}${isToday ? ", today" : ""}`];
+    const count = `${dayDrops.length} drop${dayDrops.length === 1 ? "" : "s"}`;
+    const first = dayDrops[0];
+    const promoted = dayDrops.filter(isPromoted).length;
+    return (
+      `${parts[0]}: ${count}` +
+      (first ? `, first at ${timeOf(first)}, ${titleOf(first)}` : "") +
+      (promoted > 0 ? `, ${promoted} promoted` : "") +
+      healthSummary(dayDrops.map(healthOf))
+    );
+  };
+
+  // One row of the Past-due and Upcoming lists.
+  const dropListRow = (d: ScheduledDropRow) => (
+    <Link
+      key={d.id}
+      to={`/dashboard/flipdesk/items/${d.inventory_item_id}/draft`}
+      className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm hover:bg-muted/50"
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <DropHealthTag health={healthOf(d)} className="text-xs" />
+        <span className="truncate font-medium">{titleOf(d)}</span>
+        {isPromoted(d) && (
+          <Badge variant="outline" className="shrink-0 gap-1 text-[10px]">
+            <Megaphone className="h-3 w-3" />
+            {d.promo_rate_pct}% ad
+          </Badge>
+        )}
+      </span>
+      <span className="shrink-0 text-xs text-muted-foreground">
+        {formatInZone(d.scheduled_publish_at, timeZone)}
+      </span>
+    </Link>
   );
 
   const tzOptions = COMMON_TIMEZONES.some((t) => t.id === timeZone)
@@ -303,6 +449,22 @@ export function FlipdeskScheduledDropsPage() {
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {isWide && (
+                <div className="flex items-center gap-1" role="group" aria-label="Layout">
+                  {(["month", "agenda"] as const).map((l) => (
+                    <Button
+                      key={l}
+                      variant={layout === l ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-8"
+                      aria-pressed={layout === l}
+                      onClick={() => chooseLayout(l)}
+                    >
+                      {l === "month" ? "Month" : "Agenda"}
+                    </Button>
+                  ))}
+                </div>
+              )}
               <Select value={timeZone} onValueChange={setTimeZone}>
                 <SelectTrigger className="h-8 w-[15rem] text-xs" aria-label="Time zone">
                   <SelectValue placeholder="Timezone" />
@@ -330,9 +492,11 @@ export function FlipdeskScheduledDropsPage() {
                   size="sm"
                   className="h-8"
                   onClick={() => {
-                    const now = new Date();
-                    const { y, m } = zoneYmd(now.toISOString(), timeZone);
-                    setView({ y, m: m - 1 });
+                    const { year, month, day } = zoneCalendarDate(new Date(), timeZone);
+                    setView({ y: year, m: month - 1 });
+                    // SD-12: Today moves the tabstop and focus to today.
+                    setFocusedDay(day);
+                    moveFocusRef.current = true;
                   }}
                 >
                   Today
@@ -351,13 +515,13 @@ export function FlipdeskScheduledDropsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {isError || titlesError ? (
+          {isError ? (
             <ErrorState
               title="Couldn't load scheduled drops"
-              onRetry={() => Promise.all([refetch(), reloadTitles()])}
+              onRetry={() => refetch()}
               retrying={isFetching}
             />
-          ) : isLoading || titlesLoading ? (
+          ) : isLoading ? (
             <div className="flex h-64 items-center justify-center">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
             </div>
@@ -369,141 +533,279 @@ export function FlipdeskScheduledDropsPage() {
             />
           ) : (
             <>
-              {/* US-2522: a real grid — announced as one, traversable with
-                  the arrow keys, and every day cell opens its own drops rather
-                  than only linking away to a draft. */}
-              <div
-                role="grid"
-                // The grid itself is never the focus target — one cell holds the
-                // roving tabstop — but a role=grid that handles keys has to be
-                // focusable for the handler to be reachable at all.
-                tabIndex={-1}
-                aria-label={`Scheduled drops for ${MONTH_NAMES[view.m]} ${view.y}`}
-                className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border bg-border text-center text-xs font-medium text-muted-foreground"
-                onKeyDown={onGridKeyDown}
-              >
-                <div role="row" className="contents">
-                  {WEEKDAYS.map((w) => (
-                    <div key={w} role="columnheader" className="bg-muted/50 py-1.5">
-                      {w}
+              {/* SD-4: stuck drops lead the page instead of hiding among
+                  healthy chips until they vanish. */}
+              {needsAttention.length > 0 && (
+                <section
+                  aria-labelledby="drops-attention-heading"
+                  className="mb-4 rounded-lg border border-brand-red/40 p-3"
+                >
+                  <h2
+                    id="drops-attention-heading"
+                    className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-brand-red-text"
+                  >
+                    <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                    Needs attention ({needsAttention.length})
+                  </h2>
+                  <ul className="space-y-1.5" data-testid="drops-attention-list">
+                    {needsAttention.map((d) => (
+                      <li key={d.id} className="text-sm">
+                        <Link
+                          to={`/dashboard/flipdesk/items/${d.inventory_item_id}/draft`}
+                          className="flex flex-wrap items-baseline gap-x-2 hover:underline"
+                        >
+                          <DropHealthTag health={healthOf(d)} className="text-xs" />
+                          <span className="font-medium">{titleOf(d)}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatInZone(d.scheduled_publish_at, timeZone)}
+                          </span>
+                        </Link>
+                        {dropHealthNote(d, healthOf(d)) && (
+                          <p className="text-xs text-muted-foreground">
+                            {dropHealthNote(d, healthOf(d))}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {/* SD-15: the seller's own best hours, not a fixed peak list. */}
+              {bestSlots !== undefined && (
+                <section
+                  aria-labelledby="drops-best-hours-heading"
+                  className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs"
+                  data-testid="drops-best-hours"
+                >
+                  <h2 id="drops-best-hours-heading" className="text-sm font-semibold">
+                    Your best hours
+                  </h2>
+                  {bestSlots === null ? (
+                    <span className="text-muted-foreground">
+                      Not enough sales yet; using standard peak times.
+                    </span>
+                  ) : (
+                    bestSlots.map((slot) => (
+                      <span key={slot.id} title={slot.hint}>
+                        <span className="font-medium">{slot.label}</span>{" "}
+                        <span className="text-muted-foreground">({slot.hint})</span>
+                      </span>
+                    ))
+                  )}
+                </section>
+              )}
+
+              {showAgenda ? (
+                // SD-13: below sm the 7-column grid leaves each cell ~45px and
+                // every title an ellipsis. The agenda is the same month's
+                // drops, day by day, full width.
+                <div data-testid="drops-agenda" className="space-y-4">
+                  {monthDays.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      No drops in {MONTH_NAMES[view.m]} {view.y}.
+                    </p>
+                  )}
+                  {monthDays.map((day) => {
+                    const dayDrops = dropsByDay.get(`${view.y}-${view.m + 1}-${day}`) ?? [];
+                    const isToday =
+                      today.y === view.y && today.m === view.m + 1 && today.d === day;
+                    const weekday =
+                      WEEKDAY_NAMES[new Date(Date.UTC(view.y, view.m, day)).getUTCDay()];
+                    return (
+                      <section key={day} aria-label={`${weekday}, ${MONTH_NAMES[view.m]} ${day}`}>
+                        <h3 className="sticky top-0 z-10 bg-background py-1">
+                          <button
+                            type="button"
+                            onClick={() => openDay(day)}
+                            className="flex w-full items-center justify-between gap-2 text-left text-sm font-semibold"
+                          >
+                            <span>
+                              {weekday}, {MONTH_NAMES[view.m]} {day}
+                              {isToday && (
+                                <span className="ml-2 rounded-full bg-brand-navy px-1.5 text-xs text-white">
+                                  Today
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-xs font-normal text-muted-foreground">
+                              {dayDrops.length} drop{dayDrops.length === 1 ? "" : "s"}
+                            </span>
+                          </button>
+                        </h3>
+                        <ul className="space-y-1.5">
+                          {dayDrops.map((d) => (
+                            <li key={d.id}>
+                              <button
+                                type="button"
+                                onClick={() => openDay(day)}
+                                className="flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm hover:bg-muted/50"
+                              >
+                                <span className="flex min-w-0 items-center gap-2">
+                                  <DropHealthTag health={healthOf(d)} className="text-xs" />
+                                  {isPromoted(d) && (
+                                    <Megaphone className="h-3.5 w-3.5 shrink-0 text-brand-red-text" />
+                                  )}
+                                  <span className="truncate font-medium">{titleOf(d)}</span>
+                                </span>
+                                <span className="shrink-0 text-xs text-muted-foreground">
+                                  {timeOf(d)} · {fmtMoney(d.listing_price)}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    );
+                  })}
+                </div>
+              ) : (
+                /* US-2522: a real grid, announced as one, traversable with
+                    the arrow keys, and every day cell opens its own drops rather
+                    than only linking away to a draft. */
+                <div
+                  role="grid"
+                  // The grid itself is never the focus target (one cell holds the
+                  // roving tabstop), but a role=grid that handles keys has to be
+                  // focusable for the handler to be reachable at all.
+                  tabIndex={-1}
+                  aria-label={`Scheduled drops for ${MONTH_NAMES[view.m]} ${view.y}`}
+                  className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border bg-border text-center text-xs font-medium text-muted-foreground"
+                  onKeyDown={onGridKeyDown}
+                >
+                  <div role="row" className="contents">
+                    {WEEKDAYS.map((w) => (
+                      <div key={w} role="columnheader" className="bg-muted/50 py-1.5">
+                        {w}
+                      </div>
+                    ))}
+                  </div>
+                  {weeks.map((week, w) => (
+                    <div key={`week-${w}`} role="row" className="contents">
+                      {week.map((cell, i) => {
+                        if (!cell) {
+                          return (
+                            <div
+                              key={`blank-${w}-${i}`}
+                              role="presentation"
+                              className="min-h-[6rem] bg-background"
+                            />
+                          );
+                        }
+                        const dayDrops = dropsByDay.get(cell.key) ?? [];
+                        const isToday =
+                          today.y === view.y &&
+                          today.m === view.m + 1 &&
+                          today.d === cell.day;
+                        const shown = dayDrops.slice(0, VISIBLE_PER_DAY);
+                        const hidden = dayDrops.length - shown.length;
+                        return (
+                          <div
+                            key={cell.key}
+                            role="gridcell"
+                            aria-label={cellLabel(cell.day, isToday, dayDrops)}
+                            aria-current={isToday ? "date" : undefined}
+                            data-day={cell.day}
+                            tabIndex={cell.day === tabDay ? 0 : -1}
+                            ref={(el) => {
+                              if (cell.day === tabDay) focusedCellRef.current = el;
+                            }}
+                            onClick={() => dayDrops.length > 0 && openDay(cell.day)}
+                            onKeyDown={(e) => {
+                              if ((e.key === "Enter" || e.key === " ") && dayDrops.length > 0) {
+                                e.preventDefault();
+                                openDay(cell.day);
+                              }
+                            }}
+                            className={cn(
+                              "min-h-[6rem] bg-background p-1 text-left align-top focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
+                              dayDrops.length > 0 && "cursor-pointer hover:bg-muted/40",
+                              isToday && "ring-1 ring-inset ring-brand-navy",
+                            )}
+                          >
+                            <div className="mb-1 text-[11px] font-semibold">
+                              {/* SD-12: today is a navy pill; red is kept for
+                                  drops that need attention. */}
+                              <span
+                                className={cn(
+                                  isToday
+                                    ? "inline-block rounded-full bg-brand-navy px-1.5 text-white"
+                                    : "text-muted-foreground",
+                                )}
+                              >
+                                {cell.day}
+                              </span>
+                            </div>
+                            <div className="space-y-1">
+                              {shown.map((d) => (
+                                <div
+                                  key={d.id}
+                                  data-health={healthOf(d)}
+                                  className={cn(
+                                    "rounded px-1.5 py-1 text-[11px] leading-tight",
+                                    dropNeedsAttention(healthOf(d))
+                                      ? "bg-brand-red/10"
+                                      : "bg-brand-navy/5",
+                                  )}
+                                  title={titleOf(d)}
+                                >
+                                  <DropHealthTag health={healthOf(d)} className="block" />
+                                  <span className="flex items-center gap-1 font-medium text-brand-navy dark:text-blue-300">
+                                    {isPromoted(d) && (
+                                      <Megaphone className="h-3 w-3 shrink-0 text-brand-red-text" />
+                                    )}
+                                    <span className="truncate">{titleOf(d)}</span>
+                                  </span>
+                                  <span className="text-muted-foreground">
+                                    {timeOf(d)}
+                                    {" · "}
+                                    {fmtMoney(d.listing_price)}
+                                  </span>
+                                </div>
+                              ))}
+                              {/* US-2522: a busy day used to render every drop and
+                                  grow the row past the fold. */}
+                              {hidden > 0 && (
+                                <span className="block px-1.5 text-[11px] font-medium text-muted-foreground underline-offset-2 hover:underline">
+                                  +{hidden} more
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   ))}
                 </div>
-                {grid.map((cell, i) => {
-                  if (!cell) {
-                    return (
-                      <div
-                        key={`blank-${i}`}
-                        role="gridcell"
-                        aria-hidden="true"
-                        className="min-h-[6rem] bg-background"
-                      />
-                    );
-                  }
-                  const dayDrops = dropsByDay.get(cell.key) ?? [];
-                  const isToday =
-                    today.y === view.y &&
-                    today.m === view.m + 1 &&
-                    today.d === cell.day;
-                  const shown = dayDrops.slice(0, VISIBLE_PER_DAY);
-                  const hidden = dayDrops.length - shown.length;
-                  return (
-                    <div
-                      key={cell.key}
-                      role="gridcell"
-                      aria-label={`${MONTH_NAMES[view.m]} ${cell.day}: ${dayDrops.length} drop${dayDrops.length === 1 ? "" : "s"}`}
-                      data-day={cell.day}
-                      tabIndex={cell.day === focusedDay ? 0 : -1}
-                      ref={(el) => {
-                        if (cell.day === focusedDay) focusedCellRef.current = el;
-                      }}
-                      onClick={() => dayDrops.length > 0 && openDay(cell.day)}
-                      onKeyDown={(e) => {
-                        if ((e.key === "Enter" || e.key === " ") && dayDrops.length > 0) {
-                          e.preventDefault();
-                          openDay(cell.day);
-                        }
-                      }}
-                      className={cn(
-                        "min-h-[6rem] bg-background p-1 text-left align-top focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
-                        dayDrops.length > 0 && "cursor-pointer hover:bg-muted/40",
-                        isToday && "ring-1 ring-inset ring-brand-red",
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "mb-1 text-[11px] font-semibold",
-                          isToday ? "text-brand-red-text" : "text-muted-foreground",
-                        )}
-                      >
-                        {cell.day}
-                      </div>
-                      <div className="space-y-1">
-                        {shown.map((d) => (
-                          <div
-                            key={d.id}
-                            className="rounded bg-brand-navy/5 px-1.5 py-1 text-[11px] leading-tight"
-                            title={titleOf(d)}
-                          >
-                            <span className="flex items-center gap-1 font-medium text-brand-navy dark:text-blue-300">
-                              {isPromoted(d) && (
-                                <Megaphone className="h-3 w-3 shrink-0 text-brand-red-text" />
-                              )}
-                              <span className="truncate">{titleOf(d)}</span>
-                            </span>
-                            <span className="text-muted-foreground">
-                              {new Intl.DateTimeFormat("en-US", {
-                                timeZone,
-                                hour: "numeric",
-                                minute: "2-digit",
-                              }).format(new Date(d.scheduled_publish_at))}
-                              {" · "}
-                              {fmtMoney(d.listing_price)}
-                            </span>
-                          </div>
-                        ))}
-                        {/* US-2522: a busy day used to render every drop and
-                            grow the row past the fold. */}
-                        {hidden > 0 && (
-                          <span className="block px-1.5 text-[11px] font-medium text-muted-foreground underline-offset-2 hover:underline">
-                            +{hidden} more
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+              )}
+              {/* SD-12: say which month PageUp/PageDown landed on. */}
+              <div aria-live="polite" className="sr-only">
+                {MONTH_NAMES[view.m]} {view.y}
               </div>
 
+              {/* SD-4: past-due and mid-publish drops get their own heading,
+                  so "Upcoming" means what it says. */}
+              {pastDrops.length > 0 && (
+                <div className="mt-6">
+                  <h2 className="mb-2 text-sm font-semibold">Past due / publishing</h2>
+                  <div className="space-y-1.5" data-testid="drops-past-list">
+                    {pastDrops.map(dropListRow)}
+                  </div>
+                </div>
+              )}
 
-              {/* Upcoming list — a chronological companion to the grid. */}
+              {/* Upcoming list, a chronological companion to the grid. */}
               <div className="mt-6">
                 <h2 className="mb-2 text-sm font-semibold">Upcoming</h2>
-                <div className="space-y-1.5">
-                  {(showAllUpcoming ? drops : drops.slice(0, UPCOMING_PREVIEW)).map((d) => (
-                    <Link
-                      key={d.id}
-                      to={`/dashboard/flipdesk/items/${d.inventory_item_id}/draft`}
-                      className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm hover:bg-muted/50"
-                    >
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate font-medium">{titleOf(d)}</span>
-                        {isPromoted(d) && (
-                          <Badge variant="outline" className="shrink-0 gap-1 text-[10px]">
-                            <Megaphone className="h-3 w-3" />
-                            {d.promo_rate_pct}% ad
-                          </Badge>
-                        )}
-                      </span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatInZone(d.scheduled_publish_at, timeZone)}
-                      </span>
-                    </Link>
-                  ))}
+                {upcomingDrops.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Nothing else queued.</p>
+                )}
+                <div className="space-y-1.5" data-testid="drops-upcoming-list">
+                  {(showAllUpcoming ? upcomingDrops : upcomingDrops.slice(0, UPCOMING_PREVIEW)).map(dropListRow)}
                 </div>
                 {/* US-2522: the list stopped dead at 12 with nothing saying
                     so, on the surface whose job is telling you what is queued. */}
-                {drops.length > UPCOMING_PREVIEW && (
+                {upcomingDrops.length > UPCOMING_PREVIEW && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -512,7 +814,7 @@ export function FlipdeskScheduledDropsPage() {
                   >
                     {showAllUpcoming
                       ? "Show fewer"
-                      : `Show all ${drops.length}`}
+                      : `Show all ${upcomingDrops.length}`}
                   </Button>
                 )}
               </div>
@@ -524,11 +826,15 @@ export function FlipdeskScheduledDropsPage() {
       {/* US-2522: reschedule, unschedule and shift a whole day, without
           opening a single draft. */}
       <DropDayDialog
-        open={openDayNum != null}
-        onOpenChange={(o) => !o && setOpenDayNum(null)}
-        dayLabel={`${MONTH_NAMES[view.m]} ${openDayNum}, ${view.y}`}
+        open={dayOpen && openDayNum != null}
+        onOpenChange={setDayOpen}
+        dayLabel={
+          openDayNum == null ? "" : `${MONTH_NAMES[view.m]} ${openDayNum}, ${view.y}`
+        }
         drops={openDayDrops}
         timeZone={timeZone}
+        onDayChange={goToDay}
+        suggestedStart={suggestedStart}
       />
     </div>
   );

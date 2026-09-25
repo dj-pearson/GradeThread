@@ -1,10 +1,16 @@
 import { CalendarClock } from "lucide-react";
 import {
   dropsDueWithin,
+  dropTitle,
   DROPS_WINDOW_DAYS,
   useScheduledDrops,
 } from "@/hooks/use-scheduled-drops";
-import { detectTimezone, formatInZone } from "@/lib/scheduling";
+import {
+  detectTimezone,
+  dropHealth,
+  dropNeedsAttention,
+  formatInZone,
+} from "@/lib/scheduling";
 import {
   StatTile,
   StatTileSkeleton,
@@ -37,22 +43,31 @@ export function FlipdeskScheduledDropsWidget() {
     );
   }
 
-  const due = dropsDueWithin(data?.rows ?? []);
+  const rows = data?.rows ?? [];
+  const due = dropsDueWithin(rows);
   const next = due[0];
-  const title = next
-    ? next.listing_title?.trim() || "Untitled draft"
-    : null;
+  const title = next ? dropTitle(next) : null;
+  // SD-9: dropsDueWithin skips anything already past, so a seller whose only
+  // drops were stuck used to read "Nothing queued". Stuck drops say so first.
+  const now = Date.now();
+  const stuck = rows.filter((r) => dropNeedsAttention(dropHealth(r, now))).length;
+  const nextLine = next
+    ? `${title} at ${formatInZone(next.scheduled_publish_at, detectTimezone())}`
+    : `Nothing queued for the next ${DROPS_WINDOW_DAYS} days`;
+  const parts = [
+    stuck > 0
+      ? `${stuck} drop${stuck === 1 ? " needs" : "s need"} attention`
+      : null,
+    stuck > 0 && !next ? null : nextLine,
+    data?.truncated ? `Showing the first ${data.limit}.` : null,
+  ].filter(Boolean);
 
   return (
     <StatTile
       label="Scheduled drops"
       icon={<CalendarClock className="h-5 w-5" />}
       value={due.length.toLocaleString()}
-      sub={
-        next
-          ? `${title} at ${formatInZone(next.scheduled_publish_at, detectTimezone())}`
-          : `Nothing queued for the next ${DROPS_WINDOW_DAYS} days`
-      }
+      sub={parts.join(". ")}
       to="/dashboard/flipdesk/scheduled-drops"
     />
   );

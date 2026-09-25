@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchCapped } from "@/lib/paged-read";
+import {
+  assertFutureDrop,
+  dropHealth,
+  PUBLISH_CLAIM_STALE_MS,
+  shiftInZone,
+  type DropShift,
+} from "@/lib/scheduling";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -38,6 +45,59 @@ export interface ScheduledDropRow {
   scheduled_publish_at: string;
   promo_opt_out: boolean | null;
   promo_rate_pct: number | null;
+  // SD-3: what the publish-due cron has done with the row so far. Without
+  // these a drop failing its fourth attempt looked like a fresh one.
+  publish_error: string | null;
+  publish_failed_at: string | null;
+  publish_attempts: number | null;
+  publish_claimed_at: string | null;
+  synced_to_ebay_at: string | null;
+  /**
+   * SD-8: the inventory item's title, embedded in the same read. It used to
+   * come from a second, chunked query that waited on this one and swapped the
+   * whole calendar for a spinner every time it re-keyed.
+   */
+  item_title: string | null;
+}
+
+/** Columns the drops read asks for. Exported so a test can pin them. */
+export const SCHEDULED_DROPS_SELECT =
+  "id, inventory_item_id, listing_title, listing_price, scheduled_publish_at, promo_opt_out, promo_rate_pct, publish_error, publish_failed_at, publish_attempts, publish_claimed_at, synced_to_ebay_at, inventory_items(title)";
+
+type RawDropRow = Omit<ScheduledDropRow, "item_title"> & {
+  inventory_items?: { title: string | null } | { title: string | null }[] | null;
+};
+
+/** Flatten the embedded item into `item_title`. */
+function toDropRow({ inventory_items: item, ...rest }: RawDropRow): ScheduledDropRow {
+  const embedded = Array.isArray(item) ? item[0] : item;
+  return { ...rest, item_title: embedded?.title ?? null };
+}
+
+/** The name a drop goes by: its listing title, else its item's, else a placeholder. */
+export function dropTitle(row: Pick<ScheduledDropRow, "listing_title" | "item_title">): string {
+  return row.listing_title?.trim() || row.item_title?.trim() || "Untitled draft";
+}
+
+/** SD-9: how often an open page re-reads, and faster while the cron is busy. */
+export const DROPS_REFETCH_MS = 60_000;
+export const DROPS_REFETCH_BUSY_MS = 20_000;
+
+/**
+ * Re-read every 20s while any drop is publishing or due within ten minutes
+ * either side of now, else every minute. The cron runs every five minutes, so
+ * a page left open used to show drops it had already published or failed.
+ */
+export function dropsRefetchInterval(
+  rows: readonly ScheduledDropRow[] | undefined,
+  now: number = Date.now(),
+): number {
+  const busy = (rows ?? []).some((r) => {
+    if (dropHealth(r, now) === "publishing") return true;
+    const t = Date.parse(r.scheduled_publish_at);
+    return Number.isFinite(t) && Math.abs(t - now) <= PUBLISH_CLAIM_STALE_MS;
+  });
+  return busy ? DROPS_REFETCH_BUSY_MS : DROPS_REFETCH_MS;
 }
 
 /**
@@ -54,19 +114,22 @@ export function useScheduledDrops() {
     queryKey: [SCHEDULED_DROPS_KEY, user?.id],
     enabled: !!user,
     staleTime: 30_000,
+    // Visible tab only, the same posture as the Best Offers inbox (use-ebay.ts).
+    refetchInterval: (query) => dropsRefetchInterval(query.state.data?.rows),
+    refetchIntervalInBackground: false,
     queryFn: () =>
       fetchCapped<ScheduledDropRow>(async (limit) => {
         const { data, error } = await supabase
           .from("listings")
-          .select(
-            "id, inventory_item_id, listing_title, listing_price, scheduled_publish_at, promo_opt_out, promo_rate_pct",
-          )
+          // No platform filter: the cron has none, so adding one here would
+          // hide drafts it will really publish.
+          .select(SCHEDULED_DROPS_SELECT)
           .eq("listing_status", "draft")
           .not("scheduled_publish_at", "is", null)
           .order("scheduled_publish_at", { ascending: true })
           .limit(limit);
         if (error) throw error;
-        return (data ?? []) as ScheduledDropRow[];
+        return ((data ?? []) as unknown as RawDropRow[]).map(toDropRow);
       }),
   });
 }
@@ -108,21 +171,63 @@ function useInvalidateDrops() {
   };
 }
 
+/**
+ * SD-1: an UPDATE that matched no row. PostgREST answers a filtered update that
+ * hits nothing with 200 and no error, so without `.select()` a drop the cron
+ * already published, or a row RLS hides from a viewer or member, read as
+ * "moved" when nothing was written.
+ */
+export class DropNotChangedError extends Error {
+  constructor(message = "This drop already went live, or you cannot edit it.") {
+    super(message);
+    this.name = "DropNotChangedError";
+  }
+}
+
+/**
+ * SD-2: a write that would put a drop in the past, where the 5-minute cron
+ * publishes it at the next tick. Checked inside the mutations so no caller can
+ * publish a drop early by accident, whatever the UI in front of it checked.
+ */
+export class DropInPastError extends Error {
+  constructor(message = "That time has passed. Pick a later time.") {
+    super(message);
+    this.name = "DropInPastError";
+  }
+}
+
+function assertFutureOrThrow(iso: string): void {
+  const check = assertFutureDrop(iso);
+  if (!check.ok) throw new DropInPastError(check.reason);
+}
+
+/**
+ * Write one row's schedule and say whether it changed. Only a draft is
+ * schedulable, so a published listing that somehow still carried a schedule
+ * must not be moved by this surface.
+ */
+async function writeDropTime(id: string, at: string | null): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("listings")
+    .update({ scheduled_publish_at: at } as never)
+    .eq("id", id)
+    .eq("listing_status", "draft")
+    .select("id");
+  if (error) throw error;
+  return Array.isArray(data) && data.length > 0;
+}
+
 /** Move one drop to a new instant. */
 export function useRescheduleDrop() {
   const invalidate = useInvalidateDrops();
   return useMutation({
     mutationFn: async ({ id, at }: { id: string; at: string }) => {
-      const { error } = await supabase
-        .from("listings")
-        .update({ scheduled_publish_at: at } as never)
-        .eq("id", id)
-        // Only a draft is schedulable. A published listing that somehow still
-        // carried a schedule must not be moved by this surface.
-        .eq("listing_status", "draft");
-      if (error) throw error;
+      assertFutureOrThrow(at);
+      if (!(await writeDropTime(id, at))) throw new DropNotChangedError();
     },
-    onSuccess: invalidate,
+    // onSettled, not onSuccess: a rejected write still means the rows on
+    // screen may be stale (the cron published it, for one).
+    onSettled: invalidate,
   });
 }
 
@@ -131,47 +236,129 @@ export function useCancelDrop() {
   const invalidate = useInvalidateDrops();
   return useMutation({
     mutationFn: async ({ id }: { id: string }) => {
-      const { error } = await supabase
-        .from("listings")
-        .update({ scheduled_publish_at: null } as never)
-        .eq("id", id)
-        .eq("listing_status", "draft");
-      if (error) throw error;
+      if (!(await writeDropTime(id, null))) throw new DropNotChangedError();
     },
-    onSuccess: invalidate,
+    onSettled: invalidate,
   });
 }
 
+/** What a multi-row write actually did, row by row. */
+export interface DropBatchResult {
+  moved: number;
+  unchanged: number;
+  failed: number;
+  /** The ids that really moved, so an undo touches only those. */
+  movedIds: string[];
+}
+
 /**
- * Shift a set of drops by the same number of minutes, keeping their order and
- * the gaps between them. Each row moves relative to ITS OWN time, so a day's
- * staggered drops stay staggered.
+ * Write each row's new instant and count what really changed. Every target is
+ * checked BEFORE any write, so a refused batch leaves the day exactly as it
+ * was rather than half moved. Sequential so a partial failure leaves a
+ * readable count behind.
+ */
+async function writeBatch(assignments: { id: string; at: string }[]): Promise<DropBatchResult> {
+  for (const a of assignments) assertFutureOrThrow(a.at);
+  const result: DropBatchResult = { moved: 0, unchanged: 0, failed: 0, movedIds: [] };
+  for (const a of assignments) {
+    try {
+      if (await writeDropTime(a.id, a.at)) {
+        result.moved += 1;
+        result.movedIds.push(a.id);
+      } else {
+        result.unchanged += 1;
+      }
+    } catch {
+      result.failed += 1;
+    }
+  }
+  return result;
+}
+
+/**
+ * Shift a set of drops by the same amount, keeping their order and the gaps
+ * between them. Each row moves relative to ITS OWN time, so a day's staggered
+ * drops stay staggered. Whole days move on the wall clock in `timeZone`
+ * (SD-6), so a 7:00 PM drop stays at 7:00 PM across a DST change.
  */
 export function useShiftDrops() {
   const invalidate = useInvalidateDrops();
   return useMutation({
     mutationFn: async ({
       drops,
-      minutes,
+      shift,
+      timeZone,
     }: {
       drops: { id: string; scheduled_publish_at: string }[];
-      minutes: number;
-    }) => {
+      shift: DropShift;
+      timeZone: string;
+    }): Promise<DropBatchResult> => {
       // One UPDATE per row: they all move to DIFFERENT times, so there is no
-      // single-statement version of this. Sequential rather than parallel —
-      // a burst of writes on the same table is what the rate limiter is for.
-      for (const d of drops) {
-        const next = new Date(
-          new Date(d.scheduled_publish_at).getTime() + minutes * 60_000,
-        ).toISOString();
-        const { error } = await supabase
-          .from("listings")
-          .update({ scheduled_publish_at: next } as never)
-          .eq("id", d.id)
-          .eq("listing_status", "draft");
-        if (error) throw error;
-      }
+      // single-statement version of this. These are direct PostgREST writes
+      // under the caller's RLS; they never pass through the edge rate limiter.
+      const planned = drops.map((d) => ({
+        id: d.id,
+        next: shiftInZone(d.scheduled_publish_at, timeZone, shift),
+      }));
+      return writeBatch(planned.map((p) => ({ id: p.id, at: p.next })));
     },
-    onSuccess: invalidate,
+    onSettled: invalidate,
+  });
+}
+
+/**
+ * SD-14: give each drop its own new instant (a spread across time slots).
+ *
+ * The same per-row path as a shift: every target is checked against the cron's
+ * five-minute window before anything is written, and rows that change nothing
+ * are counted rather than reported as moved. Not atomic; a one-transaction
+ * version needs an RPC and a migration, and is deferred.
+ */
+export function useSpreadDrops() {
+  const invalidate = useInvalidateDrops();
+  return useMutation({
+    mutationFn: async ({
+      assignments,
+    }: {
+      assignments: { id: string; at: string }[];
+    }): Promise<DropBatchResult> => writeBatch(assignments),
+    onSettled: invalidate,
+  });
+}
+
+/** SD-15: how far back the best-hours hint looks. */
+export const BEST_HOURS_LOOKBACK_DAYS = 180;
+
+/**
+ * When the seller's own sales happened, newest first, over the last 180 days:
+ * the input to bestDropSlots. RLS scopes the read; the owner filter keeps a
+ * workspace member on the owner's sales, like the planner's sales read.
+ * Capped with fetchCapped: 500 recent sales is plenty to find an hour, and
+ * the hint says only what the rows say.
+ */
+export function useSalesHourOfWeek() {
+  const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId ?? s.user?.id ?? null);
+  return useQuery({
+    queryKey: ["drops_best_hours", ownerId],
+    enabled: !!ownerId,
+    staleTime: 30 * 60_000,
+    queryFn: () =>
+      fetchCapped<string>(async (limit) => {
+        const since = new Date(
+          Date.now() - BEST_HOURS_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
+        ).toISOString();
+        const { data, error } = await supabase
+          .from("sales")
+          .select("sold_at")
+          .eq("user_id", ownerId!)
+          .eq("status", "completed")
+          .gte("sold_at", since)
+          .order("sold_at", { ascending: false })
+          .limit(limit);
+        if (error) throw error;
+        return ((data ?? []) as Array<Record<string, unknown>>)
+          .map((r) => r.sold_at)
+          .filter((v): v is string => typeof v === "string");
+      }),
   });
 }

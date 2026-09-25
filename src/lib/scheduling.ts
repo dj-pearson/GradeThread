@@ -58,21 +58,69 @@ export const COMMON_TIMEZONES: { id: string; label: string }[] = [
   { id: "UTC", label: "UTC" },
 ];
 
+// SD-13: one Intl.DateTimeFormat per (kind, zone). Building one is far from
+// free, and the calendar used to build several per chip on every render.
+export type FormatterKind = "offset" | "date" | "input" | "friendly" | "time";
+
+const FORMATTER_OPTIONS: Record<FormatterKind, { locale: string; options: Intl.DateTimeFormatOptions }> = {
+  offset: {
+    locale: "en-US",
+    options: {
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    },
+  },
+  // en-CA formats as YYYY-MM-DD, which is trivial to split.
+  date: { locale: "en-CA", options: { year: "numeric", month: "2-digit", day: "2-digit" } },
+  input: {
+    locale: "en-CA",
+    options: {
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    },
+  },
+  friendly: {
+    locale: "en-US",
+    options: {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    },
+  },
+  time: { locale: "en-US", options: { hour: "numeric", minute: "2-digit" } },
+};
+
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+/** The shared formatter for `kind` in `timeZone`, built once. */
+export function getFormatter(kind: FormatterKind, timeZone: string): Intl.DateTimeFormat {
+  const key = `${kind}|${timeZone}`;
+  let f = formatterCache.get(key);
+  if (!f) {
+    const { locale, options } = FORMATTER_OPTIONS[kind];
+    f = new Intl.DateTimeFormat(locale, { ...options, timeZone });
+    formatterCache.set(key, f);
+  }
+  return f;
+}
+
 // The offset (zone − UTC) in milliseconds for a given instant in a given zone.
 // Works by formatting the instant *as* the target zone and reading the wall
 // clock back as if it were UTC — the difference is the offset.
 function zoneOffsetMs(instant: Date, timeZone: string): number {
-  const dtf = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  const parts = dtf.formatToParts(instant);
+  const parts = getFormatter("offset", timeZone).formatToParts(instant);
   const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
   const asUtc = Date.UTC(
     get("year"),
@@ -85,9 +133,47 @@ function zoneOffsetMs(instant: Date, timeZone: string): number {
   return asUtc - instant.getTime();
 }
 
+/** How a wall-clock time mapped onto the zone's real clock (SD-7). */
+export type WallTimeAdjustment = "gap" | "overlap" | null;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Wall-clock time in `timeZone` to a UTC instant, saying whether the time fell
+ * in a DST gap or overlap.
+ *
+ * The offsets a day either side of the wall time bracket any one transition,
+ * and each gives a candidate instant; a candidate is real when its own wall
+ * clock reads back as the time asked for. Two real candidates is an overlap
+ * (the fall-back hour happens twice): take the EARLIER, as Temporal does. None
+ * is a gap (the spring-forward hour does not exist): use the pre-transition
+ * offset, which moves the time forward by the gap, Temporal's 'compatible'.
+ * Zones differ in which way a single refinement lands, so this does not rely
+ * on one.
+ */
+export function zonedWallTimeToUtcDetailed(
+  year: number,
+  month: number, // 1-12
+  day: number,
+  hour: number,
+  minute: number,
+  timeZone: string,
+): { date: Date; adjusted: WallTimeAdjustment } {
+  const wallAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const before = wallAsUtc - zoneOffsetMs(new Date(wallAsUtc - DAY_MS), timeZone);
+  const after = wallAsUtc - zoneOffsetMs(new Date(wallAsUtc + DAY_MS), timeZone);
+  const reads = (t: number) => t + zoneOffsetMs(new Date(t), timeZone) === wallAsUtc;
+  const real = [before, after].filter(reads);
+  if (real.length === 2 && real[0] !== real[1]) {
+    return { date: new Date(Math.min(before, after)), adjusted: "overlap" };
+  }
+  if (real.length > 0) return { date: new Date(real[0]!), adjusted: null };
+  return { date: new Date(before), adjusted: "gap" };
+}
+
 /**
  * Convert a wall-clock time *in a specific IANA timezone* into the UTC `Date`
- * it represents. Handles DST by refining the offset once around the boundary.
+ * it represents, DST gaps and overlaps included (see the detailed variant).
  */
 export function zonedWallTimeToUtc(
   year: number,
@@ -97,27 +183,13 @@ export function zonedWallTimeToUtc(
   minute: number,
   timeZone: string,
 ): Date {
-  const wallAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
-  const offset1 = zoneOffsetMs(new Date(wallAsUtc), timeZone);
-  let result = wallAsUtc - offset1;
-  // Re-check the offset at the computed instant; if we crossed a DST boundary
-  // the offset changes, so correct once more.
-  const offset2 = zoneOffsetMs(new Date(result), timeZone);
-  if (offset2 !== offset1) result = wallAsUtc - offset2;
-  return new Date(result);
+  return zonedWallTimeToUtcDetailed(year, month, day, hour, minute, timeZone).date;
 }
 
-// The calendar date (year/month/day) that `instant` falls on in `timeZone`.
-function zoneCalendarDate(instant: Date, timeZone: string): { year: number; month: number; day: number } {
-  // en-CA formats as YYYY-MM-DD, which is trivial to split.
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
-    .format(instant)
-    .split("-");
+// The calendar date (year/month/day, month 1-based) that `instant` falls on in
+// `timeZone`.
+export function zoneCalendarDate(instant: Date, timeZone: string): { year: number; month: number; day: number } {
+  const parts = getFormatter("date", timeZone).format(instant).split("-");
   return { year: Number(parts[0]), month: Number(parts[1]), day: Number(parts[2]) };
 }
 
@@ -152,15 +224,14 @@ export function nextPresetUtc(preset: DropPreset, timeZone: string, from: Date =
 export function formatInZone(iso: string, timeZone: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  }).format(d);
+  return getFormatter("friendly", timeZone).format(d);
+}
+
+/** Just the clock time in a zone, e.g. "7:00 PM"; "-" for junk. */
+export function formatTimeInZone(iso: string, timeZone: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+  return getFormatter("time", timeZone).format(d);
 }
 
 /**
@@ -172,28 +243,306 @@ export function isoToZonedInput(iso: string | null | undefined, timeZone: string
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).formatToParts(d);
+  const parts = getFormatter("input", timeZone).formatToParts(d);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }
 
 /**
  * Inverse of `isoToZonedInput`: a "YYYY-MM-DDTHH:mm" wall-clock value typed in
- * `timeZone` → the UTC ISO string the DB stores. Returns null for empty/invalid.
+ * `timeZone` → the UTC ISO string the DB stores, plus whether the time fell in
+ * a DST gap (moved forward) or overlap (the earlier one taken). Returns null
+ * for empty, malformed or impossible values: 2026-02-30 or 24:00 used to roll
+ * over into the next day silently.
  */
-export function zonedInputToIso(local: string, timeZone: string): string | null {
+export function zonedInputToIsoDetailed(
+  local: string,
+  timeZone: string,
+): { iso: string; adjusted: WallTimeAdjustment } | null {
   if (!local) return null;
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(local);
   if (!match) return null;
-  const [, y, mo, d, h, mi] = match;
-  const utc = zonedWallTimeToUtc(Number(y), Number(mo), Number(d), Number(h), Number(mi), timeZone);
-  return Number.isNaN(utc.getTime()) ? null : utc.toISOString();
+  const [y, mo, d, h, mi] = match.slice(1).map(Number) as [number, number, number, number, number];
+  if (mo < 1 || mo > 12 || h > 23 || mi > 59 || d < 1) return null;
+  const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  if (d > daysInMonth) return null;
+  const { date, adjusted } = zonedWallTimeToUtcDetailed(y, mo, d, h, mi, timeZone);
+  return Number.isNaN(date.getTime()) ? null : { iso: date.toISOString(), adjusted };
+}
+
+/** `zonedInputToIsoDetailed` without the adjustment flag. */
+export function zonedInputToIso(local: string, timeZone: string): string | null {
+  return zonedInputToIsoDetailed(local, timeZone)?.iso ?? null;
+}
+
+// SD-2: the publish-due cron selects `scheduled_publish_at <= now` every five
+// minutes, so a drop moved into the past, or into the next few minutes, goes
+// live on eBay at the next tick. Every write path checks against this lead.
+export const MIN_DROP_LEAD_MS = 5 * 60_000;
+
+export type FutureDropCheck = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Is `iso` far enough ahead to be a schedule rather than a publish-now? Pure,
+ * so the mutation hooks and the dialog ask the same question.
+ */
+export function assertFutureDrop(
+  iso: string,
+  now: number = Date.now(),
+  minLeadMs: number = MIN_DROP_LEAD_MS,
+): FutureDropCheck {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) {
+    return { ok: false, reason: "That is not a valid date and time." };
+  }
+  if (t < now + minLeadMs) {
+    return { ok: false, reason: "That time has passed. Pick a later time." };
+  }
+  return { ok: true };
+}
+
+// -- Publish health (SD-3) ---------------------------------------------------
+//
+// Mirrors of the publish-due cron's own constants. Keep them in step with
+// services/edge-functions/src/lib/publish-due-policy.ts
+// (MAX_SCHEDULED_PUBLISH_ATTEMPTS) and
+// services/edge-functions/src/routes/flipdesk-ebay-publish-due.ts
+// (PUBLISH_CLAIM_STALE_MS); src/lib/scheduling.test.ts reads both files and
+// fails if either number moves.
+
+/** The cron publishes a scheduled draft at most this many times. */
+export const MAX_SCHEDULED_PUBLISH_ATTEMPTS = 5;
+/** A publish claim older than this is stale and the cron may retake the row. */
+export const PUBLISH_CLAIM_STALE_MS = 10 * 60_000;
+
+export type DropHealth = "scheduled" | "publishing" | "retrying" | "overdue" | "blocked";
+
+/** The columns dropHealth reads, so it does not depend on the hook's row type. */
+export interface DropHealthInput {
+  scheduled_publish_at: string;
+  publish_error?: string | null;
+  publish_attempts?: number | null;
+  publish_claimed_at?: string | null;
+  publish_failed_at?: string | null;
+  synced_to_ebay_at?: string | null;
+}
+
+/**
+ * What the cron will do with this drop, read the way the cron reads it:
+ * due is `scheduled_publish_at <= now`, not yet synced, under the attempt cap,
+ * and not held by a fresh claim. No platform filter, because the cron has none.
+ */
+export function dropHealth(row: DropHealthInput, now: number = Date.now()): DropHealth {
+  const attempts = Number(row.publish_attempts ?? 0) || 0;
+  // The cron's scan skips both of these for good; the row will never publish
+  // from its schedule.
+  if (row.synced_to_ebay_at != null || attempts >= MAX_SCHEDULED_PUBLISH_ATTEMPTS) {
+    return "blocked";
+  }
+  const claimed = row.publish_claimed_at ? Date.parse(row.publish_claimed_at) : NaN;
+  // The cron's failure write leaves the claim in place, so a claim is only a
+  // publish in flight when no failure has been stamped since it was taken.
+  // Without this a drop that just failed read "Publishing now" for ten minutes.
+  const failed = row.publish_failed_at ? Date.parse(row.publish_failed_at) : NaN;
+  const attemptFinished = Number.isFinite(failed) && failed >= claimed;
+  if (Number.isFinite(claimed) && now - claimed < PUBLISH_CLAIM_STALE_MS && !attemptFinished) {
+    return "publishing";
+  }
+  if (attempts > 0 && row.publish_error) return "retrying";
+  const at = Date.parse(row.scheduled_publish_at);
+  if (Number.isFinite(at) && now - at > PUBLISH_CLAIM_STALE_MS) return "overdue";
+  return "scheduled";
+}
+
+/** Health states the seller has to act on or at least know about. */
+export function dropNeedsAttention(health: DropHealth): boolean {
+  return health === "overdue" || health === "retrying" || health === "blocked";
+}
+
+/** Short words for each health state; paired with an icon, never color alone. */
+export const DROP_HEALTH_LABEL: Record<DropHealth, string> = {
+  scheduled: "Scheduled",
+  publishing: "Publishing",
+  retrying: "Retrying",
+  overdue: "Overdue",
+  blocked: "Blocked",
+};
+
+/**
+ * One line telling the seller what happened to a drop, or null when nothing
+ * has (a plain scheduled drop needs no note).
+ */
+export function dropHealthNote(
+  row: DropHealthInput,
+  health: DropHealth,
+): string | null {
+  const err = row.publish_error?.trim();
+  const attempts = Number(row.publish_attempts ?? 0) || 0;
+  switch (health) {
+    case "publishing":
+      return "Publishing now.";
+    case "retrying":
+      return `Retrying: attempt ${attempts} of ${MAX_SCHEDULED_PUBLISH_ATTEMPTS}.${err ? ` ${err}` : ""}`;
+    case "overdue":
+      return `Overdue. Did not publish.${err ? ` ${err}` : ""}`;
+    case "blocked":
+      if (row.synced_to_ebay_at != null) {
+        return "Already on eBay, so this schedule will not run.";
+      }
+      return `Stopped after ${MAX_SCHEDULED_PUBLISH_ATTEMPTS} attempts.${err ? ` ${err}` : ""}`;
+    default:
+      return null;
+  }
+}
+
+/** A shift a seller asks for: whole calendar days, clock minutes, or both. */
+export interface DropShift {
+  days?: number;
+  minutes?: number;
+}
+
+/**
+ * Move an instant by `days` calendar days IN `timeZone`, then by `minutes` of
+ * absolute time (SD-6). A day is not 1440 minutes on a DST change night, so
+ * "+1 day" on a 7:00 PM drop has to land on 7:00 PM the next day, not 6 or 8.
+ */
+export function shiftInZone(iso: string, timeZone: string, shift: DropShift): string {
+  const days = shift.days ?? 0;
+  const minutes = shift.minutes ?? 0;
+  let t = Date.parse(iso);
+  if (days !== 0) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(isoToZonedInput(iso, timeZone));
+    if (m) {
+      const [, y, mo, d, h, mi] = m;
+      // Noon-UTC anchor, as in nextPresetUtc, so the calendar arithmetic never
+      // drifts across a DST boundary.
+      const anchor = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d) + days, 12));
+      t = zonedWallTimeToUtc(
+        anchor.getUTCFullYear(),
+        anchor.getUTCMonth() + 1,
+        anchor.getUTCDate(),
+        Number(h),
+        Number(mi),
+        timeZone,
+      ).getTime();
+    }
+  }
+  return new Date(t + minutes * 60_000).toISOString();
+}
+
+// -- Spread (SD-14) ----------------------------------------------------------
+
+/** Intervals offered when spreading a day's drops, in minutes. */
+export const SPREAD_INTERVALS = [5, 10, 15, 30, 60] as const;
+
+/**
+ * `count` instants starting at `startIso`, `intervalMinutes` apart. Absolute
+ * time, so a spread that crosses a DST change keeps its real gaps.
+ */
+export function spreadTimes(count: number, startIso: string, intervalMinutes: number): string[] {
+  const start = Date.parse(startIso);
+  if (!Number.isFinite(start) || count <= 0) return [];
+  return Array.from({ length: count }, (_, i) =>
+    new Date(start + i * intervalMinutes * 60_000).toISOString(),
+  );
+}
+
+export type SpreadOrder = "current" | "price" | "promoted";
+
+export const SPREAD_ORDER_LABEL: Record<SpreadOrder, string> = {
+  current: "Current order",
+  price: "Price, high to low",
+  promoted: "Promoted first",
+};
+
+/**
+ * The order drops take their new slots in. Stable: ties keep their current
+ * (time) order, so re-running a spread never shuffles equal rows.
+ */
+export function orderForSpread<
+  T extends { scheduled_publish_at: string; listing_price: number | null; promoted: boolean },
+>(drops: readonly T[], order: SpreadOrder): T[] {
+  const byTime = [...drops].sort(
+    (a, b) => Date.parse(a.scheduled_publish_at) - Date.parse(b.scheduled_publish_at),
+  );
+  if (order === "price") {
+    return byTime
+      .map((d, i) => ({ d, i }))
+      .sort((a, b) => (b.d.listing_price ?? -1) - (a.d.listing_price ?? -1) || a.i - b.i)
+      .map(({ d }) => d);
+  }
+  if (order === "promoted") {
+    return [...byTime.filter((d) => d.promoted), ...byTime.filter((d) => !d.promoted)];
+  }
+  return byTime;
+}
+
+// -- Best hours from the seller's own sales (SD-15) ---------------------------
+
+/** Below this many timed sales the hour-of-week pattern is noise. */
+export const BEST_HOURS_MIN_SAMPLE = 30;
+
+const WEEKDAY_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function hourLabel(hour: number): string {
+  const h = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h} ${hour < 12 ? "AM" : "PM"}`;
+}
+
+/**
+ * A sale stamped exactly 00:00:00.000 UTC is a calendar day with no time (a
+ * manual sale, or a marketplace that reported only the date). Counting it
+ * would pile every such sale onto one evening hour in US zones.
+ */
+function isDayOnlyStamp(t: number): boolean {
+  return t % 86_400_000 === 0;
+}
+
+/**
+ * The seller's three strongest weekday-hours to drop in, from when their own
+ * sales happened, as DropPreset-shaped slots; null under `minSample` timed
+ * sales. Each hour is smoothed with its neighbours (a 6:55 PM sale says as
+ * much about 7 PM as a 7:05 one), and a slot next to one already picked is
+ * skipped, so the three are three different evenings rather than one.
+ */
+export function bestDropSlots(
+  soldAts: readonly string[],
+  timeZone: string,
+  { minSample = BEST_HOURS_MIN_SAMPLE }: { minSample?: number } = {},
+): DropPreset[] | null {
+  const counts = new Array<number>(7 * 24).fill(0);
+  let sample = 0;
+  for (const iso of soldAts) {
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t) || isDayOnlyStamp(t)) continue;
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})/.exec(isoToZonedInput(iso, timeZone));
+    if (!m) continue;
+    const weekday = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
+    counts[weekday * 24 + Number(m[4])]! += 1;
+    sample += 1;
+  }
+  if (sample < minSample) return null;
+  const at = (i: number) => counts[(i + counts.length) % counts.length]!;
+  const scored = counts
+    .map((n, i) => ({ i, n, score: 2 * n + at(i - 1) + at(i + 1) }))
+    .filter((s) => s.n > 0)
+    .sort((a, b) => b.score - a.score || b.n - a.n || a.i - b.i);
+  const picked: typeof scored = [];
+  for (const s of scored) {
+    if (picked.some((p) => Math.abs(p.i - s.i) <= 1)) continue;
+    picked.push(s);
+    if (picked.length === 3) break;
+  }
+  return picked.map(({ i, n }) => {
+    const weekday = Math.floor(i / 24);
+    const hour = i % 24;
+    return {
+      id: `best-${weekday}-${hour}`,
+      label: `${WEEKDAY_LONG[weekday]} ${hourLabel(hour)}`,
+      weekday,
+      hour,
+      minute: 0,
+      hint: `You sold ${n} item${n === 1 ? "" : "s"} in this hour`,
+    };
+  });
 }
