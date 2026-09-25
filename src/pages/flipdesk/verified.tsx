@@ -52,7 +52,7 @@ type Availability =
   | { state: "error"; reason: string };
 
 export function FlipdeskVerifiedPage() {
-  const { data, isLoading } = useVerifiedProfile();
+  const { data, isLoading, isError, refetch, isFetching } = useVerifiedProfile();
   const update = useUpdateVerifiedProfile();
 
   const [handle, setHandle] = useState("");
@@ -109,13 +109,18 @@ export function FlipdeskVerifiedPage() {
     return () => clearTimeout(t);
   }, [normalizedHandle, savedHandle, handleFormat]);
 
+  // The form only reflects the real profile once it has been seeded from it.
+  // Before that (still loading, or the load failed) a save would write blanks
+  // over the live profile, so nothing may be sent.
   const canSave =
+    seeded.current &&
     !!normalizedHandle &&
     (handleFormat?.ok ?? false) &&
     availability.state !== "checking" &&
     availability.state !== "error";
 
   async function handleSave() {
+    if (!seeded.current) return;
     await update.mutateAsync({
       handle: normalizedHandle,
       display_name: displayName.trim() || null,
@@ -123,14 +128,17 @@ export function FlipdeskVerifiedPage() {
     });
   }
 
+  // The switch sends ONLY the flag. The server falls back to the stored
+  // handle, so a half-typed, unchecked handle in the box is never saved by
+  // flipping this.
+  const handleDirty = !!savedHandle && normalizedHandle !== savedHandle;
+
   async function handleToggle(next: boolean) {
+    if (!seeded.current) return;
     // Reflect immediately; revert on failure.
     setEnabled(next);
     try {
-      await update.mutateAsync({
-        handle: normalizedHandle || undefined,
-        enabled: next,
-      });
+      await update.mutateAsync({ enabled: next });
     } catch {
       setEnabled(!next);
     }
@@ -160,6 +168,27 @@ export function FlipdeskVerifiedPage() {
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-48 w-full" />
         <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="mx-auto w-full max-w-3xl space-y-6 p-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Your Verified profile didn't load.</CardTitle>
+            <CardDescription>
+              Nothing was changed. Try again to load it before you edit anything.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => refetch()} disabled={isFetching}>
+              {isFetching && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -301,18 +330,21 @@ export function FlipdeskVerifiedPage() {
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between rounded-lg border p-4">
             <div className="space-y-0.5">
-              <p className="font-medium">Public profile</p>
-              <p className="text-sm text-muted-foreground">
-                {savedHandle
-                  ? "Your profile is reachable at your handle URL."
-                  : "Save a handle first to enable this."}
+              <p id="public-switch-label" className="font-medium">Public profile</p>
+              <p id="public-switch-hint" className="text-sm text-muted-foreground">
+                {!savedHandle
+                  ? "Save a handle first to enable this."
+                  : handleDirty
+                    ? "Save your handle change first."
+                    : "Your profile is reachable at your handle URL."}
               </p>
             </div>
             <Switch
               checked={enabled}
-              disabled={!savedHandle || update.isPending}
+              disabled={!savedHandle || handleDirty || update.isPending}
               onCheckedChange={handleToggle}
-              aria-label="Toggle public profile"
+              aria-labelledby="public-switch-label"
+              aria-describedby="public-switch-hint"
             />
           </div>
 
@@ -320,8 +352,8 @@ export function FlipdeskVerifiedPage() {
               once the profile is public. */}
           <div className="flex items-center justify-between rounded-lg border p-4">
             <div className="space-y-0.5">
-              <p className="font-medium">Show my listings (storefront)</p>
-              <p className="text-sm text-muted-foreground">
+              <p id="storefront-switch-label" className="font-medium">Show my listings (storefront)</p>
+              <p id="storefront-switch-hint" className="text-sm text-muted-foreground">
                 List your active items on your profile — graded items show their
                 grade and link to the certificate, the rest link to their
                 marketplace listing.
@@ -331,7 +363,8 @@ export function FlipdeskVerifiedPage() {
               checked={showListings}
               disabled={!isLive || update.isPending}
               onCheckedChange={handleShowListingsToggle}
-              aria-label="Toggle storefront listings"
+              aria-labelledby="storefront-switch-label"
+              aria-describedby="storefront-switch-hint"
             />
           </div>
 
@@ -339,8 +372,8 @@ export function FlipdeskVerifiedPage() {
               descriptions. Only meaningful once the profile is public. */}
           <div className="flex items-center justify-between rounded-lg border p-4">
             <div className="space-y-0.5">
-              <p className="font-medium">Add my credentials to listings</p>
-              <p className="text-sm text-muted-foreground">
+              <p id="embed-switch-label" className="font-medium">Add my credentials to listings</p>
+              <p id="embed-switch-hint" className="text-sm text-muted-foreground">
                 Add your Verified badge to every description FlipDesk writes,
                 on eBay and everywhere else. It shows how many grades you have
                 earned, your average, and a link back to this page.
@@ -350,7 +383,8 @@ export function FlipdeskVerifiedPage() {
               checked={embedInListings}
               disabled={!isLive || update.isPending}
               onCheckedChange={handleEmbedInListingsToggle}
-              aria-label="Toggle embedding credentials in listings"
+              aria-labelledby="embed-switch-label"
+              aria-describedby="embed-switch-hint"
             />
           </div>
 
