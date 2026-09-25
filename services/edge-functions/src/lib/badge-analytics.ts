@@ -16,6 +16,7 @@ import {
   isSelfClick,
   SHARE_CLICK_SOURCES,
 } from "./share-to-earn.ts";
+import { canonicalHandle } from "./verified-handle.ts";
 
 // The ?s= sources that represent a genuine click-through to a seller's grade
 // (as opposed to a direct visit). Kept tight so the funnel stays meaningful.
@@ -66,11 +67,15 @@ async function resolveOwner(targetType: BadgeTargetType, targetId: string): Prom
     const row = Array.isArray(sub) ? sub[0] : sub;
     return row?.user_id ?? null;
   }
-  // seller: resolve the verified handle to its (enabled) owner.
+  // seller: resolve the verified handle to its (enabled) owner. targetId is
+  // already canonical (see recordBadgeClick), and stored handles are always
+  // lowercase, so this is an exact match. It used to be .ilike on the raw
+  // handle, where `_` and `%` act as wildcards and every case variant resolved,
+  // each earning its own reward key.
   const { data } = await supabaseAdmin
     .from("users")
     .select("id")
-    .ilike("verified_handle", targetId)
+    .eq("verified_handle", targetId)
     .eq("verified_enabled", true)
     .maybeSingle();
   return (data as { id?: string } | null)?.id ?? null;
@@ -85,10 +90,10 @@ export async function recordBadgeClick(input: {
   targetType: BadgeTargetType;
   targetId: string;
   source: string;
-  /** US-1854: salted visitor fingerprint (share sources only). Null when the
-   *  request carried no trustworthy IP — see visitorFingerprint. */
+  /** US-1854: salted visitor fingerprint, for every source. Null when the
+   *  request carried no trustworthy IP; see visitorFingerprint. */
   visitorHash?: string | null;
-  /** US-1854: raw User-Agent, used only for the bot gate on share clicks. */
+  /** US-1854: raw User-Agent, used for the bot gate on every source. */
   userAgent?: string | null;
   /** US-1913: plain vs status badge format. Anything unknown reads as plain. */
   variant?: unknown;
@@ -98,15 +103,21 @@ export async function recordBadgeClick(input: {
     // Clipped once, up front: the stored id, the reward dedupe key and the
     // share-ladder lookups must all key on the SAME string or a long id would
     // silently split into two finds.
-    const targetId = input.targetId.trim().slice(0, 200);
+    // A seller handle is canonicalised here too: 'MyHandle' and 'myhandle' are
+    // one badge, so they must be one stored id and one reward key.
+    let targetId = input.targetId.trim().slice(0, 200);
+    if (input.targetType === "seller") {
+      const canonical = canonicalHandle(targetId);
+      if (!canonical) return { recorded: false };
+      targetId = canonical;
+    }
     if (!targetId || !BADGE_CLICK_SOURCES.has(source)) return { recorded: false };
 
-    // US-1854 anti-gaming, applied to the SHARE loop only so the pre-existing
-    // badge funnel keeps behaving exactly as it did. Every social network
-    // fetches a posted URL to build its unfurl card, so without this the act of
-    // posting a link would manufacture its own "verified" clicks.
+    // US-1854 anti-gaming, now applied to EVERY source. Every social network
+    // fetches a posted URL to build its unfurl card, and a crawler following an
+    // embedded badge is no more a buyer than one following a shared link.
     const isShareClick = SHARE_CLICK_SOURCES.has(source);
-    if (isShareClick && isLikelyBotUserAgent(input.userAgent)) {
+    if (isLikelyBotUserAgent(input.userAgent)) {
       return { recorded: false };
     }
 
@@ -114,10 +125,11 @@ export async function recordBadgeClick(input: {
     if (!ownerUserId) return { recorded: false };
 
     const shareTargetType = input.targetType === "cert" ? "cert" : null;
-    const visitorHash = isShareClick ? input.visitorHash ?? null : null;
-    // The seller opening their own shared link. Recorded (the funnel should
-    // still see it) but never rewarded.
-    const selfClick = isShareClick && shareTargetType
+    const visitorHash = input.visitorHash ?? null;
+    // The seller opening their own link. Recorded (the funnel should still see
+    // it) but never rewarded. Resolvable for certificate targets, where the
+    // seller's own share fingerprints are on record.
+    const selfClick = shareTargetType
       ? await isSelfClick(ownerUserId, shareTargetType, targetId, visitorHash)
       : false;
 
@@ -132,11 +144,13 @@ export async function recordBadgeClick(input: {
     });
     if (error) return { recorded: false };
 
-    // A share click with no trustworthy fingerprint, or the sharer's own, is a
-    // recorded click that earns nothing. Fail-closed: an unspoofable handle is
-    // the whole basis of "unique verified click", so no handle means no reward
-    // rather than a reward we cannot defend.
-    if (isShareClick && (selfClick || !visitorHash)) return { recorded: true };
+    // A click with no trustworthy fingerprint, or the seller's own, is a
+    // recorded click that earns nothing, whatever its source. Fail-closed: an
+    // unspoofable handle is the whole basis of "a real person clicked", so no
+    // handle means no reward rather than a reward we cannot defend. Before this
+    // applied to every source, a seller could POST their own embed/badge/qr
+    // clicks and collect XP with no buyer involved.
+    if (selfClick || !visitorHash) return { recorded: true };
 
     // US-1848: this click closes the epic's core loop — a grade was shared, a
     // real person followed it back, and the seller earns for it. It is the only

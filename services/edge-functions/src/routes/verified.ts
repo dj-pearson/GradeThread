@@ -4,6 +4,7 @@ import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { purgeSellerProfileCache } from "../lib/cloudflare-purge.ts";
 import { loadSellerGradeStats } from "../lib/seller-credentials-job.ts";
 import { sellerBadgeFunnel } from "../lib/badge-analytics.ts";
+import { HANDLE_RE } from "../lib/verified-handle.ts";
 
 // GradeThread Verified — seller-profile management (US: revolutionary-flipping).
 //
@@ -17,9 +18,8 @@ type VerifiedEnv = { Variables: { userId: string } };
 
 export const verifiedRoutes = new Hono<VerifiedEnv>();
 
-// 3–30 chars, lowercase alnum + hyphen, no leading/trailing hyphen. Mirrors the
-// DB CHECK constraint (migration 00057) and the client-side validation.
-const HANDLE_RE = /^[a-z0-9]([a-z0-9-]{1,28})[a-z0-9]$/;
+// HANDLE_RE lives in lib/verified-handle.ts so badge-click attribution resolves
+// handles by exactly the rule used to claim them.
 
 // Handles we never let a seller claim — they'd collide with real routes or
 // impersonate the platform.
