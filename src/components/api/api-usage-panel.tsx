@@ -66,10 +66,10 @@ export function ApiUsagePanel() {
               <Stat label="Sandbox (free)" value={data.summary.sandbox_requests} icon={FlaskConical} />
             </div>
 
-            {/* Rate-limit tier — the SAME budget the live API enforces. */}
+            {/* Rate-limit tier: the SAME budget the live API enforces. */}
             <div className="rounded-lg border bg-muted/40 p-4">
               <p className="text-sm font-medium">
-                Rate limits — <span className="capitalize">{data.plan.replace("_", " ")}</span> plan
+                Rate limits, <span className="capitalize">{data.plan.replace("_", " ")}</span> plan
               </p>
               <div className="mt-3 grid grid-cols-2 gap-4 text-sm">
                 <div>
@@ -119,8 +119,8 @@ export function ApiUsagePanel() {
                 No API calls yet. Try the free sandbox at{" "}
                 <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
                   POST /api/v1/sandbox/grades
-                </code>{" "}
-                — it returns a sample grade and spends no credits.
+                </code>
+                . It returns a sample grade and spends no credits.
               </p>
             )}
           </>

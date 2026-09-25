@@ -11,12 +11,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { edgeFetch } from "@/lib/edge-fetch";
-import { usePlanUsage, type PlanUsage } from "@/hooks/use-plan-usage";
+import { useApiUsage } from "@/hooks/use-api-usage";
 import { WebhookPanel, type WebhookConfig, type WebhookDeliveryRow } from "@/components/api/webhook-panel";
 import { ApiKeysPage } from "@/pages/api-keys";
 
 vi.mock("@/lib/edge-fetch", () => ({ edgeFetch: vi.fn() }));
-vi.mock("@/hooks/use-plan-usage", () => ({ usePlanUsage: vi.fn() }));
+vi.mock("@/hooks/use-api-usage", () => ({ useApiUsage: vi.fn() }));
+vi.mock("@/hooks/use-workspace", () => ({
+  useWorkspace: () => ({ can: () => true, isOwner: true }),
+}));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -201,19 +204,20 @@ describe("WebhookPanel", () => {
   });
 });
 
+const USAGE = {
+  summary: { since: "", days: 30, total_requests: 0, success_requests: 0, error_requests: 0, sandbox_requests: 0, by_endpoint: [], daily: [] },
+  plan: "business",
+  overage: { quota_enabled: false, balance: 0 },
+  rate_limits: { read_per_minute: 1, write_per_minute: 1, window_seconds: 60 },
+};
+
 describe("ApiKeysPage", () => {
   it("mounts the webhook card for a Business account", () => {
-    const cap = { used: 0, limit: 0, pct: 0, unlimited: false };
-    vi.mocked(usePlanUsage).mockReturnValue({
-      plan: "business",
-      activeListings: cap,
-      aiActions: cap,
-      includedGrades: cap,
-      marketplacesConnected: cap,
-      thresholds: [80],
-      lastWarning: {},
+    vi.mocked(useApiUsage).mockReturnValue({
+      data: { ...USAGE, api_access: true },
       isLoading: false,
-    } as PlanUsage);
+      isError: false,
+    } as unknown as ReturnType<typeof useApiUsage>);
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const html = renderToStaticMarkup(
       h(QueryClientProvider, { client: qc }, h(MemoryRouter, null, h(ApiKeysPage))),

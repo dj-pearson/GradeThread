@@ -481,13 +481,20 @@ apiKeyRoutes.post("/:id/rotate", async (c) => {
   // Confirm ownership before mutating (US-268: never mutate by id alone).
   const { data: existing, error: fetchError } = await supabaseAdmin
     .from("api_keys")
-    .select("id")
+    .select("id, expires_at")
     .eq("id", keyId)
     .eq("user_id", userId)
     .single();
 
   if (fetchError || !existing) {
     return c.json({ error: "API key not found" }, 404);
+  }
+
+  // Rotation keeps expires_at and api-key-auth rejects an expired key, so
+  // rotating one hands back a secret that fails on first use. Refuse it.
+  const expiresAt = (existing as { expires_at?: string | null }).expires_at;
+  if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) {
+    return c.json({ error: "This key has expired. Create a new key instead." }, 409);
   }
 
   const { fullKey, keyHash, keyPrefix } = await generateApiKey();
