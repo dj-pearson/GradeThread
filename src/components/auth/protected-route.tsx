@@ -2,6 +2,7 @@ import { Navigate, Outlet, useLocation } from "react-router";
 import { useAuth } from "@/hooks/use-auth";
 import { VerifyEmailGate } from "@/components/auth/verify-email-gate";
 import { LegalGate } from "@/components/auth/legal-gate";
+import { MfaSignInGate } from "@/components/auth/mfa-sign-in-gate";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 
 export function ProtectedRoute() {
@@ -40,11 +41,17 @@ export function ProtectedRoute() {
   // the recorded versions match.
   // US-437: provides the branded, focus-managed useConfirm() to every
   // authenticated page (dashboard + admin), replacing native window.confirm.
+  // US-3497: a user with a verified second factor is held on a code screen
+  // until this session reaches AAL2. Before the legal gate, so nothing behind
+  // it (including the legal-acceptance fetch) runs on a password-only session.
+  // A user with no factor passes through with no extra screen.
   return (
-    <LegalGate>
-      <ConfirmProvider>
-        <Outlet />
-      </ConfirmProvider>
-    </LegalGate>
+    <MfaSignInGate sessionKey={session.access_token ?? null}>
+      <LegalGate>
+        <ConfirmProvider>
+          <Outlet />
+        </ConfirmProvider>
+      </LegalGate>
+    </MfaSignInGate>
   );
 }
