@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import {
@@ -107,8 +107,19 @@ export function SupportTicketsPage() {
   const { id: routeId } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
 
-  const [creating, setCreating] = useState(false);
-  const [newSubject, setNewSubject] = useState("");
+  // Help hands off with what the seller already typed (?subject=, from a
+  // search that found nothing) or the article that did not answer it
+  // (?article=). Either opens the form with the subject filled, so the
+  // TicketDeflector runs on it and nobody types their problem twice.
+  const [searchParams] = useSearchParams();
+  const handoffSubject = (() => {
+    const subject = searchParams.get("subject")?.trim();
+    if (subject) return subject.slice(0, 200);
+    const article = searchParams.get("article")?.trim();
+    return article ? `Question about the help article "${article}"`.slice(0, 200) : "";
+  })();
+  const [creating, setCreating] = useState(Boolean(handoffSubject) && !routeId);
+  const [newSubject, setNewSubject] = useState(handoffSubject);
   const [newBody, setNewBody] = useState("");
   const [reply, setReply] = useState("");
   const [acting, setActing] = useState(false);

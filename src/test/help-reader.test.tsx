@@ -585,3 +585,38 @@ describe("H13: Help leads with the screen it was opened from", () => {
     expect(text()).not.toContain("For ");
   });
 });
+
+describe("H14: definitions in search, and a ticket that carries the question", () => {
+  const empty: Handler = (path) =>
+    path.startsWith("/api/help/search")
+      ? res({ query: "x", hits: [], viewer: "member" })
+      : defaultIndex();
+
+  it("searching 'comp' shows the Comp definition, linked into the glossary", async () => {
+    handler = empty;
+    render("/dashboard/help?q=comp");
+    await settle(20);
+    const link = Array.from(container.querySelectorAll("dt a")).find((a) => a.textContent === "Comp");
+    expect(link?.getAttribute("href")).toBe("/dashboard/help/glossary#term-comp");
+  });
+
+  it("the zero-result ticket link carries what was typed", async () => {
+    handler = empty;
+    render("/dashboard/help?q=where%20is%20my%20payout");
+    await settle(20);
+    const ticket = Array.from(container.querySelectorAll("a")).find((a) =>
+      a.textContent?.includes("Open a support ticket"),
+    );
+    expect(ticket?.getAttribute("href")).toBe("/dashboard/support?subject=where%20is%20my%20payout");
+  });
+
+  it("the tracked search payload has no query text", async () => {
+    handler = empty;
+    render("/dashboard/help?q=order%2012345");
+    await settle(20);
+    const call = mocks.track.mock.calls.find(([name]) => String(name).startsWith("help_search"));
+    expect(call).toBeTruthy();
+    expect(call![1]).not.toHaveProperty("query");
+    expect(call![1]).toMatchObject({ length: 11, hits: 0, surface: "app" });
+  });
+});

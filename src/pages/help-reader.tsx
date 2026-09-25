@@ -32,6 +32,7 @@ import {
 import { HelpArticleBody } from "@/components/help/help-article-body";
 import { inAppHelpPath } from "@/lib/help/paths";
 import { buildHelpToc } from "@/lib/help/toc";
+import { namesTerm, searchTerms, termAnchor } from "@/lib/product-terms";
 import { ALL_SURFACES, helpCategoryOf, type Surface } from "@/lib/surfaces";
 import { track } from "@/lib/analytics";
 import { HELP_VISIBILITY_LABELS, type HelpVisibility } from "@/types/help-center";
@@ -229,12 +230,23 @@ function HelpReaderIndexPage() {
     if (trackedRef.current === q) return;
     trackedRef.current = q;
     const hits = search.data?.hits.length ?? 0;
+    // Length and hit count only: what a seller types into Help can carry an
+    // order number, a buyer's name or an address, and PostHog is a third party.
+    // The zero-result text itself is kept server-side in help_search_misses.
     track(hits === 0 ? "help_search_zero_results" : "help_search", {
-      query: q,
+      length: q.length,
       hits,
       surface: "app",
     });
   }, [searching, query, search.isLoading, search.isError, search.data]);
+
+  // PRODUCT_TERMS answers "what is a Comp" in one sentence, client-side, so a
+  // search for one of our own words shows its definition above the articles.
+  // Name matches only: a definition that merely mentions the word is noise.
+  const definitions = useMemo(
+    () => (searching ? searchTerms(query).filter((t) => namesTerm(t, query)).slice(0, 3) : []),
+    [searching, query],
+  );
 
   // Loading, error and empty all follow the query the page is SHOWING. They
   // used to follow the index, so every new search flashed "Nothing matched"
@@ -451,7 +463,8 @@ function HelpReaderIndexPage() {
             ? {
                 [categoryFilter ? "secondaryAction" : "action"]: {
                   label: "Open a support ticket",
-                  to: "/dashboard/support",
+                  // Carries the question, so the ticket form opens with it.
+                  to: `/dashboard/support?subject=${encodeURIComponent(query.trim())}`,
                 },
               }
             : {})}
@@ -462,6 +475,29 @@ function HelpReaderIndexPage() {
         className={stale ? "space-y-4 opacity-60 transition-opacity" : "space-y-4"}
         aria-busy={stale || undefined}
       >
+        {definitions.length > 0 && (
+          <Card>
+            <CardContent className="pt-6">
+              <h2 className="text-base font-semibold">Definitions</h2>
+              <dl className="mt-3 space-y-3">
+                {definitions.map((t) => (
+                  <div key={t.term}>
+                    <dt>
+                      <Link
+                        to={`/dashboard/help/glossary#${termAnchor(t.term)}`}
+                        className="font-medium hover:underline"
+                      >
+                        {t.term}
+                      </Link>
+                    </dt>
+                    <dd className="text-sm text-muted-foreground">{t.definition}</dd>
+                  </div>
+                ))}
+              </dl>
+            </CardContent>
+          </Card>
+        )}
+
         {searching && rows.length > 0 && !active.isError && (
           <Card>
             <CardContent className="pt-6">

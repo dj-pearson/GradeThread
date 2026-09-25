@@ -186,3 +186,38 @@ export function lookupTerm(term: string): ProductTerm | undefined {
 export function termsAlphabetical(): ProductTerm[] {
   return [...PRODUCT_TERMS].sort((a, b) => a.term.localeCompare(b.term));
 }
+
+/**
+ * Terms matching a query, alphabetical: the term, any alias, or the definition
+ * contains it. The glossary page and Help search share this, so a word found
+ * on one is found on the other.
+ */
+export function searchTerms(query: string): ProductTerm[] {
+  const q = query.trim().toLowerCase();
+  const all = termsAlphabetical();
+  if (!q) return all;
+  return all.filter(
+    (t) =>
+      t.term.toLowerCase().includes(q) ||
+      t.definition.toLowerCase().includes(q) ||
+      (t.aliases ?? []).some((a) => a.toLowerCase().includes(q)),
+  );
+}
+
+/** True when the query names the term itself (or an alias), not just its definition. */
+export function namesTerm(t: ProductTerm, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return false;
+  return t.term.toLowerCase().includes(q) || (t.aliases ?? []).some((a) => a.toLowerCase().includes(q));
+}
+
+/** The glossary anchor for a term: /dashboard/help/glossary#<termAnchor>. */
+export function termAnchor(term: string): string {
+  return (
+    "term-" +
+    term
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+  );
+}
