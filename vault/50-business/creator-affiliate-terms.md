@@ -8,7 +8,7 @@ code_refs:
   - src/lib/constants.ts
   - services/edge-functions/src/routes/affiliate.ts
   - supabase/migrations/00719_creator_affiliate_programme.sql
-reviewed: 2026-09-01
+reviewed: 2026-09-25
 tags: [affiliate, creator, growth, contract, legal]
 summary: The terms a reseller creator accepts to earn cash commission, and the version string the code records against each acceptance.
 ---
@@ -21,11 +21,17 @@ is admitted by GradeThread earns a percentage of subscription revenue. The two
 are separate rows, separate consent, separate money — see [[pricing]] for the
 numbers.
 
-**Version:** `2026-09-01`. The version is recorded on every acceptance
+**Version:** `2026-09-25`. The version is recorded on every acceptance
 (`affiliate_accounts.creator_terms_version`), so a later revision can tell who
 agreed to which text. **Changing the terms below means changing
 `CREATOR_AFFILIATE.termsVersion` in `src/lib/constants.ts` in the same commit**;
 `src/test/creator-affiliate.test.ts` fails otherwise.
+
+**Revisions.** `2026-09-01` first text. `2026-09-25` raised the 1099 reporting
+line in section 5 from $600 to $2,000, the federal threshold for payments made
+from 2026, to match what the payout code and the Affiliate tab already enforce.
+Creators who accepted `2026-09-01` must accept the new version before a tax
+profile can be filed.
 
 ## The terms
 
@@ -51,7 +57,7 @@ agreed to which text. **Changing the terms below means changing
    chargeback; such a commission is voided whether or not it has been paid.
 
 5. **Tax.** No cash moves before a certified tax profile is on file (the W-9
-   equivalent, `affiliate_tax_profiles`). US creators paid $600 or more in a
+   equivalent, `affiliate_tax_profiles`). US creators paid $2,000 or more in a
    calendar year are reported on a 1099. Creators are responsible for their own
    taxes; this is a commercial relationship, not employment.
 

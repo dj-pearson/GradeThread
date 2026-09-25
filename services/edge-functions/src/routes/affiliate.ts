@@ -442,7 +442,7 @@ affiliateRoutes.get("/payouts", async (c) => {
 // Migration 00719 enforces the consent half in the database: program='creator'
 // is refused without a recorded terms version and acceptance timestamp.
 
-const CREATOR_TERMS_VERSION = "2026-09-01";
+const CREATOR_TERMS_VERSION = "2026-09-25";
 
 // GET /creator — where this caller stands: the current terms version, what
 // they accepted, whether they have been admitted, and whether the tax form is

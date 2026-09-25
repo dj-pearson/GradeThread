@@ -112,7 +112,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/pricing": "2026-06-01",
   "/for-resellers": "2026-06-01",
   "/flipdesk": "2026-06-27",
-  "/partners": "2026-09-01",
+  "/partners": "2026-09-25",
   "/sell-used-clothes-ebay": "2026-06-27",
   "/faq": "2026-06-01",
   "/condition-grading": "2026-06-01",

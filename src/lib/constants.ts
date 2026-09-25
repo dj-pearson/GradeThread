@@ -787,7 +787,7 @@ export const CREATOR_AFFILIATE = {
    * accepts. Recorded on the account row, so a later revision can tell who
    * agreed to which text. Change the note and this string together.
    */
-  termsVersion: "2026-09-01",
+  termsVersion: "2026-09-25",
 } as const;
 
 // No FLIPDESK_UPGRADE_TRIGGERS here, and vault/50-business/pricing.md no longer

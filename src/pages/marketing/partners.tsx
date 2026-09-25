@@ -39,7 +39,7 @@ const TERMS: Array<{ heading: string; body: string }> = [
   {
     heading: "Tax",
     body:
-      "No money moves before your tax details are on file. US creators paid $600 or more in a " +
+      "No money moves before your tax details are on file. US creators paid $2,000 or more in a " +
       "calendar year get a 1099. You are a partner, not an employee.",
   },
   {
