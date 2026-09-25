@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/sheet";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { track } from "@/lib/analytics";
+import { HelpArticleBody } from "@/components/help/help-article-body";
 import { useHelpReaderArticle, useHelpReaderSearch } from "@/hooks/use-help-center";
 
 // US-2585: the answer offered before the ticket is written.
@@ -146,12 +147,7 @@ function DeflectorArticle({ slug, onClose }: { slug: string; onClose: () => void
         {article?.summary && <SheetDescription>{article.summary}</SheetDescription>}
       </SheetHeader>
       {article && (
-        <div
-          className="prose prose-slate mt-6 max-w-none text-sm dark:prose-invert"
-          // Server-authored article body from the admin editor, sanitised at
-          // write time. Never user-submitted.
-          dangerouslySetInnerHTML={{ __html: article.body_html }}
-        />
+        <HelpArticleBody html={article.body_html} className="mt-6 max-w-none text-sm" />
       )}
       <p className="mt-8 text-sm text-muted-foreground">
         {article && (

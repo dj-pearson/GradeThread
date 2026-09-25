@@ -27,6 +27,7 @@ import {
   useHelpReaderIndex,
   useHelpReaderSearch,
 } from "@/hooks/use-help-center";
+import { HelpArticleBody } from "@/components/help/help-article-body";
 import { track } from "@/lib/analytics";
 import { HELP_VISIBILITY_LABELS, type HelpVisibility } from "@/types/help-center";
 
@@ -352,12 +353,7 @@ function HelpReaderArticle({ slug }: { slug: string }) {
               })}
             </p>
           )}
-          <div
-            className="prose prose-slate mt-6 max-w-[70ch] dark:prose-invert"
-            // Server-authored article body from the admin editor, sanitised at
-            // write time. Never user-submitted.
-            dangerouslySetInnerHTML={{ __html: article.body_html }}
-          />
+          <HelpArticleBody html={article.body_html} className="mt-6 max-w-[70ch]" />
 
           {(article.faq ?? []).length > 0 && (
             <section className="mt-10">

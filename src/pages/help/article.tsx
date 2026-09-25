@@ -18,14 +18,16 @@ import { SITE_URL } from "@/lib/seo/site";
 import { helpArticleLd, helpFaqLd } from "@/lib/seo/help-json-ld";
 import type { JsonLd } from "@/lib/seo/json-ld";
 import { track } from "@/lib/analytics";
+import { HelpArticleBody } from "@/components/help/help-article-body";
 
 // US-2576: a Help Center article, SPA renderer. Edge-SSR'd in production by
 // functions/help/[[path]].ts; see the note on hub.tsx for why it is not in
 // PUBLIC_ROUTES.
 //
-// The body is server-authored HTML from the admin editor, sanitised at write
-// time by the same Tiptap pipeline the blog uses, and it is the ONLY thing this
-// page injects. It is not user-submitted content.
+// The body is server-authored HTML, and it is the ONLY thing this page injects.
+// The edge runs it through sanitizeHtml (content-sanitize.ts) in buildPatch on
+// save AND in projectArticle on every read, which is what makes injecting it
+// safe; see src/components/help/help-article-body.tsx.
 
 export function HelpArticlePage() {
   const { category: categorySlug, slug } = useParams<{ category: string; slug: string }>();
@@ -162,12 +164,7 @@ export function HelpArticlePage() {
                 className="mt-6 w-full rounded-xl"
               />
             )}
-            <div
-              className="prose prose-slate mt-6 max-w-[70ch] dark:prose-invert"
-              // Server-authored article body from the admin editor, sanitised at
-              // write time. Never user-submitted.
-              dangerouslySetInnerHTML={{ __html: article.body_html }}
-            />
+            <HelpArticleBody html={article.body_html} className="mt-6 max-w-[70ch]" />
 
             {(article.faq ?? []).length > 0 && (
               <section className="mt-10">

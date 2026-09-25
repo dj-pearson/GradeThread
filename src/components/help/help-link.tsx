@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useHelpReaderArticle } from "@/hooks/use-help-center";
 import type { ProductHelpSlugKey } from "@/lib/help-slugs";
 import { track } from "@/lib/analytics";
+import { HelpArticleBody } from "@/components/help/help-article-body";
 
 // US-2584: the contextual help button.
 //
@@ -80,12 +81,7 @@ export function HelpLink({ slug, label, className }: HelpLinkProps) {
               <Skeleton className="h-40 w-full" />
             </div>
           ) : (
-            <div
-              className="prose prose-slate mt-6 max-w-none text-sm dark:prose-invert"
-              // Server-authored article body from the admin editor, sanitised at
-              // write time. Never user-submitted.
-              dangerouslySetInnerHTML={{ __html: article.body_html }}
-            />
+            <HelpArticleBody html={article.body_html} className="mt-6 max-w-none text-sm" />
           )}
 
           {(article.faq ?? []).length > 0 && (
