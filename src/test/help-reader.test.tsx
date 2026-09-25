@@ -251,3 +251,50 @@ describe("H6: a vote is thanked only once the server has it", () => {
     expect(link?.textContent).toBe("Open a ticket about this article");
   });
 });
+
+describe("H7: search states follow the active query", () => {
+  const hit = (slug: string, category_key: string) => ({
+    slug, title: `Title ${slug}`, summary: `Summary ${slug}`, category_key, visibility: "public", rank: 1,
+  });
+
+  it("a pending search shows loading, never 'Nothing matched'", async () => {
+    handler = (path) => {
+      if (path.startsWith("/api/help/search")) return new Promise<Response>(() => {});
+      return defaultIndex();
+    };
+    render("/dashboard/help?q=returns");
+    await settle(20);
+    expect(text()).not.toContain("Nothing matched");
+    expect(text()).toContain("Searching help");
+  });
+
+  it("a failed search shows the error state with Retry, not zero results", async () => {
+    handler = (path) => {
+      if (path.startsWith("/api/help/search")) return res({ error: "boom" }, 500);
+      return defaultIndex();
+    };
+    render("/dashboard/help?q=returns");
+    await settle(20);
+    await act(async () => { await new Promise((r) => setTimeout(r, 1100)); });
+    await settle(20);
+    expect(text()).toContain("Search didn't answer. Try again.");
+    expect(text()).not.toContain("Nothing matched");
+    expect(buttonByText(container, /Retry|Try again/)).toBeTruthy();
+  });
+
+  it("an index error does not sit above working search results", async () => {
+    handler = (path) => {
+      if (path.startsWith("/api/help/search")) {
+        return res({ query: "returns", hits: [hit("refunds", "billing")], viewer: "member" });
+      }
+      if (path === "/api/help") return res({ error: "down" }, 500);
+      return res({});
+    };
+    render("/dashboard/help?q=returns");
+    await settle(20);
+    await act(async () => { await new Promise((r) => setTimeout(r, 1100)); });
+    await settle(20);
+    expect(text()).toContain("Title refunds");
+    expect(text()).not.toContain("Couldn't load help");
+  });
+});

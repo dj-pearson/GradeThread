@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeApiUrl } from "@/lib/edge-api";
@@ -129,6 +129,9 @@ export function usePublicHelpSearch(query: string) {
     queryKey: [...PUBLIC_KEY, "search", q.toLowerCase()],
     enabled: q.length >= 2,
     staleTime: 60_000,
+    // Keep the last results on screen while the next query runs, instead of
+    // dropping to an empty list between keystrokes.
+    placeholderData: keepPreviousData,
     queryFn: () =>
       publicFetch<{ query: string; hits: HelpSearchHit[] }>(
         `/api/content/public/help/search?q=${encodeURIComponent(q)}`,
@@ -206,6 +209,9 @@ export function useHelpReaderSearch(query: string) {
     queryKey: ["help_reader", "search", q.toLowerCase()],
     enabled: q.length >= 2,
     staleTime: 60_000,
+    // Keep the last results on screen while the next query runs, instead of
+    // dropping to an empty list between keystrokes.
+    placeholderData: keepPreviousData,
     retry: helpReaderRetry,
     queryFn: () =>
       jfetch<{ query: string; hits: HelpSearchHit[]; viewer: HelpViewerTier }>(

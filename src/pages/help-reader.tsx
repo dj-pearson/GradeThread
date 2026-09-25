@@ -88,7 +88,8 @@ function HelpReaderIndexPage() {
   const [draft, setDraft] = useState(query);
   const [categoryFilter, setCategoryFilter] = useState("");
 
-  const { data, isLoading, isError, refetch } = useHelpReaderIndex();
+  const indexQuery = useHelpReaderIndex();
+  const { data } = indexQuery;
   const search = useHelpReaderSearch(query);
 
   const categoryTitle = useMemo(() => {
@@ -114,23 +115,35 @@ function HelpReaderIndexPage() {
       surface: "app",
     });
   }, [searching, query, search.isLoading, search.isError, search.data]);
-  const rows = searching
-    ? (search.data?.hits ?? []).map((h) => ({
-        slug: h.slug,
-        title: h.title,
-        summary: h.summary,
-        category_key: h.category_key,
-        visibility: h.visibility as HelpVisibility,
-      }))
-    : (data?.articles ?? [])
-        .filter((a) => !categoryFilter || a.category_key === categoryFilter)
-        .map((a) => ({
-          slug: a.slug,
-          title: a.title,
-          summary: a.summary,
-          category_key: a.category_key,
-          visibility: a.visibility,
-        }));
+
+  // Loading, error and empty all follow the query the page is SHOWING. They
+  // used to follow the index, so every new search flashed "Nothing matched"
+  // (and its ticket button) while it ran, and a failed search read as zero
+  // results.
+  const active = searching ? search : indexQuery;
+  const stale = searching && search.isPlaceholderData;
+
+  const rows = useMemo(
+    () =>
+      searching
+        ? (search.data?.hits ?? []).map((h) => ({
+            slug: h.slug,
+            title: h.title,
+            summary: h.summary,
+            category_key: h.category_key,
+            visibility: h.visibility as HelpVisibility,
+          }))
+        : (data?.articles ?? [])
+            .filter((a) => !categoryFilter || a.category_key === categoryFilter)
+            .map((a) => ({
+              slug: a.slug,
+              title: a.title,
+              summary: a.summary,
+              category_key: a.category_key,
+              visibility: a.visibility,
+            })),
+    [searching, search.data, data, categoryFilter],
+  );
 
   const grouped = useMemo(() => {
     const buckets = new Map<string, typeof rows>();
@@ -230,21 +243,21 @@ function HelpReaderIndexPage() {
         </Select>
       )}
 
-      {isLoading && (
-        <LoadingRegion label="Loading help" className="p-4">
+      {active.isLoading && (
+        <LoadingRegion label={searching ? "Searching help" : "Loading help"} className="p-4">
           <SkeletonRows rows={6} />
         </LoadingRegion>
       )}
 
-      {isError && (
+      {active.isError && (
         <ErrorState
-          title="Couldn't load help"
+          title={searching ? "Search didn't answer. Try again." : "Couldn't load help"}
           description="The article service didn't answer. Try again in a moment."
-          onRetry={() => void refetch()}
+          onRetry={() => void active.refetch()}
         />
       )}
 
-      {!isLoading && !isError && rows.length === 0 && (
+      {!active.isLoading && !active.isError && rows.length === 0 && (
         <EmptyState
           icon={searching ? Search : LifeBuoy}
           title={searching ? `Nothing matched "${query}"` : "Nothing published yet"}
@@ -259,29 +272,34 @@ function HelpReaderIndexPage() {
         />
       )}
 
-      {grouped.map(([key, items]) => (
-        <Card key={key}>
-          <CardContent className="pt-6">
-            <h2 className="text-base font-semibold">{categoryTitle(key)}</h2>
-            <ul className="mt-3 space-y-3">
-              {items.map((a) => (
-                <li key={a.slug}>
-                  <Link
-                    to={`/dashboard/help/${a.slug}`}
-                    className="font-medium hover:underline"
-                  >
-                    {a.title}
-                  </Link>
-                  <VisibilityBadge visibility={a.visibility} />
-                  {a.summary && (
-                    <p className="text-sm text-muted-foreground">{a.summary}</p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      ))}
+      <div
+        className={stale ? "space-y-4 opacity-60 transition-opacity" : "space-y-4"}
+        aria-busy={stale || undefined}
+      >
+        {grouped.map(([key, items]) => (
+          <Card key={key}>
+            <CardContent className="pt-6">
+              <h2 className="text-base font-semibold">{categoryTitle(key)}</h2>
+              <ul className="mt-3 space-y-3">
+                {items.map((a) => (
+                  <li key={a.slug}>
+                    <Link
+                      to={`/dashboard/help/${a.slug}`}
+                      className="font-medium hover:underline"
+                    >
+                      {a.title}
+                    </Link>
+                    <VisibilityBadge visibility={a.visibility} />
+                    {a.summary && (
+                      <p className="text-sm text-muted-foreground">{a.summary}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }
