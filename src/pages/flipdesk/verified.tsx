@@ -643,7 +643,7 @@ function BadgePerformanceCard() {
       {data && (
         <CardDescription>
           Traffic and signups your embedded badges drove in the last {data.windowDays} days.
-          Your own clicks are not counted.
+          Your own clicks on certificate badges are not counted.
         </CardDescription>
       )}
     </CardHeader>
