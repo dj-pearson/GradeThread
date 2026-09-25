@@ -165,4 +165,36 @@ describe("offline sync toast", () => {
       expect.objectContaining({ id: "t1" }),
     );
   });
+
+  it("retries 30s after a flush that left work behind", async () => {
+    const spy = vi.spyOn(globalThis, "setTimeout");
+    mocks.flush.mockResolvedValue({ ...base, failed: 1, firstError: "refused" });
+    await mountAndSync();
+    const retry = spy.mock.calls.find((c) => c[1] === 30_000);
+    spy.mockRestore();
+    expect(retry).toBeDefined();
+    mocks.flush.mockResolvedValue({ ...base, synced: 1 });
+    await act(async () => {
+      (retry![0] as () => void)();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(mocks.flush).toHaveBeenCalledTimes(2);
+  });
+
+  it("schedules no retry when it unmounts while a flush is still running", async () => {
+    let finish!: (v: unknown) => void;
+    mocks.flush.mockReturnValue(new Promise((r) => (finish = r)));
+    await mountAndSync();
+    act(() => root.unmount());
+    const spy = vi.spyOn(globalThis, "setTimeout");
+    await act(async () => {
+      finish({ ...base, failed: 1, firstError: "refused" });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    const retry = spy.mock.calls.find((c) => c[1] === 30_000);
+    spy.mockRestore();
+    expect(retry).toBeUndefined();
+    // afterEach unmounts again; give it a fresh root.
+    root = createRoot(host);
+  });
 });

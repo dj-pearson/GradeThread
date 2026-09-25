@@ -1478,7 +1478,9 @@ function statusLine(online: boolean, items: number, photos: number): string {
       ? `You're offline. ${queued}; new items join the queue and sync when you reconnect.`
       : "You're offline. New items are saved to a queue and sync when you reconnect.";
   }
-  return `${queued}. Syncing...`;
+  // Not "Syncing...": after a refusal the queue waits on a backoff timer, and
+  // a line saying it is syncing right now would be false for minutes.
+  return `${queued}. They sync on their own while you're online.`;
 }
 
 function AiMark({ confidence }: { confidence?: number }) {

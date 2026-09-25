@@ -95,9 +95,17 @@ export function OfflineIntakeSync() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const userId = useAuthStore((s) => s.user?.id ?? null);
-  const retryRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; step: number }>({
+  // `live` is the user id this mount is syncing for. A flush still in flight
+  // when the dashboard unmounts or the user signs out must not schedule a
+  // retry for them after cleanup has run.
+  const retryRef = useRef<{
+    timer: ReturnType<typeof setTimeout> | null;
+    step: number;
+    live: string | null;
+  }>({
     timer: null,
     step: 0,
+    live: null,
   });
 
   const sync = useCallback(async () => {
@@ -183,9 +191,11 @@ export function OfflineIntakeSync() {
               ? {
                   label: `Review ${n} item${n === 1 ? "" : "s"}`,
                   onClick: () =>
+                    // The items list has no ?focus= param, so one item opens
+                    // its own page.
                     navigate(
                       n === 1
-                        ? `/dashboard/flipdesk/items?focus=${syncedIds[0]}`
+                        ? `/dashboard/flipdesk/items/${syncedIds[0]}`
                         : "/dashboard/flipdesk/items",
                     ),
                 }
@@ -205,6 +215,7 @@ export function OfflineIntakeSync() {
     const r = retryRef.current;
     if (r.timer) clearTimeout(r.timer);
     r.timer = null;
+    if (r.live !== userId) return;
     if (leftOver) {
       const delay = RETRY_DELAYS_MS[Math.min(r.step, RETRY_DELAYS_MS.length - 1)]!;
       r.step++;
@@ -220,6 +231,7 @@ export function OfflineIntakeSync() {
   useEffect(() => {
     if (!userId) return;
     const r = retryRef.current;
+    r.live = userId;
     void sync();
     const onOnline = () => {
       r.step = 0;
@@ -237,6 +249,7 @@ export function OfflineIntakeSync() {
       if (r.timer) clearTimeout(r.timer);
       r.timer = null;
       r.step = 0;
+      r.live = null;
     };
   }, [sync, userId]);
 
