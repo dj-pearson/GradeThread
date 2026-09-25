@@ -145,3 +145,50 @@ Deno.test("the durable-job constants keep their ordering", () => {
   assertEquals(MAX_RUN_ATTEMPTS, 5);
   assert(MAX_IMPORT_ROWS > 0 && MAX_IMPORT_ROWS <= 20000);
 });
+
+// ── IMP-08: marketplace, URL scheme and money floors ───────────────────────
+
+Deno.test("a listing's platform comes from the row, then its URL host, then 'other'", async () => {
+  const { listingPlatformFor, platformFromUrl } = await import("../lib/inventory-import.ts");
+  const rows = normalizeImportRows([
+    { title: "A", listing: { listing_url: "https://www.etsy.com/listing/1" } },
+    { title: "B", listing: { listing_price: 20 } },
+    { title: "C", listing: { listing_price: 20, platform: "Poshmark" } },
+    { title: "D", listing: { listing_price: 20, platform: "craigslist" } },
+    { title: "E", listing: { listing_url: "https://www.ebay.co.uk/itm/1" } },
+  ]);
+  assertEquals(listingPlatformFor(rows[0]!.listing!), "etsy");
+  assertEquals(listingPlatformFor(rows[1]!.listing!), "other");
+  assertEquals(listingPlatformFor(rows[2]!.listing!), "poshmark");
+  assertEquals(listingPlatformFor(rows[3]!.listing!), "other");
+  assertEquals(listingPlatformFor(rows[4]!.listing!), "ebay");
+  assertEquals(platformFromUrl("https://ebay-deals.example.com/x"), null);
+});
+
+Deno.test("only http(s) listing URLs are kept", () => {
+  const rows = normalizeImportRows([
+    { title: "A", listing: { listing_price: 5, listing_url: "javascript:alert(1)" } },
+    { title: "B", listing: { listing_url: "data:text/html,hi" } },
+  ]);
+  assertEquals(rows[0]!.listing?.listing_url, null);
+  assertEquals(rows[1]!.listing, null);
+});
+
+Deno.test("money fields are floored at zero, net profit may be a loss", () => {
+  const [r] = normalizeImportRows([{
+    title: "A",
+    acquired_price: -3,
+    listing: { listing_price: -10 },
+    sale: { sale_price: -5, platform_fees: -1, net_profit: -12 },
+  }]);
+  assertEquals(r!.acquired_price, 0);
+  assertEquals(r!.listing?.listing_price, 0);
+  assertEquals(r!.sale?.sale_price, 0);
+  assertEquals(r!.sale?.platform_fees, 0);
+  assertEquals(r!.sale?.net_profit, -12);
+});
+
+Deno.test("no import code path writes 'ebay' as a default platform", async () => {
+  const src = await Deno.readTextFile(new URL("../routes/flipdesk-import.ts", import.meta.url));
+  assert(!/platform:\s*"ebay"/.test(src));
+});

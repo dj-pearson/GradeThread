@@ -85,7 +85,57 @@ export const ITEM_CATEGORY_VALUES = [
   "other",
 ] as const;
 
+// IMP-08: listings.platform (the listing_platform enum, 00002 + later ADD
+// VALUEs). A CSV row used to land on 'ebay' whatever it said; now it lands on
+// the marketplace it names, the one its URL points at, or 'other'.
+export const LISTING_PLATFORM_VALUES = [
+  "ebay",
+  "poshmark",
+  "mercari",
+  "depop",
+  "grailed",
+  "facebook",
+  "offerup",
+  "etsy",
+  "shopify",
+  "vinted",
+  "whatnot",
+  "other",
+] as const;
+export type ListingPlatform = (typeof LISTING_PLATFORM_VALUES)[number];
+
+// Hosts whose label identifies the marketplace (www.ebay.co.uk -> ebay).
+const HOST_PLATFORMS: ReadonlyArray<ListingPlatform> = [
+  "ebay",
+  "poshmark",
+  "mercari",
+  "etsy",
+  "depop",
+  "grailed",
+  "vinted",
+  "whatnot",
+];
+
+/** The platform a listing URL points at, or null when the host is not one we know. */
+export function platformFromUrl(url: string | null | undefined): ListingPlatform | null {
+  if (!url) return null;
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  const labels = host.split(".");
+  return HOST_PLATFORMS.find((p) => labels.includes(p)) ?? null;
+}
+
+/** Where an imported listing row goes: what the row says, its URL, else 'other'. */
+export function listingPlatformFor(l: ImportListingInput): ListingPlatform {
+  return l.platform ?? platformFromUrl(l.listing_url) ?? "other";
+}
+
 export interface ImportListingInput {
+  platform?: ListingPlatform | null;
   listing_price?: number | null;
   listing_url?: string | null;
   listed_at?: string | null;
@@ -136,6 +186,24 @@ function num(v: unknown): number | null {
   return v;
 }
 
+/** IMP-08: a money amount an import may write. Negative is not a price. */
+function money(v: unknown): number | null {
+  const n = num(v);
+  return n === null ? null : Math.max(0, n);
+}
+
+/** IMP-08: only an http(s) URL is stored; javascript: and friends are dropped. */
+function httpUrl(v: unknown): string | null {
+  const s = str(v, 2000);
+  if (!s) return null;
+  try {
+    const u = new URL(s);
+    return u.protocol === "http:" || u.protocol === "https:" ? s : null;
+  } catch {
+    return null;
+  }
+}
+
 /** yyyy-mm-dd only. Anything else is dropped rather than guessed at. */
 function isoDate(v: unknown): string | null {
   if (typeof v !== "string") return null;
@@ -157,8 +225,9 @@ function listing(v: unknown): ImportListingInput | null {
   if (!v || typeof v !== "object") return null;
   const raw = v as Record<string, unknown>;
   const out: ImportListingInput = {
-    listing_price: num(raw.listing_price),
-    listing_url: str(raw.listing_url, 2000),
+    platform: oneOf(raw.platform, LISTING_PLATFORM_VALUES),
+    listing_price: money(raw.listing_price),
+    listing_url: httpUrl(raw.listing_url),
     listed_at: isoDate(raw.listed_at),
   };
   // Nothing worth a listing row.
@@ -175,12 +244,13 @@ function sale(v: unknown): ImportSaleInput | null {
   if (!v || typeof v !== "object") return null;
   const raw = v as Record<string, unknown>;
   const out: ImportSaleInput = {
-    sale_price: num(raw.sale_price),
-    platform_fees: num(raw.platform_fees),
-    tax: num(raw.tax),
-    shipping_cost: num(raw.shipping_cost),
+    sale_price: money(raw.sale_price),
+    platform_fees: money(raw.platform_fees),
+    tax: money(raw.tax),
+    shipping_cost: money(raw.shipping_cost),
+    // A loss is a real net profit; only this one may be negative.
     net_profit: num(raw.net_profit),
-    payout_amount: num(raw.payout_amount),
+    payout_amount: money(raw.payout_amount),
     tracking_number: str(raw.tracking_number, 200),
     sold_at: isoDate(raw.sold_at),
   };
@@ -217,7 +287,7 @@ export function normalizeImportRows(input: unknown[]): ImportRowInput[] {
       status: oneOf(r.status, ITEM_STATUS_VALUES),
       source_name: str(r.source_name, 200),
       sourced_by: str(r.sourced_by, 200),
-      acquired_price: num(r.acquired_price),
+      acquired_price: money(r.acquired_price),
       acquired_date: isoDate(r.acquired_date),
       listing: listing(r.listing),
       sale: sale(r.sale),

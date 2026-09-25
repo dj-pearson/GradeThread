@@ -62,6 +62,7 @@ import {
   guessField,
   normalizeStatus,
   normalizeCategory,
+  normalizeMarketplace,
   parsePrice,
   parseDate,
   type ImportField,
@@ -342,6 +343,8 @@ export function FlipdeskImportPage() {
         listing:
           listPrice !== null || listDate !== null || m.link
             ? {
+                // IMP-08: null lets the server infer from the URL or use 'other'.
+                platform: m.marketplace ? normalizeMarketplace(m.marketplace) : null,
                 listing_price: listPrice,
                 listing_url: m.link ?? null,
                 listed_at: listDate,

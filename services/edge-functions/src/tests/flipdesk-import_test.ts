@@ -335,3 +335,17 @@ Deno.test("closet: a resumed run keeps the counts from its earlier attempt", asy
   assertEquals(run.inserted_count, 2);
   assertEquals((db.tables.inventory_items ?? []).length, 1);
 });
+
+// ── IMP-08: the worker writes the listing's real marketplace ───────────────
+
+Deno.test("an Etsy URL row lands as an etsy listing, a bare price as 'other'", async () => {
+  db.reset({
+    flipdesk_import_runs: [runRow([
+      { row: 2, title: "A", listing: { listing_url: "https://www.etsy.com/listing/1", listing_price: 10 } },
+      { row: 3, title: "B", listing: { listing_price: 12 } },
+    ])],
+  });
+  await processImportRun(RUN);
+  const platforms = (db.tables.listings ?? []).map((l) => l.platform).sort();
+  assertEquals(platforms, ["etsy", "other"]);
+});

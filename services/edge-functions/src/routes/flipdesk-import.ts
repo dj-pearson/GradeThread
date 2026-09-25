@@ -10,6 +10,7 @@ import {
   MAX_IMPORT_ROWS,
   MAX_RUN_ATTEMPTS,
   fillPatch,
+  listingPlatformFor,
   normalizeImportRows,
 } from "../lib/inventory-import.ts";
 import {
@@ -743,7 +744,10 @@ export async function processImportRun(runId: string): Promise<void> {
                   // Set explicitly (the tenant trigger would derive the same
                   // value) so the rollback's owner-scoped delete matches it.
                   user_id: ownerId,
-                  platform: "ebay",
+                  // IMP-08: the marketplace the row names or its URL points
+                  // at, else 'other'. Never eBay by default: an eBay row feeds
+                  // reconciliation and eBay sync.
+                  platform: listingPlatformFor(row.listing),
                   // US-1077: a CSV is a linking source recorded through
                   // GradeThread, so the row stays fully editable here.
                   listing_origin: "gradethread",

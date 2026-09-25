@@ -21,6 +21,7 @@ export const IMPORT_FIELDS = [
   "purchase_price",
   "list_date",
   "link",
+  "marketplace",
   "list_price",
   "sale_date",
   "sale_price",
@@ -53,6 +54,7 @@ export const IMPORT_FIELD_LABELS: Record<ImportField, string> = {
   purchase_price: "Purchase Price",
   list_date: "List Date",
   link: "Link",
+  marketplace: "Marketplace",
   list_price: "List Price",
   sale_date: "Sale Date",
   sale_price: "Sale Price",
@@ -103,6 +105,9 @@ export function guessField(header: string): ImportField {
     link: "link",
     url: "link",
     listprice: "list_price",
+    platform: "marketplace",
+    marketplace: "marketplace",
+    channel: "marketplace",
     saledate: "sale_date",
     sold: "sale_date",
     saleprice: "sale_price",
@@ -121,6 +126,33 @@ export function guessField(header: string): ImportField {
     trackingnumber: "tracking",
   };
   return table[key] ?? "skip";
+}
+
+// IMP-08: the listing_platform values a Marketplace column can name. Anything
+// else is sent as nothing, and the server infers from the URL or uses 'other'.
+const MARKETPLACE_ALIASES: Record<string, string> = {
+  ebay: "ebay",
+  poshmark: "poshmark",
+  posh: "poshmark",
+  mercari: "mercari",
+  depop: "depop",
+  grailed: "grailed",
+  etsy: "etsy",
+  shopify: "shopify",
+  vinted: "vinted",
+  whatnot: "whatnot",
+  facebook: "facebook",
+  facebookmarketplace: "facebook",
+  fb: "facebook",
+  fbmp: "facebook",
+  offerup: "offerup",
+  other: "other",
+};
+
+export function normalizeMarketplace(raw: string): string | null {
+  const key = raw.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!key) return null;
+  return MARKETPLACE_ALIASES[key] ?? null;
 }
 
 // Normalize free-text status strings ("Complete", "DRAFT", "Photo'd") to enum values.

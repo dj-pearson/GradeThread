@@ -40,3 +40,20 @@ describe("parseDate", () => {
     expect(parseDate("not a date")).toBeNull();
   });
 });
+
+describe("marketplace column (IMP-08)", () => {
+  it("maps platform-ish headers to marketplace", async () => {
+    const { guessField } = await import("@/lib/import-mapping");
+    expect(guessField("Platform")).toBe("marketplace");
+    expect(guessField("Marketplace")).toBe("marketplace");
+    expect(guessField("Channel")).toBe("marketplace");
+  });
+
+  it("normalizes marketplace names and drops unknown ones", async () => {
+    const { normalizeMarketplace } = await import("@/lib/import-mapping");
+    expect(normalizeMarketplace("eBay")).toBe("ebay");
+    expect(normalizeMarketplace("Facebook Marketplace")).toBe("facebook");
+    expect(normalizeMarketplace("Posh")).toBe("poshmark");
+    expect(normalizeMarketplace("Craigslist")).toBeNull();
+  });
+});
