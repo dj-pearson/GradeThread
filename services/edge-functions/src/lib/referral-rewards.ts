@@ -249,3 +249,112 @@ export function rankReferrers(
     .sort((a, b) => b.referrals - a.referrals)
     .slice(0, limit);
 }
+
+// ── What a referrer's rows actually mean ────────────────────────────────────
+
+export interface ReferralLedgerRow {
+  reward_status: string;
+  referrer_reward_credits: number | null;
+  created_at: string;
+  qualified_at: string | null;
+}
+
+export type ReferralRowStatus = "rewarded" | "waiting" | "forfeit";
+export type ReferralForfeitReason = "expired" | "over_cap";
+
+export interface ClassifiedReferralRow {
+  status: ReferralRowStatus;
+  reason: ReferralForfeitReason | null;
+  /** Credits this referral paid the referrer (0 unless rewarded). */
+  credits: number;
+  /** Last moment the friend can qualify, or null with no window. */
+  qualify_by: string | null;
+}
+
+export interface ReferralSummary {
+  granted: number;
+  waiting: number;
+  forfeit: number;
+  /** Credits actually paid: each grant's stored amount, plus milestone bonuses. */
+  earned: number;
+  /** Credits the waiting referrals will pay at today's rate. */
+  pending_credits: number;
+}
+
+/**
+ * Classify ONE referral row. Pure.
+ *
+ * rewarded: granted. It pays what was stored at grant time, not today's rate,
+ *   so a config change never restates what a seller already earned. A legacy
+ *   row with no stored amount paid the historical REFERRER_REWARD_CREDITS.
+ * forfeit: it can never pay. Pending or qualified past the qualification
+ *   window ("expired"), or qualified once the referrer's granted count has
+ *   reached the per-referrer cap ("over_cap").
+ * waiting: everything else. Still inside the window and under the cap.
+ */
+export function classifyReferralRow(
+  row: ReferralLedgerRow,
+  config: ReferralRewardConfig,
+  grantedCount: number,
+  nowMs: number,
+): ClassifiedReferralRow {
+  const createdMs = Date.parse(row.created_at);
+  const windowMs = config.qualification_window_days * 86_400_000;
+  const qualifyBy = config.qualification_window_days > 0 && Number.isFinite(createdMs)
+    ? new Date(createdMs + windowMs).toISOString()
+    : null;
+
+  if (row.reward_status === "granted") {
+    const stored = row.referrer_reward_credits;
+    const credits = typeof stored === "number" && Number.isFinite(stored)
+      ? Math.max(0, stored)
+      : REFERRER_REWARD_CREDITS;
+    return { status: "rewarded", reason: null, credits, qualify_by: qualifyBy };
+  }
+
+  if (qualifyBy) {
+    const qualifiedMs = row.qualified_at ? Date.parse(row.qualified_at) : NaN;
+    // A qualified row is judged on WHEN it qualified; a pending one on now.
+    const reachedMs = row.reward_status === "qualified" && Number.isFinite(qualifiedMs)
+      ? qualifiedMs
+      : nowMs;
+    if (reachedMs - createdMs > windowMs) {
+      return { status: "forfeit", reason: "expired", credits: 0, qualify_by: qualifyBy };
+    }
+  }
+
+  if (
+    row.reward_status === "qualified" &&
+    config.per_referrer_cap > 0 &&
+    grantedCount >= config.per_referrer_cap
+  ) {
+    return { status: "forfeit", reason: "over_cap", credits: 0, qualify_by: qualifyBy };
+  }
+
+  return { status: "waiting", reason: null, credits: 0, qualify_by: qualifyBy };
+}
+
+/** Fold a referrer's rows into the numbers the Share tab shows. Pure. */
+export function classifyReferralRows(
+  rows: ReadonlyArray<ReferralLedgerRow>,
+  config: ReferralRewardConfig,
+  nowMs: number,
+  earnedBonusCredits = 0,
+): ReferralSummary {
+  const grantedCount = rows.filter((r) => r.reward_status === "granted").length;
+  const out: ReferralSummary = { granted: 0, waiting: 0, forfeit: 0, earned: 0, pending_credits: 0 };
+  for (const row of rows) {
+    const c = classifyReferralRow(row, config, grantedCount, nowMs);
+    if (c.status === "rewarded") {
+      out.granted += 1;
+      out.earned += c.credits;
+    } else if (c.status === "forfeit") {
+      out.forfeit += 1;
+    } else {
+      out.waiting += 1;
+    }
+  }
+  out.earned += Math.max(0, earnedBonusCredits);
+  out.pending_credits = out.waiting * config.referrer_credits;
+  return out;
+}

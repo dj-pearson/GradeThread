@@ -201,9 +201,12 @@ export async function grantReferralReward(
       p_stripe_payment_intent: null,
       p_notes: `Referral reward (event ${eventId})`,
     });
+  // grant_grade_credits raises on a 0-credit grant, so a config that pays one
+  // side nothing skips that side's RPC instead of failing the whole referral.
+  const skip = Promise.resolve({ error: null as { message: string } | null });
   const [{ error: e1 }, { error: e2 }] = await Promise.all([
-    grant(ev.referrer_user_id, config.referrer_credits),
-    grant(ev.referred_user_id, config.referred_credits),
+    config.referrer_credits > 0 ? grant(ev.referrer_user_id, config.referrer_credits) : skip,
+    config.referred_credits > 0 ? grant(ev.referred_user_id, config.referred_credits) : skip,
   ]);
   if (e1 || e2) {
     console.error("[referrals] credit grant failed:", e1?.message ?? e2?.message);
@@ -221,8 +224,12 @@ export async function grantReferralReward(
   }
 
   await Promise.all([
-    notifyReward(ev.referrer_user_id, config.referrer_credits, true),
-    notifyReward(ev.referred_user_id, config.referred_credits, false),
+    config.referrer_credits > 0
+      ? notifyReward(ev.referrer_user_id, config.referrer_credits, true)
+      : Promise.resolve(),
+    config.referred_credits > 0
+      ? notifyReward(ev.referred_user_id, config.referred_credits, false)
+      : Promise.resolve(),
   ]);
 
   // US-1071: now that this grant is committed, check whether the referrer just

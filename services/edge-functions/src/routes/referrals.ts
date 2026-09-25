@@ -11,14 +11,17 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
+  classifyReferralRows,
   nextMilestone,
   REFERRAL_MILESTONES,
   redeemRefusal,
   type RedeemRefusal,
+  type ReferralLedgerRow,
 } from "../lib/referral-rewards.ts";
 import {
   applyReferredSignupIncentive,
   getReferralRewardConfig,
+  getReferredSignupIncentive,
 } from "../lib/referrals.ts";
 import { certIdFromLandingPath, recordShareSignup } from "../lib/share-to-earn.ts";
 
@@ -82,72 +85,114 @@ referralRoutes.get("/me", async (c) => {
   const userId = c.get("userId");
   if (!userId) return c.json({ error: "Sign-in required" }, 401);
 
-  const code = await ensureCode(userId);
+  let code: string;
+  try {
+    code = await ensureCode(userId);
+  } catch (err) {
+    console.error("[referrals] code provisioning failed:", err instanceof Error ? err.message : err);
+    return c.json({ error: "Couldn't load your referral code. Try again in a minute." }, 503);
+  }
 
-  // Referrer stats (people I referred), by status.
-  const mine = (status?: string) => {
-    let q = supabaseAdmin
+  // One round of reads, in parallel. Every one is scoped to the caller.
+  const [
+    { data: rowsRaw },
+    { data: referredRow },
+    { data: prefs },
+    { data: milestoneRows },
+    { data: paidRows },
+    rewardConfig,
+    incentive,
+  ] = await Promise.all([
+    supabaseAdmin
       .from("referral_events")
-      .select("id", { count: "exact", head: true })
-      .eq("referrer_user_id", userId);
-    if (status) q = q.eq("reward_status", status);
-    return q;
-  };
-  const [total, pending, qualified, granted] = await Promise.all([
-    mine(),
-    mine("pending"),
-    mine("qualified"),
-    mine("granted"),
+      .select("reward_status, referrer_reward_credits, created_at, qualified_at")
+      .eq("referrer_user_id", userId),
+    supabaseAdmin
+      .from("referral_events")
+      .select("reward_status, code")
+      .eq("referred_user_id", userId)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("users")
+      .select("referral_leaderboard_enabled, referral_display_name, created_at")
+      .eq("id", userId)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("referral_milestone_grants")
+      .select("threshold, bonus_credits")
+      .eq("user_id", userId),
+    supabaseAdmin
+      .from("grade_credit_transactions")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("reason", "pack_purchase")
+      .limit(1),
+    getReferralRewardConfig(),
+    getReferredSignupIncentive(),
   ]);
 
-  // Was I referred by someone?
-  const { data: referredRow } = await supabaseAdmin
-    .from("referral_events")
-    .select("reward_status, code")
-    .eq("referred_user_id", userId)
-    .maybeSingle();
-
-  // Leaderboard opt-in + public alias (US-864).
-  const { data: prefs } = await supabaseAdmin
-    .from("users")
-    .select("referral_leaderboard_enabled, referral_display_name")
-    .eq("id", userId)
-    .maybeSingle();
+  const rows = (rowsRaw ?? []) as ReferralLedgerRow[];
   const pref = prefs as
-    | { referral_leaderboard_enabled?: boolean; referral_display_name?: string | null }
+    | {
+      referral_leaderboard_enabled?: boolean;
+      referral_display_name?: string | null;
+      created_at?: string | null;
+    }
     | null;
-
-  const grantedCount = granted.count ?? 0;
-  const inProgressCount = (pending.count ?? 0) + (qualified.count ?? 0);
 
   // US-1071: milestone progress. Tiers are reached on GRANTED referrals; the
   // bonus credits actually paid are tracked in referral_milestone_grants.
-  const { data: milestoneRows } = await supabaseAdmin
-    .from("referral_milestone_grants")
-    .select("threshold, bonus_credits")
-    .eq("user_id", userId);
-  const earnedTiers = ((milestoneRows ?? []) as Array<{ threshold: number; bonus_credits: number }>);
+  const earnedTiers = (milestoneRows ?? []) as Array<{ threshold: number; bonus_credits: number }>;
   const earnedBonus = earnedTiers.reduce((sum, m) => sum + m.bonus_credits, 0);
-  const next = nextMilestone(grantedCount);
 
-  // US-1069: per-referral reward size is admin-configured in system_settings.
-  const rewardConfig = await getReferralRewardConfig();
+  const nowMs = Date.now();
+  const summary = classifyReferralRows(rows, rewardConfig, nowMs, earnedBonus);
+  const grantedCount = summary.granted;
+  const next = nextMilestone(grantedCount);
   const perReferral = rewardConfig.referrer_credits;
+  const count = (status: string) => rows.filter((r) => r.reward_status === status).length;
+
+  // Could this caller still type in a friend's code? The same rules /redeem
+  // enforces, so the card is hidden rather than offered and then refused.
+  const redeemEligible = !referredRow &&
+    redeemRefusal({
+        accountCreatedAt: pref?.created_at ?? null,
+        nowMs,
+        windowDays: rewardConfig.redeem_window_days,
+        hasPaidPurchase: (paidRows ?? []).length > 0,
+        circular: false,
+      }) === null;
+
+  const cap = rewardConfig.per_referrer_cap;
 
   return c.json({
     code,
     stats: {
-      total: total.count ?? 0,
-      pending: pending.count ?? 0,
-      qualified: qualified.count ?? 0,
+      total: rows.length,
+      pending: count("pending"),
+      qualified: count("qualified"),
       granted: grantedCount,
+      // Still able to pay, and never able to pay. pending + qualified mixes
+      // the two, which is why "In progress" used to include forfeits.
+      waiting: summary.waiting,
+      forfeit: summary.forfeit,
     },
-    // US-864: surface the referrer's reward in actual grade credits — earned
-    // (already applied to their balance) vs. pending (referrals still in flight).
+    // US-864: the referrer's reward in actual grade credits. earned is what the
+    // ledger paid (each grant's stored amount plus milestone bonuses), pending
+    // is what the still-live referrals will pay at today's rate.
     credits: {
       per_referral: perReferral,
-      earned: grantedCount * perReferral,
-      pending: inProgressCount * perReferral,
+      earned: summary.earned,
+      pending: summary.pending_credits,
+    },
+    // The deal, as the Share tab explains it. Every number is the live config.
+    rules: {
+      per_referral: perReferral,
+      referred_bonus: incentive.enabled ? incentive.bonus_credits : 0,
+      referred_on_qualify: rewardConfig.referred_credits,
+      window_days: rewardConfig.qualification_window_days,
+      cap,
+      cap_remaining: cap > 0 ? Math.max(0, cap - grantedCount) : null,
     },
     // US-1071: tiered/milestone rewards.
     milestones: {
@@ -161,6 +206,7 @@ referralRoutes.get("/me", async (c) => {
       display_name: pref?.referral_display_name ?? null,
     },
     referred_by: referredRow ? { status: referredRow.reward_status, code: referredRow.code } : null,
+    redeem_eligible: redeemEligible,
   });
 });
 
