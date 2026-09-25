@@ -19,6 +19,17 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { edgeFetch } from "@/lib/edge-fetch";
 
 interface Connection {
@@ -47,9 +58,12 @@ function displayHost(clientId: string): string {
 
 export function ConnectedAppsPanel() {
   const queryClient = useQueryClient();
-  const [pending, setPending] = useState<string | null>(null);
+  // DEV-04: one id per in-flight disconnect. A single shared id re-enabled the
+  // first button as soon as a second disconnect started.
+  const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
+  const [confirming, setConfirming] = useState<Connection | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["oauth-connections"],
     queryFn: async (): Promise<Connection[]> => {
       const res = await edgeFetch("/api/oauth/connections");
@@ -64,17 +78,28 @@ export function ConnectedAppsPanel() {
       const res = await edgeFetch(`/api/oauth/connections/${id}/revoke`, { method: "POST" });
       if (!res.ok) throw new Error("Could not disconnect that application.");
     },
+    onMutate: (id: string) => {
+      setPending((prev) => new Set(prev).add(id));
+    },
     onSuccess: () => {
       toast.success("Disconnected. It can no longer reach your account.");
       void queryClient.invalidateQueries({ queryKey: ["oauth-connections"] });
     },
     onError: (err: Error) => toastError(err),
-    onSettled: () => setPending(null),
+    onSettled: (_data, _err, id) => {
+      setPending((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    },
   });
 
-  // Nothing connected and nothing loading: say nothing. An empty panel on a
-  // page about API keys is a question a seller did not ask.
-  if (!isLoading && (data?.length ?? 0) === 0) return null;
+  // Nothing connected, known for certain: say nothing. An empty panel on a
+  // page about API keys is a question a seller did not ask. A FAILED read is
+  // not that: "nothing is connected" is the one answer a security list must
+  // never give by accident.
+  if (!isLoading && !isError && (data?.length ?? 0) === 0) return null;
 
   return (
     <Card>
@@ -89,7 +114,15 @@ export function ConnectedAppsPanel() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {isLoading
+        {isError ? (
+          <ErrorState
+            title="We could not load your connected apps"
+            description="Apps you connected before still have whatever access you gave them."
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+            hideSupport
+          />
+        ) : isLoading
           ? <Skeleton className="h-20 w-full" />
           : data!.map((connection) => (
             <div
@@ -119,13 +152,10 @@ export function ConnectedAppsPanel() {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={pending === connection.id}
-                onClick={() => {
-                  setPending(connection.id);
-                  revoke.mutate(connection.id);
-                }}
+                disabled={pending.has(connection.id)}
+                onClick={() => setConfirming(connection)}
               >
-                {pending === connection.id
+                {pending.has(connection.id)
                   ? <Loader2 className="size-4 animate-spin" aria-hidden />
                   : <Unplug className="size-4" aria-hidden />}
                 Disconnect
@@ -133,6 +163,30 @@ export function ConnectedAppsPanel() {
             </div>
           ))}
       </CardContent>
+      <AlertDialog open={confirming !== null} onOpenChange={(open) => { if (!open) setConfirming(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Disconnect {confirming ? displayHost(confirming.client_id) : ""}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              It stops working right away and you will need to connect it again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (confirming) revoke.mutate(confirming.id);
+                setConfirming(null);
+              }}
+            >
+              Disconnect
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
