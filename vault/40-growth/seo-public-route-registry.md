@@ -9,10 +9,15 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-09-24
+reviewed: 2026-09-25
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
+
+> **Re-reviewed 2026-09-25.** Drift on `src/routes/index.tsx` only:
+> `c424ea991` added one `registerAppNavigate` call after `router` is created,
+> so toast actions can navigate client-side. No route was added, moved or
+> removed, so the registry and its wiring points are unchanged.
 
 > **Re-reviewed 2026-09-15.** Drift on `src/routes/index.tsx` only:
 > US-3417 added `/dashboard/flipdesk/settings/sku`. It is an AUTHENTICATED
