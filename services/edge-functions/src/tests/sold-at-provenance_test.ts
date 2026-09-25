@@ -314,7 +314,12 @@ const REGISTRY: Record<string, readonly Site[]> = {
   // US-3183: the shape of the row GET /planner/outcomes hands back. A type
   // declaration, not a write: the scorecard only ever compares this to a date
   // range, and nothing in the planner tree writes a sale.
-  "src/hooks/use-planner.ts": [{ text: "sold_at: string | null;", kind: "shape" }],
+  // WMT-13: and the shape of the unshipped-sales read buildPlan makes for
+  // ship-by deadlines. Also a read; sold_at feeds shipDeadlineOf's fallback.
+  "src/hooks/use-planner.ts": [
+    { text: "sold_at: string | null;", kind: "shape" },
+    { text: "sold_at: string | null;", kind: "shape" },
+  ],
   "src/hooks/use-ship-queue.ts": [{ text: "sold_at: string | null;", kind: "shape" }],
   // The published JS SDK's SaleSummary: the typed shape of a row from
   // GET /api/v1/sales. `sdk` is one of SOURCE_ROOTS on purpose, and this is a
