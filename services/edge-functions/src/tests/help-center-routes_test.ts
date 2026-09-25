@@ -7,7 +7,12 @@ import "./_env.ts";
 // guard is visibility, which is pinned here and in help-center_test.ts.
 import { assert, assertEquals } from "@std/assert";
 import { installFakePostgrest, type Row } from "./_fake-postgrest.ts";
-import { buildPatch, helpAdminRoutes, helpPublicRoutes } from "../routes/help-center.ts";
+import {
+  buildPatch,
+  helpAdminRoutes,
+  helpPublicRoutes,
+  helpReaderRoutes,
+} from "../routes/help-center.ts";
 import { HOSTILE_HELP_BODY, TIPTAP_HELP_BODY } from "./_help-bodies.ts";
 
 Deno.test("H1: buildPatch stores a sanitized body_html", () => {
@@ -96,4 +101,57 @@ Deno.test("H3: the freshness tally ignores votes cast against an older version",
   assertEquals(res.status, 200);
   const body = await res.json();
   assertEquals(body.articles[0].feedback, { helpful: 1, unhelpful: 0, comments: [] });
+});
+
+// ── reader payloads (H8) ──────────────────────────────────
+
+const CATS: Row[] = [
+  { key: "getting-started", title: "Getting started", slug: "getting-started", summary: "", sort_order: 1, icon: null },
+  { key: "billing", title: "Billing", slug: "billing", summary: "", sort_order: 2, icon: null },
+];
+
+function indexSelects(): string[] {
+  return db.calls
+    .filter((c) => c.method === "GET" && c.table === "help_articles")
+    .map((c) => c.params.get("select") ?? "");
+}
+
+Deno.test("H8: the reader article has no body_markdown and carries its category", async () => {
+  db.reset({ help_articles: [article()], help_categories: CATS });
+  const res = await helpReaderRoutes.request("/your-first-grade");
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assert(!("body_markdown" in body.article), "nothing in the app reads the Markdown");
+  assertEquals(body.article.body_html, "<p>hi</p>");
+  assertEquals(body.category.key, "getting-started");
+});
+
+Deno.test("H8: the public article still ships body_markdown for the .md mirror", async () => {
+  db.reset({ help_articles: [article()], help_categories: CATS });
+  const res = await helpPublicRoutes.request("/your-first-grade");
+  assertEquals(res.status, 200);
+  assertEquals((await res.json()).article.body_markdown, "hi");
+});
+
+Deno.test("H8: the index selects no body columns, and its rows carry no body", async () => {
+  db.reset({ help_articles: [article()], help_categories: CATS });
+  db.calls.length = 0;
+  const res = await helpReaderRoutes.request("/");
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assert(!("body_html" in body.articles[0]));
+  const selects = indexSelects();
+  assertEquals(selects.length, 1);
+  assert(!selects[0].includes("body_"), `index select pulled a body: ${selects[0]}`);
+});
+
+Deno.test("H8: ?full=1 on the public index is the one path that reads body_markdown", async () => {
+  db.reset({ help_articles: [article()], help_categories: CATS });
+  db.calls.length = 0;
+  const res = await helpPublicRoutes.request("/?full=1");
+  const body = await res.json();
+  assertEquals(body.articles[0].body_markdown, "hi");
+  const [select] = indexSelects();
+  assert(select.includes("body_markdown"));
+  assert(!select.includes("body_html"));
 });

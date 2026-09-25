@@ -242,6 +242,18 @@ export function projectArticle(row: HelpArticleRow): HelpArticleView {
   };
 }
 
+/**
+ * The in-app reader's article shape: everything but body_markdown. Nothing in
+ * the app reads the Markdown; it exists for the public .md mirror, which is
+ * served from projectArticle on the public mount.
+ */
+export type HelpReaderArticleView = Omit<HelpArticleView, "body_markdown">;
+
+export function projectArticleForReader(row: HelpArticleRow): HelpReaderArticleView {
+  const { body_markdown: _omit, ...view } = projectArticle(row);
+  return view;
+}
+
 // ── search (US-2577) ──────────────────────────────────────
 
 export interface HelpSearchHit {

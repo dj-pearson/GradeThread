@@ -23,6 +23,7 @@ import {
   normalizeHelpQuery,
   type HelpSearchHit,
   projectArticle,
+  projectArticleForReader,
   projectListItem,
   readableStatusesFor,
   slugifyHelp,
@@ -64,6 +65,16 @@ const ARTICLE_COLUMNS =
   "visibility, status, sort_order, hero_image_url, faq, related_slugs, video_url, pillar_path, " +
   "published_at, reviewed_at, review_interval_days, created_at, updated_at";
 
+// What an index needs: projectListItem's fields plus the two the query filters
+// on. Pulling body_html, body_json and body_markdown for every article only to
+// throw them away made the index payload from Postgres the whole corpus.
+const LIST_COLUMNS =
+  "slug, title, summary, category_key, audience, visibility, status, sort_order, " +
+  "updated_at, reviewed_at, published_at";
+
+// The one index consumer that needs a body: /help.md via ?full=1.
+const LIST_WITH_MARKDOWN_COLUMNS = `${LIST_COLUMNS}, body_markdown`;
+
 const CATEGORY_COLUMNS = "key, title, slug, summary, sort_order, icon";
 
 // ── shared reads ──────────────────────────────────────────
@@ -79,17 +90,20 @@ async function loadCategories(): Promise<HelpCategoryRow[]> {
   return (data ?? []) as HelpCategoryRow[];
 }
 
-async function loadIndex(viewer: HelpViewer): Promise<HelpArticleRow[]> {
+async function loadIndex(
+  viewer: HelpViewer,
+  columns: string = LIST_COLUMNS,
+): Promise<HelpArticleRow[]> {
   const { data, error } = await supabaseAdmin
     .from("help_articles")
-    .select(ARTICLE_COLUMNS)
+    .select(columns)
     .in("visibility", visibilitiesFor(viewer))
     .in("status", readableStatusesFor(viewer))
     .order("category_key", { ascending: true })
     .order("sort_order", { ascending: true })
     .order("title", { ascending: true });
   if (error) throw error;
-  // Cast through unknown: ARTICLE_COLUMNS is a concatenated string rather than a
+  // Cast through unknown: the column list is a concatenated string rather than a
   // literal, so supabase-js's select() parser gives up and infers
   // GenericStringError instead of the row shape. Same workaround as the
   // submission_images reads elsewhere in this service.
@@ -195,13 +209,17 @@ export const helpPublicRoutes = new Hono<PublicEnv>();
 
 helpPublicRoutes.get("/", async (c) => {
   try {
-    const [categories, rows] = await Promise.all([loadCategories(), loadIndex("anon")]);
+    const full = c.req.query("full") === "1";
+    const [categories, rows] = await Promise.all([
+      loadCategories(),
+      loadIndex("anon", full ? LIST_WITH_MARKDOWN_COLUMNS : LIST_COLUMNS),
+    ]);
     const payload = indexPayload(categories, rows);
     // US-2580: ?full=1 adds each article's Markdown body, so /help.md can be a
     // single-fetch document an answer engine ingests whole instead of crawling
     // one URL per article. Opt-in because the default index is the payload the
     // hub and every category page render, and it must stay small.
-    if (c.req.query("full") === "1") {
+    if (full) {
       const bodyBySlug = new Map(rows.map((r) => [r.slug, r.body_markdown ?? ""]));
       return c.json({
         ...payload,
@@ -474,11 +492,16 @@ helpReaderRoutes.post("/:slug/view", async (c) => {
 helpReaderRoutes.get("/:slug", async (c) => {
   try {
     const viewer = await viewerFor(c.get("userId"));
-    const row = await loadArticle(viewer, c.req.param("slug"));
+    // The category list is small and cached by nobody else on this hop, so
+    // fetch it alongside the article rather than after it.
+    const [row, categories] = await Promise.all([
+      loadArticle(viewer, c.req.param("slug")),
+      loadCategories(),
+    ]);
     if (!row) return c.json({ error: "Not found" }, 404);
     return c.json({
-      article: projectArticle(row),
-      category: await categoryFor(row.category_key),
+      article: projectArticleForReader(row),
+      category: categories.find((k) => k.key === row.category_key) ?? null,
       viewer,
     });
   } catch (err) {

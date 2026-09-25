@@ -7,6 +7,8 @@ import type {
   HelpArticle,
   HelpArticleInput,
   HelpCategory,
+  HelpReaderArticleView,
+  HelpReaderListItem,
   HelpVisibility,
 } from "@/types/help-center";
 
@@ -77,20 +79,7 @@ const PUBLIC_KEY = ["help_public"];
 
 export interface PublicHelpIndex {
   categories: HelpCategory[];
-  articles: Array<
-    Pick<
-      HelpArticle,
-      | "slug"
-      | "title"
-      | "summary"
-      | "category_key"
-      | "audience"
-      | "visibility"
-      | "sort_order"
-      | "updated_at"
-      | "reviewed_at"
-    >
-  >;
+  articles: HelpReaderListItem[];
 }
 
 async function publicFetch<T>(path: string): Promise<T> {
@@ -178,7 +167,7 @@ export type HelpViewerTier = "anon" | "member" | "admin";
 
 export interface HelpReaderIndex {
   categories: HelpCategory[];
-  articles: HelpArticle[];
+  articles: HelpReaderListItem[];
   viewer: HelpViewerTier;
 }
 
@@ -197,7 +186,11 @@ export function useHelpReaderArticle(slug: string | undefined) {
     enabled: Boolean(slug),
     retry: helpReaderRetry,
     queryFn: () =>
-      jfetch<{ article: HelpArticle; category: HelpCategory | null; viewer: HelpViewerTier }>(
+      jfetch<{
+        article: HelpReaderArticleView;
+        category: HelpCategory | null;
+        viewer: HelpViewerTier;
+      }>(
         `/api/help/${encodeURIComponent(slug!)}`,
       ),
   });
