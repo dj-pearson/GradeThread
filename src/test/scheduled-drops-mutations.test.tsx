@@ -161,4 +161,43 @@ describe("drop writes that change nothing (SD-1)", () => {
     });
     expect(result).toMatchObject({ moved: 1, unchanged: 0, failed: 1 });
   });
+
+});
+
+describe("drop writes into the past (SD-2)", () => {
+  it("reschedule to a past instant rejects without calling supabase", async () => {
+    state.responses = [{ data: [{ id: "a" }], error: null }];
+    const { out } = await mount(() => hooks.useRescheduleDrop());
+    let caught: unknown;
+    await act(async () => {
+      try {
+        await out.current!.mutateAsync({ id: "a", at: new Date(Date.now() - 60_000).toISOString() });
+      } catch (e) {
+        caught = e;
+      }
+    });
+    expect(caught).toBeInstanceOf(hooks.DropInPastError);
+    expect(state.updates).toHaveLength(0);
+  });
+
+  it("a shift that would put any row in the past writes nothing", async () => {
+    state.responses = [{ data: [{ id: "a" }], error: null }];
+    const { out } = await mount(() => hooks.useShiftDrops());
+    let caught: unknown;
+    await act(async () => {
+      try {
+        await out.current!.mutateAsync({
+          drops: [
+            { id: "a", scheduled_publish_at: new Date(Date.now() + 86_400_000 * 2).toISOString() },
+            { id: "b", scheduled_publish_at: new Date(Date.now() + 30 * 60_000).toISOString() },
+          ],
+          minutes: -60,
+        });
+      } catch (e) {
+        caught = e;
+      }
+    });
+    expect(caught).toBeInstanceOf(hooks.DropInPastError);
+    expect(state.updates).toHaveLength(0);
+  });
 });

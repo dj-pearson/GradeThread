@@ -18,7 +18,13 @@ import {
   useRescheduleDrop,
   useShiftDrops,
 } from "@/hooks/use-scheduled-drops";
-import { isoToZonedInput, zonedInputToIso } from "@/lib/scheduling";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import {
+  assertFutureDrop,
+  isoToZonedInput,
+  MIN_DROP_LEAD_MS,
+  zonedInputToIso,
+} from "@/lib/scheduling";
 
 // US-2522: everything the calendar could not do. One day's drops, each
 // reschedulable and cancellable in place, plus a shift that moves the whole day
@@ -35,8 +41,8 @@ export interface DayDrop {
 
 /** Offered shifts, in minutes. A day slips by an hour far more often than by five. */
 const SHIFTS = [
-  { label: "−1 day", minutes: -1440 },
-  { label: "−1 hour", minutes: -60 },
+  { label: "Back 1 day", minutes: -1440 },
+  { label: "Back 1 hour", minutes: -60 },
   { label: "+1 hour", minutes: 60 },
   { label: "+1 day", minutes: 1440 },
 ];
@@ -59,13 +65,25 @@ export function DropDayDialog({
   const shift = useShiftDrops();
   const [editing, setEditing] = useState<string | null>(null);
   const [draftAt, setDraftAt] = useState("");
+  // SD-2: why the typed time was refused, shown under the input.
+  const [timeError, setTimeError] = useState<string | null>(null);
+  const confirm = useConfirm();
+  const now = Date.now();
 
   async function saveTime(drop: DayDrop) {
     const iso = zonedInputToIso(draftAt, timeZone);
     if (!iso) {
-      toast.error("That is not a valid date and time.");
+      setTimeError("That is not a valid date and time.");
       return;
     }
+    // The cron publishes anything at or before now within five minutes, so a
+    // past time here is a publish-now the seller did not ask for.
+    const check = assertFutureDrop(iso);
+    if (!check.ok) {
+      setTimeError(check.reason);
+      return;
+    }
+    setTimeError(null);
     try {
       await reschedule.mutateAsync({ id: drop.id, at: iso });
       setEditing(null);
@@ -75,9 +93,32 @@ export function DropDayDialog({
     }
   }
 
+  /** SD-2: which of this day's drops a shift would push into the past. */
+  function shiftPlan(minutes: number) {
+    const future = drops.filter(
+      (d) =>
+        assertFutureDrop(
+          new Date(Date.parse(d.scheduled_publish_at) + minutes * 60_000).toISOString(),
+          now,
+        ).ok,
+    );
+    return { future, past: drops.length - future.length };
+  }
+
   async function shiftAll(minutes: number) {
+    const plan = shiftPlan(minutes);
+    if (plan.future.length === 0) return;
+    if (plan.past > 0) {
+      const ok = await confirm({
+        title: "Some drops would land in the past",
+        description: `${plan.past} of ${drops.length} drops would land in the past, and the next cron run would publish them. Skip those and shift the rest?`,
+        confirmLabel: `Shift ${plan.future.length}`,
+      });
+      if (!ok) return;
+    }
+    const targets = plan.future;
     try {
-      const r = await shift.mutateAsync({ drops, minutes });
+      const r = await shift.mutateAsync({ drops: targets, minutes });
       const missed = r.unchanged + r.failed;
       if (r.moved === 0) {
         toast.error(
@@ -85,7 +126,7 @@ export function DropDayDialog({
         );
       } else if (missed > 0) {
         toast.warning(
-          `Shifted ${r.moved} of ${drops.length}. ${missed} already went live or could not be edited.`,
+          `Shifted ${r.moved} of ${targets.length}. ${missed} already went live or could not be edited.`,
         );
       } else {
         toast.success(`${r.moved} drop${r.moved === 1 ? "" : "s"} shifted.`);
@@ -111,17 +152,26 @@ export function DropDayDialog({
         {drops.length > 1 && (
           <div className="flex flex-wrap items-center gap-2 rounded-md border p-2">
             <span className="text-sm font-medium">Shift the whole day</span>
-            {SHIFTS.map((s) => (
-              <Button
-                key={s.minutes}
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void shiftAll(s.minutes)}
-              >
-                {s.label}
-              </Button>
-            ))}
+            {SHIFTS.map((s) => {
+              const plan = shiftPlan(s.minutes);
+              return (
+                <Button
+                  key={s.minutes}
+                  size="sm"
+                  variant="outline"
+                  // Every drop would land in the past: nothing to offer.
+                  disabled={busy || plan.future.length === 0}
+                  title={
+                    plan.future.length === 0
+                      ? "Every drop would land in the past."
+                      : undefined
+                  }
+                  onClick={() => void shiftAll(s.minutes)}
+                >
+                  {s.label}
+                </Button>
+              );
+            })}
             <span className="w-full text-xs text-muted-foreground">
               Each drop moves by the same amount, so the gaps between them stay
               as you set them.
@@ -163,7 +213,14 @@ export function DropDayDialog({
                   <Input
                     type="datetime-local"
                     value={draftAt}
-                    onChange={(e) => setDraftAt(e.target.value)}
+                    min={isoToZonedInput(
+                      new Date(now + MIN_DROP_LEAD_MS).toISOString(),
+                      timeZone,
+                    )}
+                    onChange={(e) => {
+                      setDraftAt(e.target.value);
+                      setTimeError(null);
+                    }}
                     className="h-8 w-auto text-xs"
                     aria-label={`New date and time for ${d.title}`}
                   />
@@ -181,6 +238,11 @@ export function DropDayDialog({
                   >
                     Cancel
                   </Button>
+                  {timeError && (
+                    <p role="alert" className="w-full text-xs text-destructive">
+                      {timeError}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -191,6 +253,7 @@ export function DropDayDialog({
                     aria-label={`Reschedule ${d.title}`}
                     onClick={() => {
                       setEditing(d.id);
+                      setTimeError(null);
                       setDraftAt(isoToZonedInput(d.scheduled_publish_at, timeZone));
                     }}
                   >
@@ -206,7 +269,7 @@ export function DropDayDialog({
                       try {
                         await cancel.mutateAsync({ id: d.id });
                         toast.success(`${d.title} unscheduled.`, {
-                          description: "The draft is untouched — schedule it again any time.",
+                          description: "The draft is untouched. Schedule it again any time.",
                         });
                       } catch (err) {
                         toastError(err, "Could not unschedule.");

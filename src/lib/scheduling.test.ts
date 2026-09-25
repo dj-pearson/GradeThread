@@ -6,6 +6,7 @@ import {
   isoToZonedInput,
   zonedInputToIso,
   formatInZone,
+  assertFutureDrop,
 } from "./scheduling";
 
 describe("zonedWallTimeToUtc", () => {
@@ -88,5 +89,23 @@ describe("formatInZone", () => {
 
   it("handles invalid input gracefully", () => {
     expect(formatInZone("not-a-date", "UTC")).toBe("—");
+  });
+});
+
+describe("assertFutureDrop (SD-2)", () => {
+  const NOW = Date.parse("2026-09-25T12:00:00Z");
+  it("rejects a time inside the cron's five-minute window", () => {
+    const r = assertFutureDrop(new Date(NOW + 60_000).toISOString(), NOW);
+    expect(r.ok).toBe(false);
+  });
+  it("rejects a past time with the seller-facing reason", () => {
+    const r = assertFutureDrop(new Date(NOW - 60_000).toISOString(), NOW);
+    expect(r).toEqual({ ok: false, reason: "That time has passed. Pick a later time." });
+  });
+  it("accepts a time ten minutes out", () => {
+    expect(assertFutureDrop(new Date(NOW + 10 * 60_000).toISOString(), NOW)).toEqual({ ok: true });
+  });
+  it("rejects junk", () => {
+    expect(assertFutureDrop("nope", NOW).ok).toBe(false);
   });
 });

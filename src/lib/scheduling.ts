@@ -197,3 +197,29 @@ export function zonedInputToIso(local: string, timeZone: string): string | null 
   const utc = zonedWallTimeToUtc(Number(y), Number(mo), Number(d), Number(h), Number(mi), timeZone);
   return Number.isNaN(utc.getTime()) ? null : utc.toISOString();
 }
+
+// SD-2: the publish-due cron selects `scheduled_publish_at <= now` every five
+// minutes, so a drop moved into the past, or into the next few minutes, goes
+// live on eBay at the next tick. Every write path checks against this lead.
+export const MIN_DROP_LEAD_MS = 5 * 60_000;
+
+export type FutureDropCheck = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Is `iso` far enough ahead to be a schedule rather than a publish-now? Pure,
+ * so the mutation hooks and the dialog ask the same question.
+ */
+export function assertFutureDrop(
+  iso: string,
+  now: number = Date.now(),
+  minLeadMs: number = MIN_DROP_LEAD_MS,
+): FutureDropCheck {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) {
+    return { ok: false, reason: "That is not a valid date and time." };
+  }
+  if (t < now + minLeadMs) {
+    return { ok: false, reason: "That time has passed. Pick a later time." };
+  }
+  return { ok: true };
+}

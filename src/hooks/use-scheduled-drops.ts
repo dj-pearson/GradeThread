@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchCapped } from "@/lib/paged-read";
+import { assertFutureDrop } from "@/lib/scheduling";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -122,6 +123,23 @@ export class DropNotChangedError extends Error {
 }
 
 /**
+ * SD-2: a write that would put a drop in the past, where the 5-minute cron
+ * publishes it at the next tick. Checked inside the mutations so no caller can
+ * publish a drop early by accident, whatever the UI in front of it checked.
+ */
+export class DropInPastError extends Error {
+  constructor(message = "That time has passed. Pick a later time.") {
+    super(message);
+    this.name = "DropInPastError";
+  }
+}
+
+function assertFutureOrThrow(iso: string): void {
+  const check = assertFutureDrop(iso);
+  if (!check.ok) throw new DropInPastError(check.reason);
+}
+
+/**
  * Write one row's schedule and say whether it changed. Only a draft is
  * schedulable, so a published listing that somehow still carried a schedule
  * must not be moved by this surface.
@@ -142,6 +160,7 @@ export function useRescheduleDrop() {
   const invalidate = useInvalidateDrops();
   return useMutation({
     mutationFn: async ({ id, at }: { id: string; at: string }) => {
+      assertFutureOrThrow(at);
       if (!(await writeDropTime(id, at))) throw new DropNotChangedError();
     },
     // onSettled, not onSuccess: a rejected write still means the rows on
@@ -189,15 +208,21 @@ export function useShiftDrops() {
       // single-statement version of this. These are direct PostgREST writes
       // under the caller's RLS; they never pass through the edge rate limiter.
       // Sequential so a partial failure leaves a readable count behind.
-      const result: DropBatchResult = { moved: 0, unchanged: 0, failed: 0, movedIds: [] };
-      for (const d of drops) {
-        const next = new Date(
+      const planned = drops.map((d) => ({
+        id: d.id,
+        next: new Date(
           new Date(d.scheduled_publish_at).getTime() + minutes * 60_000,
-        ).toISOString();
+        ).toISOString(),
+      }));
+      // Checked for every row BEFORE any write, so a refused shift leaves the
+      // day exactly as it was rather than half moved.
+      for (const p of planned) assertFutureOrThrow(p.next);
+      const result: DropBatchResult = { moved: 0, unchanged: 0, failed: 0, movedIds: [] };
+      for (const p of planned) {
         try {
-          if (await writeDropTime(d.id, next)) {
+          if (await writeDropTime(p.id, p.next)) {
             result.moved += 1;
-            result.movedIds.push(d.id);
+            result.movedIds.push(p.id);
           } else {
             result.unchanged += 1;
           }
