@@ -250,3 +250,76 @@ describe("a reschedule that leaves the day (SD-10)", () => {
     expect(onDayChange).toHaveBeenCalledWith(2030, 6, 14);
   });
 });
+
+async function typeTime(value: string) {
+  const input = document.body.querySelector<HTMLInputElement>('input[type="datetime-local"]')!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    setter.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  return input;
+}
+
+describe("undo and the time editor's keys (SD-11)", () => {
+  it("Undo on an unschedule puts back the original instant", async () => {
+    const d = drop("a", 5 * 3_600_000);
+    await render([d]);
+    await click(button("Unschedule Drop a"));
+    expect(state.cancel).toHaveBeenCalledWith({ id: "a" });
+    const [, opts] = toastSpy.success.mock.calls[0]! as [
+      string,
+      { action: { label: string; onClick: () => void } },
+    ];
+    expect(opts.action.label).toBe("Undo");
+    await act(async () => opts.action.onClick());
+    expect(state.reschedule).toHaveBeenCalledWith({ id: "a", at: d.scheduled_publish_at });
+  });
+
+  it("offers no Undo when the old time has already passed", async () => {
+    await render([drop("a", -3_600_000)]);
+    await click(button("Unschedule Drop a"));
+    const [, opts] = toastSpy.success.mock.calls[0]! as [string, { action?: unknown; description: string }];
+    expect(opts.action).toBeUndefined();
+    expect(opts.description).toContain("no undo");
+  });
+
+  it("Undo on a shift moves back only the rows that moved", async () => {
+    await render([drop("a", 48 * 3_600_000), drop("b", 50 * 3_600_000)]);
+    await click(button("+1 hour"));
+    const call = toastSpy.success.mock.calls[toastSpy.success.mock.calls.length - 1]! as [
+      string,
+      { action: { onClick: () => void } },
+    ];
+    await act(async () => call[1].action.onClick());
+    const undo = state.shift.mock.calls[state.shift.mock.calls.length - 1]![0] as {
+      drops: { id: string }[];
+      shift: { days?: number; minutes?: number };
+    };
+    expect(undo.drops.map((x) => x.id)).toEqual(["a", "b"]);
+    expect(undo.shift).toEqual({ minutes: -60 });
+  });
+
+  it("Enter in the time input saves", async () => {
+    await render([drop("a", 3_600_000)]);
+    await click(button("Reschedule Drop a"));
+    const input = await typeTime("2030-06-14T19:00");
+    await act(async () => {
+      input.form!.requestSubmit();
+    });
+    expect(state.reschedule).toHaveBeenCalledTimes(1);
+  });
+
+  it("Escape in the time input closes the editor and leaves the dialog open", async () => {
+    const onOpenChange = vi.fn();
+    await render([drop("a", 3_600_000)], { onOpenChange });
+    await click(button("Reschedule Drop a"));
+    const input = document.body.querySelector<HTMLInputElement>('input[type="datetime-local"]')!;
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(document.body.querySelector('input[type="datetime-local"]')).toBeNull();
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+  });
+});

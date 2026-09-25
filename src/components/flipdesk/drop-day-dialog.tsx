@@ -154,6 +154,64 @@ export function DropDayDialog({
     }
   }
 
+  /**
+   * SD-11: Undo for a shift moves back ONLY the rows that really moved, by the
+   * same amount, from where they are now.
+   */
+  function undoShiftAction(targets: DayDrop[], movedIds: string[], by: DropShift) {
+    const moved = targets
+      .filter((t) => movedIds.includes(t.id))
+      .map((t) => ({
+        id: t.id,
+        scheduled_publish_at: shiftInZone(t.scheduled_publish_at, timeZone, by),
+      }));
+    const back: DropShift = {};
+    if (by.days) back.days = -by.days;
+    if (by.minutes) back.minutes = -by.minutes;
+    return {
+      label: "Undo",
+      onClick: () => {
+        shift
+          .mutateAsync({ drops: moved, shift: back, timeZone })
+          .then((r) => {
+            if (r.moved < moved.length) {
+              toast.warning(`Moved ${r.moved} of ${moved.length} back.`);
+            }
+          })
+          .catch((err: unknown) => toastError(err, "Could not undo the shift."));
+      },
+    };
+  }
+
+  async function unschedule(d: DayDrop) {
+    const previous = d.scheduled_publish_at;
+    try {
+      await cancel.mutateAsync({ id: d.id });
+      // SD-11: the old time is otherwise lost. It can only be put back while
+      // it is still ahead of the cron; a past time would publish at once.
+      if (assertFutureDrop(previous).ok) {
+        toast.success(`${d.title} unscheduled.`, {
+          description: "The draft is untouched. Schedule it again any time.",
+          action: {
+            label: "Undo",
+            onClick: () => {
+              reschedule
+                .mutateAsync({ id: d.id, at: previous })
+                .catch((err: unknown) => toastError(err, "Could not put the drop back."));
+            },
+          },
+        });
+      } else {
+        toast.success(`${d.title} unscheduled.`, {
+          description:
+            "Its old time has passed, so there is no undo. The draft is untouched.",
+        });
+      }
+    } catch (err) {
+      toastError(err, "Could not unschedule.");
+    }
+  }
+
   /** SD-2: which of this day's drops a shift would push into the past. */
   function shiftPlan(by: DropShift) {
     const future = drops.filter(
@@ -186,7 +244,9 @@ export function DropDayDialog({
           `Shifted ${r.moved} of ${targets.length}. ${missed} already went live or could not be edited.`,
         );
       } else {
-        toast.success(`${r.moved} drop${r.moved === 1 ? "" : "s"} shifted.`);
+        toast.success(`${r.moved} drop${r.moved === 1 ? "" : "s"} shifted.`, {
+          action: undoShiftAction(targets, r.movedIds, by),
+        });
       }
       // SD-10: a whole-day shift empties this day, so follow the drops.
       const first = targets.find((t) => r.movedIds.includes(t.id));
@@ -204,10 +264,26 @@ export function DropDayDialog({
 
   const busy = reschedule.isPending || cancel.isPending || shift.isPending;
   const locked = busy || !canEdit;
+  // SD-11: which row a single write is working on, so only that row spins and
+  // locks. A shift touches every row, so it still locks them all.
+  const pendingId =
+    (reschedule.isPending && reschedule.variables?.id) ||
+    (cancel.isPending && cancel.variables?.id) ||
+    null;
+  const rowLocked = (id: string) => !canEdit || shift.isPending || pendingId === id;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85dvh] max-w-lg overflow-y-auto">
+      <DialogContent
+        className="max-h-[85dvh] max-w-lg overflow-y-auto"
+        onEscapeKeyDown={(e) => {
+          // SD-11: Escape inside the time editor closes the editor, not the day.
+          if (editing) {
+            e.preventDefault();
+            setEditing(null);
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{dayLabel}</DialogTitle>
           <DialogDescription>
@@ -294,10 +370,23 @@ export function DropDayDialog({
               </div>
 
               {editing === d.id ? (
-                <div className="mt-2 flex flex-wrap items-center gap-2">
+                <form
+                  // Our own check explains a refused time; the browser's
+                  // min-bubble would block the submit without saying why here.
+                  noValidate
+                  className="mt-2 flex flex-wrap items-center gap-2"
+                  onSubmit={(e) => {
+                    // SD-11: Enter in the time input saves.
+                    e.preventDefault();
+                    void saveTime(d);
+                  }}
+                >
                   <Input
                     type="datetime-local"
                     value={draftAt}
+                    // The editor opens on a click; the input is where the
+                    // seller is going next.
+                    autoFocus
                     min={isoToZonedInput(
                       new Date(now + MIN_DROP_LEAD_MS).toISOString(),
                       timeZone,
@@ -306,18 +395,26 @@ export function DropDayDialog({
                       setDraftAt(e.target.value);
                       setTimeError(null);
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        e.stopPropagation();
+                        setEditing(null);
+                      }
+                    }}
                     className="h-8 w-auto text-xs"
                     aria-label={`New date and time for ${d.title}`}
                   />
-                  <Button size="sm" disabled={locked} onClick={() => void saveTime(d)}>
-                    {reschedule.isPending ? (
+                  <Button type="submit" size="sm" disabled={rowLocked(d.id)}>
+                    {pendingId === d.id ? (
                       <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                     ) : null}
                     Save
                   </Button>
                   <Button
+                    type="button"
                     size="sm"
                     variant="ghost"
+                    disabled={pendingId === d.id}
                     onClick={() => setEditing(null)}
                     aria-label={`Cancel editing ${d.title}`}
                   >
@@ -328,13 +425,13 @@ export function DropDayDialog({
                       {timeError}
                     </p>
                   )}
-                </div>
+                </form>
               ) : (
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={locked}
+                    disabled={rowLocked(d.id)}
                     aria-label={`Reschedule ${d.title}`}
                     onClick={() => {
                       setEditing(d.id);
@@ -348,20 +445,15 @@ export function DropDayDialog({
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={locked}
+                    disabled={rowLocked(d.id)}
                     aria-label={`Unschedule ${d.title}`}
-                    onClick={async () => {
-                      try {
-                        await cancel.mutateAsync({ id: d.id });
-                        toast.success(`${d.title} unscheduled.`, {
-                          description: "The draft is untouched. Schedule it again any time.",
-                        });
-                      } catch (err) {
-                        toastError(err, "Could not unschedule.");
-                      }
-                    }}
+                    onClick={() => void unschedule(d)}
                   >
-                    <X className="mr-1 h-3.5 w-3.5" />
+                    {pendingId === d.id && cancel.isPending ? (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <X className="mr-1 h-3.5 w-3.5" />
+                    )}
                     Unschedule
                   </Button>
                 </div>
