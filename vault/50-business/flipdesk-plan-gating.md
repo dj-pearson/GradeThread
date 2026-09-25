@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/routes/flipdesk-closet-import.ts
   - services/edge-functions/src/lib/ebay-orphan-adopt.ts
   - src/lib/constants.ts
-reviewed: 2026-09-24
+reviewed: 2026-09-25
 tags: [flipdesk, plans, billing, contract]
 summary: Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 ---
@@ -18,6 +18,13 @@ summary: Every FlipDesk endpoint touching a gated capacity or feature calls requ
 > [!note] Re-reviewed 2026-09-11 (US-3329). The only change to this note's code refs since its last review renames the fifth grading factor's LABEL from "Odor & Cleanliness" to "Cleanliness" (and in ai-grading.ts adds the flag-gated GRADING_CLEANLINESS_V2 wording). Checked: nothing this note states depends on that label, the factor key, or its weight.
 
 # FlipDesk plan gating contract
+
+> **Re-reviewed 2026-09-25.** Drift flagged `src/lib/constants.ts` on
+> 32b1dedeb (listing templates). The change adds three condition tables beside
+> `EBAY_CONDITION_OPTIONS`: `EBAY_CONDITION_ENUM_TO_ID` (a mirror of the edge
+> preflight's `CONDITION_ENUM_TO_ID`), `APPAREL_CONDITION_IDS` and
+> `APPAREL_CONDITION_LABELS`, used by the starter templates. No constant this
+> note cites moved.
 
 > **Re-reviewed 2026-09-23.** `plan-gate-coverage_test.ts` now judges each
 > `flipdesk-ebay-*.ts` file on its own instead of pooling them, which exposed

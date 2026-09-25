@@ -11,13 +11,20 @@ code_refs:
   - scripts/setup-stripe-pricing.mjs
   - src/pages/legal/refund.tsx
   - src/pages/legal/terms.tsx
-reviewed: 2026-09-24
+reviewed: 2026-09-25
 tags: [pricing, billing, stripe, contract]
 summary: The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
 ---
 
 > [!note] Re-reviewed 2026-09-11 (US-3329). The only change to this note's code refs since its last review renames the fifth grading factor's LABEL from "Odor & Cleanliness" to "Cleanliness" (and in ai-grading.ts adds the flag-gated GRADING_CLEANLINESS_V2 wording). Checked: nothing this note states depends on that label, the factor key, or its weight.
 # GradeThread + FlipDesk Pricing — Canonical Model (US-200)
+
+> **Re-reviewed 2026-09-25.** Drift flagged `src/lib/constants.ts` on
+> 32b1dedeb (listing templates). The change adds three condition tables beside
+> `EBAY_CONDITION_OPTIONS`: `EBAY_CONDITION_ENUM_TO_ID` (a mirror of the edge
+> preflight's `CONDITION_ENUM_TO_ID`), `APPAREL_CONDITION_IDS` and
+> `APPAREL_CONDITION_LABELS`, used by the starter templates. No constant this
+> note cites moved.
 
 > **Re-reviewed 2026-09-22.** Drift flagged `src/lib/constants.ts` on
 > 3b252aa1 (US-3450). The change is one exported type alias,
