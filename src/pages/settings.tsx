@@ -2,6 +2,7 @@ import { useSearchParams } from "react-router";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { usePageHost } from "@/hooks/use-page-host";
+import { useHashScroll } from "@/hooks/use-hash-scroll";
 import { cn } from "@/lib/utils";
 import { ProfileSettingsTab } from "@/components/settings/profile-settings-tab";
 import { SecuritySettingsTab } from "@/components/settings/security-settings-tab";
@@ -33,6 +34,10 @@ export function SettingsPage() {
   )
     ? (tabParam as SettingsTab)
     : DEFAULT_SETTINGS_TAB;
+
+  // ?tab=notifications#email-preferences (the unsubscribe email) has to land
+  // on the card, which mounts after the browser's own hash jump has fired.
+  useHashScroll(activeTab);
 
   function handleTabChange(next: string) {
     setSearchParams(
