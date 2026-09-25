@@ -180,10 +180,13 @@ export function useHelpReaderIndex() {
   });
 }
 
-export function useHelpReaderArticle(slug: string | undefined) {
+export function useHelpReaderArticle(
+  slug: string | undefined,
+  options: { enabled?: boolean } = {},
+) {
   return useQuery({
     queryKey: ["help_reader", slug],
-    enabled: Boolean(slug),
+    enabled: Boolean(slug) && options.enabled !== false,
     retry: helpReaderRetry,
     queryFn: () =>
       jfetch<{

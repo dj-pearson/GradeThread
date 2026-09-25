@@ -32,6 +32,7 @@ import {
 import { HelpArticleBody } from "@/components/help/help-article-body";
 import { inAppHelpPath } from "@/lib/help/paths";
 import { buildHelpToc } from "@/lib/help/toc";
+import { ALL_SURFACES, helpCategoryOf, type Surface } from "@/lib/surfaces";
 import { track } from "@/lib/analytics";
 import { HELP_VISIBILITY_LABELS, type HelpVisibility } from "@/types/help-center";
 
@@ -85,11 +86,21 @@ interface HelpRow {
   visibility: HelpVisibility;
 }
 
-function HelpArticleRow({ row, categoryLabel }: { row: HelpRow; categoryLabel?: string }) {
+function HelpArticleRow({
+  row,
+  categoryLabel,
+  from,
+}: {
+  row: HelpRow;
+  categoryLabel?: string;
+  /** Surface id Help was opened from, carried onto the article for "Back to". */
+  from?: string;
+}) {
   const showMeta = Boolean(categoryLabel) || row.visibility !== "public";
+  const to = `/dashboard/help/${row.slug}${from ? `?from=${encodeURIComponent(from)}` : ""}`;
   return (
     <li>
-      <Link to={`/dashboard/help/${row.slug}`} className="font-medium hover:underline">
+      <Link to={to} className="font-medium hover:underline">
         {row.title}
       </Link>
       {showMeta && (
@@ -101,6 +112,12 @@ function HelpArticleRow({ row, categoryLabel }: { row: HelpRow; categoryLabel?: 
       {row.summary && <p className="text-sm text-muted-foreground">{row.summary}</p>}
     </li>
   );
+}
+
+/** The surface a ?from= names, when it is a real surface other than Help. */
+function fromSurface(id: string | null): Surface | null {
+  if (!id || id === "help") return null;
+  return ALL_SURFACES.find((s) => s.id === id) ?? null;
 }
 
 export function HelpReaderPage() {
@@ -133,6 +150,22 @@ function HelpReaderIndexPage() {
   const rawCategory = params.get("category") ?? "";
   const categoryFilter =
     data && !(data.categories ?? []).some((c) => c.key === rawCategory) ? "" : rawCategory;
+
+  // ?from=<surface id>: Help was opened from that screen (the sidebar, the
+  // header menu and a HelpLink with no article all say so). The page leads with
+  // that screen's article and the rest of its category, in the pipeline's own
+  // words, before the full index.
+  const from = fromSurface(params.get("from"));
+  const pinned = useMemo(() => {
+    if (!from || !data) return null;
+    const category = helpCategoryOf(from);
+    const lead = from.helpSlug ? data.articles.find((a) => a.slug === from.helpSlug) : undefined;
+    const rest = category
+      ? data.articles.filter((a) => a.category_key === category && a.slug !== lead?.slug)
+      : [];
+    if (!lead && rest.length === 0) return null;
+    return { lead, rest: rest.slice(0, 5), category };
+  }, [from, data]);
 
   // One writer for the URL: functional, so a q change never drops the
   // category and a category change never drops the q.
@@ -350,6 +383,28 @@ function HelpReaderIndexPage() {
         </Select>
       )}
 
+      {pinned && from && !searching && (
+        <Card>
+          <CardContent className="pt-6">
+            <h2 className="text-base font-semibold">For {from.label}</h2>
+            <ul className="mt-3 space-y-3">
+              {[...(pinned.lead ? [pinned.lead] : []), ...pinned.rest].map((a) => (
+                <HelpArticleRow key={a.slug} row={a} from={from.id} />
+              ))}
+            </ul>
+            {pinned.category && (
+              <Button
+                variant="link"
+                className="mt-2 h-auto px-0"
+                onClick={() => updateParams({ category: pinned.category ?? "" })}
+              >
+                Everything in {categoryTitle(pinned.category)}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {active.isLoading && (
         <LoadingRegion label={searching ? "Searching help" : "Loading help"} className="p-4">
           <SkeletonRows rows={6} />
@@ -414,7 +469,12 @@ function HelpReaderIndexPage() {
               </p>
               <ul className="mt-3 space-y-3">
                 {rows.map((a) => (
-                  <HelpArticleRow key={a.slug} row={a} categoryLabel={categoryTitle(a.category_key)} />
+                  <HelpArticleRow
+                    key={a.slug}
+                    row={a}
+                    categoryLabel={categoryTitle(a.category_key)}
+                    from={from?.id}
+                  />
                 ))}
               </ul>
             </CardContent>
@@ -427,7 +487,7 @@ function HelpReaderIndexPage() {
               <h2 className="text-base font-semibold">{categoryTitle(key)}</h2>
               <ul className="mt-3 space-y-3">
                 {items.map((a) => (
-                  <HelpArticleRow key={a.slug} row={a} />
+                  <HelpArticleRow key={a.slug} row={a} from={from?.id} />
                 ))}
               </ul>
             </CardContent>
@@ -456,6 +516,8 @@ function HelpReaderArticle({ slug }: { slug: string }) {
   const article = data?.article;
   const notFound = isError && isHelpNotFound(error);
   const category = data?.category ?? null;
+  const [articleParams] = useSearchParams();
+  const from = fromSurface(articleParams.get("from"));
 
   // Section anchors, the same ids the public SSR gives the same article.
   const bodyHtml = article?.body_html;
@@ -510,6 +572,11 @@ function HelpReaderArticle({ slug }: { slug: string }) {
   return (
     <div className="space-y-4">
       <SEO title={article?.title ?? "Help"} noindex />
+      {from?.web && (
+        <Link to={from.web} className="text-sm font-medium hover:underline">
+          Back to {from.label}
+        </Link>
+      )}
       <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
         <Link to="/dashboard/help" className="hover:underline">
           Help

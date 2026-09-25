@@ -229,13 +229,19 @@ describe("a page's help slug resolves to a written article", () => {
   });
 });
 
-describe("a missing article degrades to nothing, not to a dead end", () => {
+describe("a missing article degrades to a way into Help, not to a dead end", () => {
   const src = read("src/components/help/help-link.tsx");
 
-  it("renders null while loading, on error, and when there is no article", () => {
-    // A question mark that opens an apology is worse than no question mark, and
-    // this is what lets the slug registry ship ahead of the writing.
-    expect(src).toContain("if (isLoading || isError || !article) return null;");
+  it("with no listed article it links to /dashboard/help?from=, never an empty sheet", () => {
+    // A question mark that opens an apology is worse than no question mark, so
+    // the sheet only exists for a listed article. H13 replaced the old
+    // render-nothing: the screens with no article yet are the newest ones, and
+    // a link that opens Help on this screen's category beats no way in.
+    // src/test/help-link.test.tsx drives the behaviour.
+    const guard = src.indexOf("if (!listed)");
+    expect(guard, "HelpLink no longer guards on a listed article").toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(src.indexOf("<Sheet"));
+    expect(src.slice(guard, src.indexOf("<Sheet"))).toContain("helpHrefFrom(pathname, search)");
   });
 
   it("opens a side sheet rather than navigating away", () => {

@@ -406,3 +406,31 @@ describe("the sidebar renders the registry rather than its own list", () => {
     ).toBe(false);
   });
 });
+
+// H13: Help opens knowing which screen it came from.
+describe("surface help wiring", () => {
+  it("every helpSlug is a PRODUCT_HELP_SLUGS key and every help category exists", async () => {
+    const { ALL_SURFACES, helpCategoryOf } = await import("@/lib/surfaces");
+    const { PRODUCT_HELP_SLUGS } = await import("@/lib/help-slugs");
+    const { HELP_CATEGORIES } = await import("@/types/help-center");
+    const slugs = new Set<string>(PRODUCT_HELP_SLUGS.map((h) => h.slug));
+    const cats = new Set(HELP_CATEGORIES.map((c) => c.key));
+    for (const s of ALL_SURFACES) {
+      if (s.helpSlug) expect(slugs.has(s.helpSlug), `${s.id}: ${s.helpSlug}`).toBe(true);
+      const cat = helpCategoryOf(s);
+      if (cat) expect(cats.has(cat), `${s.id}: ${cat}`).toBe(true);
+    }
+    expect(ALL_SURFACES.filter((s) => s.helpSlug).length).toBeGreaterThan(20);
+  });
+
+  it("surfaceAt picks the most specific surface, tabs included", async () => {
+    const { surfaceAt, helpHrefFrom } = await import("@/lib/surfaces");
+    expect(surfaceAt("/dashboard/flipdesk/measure-card")?.id).toBe("measure-card");
+    expect(surfaceAt("/dashboard/flipdesk/pricing", "?tab=repricing")?.id).toBe("repricing");
+    expect(surfaceAt("/dashboard/flipdesk/pricing", "")?.id).toBe("pricing");
+    expect(surfaceAt("/dashboard/flipdesk/inventory/abc-123")?.id).toBe("inventory");
+    expect(surfaceAt("/dashboard/help")).toBeNull();
+    expect(helpHrefFrom("/dashboard/flipdesk/measure-card")).toBe("/dashboard/help?from=measure-card");
+    expect(helpHrefFrom("/nowhere")).toBe("/dashboard/help");
+  });
+});

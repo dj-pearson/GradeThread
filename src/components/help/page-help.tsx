@@ -22,10 +22,11 @@ import type { ProductHelpSlugKey } from "@/lib/help-slugs";
 // guarded against hand-editing, so the slug cannot become a PageHeader prop.
 // Hence a wrapper passed through `actions` rather than a prop.)
 //
-// Renders NOTHING when the slug has no article yet. That is what lets the
-// registry ship ahead of the writing (US-2618): a half-written help centre
-// degrades to the product it already was, rather than to a product full of
-// question marks that open empty sheets.
+// When the slug has no article yet it renders a plain link to
+// /dashboard/help?from=<this screen> rather than nothing (H13). The registry
+// still ships ahead of the writing (US-2618), but the screens without an
+// article are the newest ones, and a way into Help that leads with the
+// screen's category beats no way in. It never opens an empty sheet.
 export function PageHelp({ slug }: { slug: ProductHelpSlugKey }) {
   return <HelpLink slug={slug} />;
 }

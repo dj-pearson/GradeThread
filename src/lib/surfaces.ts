@@ -1,5 +1,6 @@
 import type { FlipdeskGateFlags } from "@/lib/constants";
 import type { WorkspaceCapability } from "@/lib/workspace-permissions";
+import { PRODUCT_HELP_SLUGS, type ProductHelpSlugKey } from "@/lib/help-slugs";
 
 // US-2876. What the product CONTAINS, declared once.
 //
@@ -90,6 +91,17 @@ export type Surface = {
   requiresFlipdeskFlag?: keyof FlipdeskGateFlags;
   /** Inverse gate: hide once the plan HAS the flag, to tier two overlapping tools. */
   hiddenWhenFlipdeskFlag?: keyof FlipdeskGateFlags;
+  /**
+   * The help article for this screen. Help opened from here (?from=<id>) pins
+   * it first. Must be a PRODUCT_HELP_SLUGS key; surface-registry.test.ts holds
+   * that.
+   */
+  helpSlug?: ProductHelpSlugKey;
+  /**
+   * The help category for this screen, when it has no article of its own or
+   * its article sits in a different category. Defaults to the helpSlug's.
+   */
+  helpCategory?: string;
 };
 
 export const SURFACES = [
@@ -101,6 +113,7 @@ export const SURFACES = [
     web: "/dashboard?view=grading",
     nav: { group: "Grading", end: true },
     ios: null,
+    helpSlug: "your-first-grade",
     iosElsewhere: "ios/GradeThread/Dashboard/DashboardView.swift",
   },
   {
@@ -116,6 +129,7 @@ export const SURFACES = [
     web: "/dashboard/snap",
     nav: { group: "Grading" },
     ios: "snap",
+    helpSlug: "snap-to-value",
   },
   {
     id: "submissions",
@@ -124,6 +138,7 @@ export const SURFACES = [
     web: "/dashboard/submissions",
     nav: { group: "Grading" },
     ios: "grades",
+    helpSlug: "reading-your-grade-report",
   },
   {
     // US-1851: level + quarterly season track. Sits with Grading because XP
@@ -134,6 +149,7 @@ export const SURFACES = [
     web: "/dashboard/rewards",
     nav: { group: "Grading" },
     ios: null,
+    helpSlug: "rewards-and-credit",
     onlyReason:
       "Web only, deliberately (US-2879). Level, season track and earned " +
       "credit are a thing you check now and then, not a thing you do -- a " +
@@ -157,6 +173,7 @@ export const SURFACES = [
     web: "/dashboard?view=flipdesk",
     nav: { group: "FlipDesk", subgroup: "Today", end: true },
     ios: null,
+    helpSlug: "the-flipdesk-pipeline",
     iosElsewhere: "ios/GradeThread/Dashboard/DashboardView.swift",
   },
   {
@@ -166,6 +183,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/search",
     nav: { group: "FlipDesk", subgroup: "Today" },
     ios: null,
+    helpCategory: "flipdesk",
     iosElsewhere: "ios/GradeThread/Inventory/GlobalSearchView.swift",
   },
   {
@@ -178,6 +196,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/worth-my-time",
     nav: { group: "FlipDesk", subgroup: "Today" },
     ios: null,
+    helpCategory: "flipdesk",
     onlyReason:
       "R1 is responsive FlipDesk web only by design (US-3166 AC1). The planning pipeline is built on the same nextAction the web item grid renders, so a native screen would need either a second copy of that ladder or a server round trip that does not exist yet.",
   },
@@ -189,6 +208,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/inventory",
     nav: { group: "FlipDesk", subgroup: "Today" },
     ios: null,
+    helpSlug: "the-four-inventory-views",
     iosElsewhere: "ios/GradeThread/Inventory/InventoryListView.swift",
   },
 
@@ -203,6 +223,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/autolister",
     nav: { group: "FlipDesk", subgroup: "Sell" },
     ios: "autoLister",
+    helpSlug: "batch-listing-with-autolister",
     requiresFlipdeskFlag: "autolister",
   },
   {
@@ -212,6 +233,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/scheduled-drops",
     nav: { group: "FlipDesk", subgroup: "Sell" },
     ios: "scheduledDrops",
+    helpSlug: "scheduling-a-drop",
   },
   {
     id: "verified",
@@ -220,6 +242,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/verified",
     nav: { group: "FlipDesk", subgroup: "Sell" },
     ios: "verified",
+    helpSlug: "becoming-a-verified-seller",
   },
   {
     // US-2877 gave this a web page. It was iOS-only for two years: the table,
@@ -232,6 +255,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/templates",
     nav: { group: "FlipDesk", subgroup: "Setup" },
     ios: "templates",
+    helpSlug: "writing-a-listing-in-the-composer",
   },
 
   // ── FlipDesk / Sourcing ─────────────────────────────────────────────────
@@ -242,6 +266,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/import",
     nav: { group: "FlipDesk", subgroup: "Sourcing" },
     ios: null,
+    helpSlug: "importing-your-inventory",
     iosElsewhere: "ios/GradeThread/Import/CSVImportView.swift",
   },
   {
@@ -256,6 +281,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/sourcing",
     nav: { group: "FlipDesk", subgroup: "Sourcing" },
     ios: null,
+    helpSlug: "deciding-what-to-buy",
     iosElsewhere: "ios/GradeThread/Scout/ScoutView.swift",
   },
   {
@@ -265,6 +291,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/sourcing?tab=scout",
     nav: null,
     ios: "scout",
+    helpSlug: "deciding-what-to-buy",
   },
   {
     id: "sources",
@@ -273,6 +300,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/sourcing?tab=sources",
     nav: null,
     ios: "sources",
+    helpSlug: "deciding-what-to-buy",
   },
   {
     // On iOS only, DELIBERATELY -- see
@@ -300,6 +328,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/consignment",
     nav: { group: "FlipDesk", subgroup: "Sourcing" },
     ios: "consignors",
+    helpSlug: "taking-in-consignment",
   },
 
   // ── FlipDesk / Channels & money ─────────────────────────────────────────
@@ -310,6 +339,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/marketplaces",
     nav: { group: "FlipDesk", subgroup: "Setup" },
     ios: null,
+    helpSlug: "connecting-a-marketplace",
     iosElsewhere: "ios/GradeThread/Marketplaces/MarketplacesView.swift",
   },
   {
@@ -319,6 +349,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/offers",
     nav: { group: "FlipDesk", subgroup: "Today" },
     ios: null,
+    helpSlug: "offers-and-buyer-messages",
     iosElsewhere: "ios/GradeThread/Marketplaces/Negotiation/NegotiationInboxView.swift",
   },
   {
@@ -331,6 +362,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/post-sale",
     nav: { group: "FlipDesk", subgroup: "Today" },
     ios: null,
+    helpSlug: "returns-and-disputes",
     iosElsewhere: "ios/GradeThread/Marketplaces/PostSale/PostSaleView.swift",
   },
   {
@@ -342,6 +374,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/pricing",
     nav: { group: "FlipDesk", subgroup: "Sell" },
     ios: null,
+    helpSlug: "pricing-your-listings",
     iosElsewhere: "ios/GradeThread/Pricing/RepricingView.swift",
   },
   {
@@ -351,6 +384,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/pricing?tab=repricing",
     nav: null,
     ios: "repricing",
+    helpSlug: "pricing-your-listings",
   },
   {
     id: "bulk-pricing",
@@ -359,6 +393,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/pricing?tab=bulk",
     nav: null,
     ios: null,
+    helpSlug: "pricing-your-listings",
     iosElsewhere: "ios/GradeThread/Marketplaces/BulkPricing/BulkPricingView.swift",
   },
   {
@@ -368,6 +403,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/pricing?tab=automations",
     nav: null,
     ios: "automations",
+    helpSlug: "pricing-your-listings",
   },
   {
     // US-2161 (second pass): Finances + Expenses + Reconcile answered one
@@ -378,6 +414,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/money",
     nav: { group: "FlipDesk", subgroup: "Money" },
     ios: null,
+    helpSlug: "reading-your-money",
     iosElsewhere: "ios/GradeThread/Money/MoneyView.swift",
   },
   {
@@ -387,6 +424,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/money?view=reconcile",
     nav: null,
     ios: "reconciliation",
+    helpSlug: "reconciling-payouts",
   },
   {
     id: "reconcile-intake",
@@ -397,6 +435,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/money?view=reconcile&tab=photos",
     nav: null,
     ios: "reconcileIntake",
+    helpSlug: "reconciling-payouts",
   },
   {
     // US-1579: MeasureCard info + PDF download + mailed-card request.
@@ -406,6 +445,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/measure-card",
     nav: { group: "FlipDesk", subgroup: "Setup" },
     ios: null,
+    helpSlug: "using-the-measurecard",
     onlyReason:
       "Web only, deliberately (US-2879). It is a printable PDF, " +
       "instructions for shooting with it, and a postal address form for a " +
@@ -422,6 +462,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/analytics",
     nav: { group: "FlipDesk", subgroup: "Money" },
     ios: null,
+    helpCategory: "flipdesk",
     iosElsewhere: "ios/GradeThread/Analytics/AnalyticsView.swift",
   },
   {
@@ -457,6 +498,7 @@ export const SURFACES = [
     web: "/dashboard/developers",
     nav: { group: null },
     ios: null,
+    helpSlug: "api-keys-and-the-sandbox",
     onlyReason:
       "Web only, deliberately (US-2879). API keys and a sandbox are for " +
       "while you are writing code, which is not a phone activity. And an " +
@@ -685,4 +727,45 @@ export function onlyOn(s: Surface): "web" | "ios" | null {
   if (s.web === null && s.ios !== null) return "ios";
   if (s.ios === null && !s.iosElsewhere && s.web !== null) return "web";
   return null;
+}
+
+/**
+ * The surface a location is on: the most specific `web` link it matches, path
+ * first and then any `?tab=` / `?view=` the link names. Help itself is never
+ * an answer, since "Help opened from Help" says nothing.
+ */
+export function surfaceAt(pathname: string, search = ""): Surface | null {
+  const here = new URLSearchParams(search);
+  let best: Surface | null = null;
+  let bestScore = -1;
+  for (const s of ALL_SURFACES) {
+    if (!s.web || s.id === "help") continue;
+    const [path = "", query = ""] = s.web.split("?");
+    const onPath =
+      path === "/dashboard"
+        ? pathname === "/dashboard"
+        : pathname === path || pathname.startsWith(`${path}/`);
+    if (!onPath) continue;
+    const params = [...new URLSearchParams(query)];
+    if (!params.every(([k, v]) => here.get(k) === v)) continue;
+    const score = path.length * 10 + params.length;
+    if (score > bestScore) {
+      best = s;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/** The help category a surface belongs to, if any. */
+export function helpCategoryOf(s: Surface): string | null {
+  if (s.helpCategory) return s.helpCategory;
+  if (!s.helpSlug) return null;
+  return PRODUCT_HELP_SLUGS.find((h) => h.slug === s.helpSlug)?.category ?? null;
+}
+
+/** /dashboard/help, told where it was opened from so it can lead with that. */
+export function helpHrefFrom(pathname: string, search = ""): string {
+  const from = surfaceAt(pathname, search);
+  return from ? `/dashboard/help?from=${encodeURIComponent(from.id)}` : "/dashboard/help";
 }

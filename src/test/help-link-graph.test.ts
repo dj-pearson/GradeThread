@@ -56,16 +56,19 @@ describe("the footers link help", () => {
 });
 
 describe("the in-app help menu", () => {
-  it('"Help center" goes to /help, not /faq', () => {
+  it('"Help center" goes to the in-app help, not /faq or the public /help', () => {
     // It pointed at /faq since before one existed. That was fine then and is a
-    // wrong door now: /faq is 20 short answers, /help is the manual.
+    // wrong door now: /faq is 20 short answers, /help is the manual. Since H13
+    // it is the in-app /dashboard/help (via helpHrefFrom, which adds ?from=),
+    // because the public /help leaves the dashboard and hides members articles.
     const src = read("src/components/dashboard/support-launcher.tsx");
     // The menu item whose LABEL is "Help center", not just some item nearby.
     const item = src
       .split("<DropdownMenuItem")
       .find((chunk) => chunk.includes("Help center") && chunk.includes("navigate("));
     expect(item, "no menu item labelled 'Help center'").toBeDefined();
-    expect(item).toContain('navigate("/help")');
+    expect(item).toContain("navigate(helpHrefFrom(");
+    expect(item).not.toContain('navigate("/help")');
     expect(item).not.toContain('navigate("/faq")');
   });
 

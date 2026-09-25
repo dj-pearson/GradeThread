@@ -540,3 +540,48 @@ describe("H12: the article leads somewhere", () => {
     expect(container.querySelector("details summary")?.textContent).toBe("Q1?");
   });
 });
+
+describe("H13: Help leads with the screen it was opened from", () => {
+  const measureIndex = () =>
+    res({
+      categories: [
+        { ...CATEGORIES[0], key: "flipdesk", title: "FlipDesk", sort_order: 1 },
+        ...CATEGORIES,
+      ],
+      articles: [
+        listItem("refunds", "billing"),
+        listItem("the-four-inventory-views", "flipdesk"),
+        listItem("using-the-measurecard", "flipdesk"),
+      ],
+      viewer: "member",
+    });
+
+  it("?from=measure-card pins a 'For MeasureCard' block led by its article", async () => {
+    handler = (path) => (path === "/api/help" ? measureIndex() : res({}));
+    render("/dashboard/help?from=measure-card");
+    await settle(20);
+    const card = Array.from(container.querySelectorAll("h2")).find((h2) =>
+      h2.textContent === "For MeasureCard",
+    )?.parentElement;
+    expect(card).toBeTruthy();
+    const links = Array.from(card!.querySelectorAll("li a")).map((a) => a.getAttribute("href"));
+    expect(links[0]).toBe("/dashboard/help/using-the-measurecard?from=measure-card");
+    expect(links).toContain("/dashboard/help/the-four-inventory-views?from=measure-card");
+    expect(links).not.toContain("/dashboard/help/refunds?from=measure-card");
+  });
+
+  it("an article opened from a screen offers the way back to it", async () => {
+    render("/dashboard/help/refunds?from=measure-card");
+    await settle(20);
+    const back = Array.from(container.querySelectorAll("a")).find((a) =>
+      a.textContent === "Back to MeasureCard",
+    );
+    expect(back?.getAttribute("href")).toBe("/dashboard/flipdesk/measure-card");
+  });
+
+  it("an unknown ?from= is ignored", async () => {
+    render("/dashboard/help?from=nope");
+    await settle(20);
+    expect(text()).not.toContain("For ");
+  });
+});
