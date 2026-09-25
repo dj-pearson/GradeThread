@@ -470,3 +470,73 @@ export function orderForSpread<
   }
   return byTime;
 }
+
+// -- Best hours from the seller's own sales (SD-15) ---------------------------
+
+/** Below this many timed sales the hour-of-week pattern is noise. */
+export const BEST_HOURS_MIN_SAMPLE = 30;
+
+const WEEKDAY_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function hourLabel(hour: number): string {
+  const h = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h} ${hour < 12 ? "AM" : "PM"}`;
+}
+
+/**
+ * A sale stamped exactly 00:00:00.000 UTC is a calendar day with no time (a
+ * manual sale, or a marketplace that reported only the date). Counting it
+ * would pile every such sale onto one evening hour in US zones.
+ */
+function isDayOnlyStamp(t: number): boolean {
+  return t % 86_400_000 === 0;
+}
+
+/**
+ * The seller's three strongest weekday-hours to drop in, from when their own
+ * sales happened, as DropPreset-shaped slots; null under `minSample` timed
+ * sales. Each hour is smoothed with its neighbours (a 6:55 PM sale says as
+ * much about 7 PM as a 7:05 one), and a slot next to one already picked is
+ * skipped, so the three are three different evenings rather than one.
+ */
+export function bestDropSlots(
+  soldAts: readonly string[],
+  timeZone: string,
+  { minSample = BEST_HOURS_MIN_SAMPLE }: { minSample?: number } = {},
+): DropPreset[] | null {
+  const counts = new Array<number>(7 * 24).fill(0);
+  let sample = 0;
+  for (const iso of soldAts) {
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t) || isDayOnlyStamp(t)) continue;
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})/.exec(isoToZonedInput(iso, timeZone));
+    if (!m) continue;
+    const weekday = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
+    counts[weekday * 24 + Number(m[4])]! += 1;
+    sample += 1;
+  }
+  if (sample < minSample) return null;
+  const at = (i: number) => counts[(i + counts.length) % counts.length]!;
+  const scored = counts
+    .map((n, i) => ({ i, n, score: 2 * n + at(i - 1) + at(i + 1) }))
+    .filter((s) => s.n > 0)
+    .sort((a, b) => b.score - a.score || b.n - a.n || a.i - b.i);
+  const picked: typeof scored = [];
+  for (const s of scored) {
+    if (picked.some((p) => Math.abs(p.i - s.i) <= 1)) continue;
+    picked.push(s);
+    if (picked.length === 3) break;
+  }
+  return picked.map(({ i, n }) => {
+    const weekday = Math.floor(i / 24);
+    const hour = i % 24;
+    return {
+      id: `best-${weekday}-${hour}`,
+      label: `${WEEKDAY_LONG[weekday]} ${hourLabel(hour)}`,
+      weekday,
+      hour,
+      minute: 0,
+      hint: `You sold ${n} item${n === 1 ? "" : "s"} in this hour`,
+    };
+  });
+}

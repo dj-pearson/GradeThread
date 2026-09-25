@@ -16,6 +16,7 @@ import {
   formatTimeInZone,
   spreadTimes,
   orderForSpread,
+  bestDropSlots,
 } from "./scheduling";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -273,5 +274,31 @@ describe("spreadTimes and orderForSpread (SD-14)", () => {
   });
   it("promoted first", () => {
     expect(orderForSpread(drops, "promoted").map((d) => d.id)).toEqual(["b", "c", "a"]);
+  });
+});
+
+describe("bestDropSlots (SD-15)", () => {
+  const CHI = "America/Chicago";
+  // Sunday 2026-06-14 19:xx CDT, and a scatter of other hours.
+  const sundaySeven = (i: number) => zonedInputToIso(`2026-0${6 + (i % 3)}-${["14", "12", "09"][i % 3]}T19:${String(10 + (i % 40)).padStart(2, "0")}`, CHI)!;
+
+  it("returns null under the sample floor", () => {
+    expect(bestDropSlots(Array.from({ length: 10 }, (_, i) => sundaySeven(i)), CHI)).toBeNull();
+  });
+
+  it("puts Sunday 7 PM first for sales clustered there", () => {
+    const sales = Array.from({ length: 40 }, (_, i) =>
+      i < 30 ? sundaySeven(i) : zonedInputToIso(`2026-06-1${i % 5}T${10 + (i % 5)}:15`, CHI)!,
+    );
+    const slots = bestDropSlots(sales, CHI)!;
+    expect(slots).not.toBeNull();
+    expect(slots[0]).toMatchObject({ weekday: 0, hour: 19, minute: 0, label: "Sunday 7 PM" });
+    expect(slots[0]!.hint).toBe("You sold 30 items in this hour");
+    expect(slots.length).toBeLessThanOrEqual(3);
+  });
+
+  it("ignores day-only stamps at 00:00:00Z", () => {
+    const dayOnly = Array.from({ length: 40 }, (_, i) => `2026-06-${String(1 + (i % 28)).padStart(2, "0")}T00:00:00.000Z`);
+    expect(bestDropSlots(dayOnly, CHI)).toBeNull();
   });
 });

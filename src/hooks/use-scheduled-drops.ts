@@ -325,3 +325,40 @@ export function useSpreadDrops() {
     onSettled: invalidate,
   });
 }
+
+/** SD-15: how far back the best-hours hint looks. */
+export const BEST_HOURS_LOOKBACK_DAYS = 180;
+
+/**
+ * When the seller's own sales happened, newest first, over the last 180 days:
+ * the input to bestDropSlots. RLS scopes the read; the owner filter keeps a
+ * workspace member on the owner's sales, like the planner's sales read.
+ * Capped with fetchCapped: 500 recent sales is plenty to find an hour, and
+ * the hint says only what the rows say.
+ */
+export function useSalesHourOfWeek() {
+  const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId ?? s.user?.id ?? null);
+  return useQuery({
+    queryKey: ["drops_best_hours", ownerId],
+    enabled: !!ownerId,
+    staleTime: 30 * 60_000,
+    queryFn: () =>
+      fetchCapped<string>(async (limit) => {
+        const since = new Date(
+          Date.now() - BEST_HOURS_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
+        ).toISOString();
+        const { data, error } = await supabase
+          .from("sales")
+          .select("sold_at")
+          .eq("user_id", ownerId!)
+          .eq("status", "completed")
+          .gte("sold_at", since)
+          .order("sold_at", { ascending: false })
+          .limit(limit);
+        if (error) throw error;
+        return ((data ?? []) as Array<Record<string, unknown>>)
+          .map((r) => r.sold_at)
+          .filter((v): v is string => typeof v === "string");
+      }),
+  });
+}

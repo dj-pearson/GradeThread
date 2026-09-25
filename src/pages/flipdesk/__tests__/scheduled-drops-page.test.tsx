@@ -10,6 +10,7 @@ import type { ScheduledDropRow } from "@/hooks/use-scheduled-drops";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const state = {
+  sales: [] as string[],
   shift: vi.fn(),
   rows: [] as ScheduledDropRow[],
   isFetching: false,
@@ -41,6 +42,11 @@ vi.mock("@/hooks/use-scheduled-drops", async (orig) => ({
     isError: false,
     isFetching: state.isFetching,
     refetch: vi.fn(),
+  }),
+  useSalesHourOfWeek: () => ({
+    data: { rows: state.sales, truncated: false, limit: 500 },
+    isLoading: false,
+    isError: false,
   }),
   useRescheduleDrop: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCancelDrop: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -87,6 +93,7 @@ let container: HTMLDivElement | null = null;
 
 beforeEach(() => {
   localStorage.clear();
+  state.sales = [];
   state.shift = realShift();
   state.rows = [];
   state.isFetching = false;
@@ -366,5 +373,27 @@ describe("the agenda below sm (SD-13)", () => {
     await act(async () => agendaBtn.click());
     expect(document.querySelector('[role="grid"]')).toBeNull();
     expect(localStorage.getItem("gt.scheduled-drops.layout")).toBe("agenda");
+  });
+});
+
+describe("best hours from the seller's own sales (SD-15)", () => {
+  it("falls back to standard peak times under 30 sales", async () => {
+    state.sales = Array.from({ length: 12 }, (_, i) => `2026-06-14T0${i % 9}:30:00.000Z`);
+    state.rows = [row("a", 3 * 86_400_000)];
+    await render();
+    const strip = document.querySelector('[data-testid="drops-best-hours"]');
+    expect(strip?.textContent).toContain("Not enough sales yet; using standard peak times.");
+  });
+
+  it("lists the top slot when there are enough sales", async () => {
+    // 40 sales at 19:20 UTC on Sundays in June.
+    state.sales = Array.from({ length: 40 }, (_, i) =>
+      `2026-06-${["07", "14", "21", "28"][i % 4]}T19:${String(20 + (i % 30)).padStart(2, "0")}:00.000Z`,
+    );
+    state.rows = [row("a", 3 * 86_400_000)];
+    await render();
+    const strip = document.querySelector('[data-testid="drops-best-hours"]');
+    expect(strip?.textContent).toContain("You sold");
+    expect(strip?.textContent).not.toContain("Not enough sales yet");
   });
 });

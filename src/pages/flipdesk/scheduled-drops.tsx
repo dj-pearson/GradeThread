@@ -20,6 +20,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { TruncatedNotice } from "@/components/flipdesk/truncated-notice";
 import {
   dropTitle,
+  useSalesHourOfWeek,
   useScheduledDrops,
   type ScheduledDropRow as HookScheduledDropRow,
 } from "@/hooks/use-scheduled-drops";
@@ -34,6 +35,8 @@ import {
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import {
+  bestDropSlots,
+  nextPresetUtc,
   COMMON_TIMEZONES,
   detectTimezone,
   dropHealth,
@@ -132,6 +135,20 @@ export function FlipdeskScheduledDropsPage() {
   // Memoized so the `?? []` fallback does not mint a new array each render —
   // several useMemos below take it as a dependency.
   const drops = useMemo<ScheduledDropRow[]>(() => dropsRead?.rows ?? [], [dropsRead]);
+
+  // SD-15: when this seller's own sales happen, as up to three weekday-hours.
+  // Optional: a failed or loading read simply shows no hint.
+  const salesRead = useSalesHourOfWeek();
+  const bestSlots = useMemo(
+    () => (salesRead.data ? bestDropSlots(salesRead.data.rows, timeZone) : undefined),
+    [salesRead.data, timeZone],
+  );
+  const suggestedStart = useMemo(() => {
+    const top = bestSlots?.[0];
+    return top
+      ? { iso: nextPresetUtc(top, timeZone).toISOString(), label: top.label }
+      : null;
+  }, [bestSlots, timeZone]);
 
   // SD-3/SD-4: what the cron has done with each drop, read once per refresh.
   // `now` is taken with the rows so a row's state and the Past-due split agree.
@@ -545,6 +562,31 @@ export function FlipdeskScheduledDropsPage() {
                 </section>
               )}
 
+              {/* SD-15: the seller's own best hours, not a fixed peak list. */}
+              {bestSlots !== undefined && (
+                <section
+                  aria-labelledby="drops-best-hours-heading"
+                  className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs"
+                  data-testid="drops-best-hours"
+                >
+                  <h2 id="drops-best-hours-heading" className="text-sm font-semibold">
+                    Your best hours
+                  </h2>
+                  {bestSlots === null ? (
+                    <span className="text-muted-foreground">
+                      Not enough sales yet; using standard peak times.
+                    </span>
+                  ) : (
+                    bestSlots.map((slot) => (
+                      <span key={slot.id} title={slot.hint}>
+                        <span className="font-medium">{slot.label}</span>{" "}
+                        <span className="text-muted-foreground">({slot.hint})</span>
+                      </span>
+                    ))
+                  )}
+                </section>
+              )}
+
               {showAgenda ? (
                 // SD-13: below sm the 7-column grid leaves each cell ~45px and
                 // every title an ellipsis. The agenda is the same month's
@@ -783,6 +825,7 @@ export function FlipdeskScheduledDropsPage() {
         drops={openDayDrops}
         timeZone={timeZone}
         onDayChange={goToDay}
+        suggestedStart={suggestedStart}
       />
     </div>
   );
