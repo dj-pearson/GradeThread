@@ -15,7 +15,7 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { cardRequestEligibility } = await import(
+const { cardRequestEligibility, validateMailAddress, MAIL_FIELD_LIMITS } = await import(
   "../routes/flipdesk-measure.ts"
 );
 
@@ -81,4 +81,71 @@ Deno.test("MC-01: GET /card-request reads the plan of the workspace owner", () =
   assert(/\.from\("users"\)[\s\S]*?\.eq\("id", ownerId\)/.test(body));
   assert(body.includes('role: c.get("workspaceRole")'));
   assert(body.includes("eligibility: cardRequestEligibility("));
+});
+
+// ── MC-02: refuse, never shorten ─────────────────────────────────────────────
+
+const GOOD = {
+  ship_name: "Pat Doe",
+  address_line1: "1 Main St",
+  address_line2: "",
+  city: "Austin",
+  state: "TX",
+  postal_code: "78701",
+  country: "us",
+};
+
+Deno.test("MC-02: a valid address passes, trimmed and uppercased, not sliced", () => {
+  const r = validateMailAddress({ ...GOOD, city: "  Austin  " });
+  assert(r.ok);
+  assertEquals(r.value.city, "Austin");
+  assertEquals(r.value.country, "US");
+  assertEquals(r.value.address_line2, "");
+});
+
+Deno.test("MC-02: a 250-character address line is refused and named", () => {
+  const r = validateMailAddress({ ...GOOD, address_line1: "a".repeat(250) });
+  assert(!r.ok);
+  assertEquals(r.fields?.address_line1, "max 200 characters");
+});
+
+Deno.test("MC-02: one character over each limit is refused; exactly at it passes", () => {
+  for (const [key, max] of Object.entries(MAIL_FIELD_LIMITS)) {
+    const at = validateMailAddress({ ...GOOD, [key]: "x".repeat(max) });
+    assert(at.ok, `${key} at ${max} should pass`);
+    const over = validateMailAddress({ ...GOOD, [key]: "x".repeat(max + 1) });
+    assert(!over.ok, `${key} at ${max + 1} should be refused`);
+    assertEquals(over.fields?.[key], `max ${max} characters`);
+  }
+});
+
+Deno.test("MC-02: 'United Kingdom' is a malformed code, not an unsupported country", () => {
+  const r = validateMailAddress({ ...GOOD, country: "United Kingdom" });
+  assert(!r.ok);
+  assert(r.error.includes("two-letter code"), r.error);
+  assert(!r.error.includes("print-at-home"));
+  // A well-formed code we do not post to still gets the helpful message.
+  const fr = validateMailAddress({ ...GOOD, country: "FR" });
+  assert(!fr.ok);
+  assert(fr.error.includes("print-at-home"));
+});
+
+Deno.test("MC-02: formula-looking names and address lines are refused", () => {
+  for (const bad of ["=HYPERLINK(\"http://x\",\"y\")", "+1", "-2", "@SUM(A1)"]) {
+    for (const key of ["ship_name", "address_line1", "address_line2", "city"]) {
+      const r = validateMailAddress({ ...GOOD, [key]: bad });
+      assert(!r.ok, `${key}=${bad} should be refused`);
+      assert(r.fields?.[key], `${key} should be named`);
+    }
+  }
+  // A hyphen inside a value is fine.
+  assert(validateMailAddress({ ...GOOD, ship_name: "Mary-Jane O'Neil" }).ok);
+});
+
+Deno.test("MC-02: the POST no longer slices fields", () => {
+  const at = ROUTE.indexOf('flipdeskMeasureRoutes.post("/card-request"');
+  const body = ROUTE.slice(at, ROUTE.indexOf("\n});", at));
+  assert(!body.includes(".slice(0, max)"));
+  assert(body.includes("validateMailAddress(body)"));
+  assert(body.includes("fields: checked.fields"));
 });

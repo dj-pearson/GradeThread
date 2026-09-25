@@ -817,6 +817,99 @@ flipdeskMeasureRoutes.get("/card-request", async (c) => {
 // from the other direction.
 export const MAIL_COUNTRIES = ["US", "CA", "GB", "IE", "AU", "NZ"] as const;
 
+// MC-02: the longest value each address field may hold. MIRRORED in
+// src/pages/flipdesk/measure-card.tsx (maxLength on each input); a Vitest
+// guard compares the two. Values over the limit are REFUSED, not shortened:
+// a card mailed to a silently truncated address is a lost card.
+export const MAIL_FIELD_LIMITS = {
+  ship_name: 120,
+  address_line1: 200,
+  address_line2: 200,
+  city: 120,
+  state: 80,
+  postal_code: 20,
+} as const;
+
+// A cell starting with one of these is read as a formula by Excel and Sheets
+// (OWASP CSV injection). The fulfilment CSV defends stored rows on export too
+// (admin-measure-cards.ts csvCell); refusing them here keeps new ones out.
+const FORMULA_LEAD = /^[=+\-@\t\r]/;
+const FORMULA_CHECKED_FIELDS = [
+  "ship_name",
+  "address_line1",
+  "address_line2",
+  "city",
+] as const;
+
+export type MailAddress = {
+  [K in keyof typeof MAIL_FIELD_LIMITS]: string;
+} & { country: string };
+
+export type MailAddressCheck =
+  | { ok: true; value: MailAddress }
+  | { ok: false; error: string; fields?: Record<string, string> };
+
+/** Validate a card-request body. Trims, never slices. */
+export function validateMailAddress(
+  body: Record<string, unknown>,
+): MailAddressCheck {
+  const raw = (key: string): string =>
+    typeof body[key] === "string" ? (body[key] as string).trim() : "";
+  const value = {} as MailAddress;
+  const tooLong: Record<string, string> = {};
+  for (const [key, max] of Object.entries(MAIL_FIELD_LIMITS)) {
+    const v = raw(key);
+    if (v.length > max) tooLong[key] = `max ${max} characters`;
+    value[key as keyof typeof MAIL_FIELD_LIMITS] = v;
+  }
+  if (Object.keys(tooLong).length > 0) {
+    return {
+      ok: false,
+      error: "Some address fields are too long. Shorten them and try again.",
+      fields: tooLong,
+    };
+  }
+  if (
+    !value.ship_name || !value.address_line1 || !value.city || !value.state ||
+    !value.postal_code
+  ) {
+    return {
+      ok: false,
+      error: "Name, address, city, state, and postal code are required.",
+    };
+  }
+  const country = raw("country").toUpperCase() || "US";
+  if (!/^[A-Z]{2}$/.test(country)) {
+    return {
+      ok: false,
+      error: "Country must be a two-letter code, like US or GB.",
+      fields: { country: "two-letter code" },
+    };
+  }
+  if (!(MAIL_COUNTRIES as readonly string[]).includes(country)) {
+    return {
+      ok: false,
+      error: "We can't post a card to that country yet — the print-at-home PDF " +
+        "works with the same pipeline.",
+    };
+  }
+  const formula: Record<string, string> = {};
+  for (const key of FORMULA_CHECKED_FIELDS) {
+    if (FORMULA_LEAD.test(value[key])) {
+      formula[key] = "cannot start with = + - or @";
+    }
+  }
+  if (Object.keys(formula).length > 0) {
+    return {
+      ok: false,
+      error: "Names and address lines can't start with =, +, - or @.",
+      fields: formula,
+    };
+  }
+  value.country = country;
+  return { ok: true, value };
+}
+
 // Request a mailed card. Paid plans only; one active request per seller.
 flipdeskMeasureRoutes.post("/card-request", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
@@ -827,31 +920,27 @@ flipdeskMeasureRoutes.post("/card-request", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  const field = (key: string, max: number): string =>
-    typeof body[key] === "string" ? (body[key] as string).trim().slice(0, max) : "";
-  const shipName = field("ship_name", 120);
-  const line1 = field("address_line1", 200);
-  const line2 = field("address_line2", 200);
-  const city = field("city", 120);
-  const state = field("state", 80);
-  const postal = field("postal_code", 20);
-  const country = field("country", 2).toUpperCase() || "US";
-  if (!shipName || !line1 || !city || !state || !postal) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const checked = validateMailAddress(body);
+  if (!checked.ok) {
     return c.json(
-      { error: "Name, address, city, state, and postal code are required." },
+      checked.fields
+        ? { error: checked.error, fields: checked.fields }
+        : { error: checked.error },
       400,
     );
   }
-  if (!(MAIL_COUNTRIES as readonly string[]).includes(country)) {
-    return c.json(
-      {
-        error:
-          "We can't post a card to that country yet — the print-at-home PDF " +
-          "works with the same pipeline.",
-      },
-      400,
-    );
-  }
+  const {
+    ship_name: shipName,
+    address_line1: line1,
+    address_line2: line2,
+    city,
+    state,
+    postal_code: postal,
+    country,
+  } = checked.value;
 
   // Plan gate (server-side; the page also hides the form for free plans).
   const { data: userRow } = await supabaseAdmin
