@@ -6,9 +6,8 @@ import {
   Save,
   Loader2,
   ArrowLeft,
-  Boxes,
+  Images,
   Sparkles,
-  Camera,
   WifiOff,
   CloudUpload,
   ScanBarcode,
@@ -55,6 +54,8 @@ import { SourcedBySelect } from "@/components/flipdesk/sourced-by-select";
 import { SkuAutoHint } from "@/components/flipdesk/sku-auto-hint";
 import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
 import { useOfflineIntakeStatus } from "@/hooks/use-offline-intake";
+import { useOpenPhotoSessions } from "@/hooks/use-open-photo-sessions";
+import { PHOTO_DUMP_PATH } from "@/components/flipdesk/intake-mode-tabs";
 import { enqueueIntake, enqueuePhotosForItem } from "@/lib/offline-queue";
 import { batchSortOrders } from "@/lib/photo-order";
 import {
@@ -514,6 +515,11 @@ export function IntakeSingleForm({
 
   const canSave = !!workspaceOwnerId && can("manage_inventory");
 
+  const { data: openPhotoSessions = 0 } = useOpenPhotoSessions(workspaceOwnerId, offline.online);
+  const reviewPromo = !reviewFlow.enabled && !reviewFlow.chosen && !reviewFlow.isLoading;
+  const promo: "photos" | "review" | "pwa" =
+    openPhotoSessions > 0 ? "photos" : reviewPromo ? "review" : "pwa";
+
   // A native listener (attached through the form's ref below) rather than
   // onKeyDown: a DOM listener never sees Enter from a dialog portalled out of
   // the form, where a React handler would, and jsx-a11y reads a key handler on
@@ -868,38 +874,28 @@ export function IntakeSingleForm({
         </div>
         <div className="flex flex-wrap gap-2">
           <PageHelp slug="adding-your-first-item" />
-          <Button
-            variant="outline"
-            onClick={handleAiFill}
-            disabled={aiExtract.isPending}
-          >
-            {aiExtract.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="mr-2 h-4 w-4" />
-            )}
-            AI Fill
-          </Button>
-          <Button variant="outline" asChild>
-            <Link to="/dashboard/flipdesk/intake?mode=snap">
-              <Camera className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Snap &amp; Catalog</span>
-              <span className="sm:hidden">Snap</span>
-            </Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link to="/dashboard/flipdesk/intake?mode=bulk">
-              <Boxes className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Bulk haul mode</span>
-              <span className="sm:hidden">Bulk</span>
-            </Link>
-          </Button>
         </div>
       </div>
 
+      {/* Photos from the phone waiting on the photo board. Intake is where a
+          seller starts cataloging, so it says so. At most one promo shows. */}
+      {promo === "photos" && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+          <p className="flex items-center gap-2">
+            <Images className="h-4 w-4 flex-shrink-0 text-primary" aria-hidden="true" />
+            {openPhotoSessions === 1
+              ? "1 photo session is waiting on the photo board."
+              : `${openPhotoSessions} photo sessions are waiting on the photo board.`}
+          </p>
+          <Button size="sm" variant="outline" asChild>
+            <Link to={PHOTO_DUMP_PATH}>Sort them into items</Link>
+          </Button>
+        </div>
+      )}
+
       {/* US-9204 AC7: existing accounts get the review flow as a one-time switch.
           Shown only while it is off; the review screen carries the way back. */}
-      {!reviewFlow.enabled && !reviewFlow.chosen && !reviewFlow.isLoading ? (
+      {promo === "review" ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
           <div>
             <p className="font-medium">Try the new flow</p>
@@ -950,21 +946,25 @@ export function IntakeSingleForm({
         </div>
       )}
 
-      {/* PWA install prompt — surfaces once when the app is installable. */}
-      <PwaInstallBanner />
+      {/* PWA install prompt, once, when the app is installable. */}
+      {promo === "pwa" && <PwaInstallBanner />}
 
-      {!offline.online && (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-400/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-          <WifiOff className="h-4 w-4 flex-shrink-0" />
-          You're offline. New items are saved to a queue and sync
-          automatically when you reconnect.
-        </div>
-      )}
-      {(offline.pending > 0 || offline.photosPending > 0) && (
-        <div className="flex items-center gap-2 rounded-lg border border-brand-navy/30 bg-brand-navy/5 p-3 text-sm">
-          <CloudUpload className="h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
-          {queueLine(offline.pending, offline.photosPending)}
-          {offline.online ? ". Syncing..." : "."}
+      {/* One status line for the connection and the queue. */}
+      {(!offline.online || offline.pending > 0 || offline.photosPending > 0) && (
+        <div
+          role="status"
+          className={
+            offline.online
+              ? "flex items-center gap-2 rounded-lg border border-brand-navy/30 bg-brand-navy/5 p-3 text-sm"
+              : "flex items-center gap-2 rounded-lg border border-amber-400/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+          }
+        >
+          {offline.online ? (
+            <CloudUpload className="h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
+          ) : (
+            <WifiOff className="h-4 w-4 flex-shrink-0" />
+          )}
+          {statusLine(offline.online, offline.pending, offline.photosPending)}
         </div>
       )}
 
@@ -1001,11 +1001,26 @@ export function IntakeSingleForm({
         ref={attachFormKeys}
       >
       <Card>
-        <CardHeader>
-          <CardTitle>Item info</CardTitle>
-          <CardDescription>
-            Only title is required. Everything else can be filled in later.
-          </CardDescription>
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+          <div className="space-y-1.5">
+            <CardTitle>Item info</CardTitle>
+            <CardDescription>
+              Only title is required. Everything else can be filled in later.
+            </CardDescription>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleAiFill}
+            disabled={aiExtract.isPending}
+          >
+            {aiExtract.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="mr-2 h-4 w-4" />
+            )}
+            AI Fill
+          </Button>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -1408,12 +1423,18 @@ export function IntakeSingleForm({
   );
 }
 
-/** "2 items and 3 photos queued offline", without the empty half. */
-function queueLine(items: number, photos: number): string {
+/** The one status line: connection first, then what is queued. */
+function statusLine(online: boolean, items: number, photos: number): string {
   const parts: string[] = [];
   if (items > 0) parts.push(`${items} item${items === 1 ? "" : "s"}`);
   if (photos > 0) parts.push(`${photos} photo${photos === 1 ? "" : "s"}`);
-  return `${parts.join(" and ")} queued offline`;
+  const queued = parts.length > 0 ? `${parts.join(" and ")} queued` : "";
+  if (!online) {
+    return queued
+      ? `You're offline. ${queued}; new items join the queue and sync when you reconnect.`
+      : "You're offline. New items are saved to a queue and sync when you reconnect.";
+  }
+  return `${queued}. Syncing...`;
 }
 
 function AiMark({ confidence }: { confidence?: number }) {

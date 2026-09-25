@@ -2,6 +2,7 @@ import { lazy, Suspense, useState } from "react";
 import { useSearchParams } from "react-router";
 import { HostViewSkeleton } from "@/components/flipdesk/host-view-skeleton";
 import { IntakeSingleForm } from "@/pages/flipdesk/intake-single";
+import { IntakeModeTabs } from "@/components/flipdesk/intake-mode-tabs";
 
 // Bulk and Snap are separate workspaces with their own weight; neither loads
 // until its tab is opened, and neither runs the single form's SKU, source,
@@ -25,7 +26,9 @@ export function FlipdeskIntakePage() {
   const [draftHeld, setDraftHeld] = useState(false);
 
   return (
-    <>
+    <div className="space-y-4">
+      {/* The same tab row on every mode, and a way to the photo board. */}
+      <IntakeModeTabs active={other ?? "single"} />
       {(other === null || draftHeld) && (
         <div hidden={other !== null}>
           <IntakeSingleForm onDirtyChange={setDraftHeld} />
@@ -41,6 +44,6 @@ export function FlipdeskIntakePage() {
           <SnapCatalog />
         </Suspense>
       )}
-    </>
+    </div>
   );
 }

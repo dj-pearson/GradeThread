@@ -48,6 +48,9 @@ vi.mock("@/hooks/use-sku-sequence", () => ({
   SKU_PREVIEW_KEY: "sku_preview",
   useSkuSequence: () => ({ nextSku: null, isEnabled: false }),
 }));
+vi.mock("@/hooks/use-open-photo-sessions", () => ({
+  useOpenPhotoSessions: () => ({ data: 0 }),
+}));
 vi.mock("@/hooks/use-sources", () => ({ useSources: () => ({ data: [] }) }));
 vi.mock("@/hooks/use-ai-extract", () => ({
   useAiExtract: () => ({ mutateAsync: vi.fn(), isPending: false }),

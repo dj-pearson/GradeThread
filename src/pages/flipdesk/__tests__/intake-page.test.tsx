@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   useSources: vi.fn(() => ({ data: [] as Array<{ id: string; name: string }> })),
   aiPanelProps: null as null | Record<string, unknown>,
   today: "2026-09-24",
+  openSessions: 0,
   setReviewFlow: vi.fn(),
   scannerProps: null as null | Record<string, unknown>,
 }));
@@ -63,6 +64,9 @@ vi.mock("@/hooks/use-sku-sequence", () => ({
   SKU_PREVIEW_KEY: "sku_preview",
   useSkuSequence: () => ({ nextSku: null, isEnabled: false }),
 }));
+vi.mock("@/hooks/use-open-photo-sessions", () => ({
+  useOpenPhotoSessions: () => ({ data: mocks.openSessions }),
+}));
 vi.mock("@/hooks/use-sources", () => ({ useSources: () => mocks.useSources() }));
 vi.mock("@/hooks/use-ai-extract", () => ({
   useAiExtract: () => ({ mutateAsync: mocks.extract, isPending: false }),
@@ -90,7 +94,7 @@ vi.mock("@/components/flipdesk/bulk-intake", () => ({
     );
   },
 }));
-vi.mock("@/components/flipdesk/snap-catalog", () => ({ SnapCatalog: () => null }));
+vi.mock("@/components/flipdesk/snap-catalog", () => ({ SnapCatalog: () => <p>snap mode</p> }));
 vi.mock("@/components/flipdesk/pwa-install-banner", () => ({ PwaInstallBanner: () => null }));
 vi.mock("@/components/flipdesk/ai-fill-panel", () => ({
   AiFillPanel: (props: Record<string, unknown>) => {
@@ -275,6 +279,7 @@ beforeEach(() => {
   mocks.ownerId = "owner-1";
   mocks.lookupPending = false;
   mocks.today = "2026-09-24";
+  mocks.openSessions = 0;
   mocks.setReviewFlow.mockReset();
   mocks.aiPanelProps = null;
   mocks.scannerProps = null;
@@ -708,5 +713,43 @@ describe("keyboard-first form", () => {
     await click("Save & Add another");
     expect(mocks.rpc).toHaveBeenCalledWith("get_or_create_source", expect.objectContaining({ p_name: "Bins" }));
     expect(native!.value).toBe("src-new");
+  });
+});
+
+describe("photo dump entry", () => {
+  it("says phone photos are waiting and links to the board", async () => {
+    mocks.openSessions = 2;
+    await renderPage();
+    expect(host.textContent).toContain("2 photo sessions are waiting on the photo board.");
+    const link = Array.from(host.querySelectorAll("a")).find((a) => a.textContent === "Sort them into items")!;
+    expect(link.getAttribute("href")).toBe("/dashboard/flipdesk/money?view=reconcile&tab=photos");
+    // At most one promo: the review-flow switch waits its turn.
+    expect(host.textContent).not.toContain("Try the new flow");
+  });
+
+  for (const [entry, current, marker] of [
+    ["/dashboard/flipdesk/intake", "Single item", "Item info"],
+    ["/dashboard/flipdesk/intake?mode=snap", "Snap", "snap mode"],
+    ["/dashboard/flipdesk/intake?mode=bulk", "Bulk", "bulk back"],
+  ] as const) {
+    it(`${entry} shows the same tab row with ${current} current`, async () => {
+      await renderPage(entry);
+      expect(host.textContent).toContain(marker);
+      const nav = host.querySelector('nav[aria-label="Ways to add an item"]')!;
+      const tabs = Array.from(nav.querySelectorAll("a"));
+      expect(tabs.map((a) => a.textContent)).toEqual(["Single item", "Snap", "Bulk", "Photo dump"]);
+      expect(tabs.filter((a) => a.getAttribute("aria-current") === "page").map((a) => a.textContent)).toEqual([current]);
+      expect(tabs[3]!.getAttribute("href")).toBe("/dashboard/flipdesk/money?view=reconcile&tab=photos");
+    });
+  }
+
+  it("arrow keys move between the tabs", async () => {
+    await renderPage();
+    const tabs = Array.from(host.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Ways to add an item"] a'));
+    tabs[0]!.focus();
+    await act(async () => {
+      tabs[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    });
+    expect(document.activeElement).toBe(tabs[3]);
   });
 });
