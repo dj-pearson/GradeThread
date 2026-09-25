@@ -94,7 +94,9 @@ async function promoteDefault(
     return { res: jsonError(c, 500, "Template saved, but it could not be made the default") };
   }
   if (!data) return { res: jsonError(c, 404, "Template not found") };
-  return { row: data as Record<string, unknown> };
+  // TEMPLATE_COLUMNS is a concatenated string, which supabase-js cannot parse
+  // into a row type, so the row is typed by hand here.
+  return { row: data as unknown as Record<string, unknown> };
 }
 
 // GET / — list the workspace owner's templates.
@@ -135,7 +137,8 @@ flipdeskTemplatesRoutes.post("/", async (c) => {
     return jsonError(c, 500, "Could not create template");
   }
   if (!wantDefault) return c.json({ template: data }, 201);
-  const promoted = await promoteDefault(c, ownerId, String(data.id));
+  const newId = (data as unknown as { id: string }).id;
+  const promoted = await promoteDefault(c, ownerId, newId);
   if ("res" in promoted) return promoted.res;
   return c.json({ template: promoted.row }, 201);
 });
