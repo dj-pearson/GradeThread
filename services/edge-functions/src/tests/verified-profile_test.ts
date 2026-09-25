@@ -53,3 +53,12 @@ Deno.test("GET /profile keeps a chosen display name", async () => {
   const { json } = await get("/profile");
   assertEquals(json.profile.display_name, "Jane's Closet");
 });
+
+Deno.test("GET /handle-available fails closed when the lookup errors", async () => {
+  db.reset({ users: [] });
+  db.failNext("users", "GET");
+  const { status, json } = await get("/handle-available?handle=new-store");
+  assertEquals(status, 503);
+  assertEquals(json.available, false);
+  assertEquals(json.reason, "Couldn't check right now. Try again.");
+});

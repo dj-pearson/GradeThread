@@ -75,11 +75,19 @@ verifiedRoutes.get("/handle-available", async (c) => {
     return c.json({ available: false, reason: parsed.error });
   }
   const userId = c.get("userId");
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("users")
     .select("id")
     .ilike("verified_handle", parsed.handle)
     .maybeSingle();
+  // Fail closed: a DB blip must not read as a green "Available".
+  if (error) {
+    console.error("[verified] handle availability check failed:", error.message);
+    return c.json(
+      { available: false, handle: parsed.handle, reason: "Couldn't check right now. Try again." },
+      503,
+    );
+  }
   // Available if unclaimed, or already claimed by the caller themselves.
   const available = !data || data.id === userId;
   return c.json({

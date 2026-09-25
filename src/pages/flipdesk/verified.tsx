@@ -104,7 +104,11 @@ export function FlipdeskVerifiedPage() {
             : { state: "error", reason: res.reason ?? "Handle unavailable." },
         );
       } catch {
-        setAvailability({ state: "idle" });
+        // Fail closed: an unanswered check must not leave Save enabled.
+        setAvailability({
+          state: "error",
+          reason: "Couldn't check that handle. Try again.",
+        });
       }
     }, 450);
     return () => clearTimeout(t);
@@ -279,7 +283,7 @@ export function FlipdeskVerifiedPage() {
               <p className="text-xs text-red-600 dark:text-red-400">{availability.reason}</p>
             )}
             {availability.state === "ok" && (
-              <p className="text-xs text-green-600 dark:text-green-400">Available!</p>
+              <p className="text-xs text-green-600 dark:text-green-400">Available</p>
             )}
           </div>
 

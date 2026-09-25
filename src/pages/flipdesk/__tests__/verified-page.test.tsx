@@ -229,3 +229,19 @@ describe("display name is never pre-filled from the account (V3)", () => {
     expect(heroName?.textContent).toBe("alpha");
   });
 });
+
+describe("handle availability fails closed (V7)", () => {
+  it("a failed check disables Save and says to try again", async () => {
+    vi.useFakeTimers();
+    checkHandleAvailable.mockRejectedValue(new Error("network"));
+    const c = render();
+    typeInto(c.querySelector<HTMLInputElement>("#handle")!, "beta-store");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(checkHandleAvailable).toHaveBeenCalledWith("beta-store");
+    expect(c.textContent).toContain("Couldn't check that handle. Try again.");
+    const save = byText("button", "Save profile") as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+  });
+});
