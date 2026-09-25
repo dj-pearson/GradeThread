@@ -8207,6 +8207,38 @@ Deno.test({
   },
 });
 
+// DEV-12: the delivery drill-in and resend take an event id from the URL.
+// B handed A's event id must get 404 on both, and A's row must be untouched.
+Deno.test({
+  name: "B's session cannot read or resend A's webhook delivery by event id",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID"),
+  fn: async () => {
+    const eventId = Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID")!;
+    const detail = await fetch(`${BASE}/api/keys/webhook/deliveries/${eventId}`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const detailBody = await detail.text();
+    assertDenied(detail.status, "GET /api/keys/webhook/deliveries/:eventId as B");
+    assert(!detailBody.includes("tenant-a-fixture-submission"), "B read A's delivery payload");
+
+    const resend = await fetch(`${BASE}/api/keys/webhook/deliveries/${eventId}/redeliver`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    await resend.body?.cancel();
+    assertDenied(resend.status, "POST /api/keys/webhook/deliveries/:eventId/redeliver as B");
+
+    // A's row is unchanged: still delivered, still one attempt.
+    const mine = await fetch(`${BASE}/api/keys/webhook/deliveries/${eventId}`, {
+      headers: authHeaders(A_JWT!),
+    });
+    const mineBody = await mine.json();
+    assertEquals(mine.status, 200, "A cannot read A's own delivery");
+    assertEquals(mineBody.data.status, "delivered", "B's resend changed A's delivery status");
+    assertEquals(mineBody.data.attempts, 1, "B's resend reset A's attempt count");
+  },
+});
+
 // ── Connected OAuth apps (/api/oauth/connections, DEV-05) ──────────
 //
 // Both handlers filter on owner_user_id = the SESSION user. B's list must not

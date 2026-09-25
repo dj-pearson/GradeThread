@@ -3,6 +3,8 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   deliveryLimit,
   getWebhookConfig,
+  getWebhookDelivery,
+  redeliverWebhook,
   listWebhookDeliveries,
   rotateWebhookSecret,
   sendTestWebhook,
@@ -401,6 +403,43 @@ apiKeyRoutes.get("/webhook/deliveries", async (c) => {
   } catch (err) {
     console.error("Failed to list webhook deliveries:", redactError(err));
     return c.json({ error: "Failed to load deliveries" }, 500);
+  }
+});
+
+// DEV-12: one delivery with its payload and every attempt (status code,
+// duration, response excerpt). Scoped to the owner by event id; a foreign or
+// malformed id is 404.
+apiKeyRoutes.get("/webhook/deliveries/:eventId", async (c) => {
+  const who = webhookManager(c);
+  if (who instanceof Response) return who;
+  try {
+    const detail = await getWebhookDelivery(who.ownerId, c.req.param("eventId"));
+    if (!detail) return c.json({ error: "Delivery not found" }, 404);
+    return c.json({ data: detail });
+  } catch (err) {
+    console.error("Failed to load webhook delivery:", redactError(err));
+    return c.json({ error: "Failed to load delivery" }, 500);
+  }
+});
+
+// DEV-12: send a recorded event again with the same event_id. The unique
+// (user_id, event_type, subject_id) index means a failed grade.completed could
+// never be re-emitted; this is the way back.
+apiKeyRoutes.post("/webhook/deliveries/:eventId/redeliver", async (c) => {
+  const who = webhookManager(c);
+  if (who instanceof Response) return who;
+  const gate = await requireFlipdesk(c, { feature: "apiAccess", userId: who.ownerId });
+  if (gate) return gate;
+  try {
+    const result = await redeliverWebhook(who.ownerId, c.req.param("eventId"));
+    if (result.kind === "not_found") return c.json({ error: "Delivery not found" }, 404);
+    if (result.kind === "running") {
+      return c.json({ error: "This delivery is being sent right now. Try again in a moment." }, 409);
+    }
+    return c.json({ data: { event_id: result.event_id, outcome: result.outcome } });
+  } catch (err) {
+    console.error("Failed to redeliver webhook:", redactError(err));
+    return c.json({ error: "Failed to resend delivery" }, 500);
   }
 });
 

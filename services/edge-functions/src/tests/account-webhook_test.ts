@@ -16,7 +16,9 @@ import { assert, assertEquals, assertMatch } from "@std/assert";
 import {
   deliveryLimit,
   getWebhookConfig,
+  getWebhookDelivery,
   listWebhookDeliveries,
+  redeliverWebhook,
   rotateWebhookSecret,
   sendTestWebhook,
   setWebhookUrl,
@@ -69,6 +71,7 @@ function recordingDb(rows: Record<string, unknown[]> = {}) {
         update: (v: unknown) => ((op.op = "update"), (op.values = v), b),
         delete: () => ((op.op = "delete"), b),
         eq: (col: string, val: unknown) => (op.filters.push([col, val]), b),
+        in: (col: string, val: unknown) => (op.filters.push([`in:${col}`, val]), b),
         order: () => b,
         limit: () => b,
         maybeSingle: () => Promise.resolve({ data: (rows[table] ?? [])[0] ?? null, error: null }),
@@ -249,6 +252,8 @@ Deno.test("dashboard webhook routes refuse a workspace member before touching an
     ["POST", "/api/keys/webhook/secret/rotate"],
     ["POST", "/api/keys/webhook/test"],
     ["GET", "/api/keys/webhook/deliveries"],
+    ["GET", `/api/keys/webhook/deliveries/${crypto.randomUUID()}`],
+    ["POST", `/api/keys/webhook/deliveries/${crypto.randomUUID()}/redeliver`],
   ];
   for (const [method, path] of cases) {
     const res = await app.request(path, { method, body: method === "PUT" ? "{}" : undefined });
@@ -282,4 +287,83 @@ Deno.test("concurrent first saves: the loser gets no secret and no error", async
   const update = loser.ops.find((o) => o.table === "api_webhook_endpoints" && o.op === "update")!;
   assertEquals(update.values, { url: "https://hooks.example.com/b" });
   assertAllScoped(loser.ops);
+});
+
+// ── Drill-in and resend (DEV-12) ─────────────────────────────────────
+
+const EVENT = "33333333-3333-3333-3333-333333333333";
+
+Deno.test("drill-in: the delivery and its attempts are both read by the owner", async () => {
+  const db = recordingDb({
+    webhook_deliveries: [{ id: "d1", event_id: EVENT, payload: { id: EVENT }, status: "failed" }],
+    webhook_delivery_attempts: [
+      { attempt: 1, success: false, status_code: 500, error: "boom", response_excerpt: "boom", duration_ms: 12, created_at: "t" },
+    ],
+  });
+  const detail = await getWebhookDelivery(OWNER, EVENT, db.db);
+  assertEquals(detail?.attempts_log.length, 1);
+  assertEquals(detail?.attempts_log[0]?.status_code, 500);
+  assert(!("id" in (detail ?? {})), "the internal delivery id leaked into the response");
+  assertAllScoped(db.ops);
+  const attempts = db.ops.find((o) => o.table === "webhook_delivery_attempts")!;
+  assert(attempts.filters.some(([c, v]) => c === "delivery_id" && v === "d1"));
+});
+
+Deno.test("drill-in: a foreign or malformed event id is null", async () => {
+  assertEquals(await getWebhookDelivery(OWNER, EVENT, recordingDb().db), null);
+  const malformed = recordingDb();
+  assertEquals(await getWebhookDelivery(OWNER, "not-a-uuid", malformed.db), null);
+  assertEquals(malformed.ops.length, 0, "a malformed id reached the database");
+});
+
+Deno.test("resend: a failed delivery goes back to pending with the SAME event id and a new attempt", async () => {
+  const h = sendHarness(200, { url: "https://hooks.example.com/gt", secret_ciphertext: SECRET });
+  const reset: DeliveryRow = {
+    id: "d1",
+    user_id: OWNER,
+    event_id: EVENT,
+    event_type: "grade.completed",
+    subject_id: "sub-1",
+    payload: { id: EVENT, event: "grade.completed", data: {} },
+    status: "pending",
+    attempts: 0,
+    max_attempts: 6,
+    next_attempt_at: new Date().toISOString(),
+  };
+  h.rows.push({ ...reset });
+  const logs: AttemptLog[] = [];
+  h.deps.store.recordAttempt = (log) => (logs.push(log), Promise.resolve());
+  const db = recordingDb({ webhook_deliveries: [reset] });
+
+  const result = await redeliverWebhook(OWNER, EVENT, db.db, h.deps);
+  assertEquals(result, { kind: "sent", event_id: EVENT, outcome: "delivered" });
+  const update = db.ops.find((o) => o.op === "update")!;
+  assertEquals((update.values as { status: string; attempts: number }).status, "pending");
+  assertEquals((update.values as { attempts: number }).attempts, 0);
+  assert(update.filters.some(([c, v]) => c === "event_id" && v === EVENT));
+  assert(update.filters.some(([c, v]) => c === "in:status" && !(v as string[]).includes("running")));
+  assertAllScoped(db.ops);
+  assertEquals(logs.length, 1, "no new attempt row was recorded");
+  assertEquals(h.sent[0]!.headers["webhook-id"], EVENT);
+});
+
+Deno.test("resend: a running delivery is refused, a foreign one is not found", async () => {
+  // The guarded UPDATE matched nothing; the follow-up read finds the row.
+  const running = recordingDb({ webhook_deliveries: [] });
+  const origFrom = running.db.from;
+  let n = 0;
+  running.db.from = (table: string) => {
+    const b = origFrom(table);
+    if (table === "webhook_deliveries" && ++n === 2) {
+      b.maybeSingle = () => Promise.resolve({ data: { status: "running" }, error: null });
+    }
+    return b;
+  };
+  assertEquals(await redeliverWebhook(OWNER, EVENT, running.db), { kind: "running" });
+
+  const foreign = recordingDb();
+  assertEquals(await redeliverWebhook(OWNER, EVENT, foreign.db), { kind: "not_found" });
+  assertEquals(foreign.ops.filter((o) => o.op === "update").length, 1);
+  assertAllScoped(foreign.ops);
+  assertEquals(await redeliverWebhook(OWNER, "nope", recordingDb().db), { kind: "not_found" });
 });
