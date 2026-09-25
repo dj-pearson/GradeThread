@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
+import { sanitizeHtml } from "../lib/content-sanitize.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { isAdminUserCached } from "../lib/maintenance.ts";
 import { buildHelpPurgeFiles, purgeCloudflareCache } from "../lib/cloudflare-purge.ts";
@@ -22,6 +23,7 @@ import {
   normalizeHelpQuery,
   type HelpSearchHit,
   projectArticle,
+  projectArticleForReader,
   projectListItem,
   readableStatusesFor,
   slugifyHelp,
@@ -63,6 +65,16 @@ const ARTICLE_COLUMNS =
   "visibility, status, sort_order, hero_image_url, faq, related_slugs, video_url, pillar_path, " +
   "published_at, reviewed_at, review_interval_days, created_at, updated_at";
 
+// What an index needs: projectListItem's fields plus the two the query filters
+// on. Pulling body_html, body_json and body_markdown for every article only to
+// throw them away made the index payload from Postgres the whole corpus.
+const LIST_COLUMNS =
+  "slug, title, summary, category_key, audience, visibility, status, sort_order, " +
+  "updated_at, reviewed_at, published_at";
+
+// The one index consumer that needs a body: /help.md via ?full=1.
+const LIST_WITH_MARKDOWN_COLUMNS = `${LIST_COLUMNS}, body_markdown`;
+
 const CATEGORY_COLUMNS = "key, title, slug, summary, sort_order, icon";
 
 // ── shared reads ──────────────────────────────────────────
@@ -78,17 +90,20 @@ async function loadCategories(): Promise<HelpCategoryRow[]> {
   return (data ?? []) as HelpCategoryRow[];
 }
 
-async function loadIndex(viewer: HelpViewer): Promise<HelpArticleRow[]> {
+async function loadIndex(
+  viewer: HelpViewer,
+  columns: string = LIST_COLUMNS,
+): Promise<HelpArticleRow[]> {
   const { data, error } = await supabaseAdmin
     .from("help_articles")
-    .select(ARTICLE_COLUMNS)
+    .select(columns)
     .in("visibility", visibilitiesFor(viewer))
     .in("status", readableStatusesFor(viewer))
     .order("category_key", { ascending: true })
     .order("sort_order", { ascending: true })
     .order("title", { ascending: true });
   if (error) throw error;
-  // Cast through unknown: ARTICLE_COLUMNS is a concatenated string rather than a
+  // Cast through unknown: the column list is a concatenated string rather than a
   // literal, so supabase-js's select() parser gives up and infers
   // GenericStringError instead of the row shape. Same workaround as the
   // submission_images reads elsewhere in this service.
@@ -194,13 +209,17 @@ export const helpPublicRoutes = new Hono<PublicEnv>();
 
 helpPublicRoutes.get("/", async (c) => {
   try {
-    const [categories, rows] = await Promise.all([loadCategories(), loadIndex("anon")]);
+    const full = c.req.query("full") === "1";
+    const [categories, rows] = await Promise.all([
+      loadCategories(),
+      loadIndex("anon", full ? LIST_WITH_MARKDOWN_COLUMNS : LIST_COLUMNS),
+    ]);
     const payload = indexPayload(categories, rows);
     // US-2580: ?full=1 adds each article's Markdown body, so /help.md can be a
     // single-fetch document an answer engine ingests whole instead of crawling
     // one URL per article. Opt-in because the default index is the payload the
     // hub and every category page render, and it must stay small.
-    if (c.req.query("full") === "1") {
+    if (full) {
       const bodyBySlug = new Map(rows.map((r) => [r.slug, r.body_markdown ?? ""]));
       return c.json({
         ...payload,
@@ -225,6 +244,30 @@ helpPublicRoutes.get("/search", async (c) => {
     return failSafe(c, 500, "Couldn't run that search.", err, "help.public.search");
   }
 });
+
+/**
+ * The narrow read a vote needs: which version the voter read, behind the same
+ * visibility and status wall as loadArticle. ARTICLE_COLUMNS never carried
+ * content_version, so every vote used to be recorded against version 1.
+ */
+async function loadFeedbackTarget(
+  viewer: HelpViewer,
+  slug: string,
+): Promise<{ slug: string; content_version: number } | null> {
+  const { data, error } = await supabaseAdmin
+    .from("help_articles")
+    .select("slug, visibility, status, content_version")
+    .eq("slug", slug)
+    .in("visibility", visibilitiesFor(viewer))
+    .in("status", readableStatusesFor(viewer))
+    .maybeSingle();
+  if (error) throw error;
+  const row = data as
+    | { slug: string; visibility: HelpVisibility; status: HelpArticleStatus; content_version: number | null }
+    | null;
+  if (!row || !canView(viewer, row)) return null;
+  return { slug: row.slug, content_version: row.content_version ?? 1 };
+}
 
 /**
  * US-2591: was this article any good?
@@ -256,7 +299,7 @@ async function handleFeedback(
   // Only an article THIS viewer may read can be voted on. Otherwise the table
   // becomes a write surface for arbitrary strings, and the 404 for an article
   // above the viewer's tier is the same 404 a made-up slug gets.
-  const article = await loadArticle(viewer, slug);
+  const article = await loadFeedbackTarget(viewer, slug);
   if (!article) return c.json({ error: "Not found" }, 404);
 
   const ct = c.req.header("content-type") ?? "";
@@ -278,7 +321,7 @@ async function handleFeedback(
     article_slug: slug,
     // Recorded against the wording they actually read, so a rewrite starts a
     // clean record rather than inheriting the previous version's score.
-    content_version: (article as unknown as { content_version?: number }).content_version ?? 1,
+    content_version: article.content_version,
     helpful,
     comment: comment || null,
     viewer_tier: viewer,
@@ -449,11 +492,16 @@ helpReaderRoutes.post("/:slug/view", async (c) => {
 helpReaderRoutes.get("/:slug", async (c) => {
   try {
     const viewer = await viewerFor(c.get("userId"));
-    const row = await loadArticle(viewer, c.req.param("slug"));
+    // The category list is small and cached by nobody else on this hop, so
+    // fetch it alongside the article rather than after it.
+    const [row, categories] = await Promise.all([
+      loadArticle(viewer, c.req.param("slug")),
+      loadCategories(),
+    ]);
     if (!row) return c.json({ error: "Not found" }, 404);
     return c.json({
-      article: projectArticle(row),
-      category: await categoryFor(row.category_key),
+      article: projectArticleForReader(row),
+      category: categories.find((k) => k.key === row.category_key) ?? null,
       viewer,
     });
   } catch (err) {
@@ -537,7 +585,7 @@ async function slugTaken(slug: string, exceptId?: string): Promise<boolean> {
 }
 
 /** Shared field coercion. Returns an error string, or the patch to apply. */
-function buildPatch(
+export function buildPatch(
   body: HelpArticleInput,
 ): { error: string } | { patch: Record<string, unknown> } {
   const patch: Record<string, unknown> = {};
@@ -548,7 +596,9 @@ function buildPatch(
     patch.title = title;
   }
   if (body.summary !== undefined) patch.summary = String(body.summary).trim();
-  if (body.body_html !== undefined) patch.body_html = String(body.body_html);
+  // Sanitized on write so the stored row is clean, and again on read in
+  // projectArticle for rows that reached the table some other way.
+  if (body.body_html !== undefined) patch.body_html = sanitizeHtml(String(body.body_html));
   if (body.body_markdown !== undefined) patch.body_markdown = String(body.body_markdown);
   if (body.body_json !== undefined) patch.body_json = body.body_json ?? {};
   if (body.category_key !== undefined) patch.category_key = String(body.category_key).trim();
@@ -626,15 +676,32 @@ helpAdminRoutes.get("/freshness", async (c) => {
     return failSafe(c, 500, "Couldn't load feedback.", voteErr, "help.admin.freshness");
   }
 
+  // The stale view does not expose content_version, so read it on its own.
+  const { data: versions, error: versionErr } = await supabaseAdmin
+    .from("help_articles")
+    .select("slug, content_version");
+  if (versionErr) {
+    return failSafe(c, 500, "Couldn't load freshness.", versionErr, "help.admin.freshness");
+  }
+  const currentVersion = new Map(
+    ((versions ?? []) as Array<{ slug: string; content_version: number | null }>).map(
+      (v) => [v.slug, v.content_version ?? 1],
+    ),
+  );
+
   // Tally per article. Deliberately NOT a stored score: a rewrite bumps
   // content_version, and a rolled-up average across versions would let an
-  // article's old wording keep dragging its new wording down.
+  // article's old wording keep dragging its new wording down. So only votes
+  // cast against the CURRENT version count.
   const tally = new Map<string, { helpful: number; unhelpful: number; comments: string[] }>();
   for (const v of (votes ?? []) as Array<{
     article_slug: string;
+    content_version: number | null;
     helpful: boolean;
     comment: string | null;
   }>) {
+    const current = currentVersion.get(v.article_slug);
+    if (current !== undefined && (v.content_version ?? 1) !== current) continue;
     const t = tally.get(v.article_slug) ?? { helpful: 0, unhelpful: 0, comments: [] };
     if (v.helpful) t.helpful += 1;
     else t.unhelpful += 1;

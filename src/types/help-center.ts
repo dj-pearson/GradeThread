@@ -86,6 +86,37 @@ export interface HelpArticle {
   updated_at: string;
 }
 
+/**
+ * One row of an index payload. Mirrors projectListItem on the edge: no body.
+ */
+export type HelpReaderListItem = Pick<
+  HelpArticle,
+  | "slug"
+  | "title"
+  | "summary"
+  | "category_key"
+  | "audience"
+  | "visibility"
+  | "sort_order"
+  | "updated_at"
+  | "reviewed_at"
+>;
+
+/**
+ * The in-app reader's article. Mirrors projectArticleForReader on the edge:
+ * everything a reader renders, and no body_markdown, which only the public .md
+ * mirror uses.
+ */
+export interface HelpReaderArticleView extends HelpReaderListItem {
+  body_html: string;
+  hero_image_url: string | null;
+  faq: HelpFaqPair[] | null;
+  related_slugs: string[] | null;
+  video_url: string | null;
+  pillar_path: string | null;
+  published_at: string | null;
+}
+
 /** What a create/update accepts. Every field optional except on create. */
 export type HelpArticleInput = Partial<
   Pick<

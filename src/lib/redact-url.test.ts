@@ -29,6 +29,17 @@ describe("redactSensitiveUrl", () => {
     expect(redactSensitiveUrl(clean)).toBe(clean);
   });
 
+  it("redacts typed Help search and support hand-off text, only on those pages", () => {
+    const help = redactSensitiveUrl("https://gradethread.com/dashboard/help?q=order+1234+jane&category=billing");
+    expect(help).not.toContain("jane");
+    expect(help).toContain("q=redacted");
+    expect(help).toContain("category=billing");
+    const support = redactSensitiveUrl("/dashboard/support?subject=refund%20for%20jane");
+    expect(support).not.toContain("jane");
+    const other = "https://gradethread.com/dashboard/flipdesk/search?q=levis";
+    expect(redactSensitiveUrl(other)).toBe(other);
+  });
+
   it("preserves a relative URL shape", () => {
     const out = redactSensitiveUrl("/auth/confirm?token_hash=abc&type=signup");
     expect(out.startsWith("/auth/confirm")).toBe(true);

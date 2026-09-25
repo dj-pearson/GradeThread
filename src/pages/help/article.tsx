@@ -6,7 +6,7 @@ import { MarketingLayout } from "@/components/marketing/marketing-layout";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { usePublicHelpArticle } from "@/hooks/use-help-center";
+import { isHelpNotFound, usePublicHelpArticle } from "@/hooks/use-help-center";
 import {
   HELP_HUB_DESCRIPTION,
   HELP_HUB_TITLE,
@@ -18,14 +18,16 @@ import { SITE_URL } from "@/lib/seo/site";
 import { helpArticleLd, helpFaqLd } from "@/lib/seo/help-json-ld";
 import type { JsonLd } from "@/lib/seo/json-ld";
 import { track } from "@/lib/analytics";
+import { HelpArticleBody } from "@/components/help/help-article-body";
 
 // US-2576: a Help Center article, SPA renderer. Edge-SSR'd in production by
 // functions/help/[[path]].ts; see the note on hub.tsx for why it is not in
 // PUBLIC_ROUTES.
 //
-// The body is server-authored HTML from the admin editor, sanitised at write
-// time by the same Tiptap pipeline the blog uses, and it is the ONLY thing this
-// page injects. It is not user-submitted content.
+// The body is server-authored HTML, and it is the ONLY thing this page injects.
+// The edge runs it through sanitizeHtml (content-sanitize.ts) in buildPatch on
+// save AND in projectArticle on every read, which is what makes injecting it
+// safe; see src/components/help/help-article-body.tsx.
 
 export function HelpArticlePage() {
   const { category: categorySlug, slug } = useParams<{ category: string; slug: string }>();
@@ -34,7 +36,7 @@ export function HelpArticlePage() {
 
   const article = data?.article;
   const category = data?.category;
-  const notFound = isError && (error as Error | undefined)?.message === "not_found";
+  const notFound = isError && isHelpNotFound(error);
 
   // An article re-filed onto another shelf keeps its slug, so the old path still
   // resolves. Replace it with the canonical one rather than rendering the same
@@ -155,19 +157,17 @@ export function HelpArticlePage() {
               </p>
             )}
             {article.hero_image_url && (
+              // Decorative (the h1 already names it) and above the fold, so it
+              // loads first rather than lazily.
               <img
                 src={article.hero_image_url}
-                alt={article.title}
-                loading="lazy"
-                className="mt-6 w-full rounded-xl"
+                alt=""
+                loading="eager"
+                fetchPriority="high"
+                className="mt-6 aspect-[16/9] w-full rounded-xl object-cover"
               />
             )}
-            <div
-              className="prose prose-slate mt-6 max-w-[70ch] dark:prose-invert"
-              // Server-authored article body from the admin editor, sanitised at
-              // write time. Never user-submitted.
-              dangerouslySetInnerHTML={{ __html: article.body_html }}
-            />
+            <HelpArticleBody html={article.body_html} className="mt-6 max-w-[70ch]" />
 
             {(article.faq ?? []).length > 0 && (
               <section className="mt-10">

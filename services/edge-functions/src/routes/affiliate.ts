@@ -442,7 +442,7 @@ affiliateRoutes.get("/payouts", async (c) => {
 // Migration 00719 enforces the consent half in the database: program='creator'
 // is refused without a recorded terms version and acceptance timestamp.
 
-const CREATOR_TERMS_VERSION = "2026-09-01";
+const CREATOR_TERMS_VERSION = "2026-09-25";
 
 // GET /creator — where this caller stands: the current terms version, what
 // they accepted, whether they have been admitted, and whether the tax form is
@@ -668,7 +668,12 @@ affiliateRoutes.post("/tax-profile", async (c) => {
   // else hands over a tax ID for money they cannot earn.
   const creator = await loadCreatorAccount(userId);
   if (creator?.creator_terms_version !== CREATOR_TERMS_VERSION) {
-    return c.json({ error: "Apply to the creator program first." }, 403);
+    // Someone who accepted an older version is in the programme already; what
+    // they need is the new text, not an application.
+    const error = creator?.creator_terms_version
+      ? "The creator terms changed. Accept the new terms before adding tax details."
+      : "Apply to the creator program first.";
+    return c.json({ error }, 403);
   }
 
   let body: Record<string, unknown>;

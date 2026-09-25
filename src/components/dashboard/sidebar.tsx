@@ -59,6 +59,7 @@ import {
   type NavPlacement,
   type Surface,
   type SurfaceId,
+  helpHrefFrom,
 } from "@/lib/surfaces";
 
 // US-2876: the nav is BUILT from src/lib/surfaces.ts, not written here.
@@ -422,7 +423,9 @@ function SidebarNav({
     const link = (
       <NavLink
         key={item.to}
-        to={item.to}
+        // Help opens knowing which screen it was opened from (?from=<surface>),
+        // so it can lead with that screen's article.
+        to={item.id === "help" ? helpHrefFrom(pathname, search) : item.to}
         end={item.end}
         onClick={onNavigate}
         className={cn(

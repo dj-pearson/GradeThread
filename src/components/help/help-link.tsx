@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,9 +10,12 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState } from "react";
-import { useHelpReaderArticle } from "@/hooks/use-help-center";
+import { useHelpReaderArticle, useHelpReaderIndex } from "@/hooks/use-help-center";
+import { helpHrefFrom } from "@/lib/surfaces";
 import type { ProductHelpSlugKey } from "@/lib/help-slugs";
 import { track } from "@/lib/analytics";
+import { HelpArticleBody } from "@/components/help/help-article-body";
+import { inAppHelpPath } from "@/lib/help/paths";
 
 // US-2584: the contextual help button.
 //
@@ -25,10 +28,14 @@ import { track } from "@/lib/analytics";
 // It reads /api/help, so a members-only article is readable here by a signed-in
 // customer. It is only rendered on authenticated surfaces.
 //
-// A slug with no article yet renders NOTHING — no button, no dead end. That is
-// what lets the slug registry ship ahead of the writing: a half-written help
-// centre degrades to the product it already was, rather than to a product full
-// of question marks that open empty sheets.
+// Whether a surface HAS an article is read from the reader index (one cached
+// GET that the Help page shares), not from an eager fetch of every article on
+// every screen. The body is fetched only when the sheet opens.
+//
+// A slug with no article yet renders a plain Help link instead of nothing: it
+// opens /dashboard/help?from=<this surface>, which leads with this screen's
+// category. The screens with no article yet are the newest ones, which is
+// exactly where somebody most needs a way in.
 
 interface HelpLinkProps {
   /** Typed against PRODUCT_HELP_SLUGS, so a typo is a build error. */
@@ -40,14 +47,22 @@ interface HelpLinkProps {
 
 export function HelpLink({ slug, label, className }: HelpLinkProps) {
   const [open, setOpen] = useState(false);
-  // Fetched eagerly so the button can hide itself before anybody clicks it.
-  // One small authed GET per surface, cached by TanStack for the session.
-  const { data, isLoading, isError } = useHelpReaderArticle(slug);
+  const { pathname, search } = useLocation();
+  const index = useHelpReaderIndex();
+  const listed = index.data?.articles?.find((a) => a.slug === slug);
+  // Only once opened: a screen with a help button no longer costs a request.
+  const { data, isError, refetch } = useHelpReaderArticle(slug, { enabled: open });
   const article = data?.article;
 
-  // No article, or we could not tell: render nothing. A question mark that
-  // opens an apology is worse than no question mark.
-  if (isLoading || isError || !article) return null;
+  if (!listed) {
+    return (
+      <Button asChild variant="ghost" size="icon" className={className}>
+        <Link to={helpHrefFrom(pathname, search)} aria-label={label ?? "Help for this page"}>
+          <HelpCircle className="h-4 w-4" />
+        </Link>
+      </Button>
+    );
+  }
 
   return (
     <>
@@ -56,12 +71,12 @@ export function HelpLink({ slug, label, className }: HelpLinkProps) {
         variant="ghost"
         size="icon"
         className={className}
-        aria-label={label ?? `Help: ${article.title}`}
+        aria-label={label ?? `Help: ${listed.title}`}
         onClick={() => {
           setOpen(true);
           // US-2592: which product surfaces send people looking for help is the
           // one thing this button can measure that a pageview cannot.
-          track("help_contextual_open", { slug, category: article.category_key });
+          track("help_contextual_open", { slug, category: listed.category_key });
         }}
       >
         <HelpCircle className="h-4 w-4" />
@@ -70,29 +85,36 @@ export function HelpLink({ slug, label, className }: HelpLinkProps) {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
           <SheetHeader>
-            <SheetTitle>{article.title}</SheetTitle>
-            {article.summary && <SheetDescription>{article.summary}</SheetDescription>}
+            <SheetTitle>{listed.title}</SheetTitle>
+            {listed.summary && <SheetDescription>{listed.summary}</SheetDescription>}
           </SheetHeader>
 
-          {isLoading ? (
+          {isError ? (
+            <div className="mt-6 space-y-2 text-sm" role="alert">
+              <p>This article didn't load.</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
+                Try again
+              </Button>
+            </div>
+          ) : !article ? (
             <div className="mt-6 space-y-3">
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-40 w-full" />
             </div>
           ) : (
-            <div
-              className="prose prose-slate mt-6 max-w-none text-sm dark:prose-invert"
-              // Server-authored article body from the admin editor, sanitised at
-              // write time. Never user-submitted.
-              dangerouslySetInnerHTML={{ __html: article.body_html }}
+            <HelpArticleBody
+              html={article.body_html}
+              className="mt-6 max-w-none text-sm"
+              linkFor={inAppHelpPath}
+              onNavigate={() => setOpen(false)}
             />
           )}
 
-          {(article.faq ?? []).length > 0 && (
+          {(article?.faq ?? []).length > 0 && (
             <section className="mt-8">
               <h3 className="text-sm font-semibold">Frequently asked</h3>
               <dl className="mt-3 space-y-3 text-sm">
-                {(article.faq ?? []).map((f, i) => (
+                {(article?.faq ?? []).map((f, i) => (
                   <div key={i}>
                     <dt className="font-medium">{f.question}</dt>
                     <dd className="mt-1 text-muted-foreground">{f.answer}</dd>
@@ -104,7 +126,7 @@ export function HelpLink({ slug, label, className }: HelpLinkProps) {
 
           <p className="mt-8 text-sm text-muted-foreground">
             <Link
-              to={`/dashboard/help/${article.slug}`}
+              to={`/dashboard/help/${listed.slug}`}
               className="underline"
               onClick={() => setOpen(false)}
             >

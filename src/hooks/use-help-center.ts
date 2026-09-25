@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeApiUrl } from "@/lib/edge-api";
@@ -7,6 +7,8 @@ import type {
   HelpArticle,
   HelpArticleInput,
   HelpCategory,
+  HelpReaderArticleView,
+  HelpReaderListItem,
   HelpVisibility,
 } from "@/types/help-center";
 
@@ -17,6 +19,35 @@ import type {
 // retries once on a 401 with a force-refreshed token (US-1634) — the reason the
 // content hooks stopped dying when an admin's tab lapsed past the 1h boundary.
 
+/**
+ * An HTTP failure from a help endpoint, carrying its status. Callers decide on
+ * the STATUS, never on the message: the message is server copy, and a copy
+ * change must not turn a missing article into an endless Retry.
+ */
+export class HelpHttpError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "HelpHttpError";
+    this.status = status;
+  }
+}
+
+/**
+ * True when the article is not there for this viewer. 403 counts too: the
+ * reader answers 404 for anything above the viewer's tier, but a gate in front
+ * of it may still say 403, and either way there is nothing to retry.
+ */
+export function isHelpNotFound(e: unknown): boolean {
+  return e instanceof HelpHttpError && (e.status === 404 || e.status === 403);
+}
+
+/** Retry a reader query once on a network or 5xx failure, never on a 4xx. */
+export function helpReaderRetry(failureCount: number, error: unknown): boolean {
+  if (error instanceof HelpHttpError && error.status < 500) return false;
+  return failureCount < 1;
+}
+
 async function jfetch<T>(
   path: string,
   init?: RequestInit & { json?: unknown },
@@ -24,8 +55,9 @@ async function jfetch<T>(
   const res = await edgeFetch(path, { ...init, json: init?.json, silentGate: true });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(
+    throw new HelpHttpError(
       (data as { error?: string }).error || `${res.status} ${res.statusText}`,
+      res.status,
     );
   }
   return data as T;
@@ -47,27 +79,14 @@ const PUBLIC_KEY = ["help_public"];
 
 export interface PublicHelpIndex {
   categories: HelpCategory[];
-  articles: Array<
-    Pick<
-      HelpArticle,
-      | "slug"
-      | "title"
-      | "summary"
-      | "category_key"
-      | "audience"
-      | "visibility"
-      | "sort_order"
-      | "updated_at"
-      | "reviewed_at"
-    >
-  >;
+  articles: HelpReaderListItem[];
 }
 
 async function publicFetch<T>(path: string): Promise<T> {
   const res = await fetch(`${edgeApiUrl()}${path}`, {
     headers: { Accept: "application/json" },
   });
-  if (!res.ok) throw new Error(res.status === 404 ? "not_found" : "Couldn't load help.");
+  if (!res.ok) throw new HelpHttpError("Couldn't load help.", res.status);
   return (await res.json()) as T;
 }
 
@@ -99,6 +118,9 @@ export function usePublicHelpSearch(query: string) {
     queryKey: [...PUBLIC_KEY, "search", q.toLowerCase()],
     enabled: q.length >= 2,
     staleTime: 60_000,
+    // Keep the last results on screen while the next query runs, instead of
+    // dropping to an empty list between keystrokes.
+    placeholderData: keepPreviousData,
     queryFn: () =>
       publicFetch<{ query: string; hits: HelpSearchHit[] }>(
         `/api/content/public/help/search?q=${encodeURIComponent(q)}`,
@@ -145,7 +167,7 @@ export type HelpViewerTier = "anon" | "member" | "admin";
 
 export interface HelpReaderIndex {
   categories: HelpCategory[];
-  articles: HelpArticle[];
+  articles: HelpReaderListItem[];
   viewer: HelpViewerTier;
 }
 
@@ -153,17 +175,25 @@ export function useHelpReaderIndex() {
   return useQuery({
     queryKey: ["help_reader"],
     staleTime: 60_000,
+    retry: helpReaderRetry,
     queryFn: () => jfetch<HelpReaderIndex>("/api/help"),
   });
 }
 
-export function useHelpReaderArticle(slug: string | undefined) {
+export function useHelpReaderArticle(
+  slug: string | undefined,
+  options: { enabled?: boolean } = {},
+) {
   return useQuery({
     queryKey: ["help_reader", slug],
-    enabled: Boolean(slug),
-    retry: false,
+    enabled: Boolean(slug) && options.enabled !== false,
+    retry: helpReaderRetry,
     queryFn: () =>
-      jfetch<{ article: HelpArticle; category: HelpCategory | null; viewer: HelpViewerTier }>(
+      jfetch<{
+        article: HelpReaderArticleView;
+        category: HelpCategory | null;
+        viewer: HelpViewerTier;
+      }>(
         `/api/help/${encodeURIComponent(slug!)}`,
       ),
   });
@@ -175,6 +205,10 @@ export function useHelpReaderSearch(query: string) {
     queryKey: ["help_reader", "search", q.toLowerCase()],
     enabled: q.length >= 2,
     staleTime: 60_000,
+    // Keep the last results on screen while the next query runs, instead of
+    // dropping to an empty list between keystrokes.
+    placeholderData: keepPreviousData,
+    retry: helpReaderRetry,
     queryFn: () =>
       jfetch<{ query: string; hits: HelpSearchHit[]; viewer: HelpViewerTier }>(
         `/api/help/search?q=${encodeURIComponent(q)}`,
@@ -217,7 +251,8 @@ export function useHelpFeedback() {
           json: { helpful: input.helpful ? "yes" : "no", comment: input.comment ?? "" },
         },
       ),
-    onError: () => toast.error("Couldn't record that. Try again in a moment."),
+    // No toast: the reader shows its own inline "That didn't save" next to the
+    // buttons, which stay live so the vote can be retried.
   });
 }
 

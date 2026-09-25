@@ -10,6 +10,8 @@
 // through `visibilitiesFor(viewer)`; none may be written with a hand-rolled
 // `.eq("visibility", ...)`.
 
+import { sanitizeHtml } from "./content-sanitize.ts";
+
 export const HELP_VISIBILITIES = ["public", "members", "internal"] as const;
 export type HelpVisibility = typeof HELP_VISIBILITIES[number];
 
@@ -57,6 +59,8 @@ export interface HelpArticleRow {
   published_at: string | null;
   reviewed_at: string | null;
   review_interval_days: number;
+  /** Bumped by a trigger on every body/title change (00605). */
+  content_version?: number;
   created_at: string;
   updated_at: string;
 }
@@ -215,10 +219,19 @@ export interface HelpArticleView extends HelpListItem {
   published_at: string | null;
 }
 
+/**
+ * body_html is sanitized HERE, on every read, and not only in buildPatch.
+ *
+ * The seed and migrate scripts write through PostgREST and never reach
+ * buildPatch, so rows exist that no write-side gate ever saw. Every surface
+ * that injects a body (the in-app reader, the HelpLink sheet, the ticket
+ * deflector, the public SSR) is fed from this projection, so this one call
+ * covers all of them and every existing row, with no backfill needed.
+ */
 export function projectArticle(row: HelpArticleRow): HelpArticleView {
   return {
     ...projectListItem(row),
-    body_html: row.body_html,
+    body_html: sanitizeHtml(row.body_html ?? ""),
     body_markdown: row.body_markdown,
     hero_image_url: row.hero_image_url,
     faq: normalizeFaq(row.faq),
@@ -227,6 +240,18 @@ export function projectArticle(row: HelpArticleRow): HelpArticleView {
     pillar_path: row.pillar_path,
     published_at: row.published_at,
   };
+}
+
+/**
+ * The in-app reader's article shape: everything but body_markdown. Nothing in
+ * the app reads the Markdown; it exists for the public .md mirror, which is
+ * served from projectArticle on the public mount.
+ */
+export type HelpReaderArticleView = Omit<HelpArticleView, "body_markdown">;
+
+export function projectArticleForReader(row: HelpArticleRow): HelpReaderArticleView {
+  const { body_markdown: _omit, ...view } = projectArticle(row);
+  return view;
 }
 
 // ── search (US-2577) ──────────────────────────────────────

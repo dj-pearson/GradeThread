@@ -383,6 +383,8 @@ async function renderArticle(
   // names, the five weighted factors) becomes a link to its /grading/ spoke, the
   // same treatment blog posts get. It runs BEFORE the TOC pass so an anchor id
   // is never derived from markup this inserted.
+  // article.body_html arrives already allowlisted: the edge runs sanitizeHtml
+  // in projectArticle on every read, not only when an admin saves.
   const { html: linkedBody } = linkGlossaryTerms(article.body_html);
   const { html: bodyWithAnchors, toc } = buildTableOfContents(linkedBody);
   const crumbs = [

@@ -201,3 +201,14 @@ describe("<Term> is used, and is keyboard-reachable (US-2864)", () => {
     ).toBe(true);
   });
 });
+
+describe("searchTerms (H14)", () => {
+  it("finds a term by name, alias or definition, and every entry has an anchor", async () => {
+    const { searchTerms, termAnchor, namesTerm, PRODUCT_TERMS } = await import("@/lib/product-terms");
+    const hits = searchTerms("comp");
+    expect(hits.some((t) => t.term === "Comp" && namesTerm(t, "comp"))).toBe(true);
+    const anchors = new Set(PRODUCT_TERMS.map((t) => termAnchor(t.term)));
+    expect(anchors.size).toBe(PRODUCT_TERMS.length);
+    expect(searchTerms("").length).toBe(PRODUCT_TERMS.length);
+  });
+});

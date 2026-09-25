@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation } from "react-router";
 import { ArrowRight, BookOpen } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
-import { termsAlphabetical } from "@/lib/product-terms";
+import { searchTerms, termAnchor, termsAlphabetical } from "@/lib/product-terms";
 
 // US-2864: every word GradeThread invented, in one place, in plain English.
 //
@@ -22,16 +22,16 @@ export function GlossaryPage() {
   const [query, setQuery] = useState("");
   const all = useMemo(() => termsAlphabetical(), []);
 
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return all;
-    return all.filter(
-      (t) =>
-        t.term.toLowerCase().includes(q) ||
-        t.definition.toLowerCase().includes(q) ||
-        (t.aliases ?? []).some((a) => a.toLowerCase().includes(q)),
-    );
-  }, [all, query]);
+  const shown = useMemo(() => (query.trim() ? searchTerms(query) : all), [all, query]);
+
+  // Help search links a definition here as #term-<name>. The page renders
+  // after the route change, so the browser's own jump to the hash has already
+  // missed; do it once the entries exist.
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (!hash) return;
+    document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView();
+  }, [hash]);
 
   return (
     <div className="space-y-6">
@@ -62,7 +62,7 @@ export function GlossaryPage() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {shown.map((t) => (
-            <Card key={t.term}>
+            <Card key={t.term} id={termAnchor(t.term)} className="scroll-mt-20">
               <CardContent className="space-y-2 py-4">
                 <p className="font-semibold">{t.term}</p>
                 <p className="text-sm text-muted-foreground">{t.definition}</p>

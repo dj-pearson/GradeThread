@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/help-center.ts
   - services/edge-functions/src/routes/help-center.ts
   - src/pages/help-reader.tsx
-reviewed: 2026-08-25
+reviewed: 2026-09-25
 tags: [help-center, seo, security, contract]
 summary: Help articles have three visibilities, not two; the wall is RLS plus one edge function, and public by default is the rule that pays for the whole feature.
 ---
@@ -91,7 +91,10 @@ stored. See [[env-reference]].
 ## Writes are gated by the same function
 
 Two endpoints let a reader write against an article, and both resolve the
-article through `loadArticle(viewer, slug)` before they insert anything:
+article through `loadFeedbackTarget(viewer, slug)` before they insert anything.
+It applies the same `visibilitiesFor` / `readableStatusesFor` filters and
+`canView` check as `loadArticle`, and also reads `content_version`, so the vote
+is recorded against the wording the reader saw:
 
 - `POST /api/content/public/help/:slug/feedback` — anonymous, so it can only
   accept a vote on a `public` article.
@@ -102,6 +105,16 @@ article through `loadArticle(viewer, slug)` before they insert anything:
 `POST .../:slug/view` is the same shape: the counter RPC requires the article to
 exist, so neither endpoint is a way to write arbitrary slugs into a table. See
 [[help-center-measurement]].
+
+## Bodies are sanitized on read, not only on write
+
+Gating decides WHICH rows a viewer gets; it says nothing about what is inside
+one. `body_html` goes through `sanitizeHtml` in `buildPatch` on save AND in
+`projectArticle` on every read, because the seed and migrate scripts write rows
+through PostgREST without passing `buildPatch`. Every reader, public or in-app,
+is fed from `projectArticle`, so the read-side call is the one that covers rows
+already in the table. In the app, `HelpArticleBody` is the only place a body is
+injected.
 
 ## Where it is read
 
