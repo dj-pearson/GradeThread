@@ -993,10 +993,9 @@ export function usePlannerPlan() {
     queryKey: planKey(ownerId),
     // Restored synchronously as initial data, never fetched: a queryFn that
     // resolved after a build would overwrite the fresh plan with the stored
-    // one. staleTime Infinity means this function is only a fallback.
+    // one. With initial data and staleTime Infinity it does not run.
     initialData: () => readStoredPlan(ownerId),
-    queryFn: () =>
-      qc.getQueryData<PreparedPlan | null>(planKey(ownerId)) ?? readStoredPlan(ownerId),
+    queryFn: () => readStoredPlan(ownerId),
     staleTime: Infinity,
     gcTime: Infinity,
     retry: false,

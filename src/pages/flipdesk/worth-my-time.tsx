@@ -41,7 +41,7 @@ import { SessionRunner } from "@/components/flipdesk/session-runner";
 import { TaskCorrections } from "@/components/flipdesk/task-corrections";
 import { ResultsPanel } from "@/components/flipdesk/results-panel";
 import { WorkSetupEditor } from "@/components/flipdesk/work-setup-editor";
-import { gatedToolLine } from "@/lib/work-setup-copy";
+import { gatedToolLine, WORK_TOOL_LABELS } from "@/lib/work-setup-copy";
 import type { WorkTool } from "@/lib/work-candidates";
 import { SUPPRESSION_STATE_COPY } from "@/lib/work-overrides-copy";
 import { parkingRows, SUPPRESSION_KINDS, type SuppressionKind } from "@/lib/work-overrides";
@@ -667,6 +667,7 @@ export function WorthMyTimePage() {
                                 <Button
                                   size="sm"
                                   variant="outline"
+                                  aria-label={`Bring back: ${actionLabel(n.actionKey)}, ${n.itemTitle ?? "Untitled item"}`}
                                   disabled={unsuppress.isPending}
                                   onClick={() => void bringBack(n)}
                                 >
@@ -694,6 +695,7 @@ export function WorthMyTimePage() {
               <Button
                 size="sm"
                 variant="outline"
+                aria-label={`I have one: ${WORK_TOOL_LABELS[tool]}`}
                 onClick={() => void addTool(tool)}
               >
                 I have one
