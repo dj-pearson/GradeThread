@@ -5025,6 +5025,39 @@ Deno.test({
   },
 });
 
+// MC-01: GET /card-request now also answers "may this caller request a card",
+// and it answers for the OWNER's tenant. A viewer member of A's workspace reads
+// A's state (200, reason "viewer"), and B in B's own workspace never sees the
+// request the viewer saw in A's.
+Deno.test({
+  name: "MC-01: card-request eligibility is the owner's, and B never sees A's request",
+  ignore: !VIEWER_READY || !CONFIGURED,
+  fn: async () => {
+    const asViewer = await fetch(`${BASE}/api/flipdesk/measure/card-request`, {
+      headers: viewerHeaders(),
+    });
+    const viewerBody = await asViewer.json() as {
+      request: { id: string } | null;
+      eligibility?: { can_request: boolean; reason: string };
+    };
+    assertEquals(asViewer.status, 200, "viewer member reads the owner's card state");
+    assertEquals(viewerBody.eligibility?.reason, "viewer");
+    assertEquals(viewerBody.eligibility?.can_request, false);
+
+    const asB = await fetch(`${BASE}/api/flipdesk/measure/card-request`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const bBody = await asB.json() as { request: { id: string } | null };
+    assertEquals(asB.status, 200, "B reads B's own card state");
+    if (viewerBody.request && bBody.request) {
+      assert(
+        bBody.request.id !== viewerBody.request.id,
+        "B's GET returned the request that belongs to A's workspace",
+      );
+    }
+  },
+});
+
 // ── US-2595: flipdesk-measure autofill (US-268 workspace scope) ──────────────
 //
 // POST /autofill takes an item_id from the request body and, when it finds the

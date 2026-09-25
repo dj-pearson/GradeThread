@@ -116,3 +116,35 @@ describe("a failed status read is not an empty one (US-2540)", () => {
     expect(errAt).toBeLessThan(formAt);
   });
 });
+
+describe("the server decides who may request a card (MC-01)", () => {
+  it("the page does not read the signed-in user's own plan", () => {
+    const src = read(PAGE);
+    expect(src).not.toContain("profile?.flipdesk_plan");
+    expect(src).not.toMatch(/useAuth\(\)/);
+  });
+
+  it("the query is keyed on the workspace owner", () => {
+    expect(read(PAGE)).toMatch(
+      /queryKey = \["measure_card_request", workspaceOwnerId\]/,
+    );
+  });
+
+  it("the page and the route agree on the eligibility reasons", () => {
+    const union = (src: string) => {
+      const m = /type CardRequestEligibilityReason =([^;]+);/.exec(src);
+      expect(m, "CardRequestEligibilityReason is missing").toBeTruthy();
+      return [...m![1]!.matchAll(/"([a-z_]+)"/g)].map((x) => x[1]).sort();
+    };
+    const page = union(read(PAGE));
+    expect(page).toEqual(union(read(ROUTE)));
+    expect(page).toEqual(["active_request", "free_plan", "ok", "viewer"]);
+  });
+
+  it("the form is shown only when the server says ok, and viewers are told why", () => {
+    const src = read(PAGE);
+    expect(src).toContain('reason === "viewer"');
+    expect(src).toContain("Only teammates who can edit can request a card");
+    expect(src).toMatch(/reason !== "ok" \? \(/);
+  });
+});

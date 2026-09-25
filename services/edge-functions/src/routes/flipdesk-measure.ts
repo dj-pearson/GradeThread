@@ -735,21 +735,75 @@ function requestSummary(row: {
   };
 }
 
-// The seller's latest mail request (any status) — drives the tools page.
+/** Why the tools page may or may not offer the mail form. */
+export type CardRequestEligibilityReason =
+  | "ok"
+  | "free_plan"
+  | "active_request"
+  | "viewer";
+
+/**
+ * Who may request a mailed card, decided HERE so the page never has to guess.
+ *
+ * The page used to read the signed-in user's OWN profile.flipdesk_plan while
+ * the POST checks the plan of `workspaceOwnerId ?? userId`. So a free member of
+ * a paid workspace was told to upgrade, and a paid member of a free workspace
+ * filled in an address and met a 403. The inputs are the OWNER's plan, the
+ * caller's role in that workspace, and the latest request's status.
+ *
+ * Order matters: a viewer is refused whatever the plan (blockViewerWrites would
+ * 403 the POST), and an active request wins over the plan so a seller who
+ * downgraded after requesting still sees the status, not an upgrade pitch.
+ */
+export function cardRequestEligibility(input: {
+  role: string | undefined;
+  ownerPlan: string | null | undefined;
+  latestStatus: string | null | undefined;
+}): { can_request: boolean; reason: CardRequestEligibilityReason } {
+  if (input.role === "viewer") return { can_request: false, reason: "viewer" };
+  if (
+    input.latestStatus &&
+    (ACTIVE_REQUEST_STATUSES as readonly string[]).includes(input.latestStatus)
+  ) {
+    return { can_request: false, reason: "active_request" };
+  }
+  if ((input.ownerPlan ?? "free") === "free") {
+    return { can_request: false, reason: "free_plan" };
+  }
+  return { can_request: true, reason: "ok" };
+}
+
+// The seller's latest mail request (any status) plus whether they may make
+// one, both for the WORKSPACE OWNER's tenant — drives the tools page.
 flipdeskMeasureRoutes.get("/card-request", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const { data, error } = await supabaseAdmin
-    .from("measure_card_requests")
-    .select("id, status, card_version, requested_at, shipped_at, tracking_number, tracking_carrier")
-    .eq("owner_user_id", ownerId)
-    .order("requested_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) return c.json({ error: "Could not load your request." }, 500);
+  const [reqRes, ownerRes] = await Promise.all([
+    supabaseAdmin
+      .from("measure_card_requests")
+      .select("id, status, card_version, requested_at, shipped_at, tracking_number, tracking_carrier")
+      .eq("owner_user_id", ownerId)
+      .order("requested_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("users")
+      .select("flipdesk_plan")
+      .eq("id", ownerId)
+      .maybeSingle(),
+  ]);
+  if (reqRes.error || ownerRes.error) {
+    return c.json({ error: "Could not load your request." }, 500);
+  }
+  const data = reqRes.data as Parameters<typeof requestSummary>[0] | null;
+  const ownerPlan = (ownerRes.data as { flipdesk_plan: string | null } | null)
+    ?.flipdesk_plan;
   return c.json({
-    request: data
-      ? requestSummary(data as Parameters<typeof requestSummary>[0])
-      : null,
+    request: data ? requestSummary(data) : null,
+    eligibility: cardRequestEligibility({
+      role: c.get("workspaceRole"),
+      ownerPlan,
+      latestStatus: data?.status ?? null,
+    }),
   });
 });
 

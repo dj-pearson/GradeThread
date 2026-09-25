@@ -27,7 +27,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { useAuth } from "@/hooks/use-auth";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
 import {
@@ -53,6 +53,23 @@ interface CardRequest {
   // that hides a gap: it rendered nothing for every request, tracked or not.
   tracking_number: string | null;
   tracking_carrier: string | null;
+}
+
+// MC-01: the server decides who may request a card, from the WORKSPACE OWNER's
+// plan and the caller's role. The page used to read the signed-in user's own
+// plan, which is the wrong tenant for any workspace member.
+type CardRequestEligibilityReason =
+  | "ok"
+  | "free_plan"
+  | "active_request"
+  | "viewer";
+
+interface CardRequestState {
+  request: CardRequest | null;
+  eligibility: {
+    can_request: boolean;
+    reason: CardRequestEligibilityReason;
+  };
 }
 
 const CAPTURE_DOS = [
@@ -90,20 +107,13 @@ const STATUS_LABEL: Record<CardRequest["status"], string> = {
 };
 
 export function FlipdeskMeasureCardPage() {
-  const { profile } = useAuth();
+  const { workspaceOwnerId } = useWorkspace();
   const qc = useQueryClient();
-  const plan = profile?.flipdesk_plan ?? "free";
-  const mailEligible = plan !== "free";
+  const queryKey = ["measure_card_request", workspaceOwnerId] as const;
 
-  const {
-    data: request = null,
-    isLoading,
-    isError,
-    refetch,
-    isFetching,
-  } = useQuery({
-    queryKey: ["measure_card_request"],
-    queryFn: async (): Promise<CardRequest | null> => {
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey,
+    queryFn: async (): Promise<CardRequestState> => {
       const res = await edgeFetch("/api/flipdesk/measure/card-request");
       // US-2540: this used to `return null` on any failure, which is the same
       // value as "you have never requested one" — so a seller whose request was
@@ -113,10 +123,11 @@ export function FlipdeskMeasureCardPage() {
         const json = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(json.error ?? "Could not check your card request.");
       }
-      const json = (await res.json()) as { request: CardRequest | null };
-      return json.request;
+      return (await res.json()) as CardRequestState;
     },
   });
+  const request = data?.request ?? null;
+  const reason = data?.eligibility.reason ?? "free_plan";
 
   const [form, setForm] = useState({
     ship_name: "",
@@ -151,7 +162,7 @@ export function FlipdeskMeasureCardPage() {
         return;
       }
       toast.success("Card request received — we'll mail it out shortly.");
-      await qc.invalidateQueries({ queryKey: ["measure_card_request"] });
+      await qc.invalidateQueries({ queryKey });
     } finally {
       setSubmitting(false);
     }
@@ -329,7 +340,11 @@ export function FlipdeskMeasureCardPage() {
                 </p>
               ) : null}
             </div>
-          ) : !mailEligible ? (
+          ) : reason === "viewer" ? (
+            <p className="text-sm text-muted-foreground">
+              Only teammates who can edit can request a card.
+            </p>
+          ) : reason !== "ok" ? (
             <p className="text-sm text-muted-foreground">
               Mailed cards are included with paid plans — the print-at-home PDF
               above works with the same pipeline, or upgrade to have one mailed.
