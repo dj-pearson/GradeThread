@@ -85,9 +85,47 @@ function zoneOffsetMs(instant: Date, timeZone: string): number {
   return asUtc - instant.getTime();
 }
 
+/** How a wall-clock time mapped onto the zone's real clock (SD-7). */
+export type WallTimeAdjustment = "gap" | "overlap" | null;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Wall-clock time in `timeZone` to a UTC instant, saying whether the time fell
+ * in a DST gap or overlap.
+ *
+ * The offsets a day either side of the wall time bracket any one transition,
+ * and each gives a candidate instant; a candidate is real when its own wall
+ * clock reads back as the time asked for. Two real candidates is an overlap
+ * (the fall-back hour happens twice): take the EARLIER, as Temporal does. None
+ * is a gap (the spring-forward hour does not exist): use the pre-transition
+ * offset, which moves the time forward by the gap, Temporal's 'compatible'.
+ * Zones differ in which way a single refinement lands, so this does not rely
+ * on one.
+ */
+export function zonedWallTimeToUtcDetailed(
+  year: number,
+  month: number, // 1-12
+  day: number,
+  hour: number,
+  minute: number,
+  timeZone: string,
+): { date: Date; adjusted: WallTimeAdjustment } {
+  const wallAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const before = wallAsUtc - zoneOffsetMs(new Date(wallAsUtc - DAY_MS), timeZone);
+  const after = wallAsUtc - zoneOffsetMs(new Date(wallAsUtc + DAY_MS), timeZone);
+  const reads = (t: number) => t + zoneOffsetMs(new Date(t), timeZone) === wallAsUtc;
+  const real = [before, after].filter(reads);
+  if (real.length === 2 && real[0] !== real[1]) {
+    return { date: new Date(Math.min(before, after)), adjusted: "overlap" };
+  }
+  if (real.length > 0) return { date: new Date(real[0]!), adjusted: null };
+  return { date: new Date(before), adjusted: "gap" };
+}
+
 /**
  * Convert a wall-clock time *in a specific IANA timezone* into the UTC `Date`
- * it represents. Handles DST by refining the offset once around the boundary.
+ * it represents, DST gaps and overlaps included (see the detailed variant).
  */
 export function zonedWallTimeToUtc(
   year: number,
@@ -97,14 +135,7 @@ export function zonedWallTimeToUtc(
   minute: number,
   timeZone: string,
 ): Date {
-  const wallAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
-  const offset1 = zoneOffsetMs(new Date(wallAsUtc), timeZone);
-  let result = wallAsUtc - offset1;
-  // Re-check the offset at the computed instant; if we crossed a DST boundary
-  // the offset changes, so correct once more.
-  const offset2 = zoneOffsetMs(new Date(result), timeZone);
-  if (offset2 !== offset1) result = wallAsUtc - offset2;
-  return new Date(result);
+  return zonedWallTimeToUtcDetailed(year, month, day, hour, minute, timeZone).date;
 }
 
 // The calendar date (year/month/day) that `instant` falls on in `timeZone`.
@@ -187,15 +218,29 @@ export function isoToZonedInput(iso: string | null | undefined, timeZone: string
 
 /**
  * Inverse of `isoToZonedInput`: a "YYYY-MM-DDTHH:mm" wall-clock value typed in
- * `timeZone` → the UTC ISO string the DB stores. Returns null for empty/invalid.
+ * `timeZone` → the UTC ISO string the DB stores, plus whether the time fell in
+ * a DST gap (moved forward) or overlap (the earlier one taken). Returns null
+ * for empty, malformed or impossible values: 2026-02-30 or 24:00 used to roll
+ * over into the next day silently.
  */
-export function zonedInputToIso(local: string, timeZone: string): string | null {
+export function zonedInputToIsoDetailed(
+  local: string,
+  timeZone: string,
+): { iso: string; adjusted: WallTimeAdjustment } | null {
   if (!local) return null;
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(local);
   if (!match) return null;
-  const [, y, mo, d, h, mi] = match;
-  const utc = zonedWallTimeToUtc(Number(y), Number(mo), Number(d), Number(h), Number(mi), timeZone);
-  return Number.isNaN(utc.getTime()) ? null : utc.toISOString();
+  const [y, mo, d, h, mi] = match.slice(1).map(Number) as [number, number, number, number, number];
+  if (mo < 1 || mo > 12 || h > 23 || mi > 59 || d < 1) return null;
+  const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  if (d > daysInMonth) return null;
+  const { date, adjusted } = zonedWallTimeToUtcDetailed(y, mo, d, h, mi, timeZone);
+  return Number.isNaN(date.getTime()) ? null : { iso: date.toISOString(), adjusted };
+}
+
+/** `zonedInputToIsoDetailed` without the adjustment flag. */
+export function zonedInputToIso(local: string, timeZone: string): string | null {
+  return zonedInputToIsoDetailed(local, timeZone)?.iso ?? null;
 }
 
 // SD-2: the publish-due cron selects `scheduled_publish_at <= now` every five

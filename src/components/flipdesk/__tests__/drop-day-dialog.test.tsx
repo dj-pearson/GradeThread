@@ -208,3 +208,22 @@ describe("roles without manage_inventory (SD-5)", () => {
     expect(document.body.textContent).not.toContain("can change drops");
   });
 });
+
+describe("a time the clocks skip (SD-7)", () => {
+  it("saves the moved time and says where the drop went", async () => {
+    await render([drop("a", 3_600_000)]);
+    await click(button("Reschedule Drop a"));
+    const input = document.body.querySelector<HTMLInputElement>('input[type="datetime-local"]')!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      // Second Sunday of March 2030: 2:30 AM does not exist in Chicago.
+      setter.call(input, "2030-03-10T02:30");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(button("Save"));
+    expect(state.reschedule).toHaveBeenCalledWith({ id: "a", at: "2030-03-10T08:30:00.000Z" });
+    expect(toastSpy.info).toHaveBeenCalledWith(
+      "2:30 AM does not exist on this day in America/Chicago; set to 3:30 AM.",
+    );
+  });
+});

@@ -27,7 +27,7 @@ import {
   dropNeedsAttention,
   MIN_DROP_LEAD_MS,
   shiftInZone,
-  zonedInputToIso,
+  zonedInputToIsoDetailed,
   type DropHealth,
   type DropShift,
 } from "@/lib/scheduling";
@@ -61,6 +61,22 @@ const SHIFTS: { key: string; label: string; shift: DropShift }[] = [
   { key: "+1d", label: "+1 day", shift: { days: 1 } },
 ];
 
+/** "2:30 AM" from a typed "YYYY-MM-DDTHH:mm", read as-is (no zone math). */
+function formatTypedTime(local: string): string {
+  const m = /T(\d{2}):(\d{2})/.exec(local);
+  if (!m) return local;
+  const h = Number(m[1]);
+  return `${h % 12 === 0 ? 12 : h % 12}:${m[2]} ${h < 12 ? "AM" : "PM"}`;
+}
+
+function formatTimeIn(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(iso));
+}
+
 export function DropDayDialog({
   open,
   onOpenChange,
@@ -89,11 +105,12 @@ export function DropDayDialog({
   const canEdit = can("manage_inventory");
 
   async function saveTime(drop: DayDrop) {
-    const iso = zonedInputToIso(draftAt, timeZone);
-    if (!iso) {
+    const parsed = zonedInputToIsoDetailed(draftAt, timeZone);
+    if (!parsed) {
       setTimeError("That is not a valid date and time.");
       return;
     }
+    const iso = parsed.iso;
     // The cron publishes anything at or before now within five minutes, so a
     // past time here is a publish-now the seller did not ask for.
     const check = assertFutureDrop(iso);
@@ -105,7 +122,14 @@ export function DropDayDialog({
     try {
       await reschedule.mutateAsync({ id: drop.id, at: iso });
       setEditing(null);
-      toast.success(`${drop.title} moved.`);
+      if (parsed.adjusted === "gap") {
+        // SD-7: the clocks skip this hour; say where the drop really went.
+        toast.info(
+          `${formatTypedTime(draftAt)} does not exist on this day in ${timeZone}; set to ${formatTimeIn(iso, timeZone)}.`,
+        );
+      } else {
+        toast.success(`${drop.title} moved.`);
+      }
     } catch (err) {
       toastError(err, "Could not reschedule.");
     }

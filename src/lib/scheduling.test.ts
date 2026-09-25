@@ -11,6 +11,7 @@ import {
   MAX_SCHEDULED_PUBLISH_ATTEMPTS,
   PUBLISH_CLAIM_STALE_MS,
   shiftInZone,
+  zonedInputToIsoDetailed,
 } from "./scheduling";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -188,5 +189,45 @@ describe("shiftInZone keeps the wall-clock hour across DST (SD-6)", () => {
   it("minutes are absolute time", () => {
     const iso = "2026-06-15T00:00:00.000Z";
     expect(shiftInZone(iso, CHI, { minutes: 60 })).toBe("2026-06-15T01:00:00.000Z");
+  });
+});
+
+describe("DST gaps, overlaps and impossible dates (SD-7)", () => {
+  it("a Chicago spring-forward gap time moves forward by the gap", () => {
+    const iso = zonedInputToIso("2026-03-08T02:30", "America/Chicago")!;
+    expect(isoToZonedInput(iso, "America/Chicago")).toBe("2026-03-08T03:30");
+    expect(zonedInputToIsoDetailed("2026-03-08T02:30", "America/Chicago")?.adjusted).toBe("gap");
+  });
+  it("a London spring-forward gap time moves forward by the gap", () => {
+    const iso = zonedInputToIso("2026-03-29T01:30", "Europe/London")!;
+    expect(isoToZonedInput(iso, "Europe/London")).toBe("2026-03-29T02:30");
+  });
+  it("a Sydney spring-forward gap time moves forward too", () => {
+    const iso = zonedInputToIso("2026-10-04T02:30", "Australia/Sydney")!;
+    expect(isoToZonedInput(iso, "Australia/Sydney")).toBe("2026-10-04T03:30");
+  });
+  it("a Chicago fall-back time takes the earlier instant", () => {
+    expect(zonedInputToIso("2026-11-01T01:30", "America/Chicago")).toBe("2026-11-01T06:30:00.000Z");
+    expect(zonedInputToIsoDetailed("2026-11-01T01:30", "America/Chicago")?.adjusted).toBe("overlap");
+  });
+  it("a London fall-back time takes the earlier instant", () => {
+    expect(zonedInputToIso("2026-10-25T01:30", "Europe/London")).toBe("2026-10-25T00:30:00.000Z");
+  });
+  it("an ordinary time is not flagged", () => {
+    expect(zonedInputToIsoDetailed("2026-06-14T19:00", "America/Chicago")).toEqual({
+      iso: "2026-06-15T00:00:00.000Z",
+      adjusted: null,
+    });
+  });
+  it("rejects impossible dates and times instead of rolling them over", () => {
+    for (const v of ["2026-02-30T10:00", "2026-13-01T10:00", "2026-00-10T10:00", "2026-06-01T24:00", "2026-06-01T10:60", "2026-06-00T10:00"]) {
+      expect(zonedInputToIso(v, "America/Chicago"), v).toBeNull();
+    }
+    expect(zonedInputToIso("2028-02-29T10:00", "UTC")).toBe("2028-02-29T10:00:00.000Z");
+  });
+  it("a 2:30 AM Sunday preset in Chicago's spring-forward week lands at 3:30", () => {
+    const preset = { id: "x", label: "Sunday 2:30 AM", weekday: 0, hour: 2, minute: 30 };
+    const next = nextPresetUtc(preset, "America/Chicago", new Date("2026-03-05T12:00:00Z"));
+    expect(isoToZonedInput(next.toISOString(), "America/Chicago")).toBe("2026-03-08T03:30");
   });
 });
