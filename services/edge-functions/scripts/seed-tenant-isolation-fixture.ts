@@ -478,9 +478,12 @@ async function main(): Promise<void> {
   });
   out.TEST_USER_A_WEBHOOK_EVENT_ID = aWebhookEventId;
 
+  // A's DEFAULT template, so the isolation case can tell whether B's PUT with
+  // is_default:true cleared A's default before its own 404.
   out.TEST_USER_A_TEMPLATE_ID = await insert("listing_templates", {
     user_id: aId,
     name: "Tenant-A template",
+    is_default: true,
   });
 
   out.TEST_USER_A_RULE_ID = await insert("repricing_rules", {

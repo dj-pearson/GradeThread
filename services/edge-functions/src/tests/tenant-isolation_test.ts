@@ -1335,7 +1335,7 @@ Deno.test({
     const put = await fetch(`${BASE}/api/flipdesk/templates/${id}`, {
       method: "PUT",
       headers: authHeaders(B_JWT!),
-      body: JSON.stringify({ name: "pwned" }),
+      body: JSON.stringify({ name: "pwned", is_default: true }),
     });
     await put.body?.cancel();
     assertDenied(put.status, "PUT listing template");
@@ -1346,6 +1346,43 @@ Deno.test({
     });
     await del.body?.cancel();
     assertDenied(del.status, "DELETE listing template");
+
+    // B's is_default:true PUT must not have cleared anything in A's account
+    // on its way to the 404: A's name is unchanged and A still has a default.
+    const list = await fetch(`${BASE}/api/flipdesk/templates`, {
+      headers: authHeaders(A_JWT!),
+    });
+    assertEquals(list.status, 200);
+    const { templates } = await list.json() as {
+      templates: Array<{ id: string; name: string; is_default: boolean }>;
+    };
+    const mine = templates.find((t) => t.id === id);
+    assert(mine, "A's template must still exist");
+    assertEquals(mine.name, "Tenant-A template");
+    assertEquals(templates.filter((t) => t.is_default).length, 1);
+    assert(mine.is_default, "A's default must survive B's PUT");
+  },
+});
+
+Deno.test({
+  // A malformed template id answers like a foreign one (404), not a 500 from
+  // the uuid column.
+  name: "a malformed listing template id is a 404 for PUT and DELETE",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const put = await fetch(`${BASE}/api/flipdesk/templates/abc`, {
+      method: "PUT",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ name: "x" }),
+    });
+    await put.body?.cancel();
+    assertEquals(put.status, 404);
+    const del = await fetch(`${BASE}/api/flipdesk/templates/abc`, {
+      method: "DELETE",
+      headers: authHeaders(B_JWT!),
+    });
+    await del.body?.cancel();
+    assertEquals(del.status, 404);
   },
 });
 
