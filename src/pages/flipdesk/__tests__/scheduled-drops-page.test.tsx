@@ -261,3 +261,60 @@ describe("the day dialog follows its drops (SD-10)", () => {
     expect(dialog.textContent).toContain("Drop b");
   });
 });
+
+function gridMonth(): string {
+  return document.querySelector('[role="grid"]')?.getAttribute("aria-label") ?? "";
+}
+
+async function key(el: Element, k: string) {
+  await act(async () => {
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+  });
+}
+
+describe("the keyboard grid (SD-12)", () => {
+  it("does not take focus on first paint", async () => {
+    state.rows = [row("a", 3 * 86_400_000)];
+    await render();
+    expect(document.activeElement?.getAttribute("role")).not.toBe("gridcell");
+  });
+
+  it("every gridcell sits in a row, and blanks are presentational", async () => {
+    state.rows = [row("a", 3 * 86_400_000)];
+    await render();
+    const cells = Array.from(document.querySelectorAll('[role="gridcell"]'));
+    expect(cells.length).toBeGreaterThanOrEqual(28);
+    for (const c of cells) expect(c.parentElement?.getAttribute("role")).toBe("row");
+  });
+
+  it("day 31 then PageDown into February leaves exactly one tabstop", async () => {
+    state.rows = [row("a", 3 * 86_400_000)];
+    await render();
+    for (let i = 0; i < 13 && !gridMonth().includes("January"); i++) {
+      const next = document.querySelector<HTMLButtonElement>('button[aria-label="Next month"]')!;
+      await act(async () => next.click());
+    }
+    expect(gridMonth()).toContain("January");
+    const first = document.querySelector('[role="gridcell"][tabindex="0"]')!;
+    await key(first, "End");
+    expect(document.querySelector('[role="gridcell"][tabindex="0"]')?.getAttribute("data-day")).toBe("31");
+    await key(document.activeElement!, "PageDown");
+    expect(gridMonth()).toContain("February");
+    const stops = document.querySelectorAll('[role="gridcell"][tabindex="0"]');
+    expect(stops).toHaveLength(1);
+    expect(Number(stops[0]!.getAttribute("data-day"))).toBeGreaterThanOrEqual(28);
+    expect(document.activeElement).toBe(stops[0]);
+  });
+
+  it("Next month then back resets to a real day, and Today focuses today", async () => {
+    state.rows = [row("a", 3 * 86_400_000)];
+    await render();
+    const today = document.querySelector('[role="gridcell"][aria-current="date"]');
+    expect(today?.getAttribute("aria-label")).toContain("today");
+    const btn = Array.from(document.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Today",
+    )!;
+    await act(async () => btn.click());
+    expect(document.activeElement?.getAttribute("aria-current")).toBe("date");
+  });
+});

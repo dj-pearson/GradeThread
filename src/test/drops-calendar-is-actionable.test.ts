@@ -71,7 +71,9 @@ describe("the calendar reads as a calendar (US-2522)", () => {
       expect(src, `${key} does not move the cursor`).toContain(key);
     }
     // A roving tabstop, not 35 tab stops.
-    expect(src).toMatch(/tabIndex=\{cell\.day === focusedDay \? 0 : -1\}/);
+    // SD-12: clamped to the month on screen, so a month change cannot strand it.
+    expect(src).toMatch(/tabIndex=\{cell\.day === tabDay \? 0 : -1\}/);
+    expect(src).toMatch(/const tabDay = Math\.min\(focusedDay, daysInView\)/);
     // And real focus follows it, or the arrows move a highlight nothing announces.
     expect(src).toMatch(/focusedCellRef\.current\?\.focus\(\)/);
   });
