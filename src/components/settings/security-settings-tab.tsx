@@ -19,6 +19,7 @@ import {
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
 import { toastError } from "@/lib/toast-error";
 import { MfaCard } from "@/components/settings/mfa-card";
+import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 
 // The Security tab of /dashboard/settings: two-factor, password, sessions.
 // Split out of settings.tsx (web-growth action 6).
@@ -34,19 +35,28 @@ export function SecuritySettingsTab() {
   // Same rule the server uses (any "email" identity means a password exists).
   const isOAuthUser = !hasPasswordIdentity(user);
   const [sendingSetLink, setSendingSetLink] = useState(false);
+  // GoTrue asks for a captcha on the recover endpoint whenever it asks for one
+  // on sign-in, and captchaRequired is the same switch the reset page reads.
+  // Without a token here the request is refused, so the button waits for one.
+  const [setLinkCaptcha, setSetLinkCaptcha] = useState<string | null>(null);
+  const [setLinkCaptchaReset, setSetLinkCaptchaReset] = useState(0);
 
   // Passwordless (Google/Apple) accounts can add a password through the reset
   // email: it lands on /auth/reset-password with a recovery token, and the new
   // password becomes an "email" identity alongside the OAuth one.
   async function handleSendSetPasswordLink() {
     if (!user?.email) return;
+    if (captchaRequired && !setLinkCaptcha) return;
     setSendingSetLink(true);
     try {
-      await resetPassword(user.email);
+      await resetPassword(user.email, setLinkCaptcha ?? undefined);
       toast.success(`We sent a link to ${user.email}. Open it to set a password.`);
     } catch (err) {
       toastError(err, "Couldn't send the set-password email");
     } finally {
+      // Turnstile tokens are single-use, whether the request worked or not.
+      setSetLinkCaptcha(null);
+      setSetLinkCaptchaReset((n) => n + 1);
       setSendingSetLink(false);
     }
   }
@@ -124,11 +134,24 @@ export function SecuritySettingsTab() {
               password yet.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              We&apos;ll email you a link. Open it to choose a password; you
+              can then sign in either way.
+            </p>
+            <TurnstileWidget
+              onVerify={setSetLinkCaptcha}
+              onExpire={() => setSetLinkCaptcha(null)}
+              resetSignal={setLinkCaptchaReset}
+            />
             <Button
               variant="outline"
               onClick={handleSendSetPasswordLink}
-              disabled={sendingSetLink || !user?.email}
+              disabled={
+                sendingSetLink ||
+                !user?.email ||
+                (captchaRequired && !setLinkCaptcha)
+              }
             >
               {sendingSetLink && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Set a password
