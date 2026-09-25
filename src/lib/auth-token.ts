@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { markInvoluntarySignOut } from "@/lib/signout-intent";
 
 // Token freshness helpers shared by every edge-call path (edgeFetch,
 // edgeAuthHeaders, the legacy use-ebay authHeader).
@@ -72,6 +73,9 @@ export async function forceRefreshAccessToken(): Promise<string | null> {
  * to `/login?next=<where they were>` (US-1430).
  */
 export async function abandonDeadSession(): Promise<void> {
+  // The session died; the seller did not choose to leave. Their offline intake
+  // queue is the only copy of work saved while the refresh was failing.
+  markInvoluntarySignOut();
   try {
     await supabase.auth.signOut({ scope: "local" });
   } catch {

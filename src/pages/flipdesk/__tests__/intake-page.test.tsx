@@ -664,6 +664,14 @@ describe("keyboard-first form", () => {
     expect(insert).not.toHaveBeenCalled();
   });
 
+  it("Enter in SKU is the end of a scanner's scan, not a save", async () => {
+    const insert = insertChain(() => Promise.resolve({ data: { id: "x" }, error: null }));
+    await renderPage();
+    await typeTitle("Wool coat");
+    await pressEnter(host.querySelector<HTMLInputElement>("#sku-input")!);
+    expect(insert).not.toHaveBeenCalled();
+  });
+
   it("Ctrl+Enter runs the primary save", async () => {
     const insert = insertChain(() => Promise.resolve({ data: { id: "x" }, error: null }));
     await renderPage();

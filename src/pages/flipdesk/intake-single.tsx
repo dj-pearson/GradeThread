@@ -569,6 +569,10 @@ export function IntakeSingleForm({
     const type = (target as HTMLInputElement).type;
     if (type === "file" || type === "checkbox" || type === "radio") return;
     e.preventDefault();
+    // A USB barcode scanner types the code and then presses Enter. In the SKU
+    // box that Enter is the end of a scan, not "save this item", so it saves
+    // nothing there; Cmd/Ctrl+Enter above still does.
+    if (target.id === "sku-input") return;
     if (canSave && !saving && !productLookup.isPending) void save(false);
   }
 
@@ -1021,7 +1025,8 @@ export function IntakeSingleForm({
         </div>
       )}
 
-      {/* Keyboard-first: Enter in any field saves and starts the next item,
+      {/* Keyboard-first: Enter in any field but SKU (a scanner's Enter) saves
+          and starts the next item,
           Cmd/Ctrl+Enter saves and moves on, and Enter in a textarea is still a
           newline. The buttons call save() themselves; onSubmit only stops a
           stray untyped button from reloading the page. */}

@@ -52,4 +52,25 @@ describe("SIGNED_OUT", () => {
     await vi.waitFor(() => expect(h.clearQueue).toHaveBeenCalledTimes(1));
     act(() => root.unmount());
   });
+
+  it("keeps the queue when the session died on its own", async () => {
+    const { markInvoluntarySignOut } = await import("@/lib/signout-intent");
+    h.clearQueue.mockClear();
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    await act(async () => root.render(<Probe />));
+    markInvoluntarySignOut();
+    await act(async () => {
+      h.onChange!("SIGNED_OUT", null);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(h.clearQueue).not.toHaveBeenCalled();
+    // The flag is one-shot: the next, deliberate sign-out wipes again.
+    await act(async () => {
+      h.onChange!("SIGNED_OUT", null);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await vi.waitFor(() => expect(h.clearQueue).toHaveBeenCalledTimes(1));
+    act(() => root.unmount());
+  });
 });
