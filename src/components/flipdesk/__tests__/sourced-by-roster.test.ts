@@ -83,7 +83,7 @@ describe("offRosterName", () => {
 
 describe("every FlipDesk sourcing surface uses the picker", () => {
   const SURFACES = [
-    "src/pages/flipdesk/intake.tsx",
+    "src/pages/flipdesk/intake-single.tsx",
     "src/components/flipdesk/bulk-intake.tsx",
     "src/components/flipdesk/snap-catalog.tsx",
     "src/components/flipdesk/composer/item-details-card.tsx",

@@ -149,7 +149,7 @@ describe("the surfaces the story named all have a button", () => {
     // on in their first week, and none of them had an entry in the registry at
     // all — so HelpLink had nothing to render there even after US-2618 loads
     // the articles.
-    ["src/pages/flipdesk/intake.tsx", "adding-your-first-item"],
+    ["src/pages/flipdesk/intake-single.tsx", "adding-your-first-item"],
     ["src/pages/flipdesk/listings.tsx", "the-four-inventory-views"],
     ["src/pages/flipdesk/autolister-host.tsx", "batch-listing-with-autolister"],
     ["src/pages/flipdesk/sourcing.tsx", "deciding-what-to-buy"],

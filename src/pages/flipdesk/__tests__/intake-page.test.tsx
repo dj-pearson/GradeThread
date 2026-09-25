@@ -241,6 +241,13 @@ function button(text: string): HTMLButtonElement {
   return b!;
 }
 
+async function openScanner() {
+  const b = host.querySelector<HTMLButtonElement>('button[aria-label="Scan barcode or UPC"]')!;
+  await act(async () => b.click());
+  await flush();
+  expect(mocks.scannerProps, "scanner did not load").not.toBeNull();
+}
+
 async function click(text: string) {
   const b = button(text);
   await act(async () => {
@@ -269,6 +276,8 @@ beforeEach(() => {
   mocks.lookupPending = false;
   mocks.today = "2026-09-24";
   mocks.setReviewFlow.mockReset();
+  mocks.aiPanelProps = null;
+  mocks.scannerProps = null;
   mocks.reviewFlow = { enabled: false, isLoading: false, chosen: false };
   mocks.useSources.mockReset().mockReturnValue({ data: [] });
   mocks.enqueueIntake.mockResolvedValue(undefined);
@@ -442,6 +451,7 @@ describe("barcode lookup", () => {
     mocks.lookup.mockReturnValue(pending.promise);
     await renderPage();
     await typeTitle("First coat");
+    await openScanner();
     await act(async () => {
       void (mocks.scannerProps!.onDetected as (c: string) => Promise<void>)("ABC-123");
     });
@@ -459,6 +469,7 @@ describe("barcode lookup", () => {
     await renderPage();
     const sku = host.querySelector<HTMLInputElement>("#sku-input")!;
     await typeInto(sku, "MY-SKU");
+    await openScanner();
     await act(async () => {
       await (mocks.scannerProps!.onDetected as (c: string) => Promise<void>)("012345678905");
     });
@@ -470,6 +481,7 @@ describe("barcode lookup", () => {
   it("fills a blank SKU with the code", async () => {
     mocks.lookup.mockResolvedValue({ ...found, found: false, brand: "", style: "", productTitle: "" });
     await renderPage();
+    await openScanner();
     await act(async () => {
       await (mocks.scannerProps!.onDetected as (c: string) => Promise<void>)("ABC-123");
     });
@@ -595,5 +607,21 @@ describe("small state bugs", () => {
     expect(host.textContent).toContain("Try the new flow");
     await click("Not now");
     expect(mocks.setReviewFlow).toHaveBeenCalledWith(false, expect.anything());
+  });
+});
+
+describe("the mode router", () => {
+  it("opened straight into Bulk, never runs the single form's hooks", async () => {
+    await renderPage("/dashboard/flipdesk/intake?mode=bulk");
+    expect(host.textContent).toContain("bulk back");
+    expect(mocks.useSources).not.toHaveBeenCalled();
+    expect(host.querySelector('input[placeholder="e.g. Lululemon Align Pant"]')).toBeNull();
+  });
+
+  it("drops a clean single form when switching modes", async () => {
+    await renderPage();
+    expect(mocks.useSources).toHaveBeenCalled();
+    await go("/dashboard/flipdesk/intake?mode=bulk");
+    expect(host.querySelector('input[placeholder="e.g. Lululemon Align Pant"]')).toBeNull();
   });
 });

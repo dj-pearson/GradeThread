@@ -107,7 +107,7 @@ const FIXED_SITES: FixedSite[] = [
     ],
   },
   {
-    rel: "src/pages/flipdesk/intake.tsx",
+    rel: "src/pages/flipdesk/intake-single.tsx",
     why:
       "An AI extract landing after 'Save & add another' repopulated the panel " +
       "for the blank form, and aiResult feeds the NEXT item's garment_type. " +

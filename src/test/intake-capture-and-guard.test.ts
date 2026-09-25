@@ -8,7 +8,7 @@ import { resolve } from "node:path";
 // in silence, measurements could not be entered even though "measured" is a
 // pipeline status, and "required" was an asterisk typed into a label.
 
-const INTAKE = "src/pages/flipdesk/intake.tsx";
+const INTAKE = "src/pages/flipdesk/intake-single.tsx";
 // The row and the photo-shortfall message are built here; their behaviour is
 // tested in src/pages/flipdesk/__tests__/intake-plan.test.ts.
 const INTAKE_PLAN = "src/pages/flipdesk/intake-plan.ts";
