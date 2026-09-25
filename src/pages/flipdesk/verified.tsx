@@ -31,6 +31,7 @@ import {
   useUpdateVerifiedProfile,
   useBadgeFunnel,
   checkHandleAvailable,
+  type VerifiedProfile,
 } from "@/hooks/use-verified";
 import {
   usePassportIdentityNodes,
@@ -44,7 +45,17 @@ import {
   verifiedSellerBadgeEmbedText,
 } from "@/lib/verified";
 import { SITE_URL } from "@/lib/seo/site";
+import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
+import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import { PageHelp } from "@/components/help/page-help";
+
+interface FormBaseline {
+  handle: string;
+  displayName: string;
+  bio: string;
+}
 
 type Availability =
   | { state: "idle" }
@@ -63,14 +74,28 @@ export function FlipdeskVerifiedPage() {
   const [showListings, setShowListings] = useState(false);
   const [embedInListings, setEmbedInListings] = useState(false);
   const [availability, setAvailability] = useState<Availability>({ state: "idle" });
+  // What the text fields were last loaded or saved as. The form is dirty when
+  // it differs from this, and Save is offered only then.
+  const [baseline, setBaseline] = useState<FormBaseline | null>(null);
   const seeded = useRef(false);
+  const confirm = useConfirm();
+
+  function seedText(p: Pick<VerifiedProfile, "handle" | "display_name" | "bio">) {
+    const next = {
+      handle: p.handle ?? "",
+      displayName: p.display_name ?? "",
+      bio: p.bio ?? "",
+    };
+    setHandle(next.handle);
+    setDisplayName(next.displayName);
+    setBio(next.bio);
+    setBaseline(next);
+  }
 
   // Seed the form once the profile loads.
   useEffect(() => {
     if (!data || seeded.current) return;
-    setHandle(data.profile.handle ?? "");
-    setDisplayName(data.profile.display_name ?? "");
-    setBio(data.profile.bio ?? "");
+    seedText(data.profile);
     setEnabled(data.profile.enabled);
     setShowListings(data.profile.show_listings);
     setEmbedInListings(data.profile.embed_in_listings);
@@ -115,11 +140,19 @@ export function FlipdeskVerifiedPage() {
     return () => clearTimeout(t);
   }, [normalizedHandle, savedHandle, handleFormat]);
 
+  const isDirty =
+    !!baseline &&
+    (normalizedHandle !== baseline.handle ||
+      displayName.trim() !== baseline.displayName.trim() ||
+      bio.trim() !== baseline.bio.trim());
+  const guard = useNavigationGuard(isDirty);
+
   // The form only reflects the real profile once it has been seeded from it.
   // Before that (still loading, or the load failed) a save would write blanks
   // over the live profile, so nothing may be sent.
   const canSave =
     seeded.current &&
+    isDirty &&
     !!normalizedHandle &&
     (handleFormat?.ok ?? false) &&
     availability.state !== "checking" &&
@@ -127,11 +160,31 @@ export function FlipdeskVerifiedPage() {
 
   async function handleSave() {
     if (!seeded.current) return;
-    await update.mutateAsync({
-      handle: normalizedHandle,
-      display_name: displayName.trim() || null,
-      bio: bio.trim() || null,
-    });
+    // Renaming a live handle breaks every badge and link already pasted with
+    // the old one (there are no redirects yet), so it is confirmed first.
+    const renamingLive =
+      !!savedHandle && !!data?.profile.enabled && normalizedHandle !== savedHandle;
+    if (renamingLive) {
+      const ok = await confirm({
+        title: "Change your handle?",
+        description: `Badges and links you already pasted use /verified/${savedHandle}. They will stop working after this change.`,
+        confirmLabel: "Change handle",
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    try {
+      const saved = await update.mutateAsync({
+        handle: normalizedHandle,
+        display_name: displayName.trim() || null,
+        bio: bio.trim() || null,
+      });
+      if (saved) seedText(saved);
+      toast.success("Profile saved");
+    } catch {
+      // useUpdateVerifiedProfile's onError already told the seller why; the
+      // form keeps their edits so nothing typed is lost.
+    }
   }
 
   // The switch sends ONLY the flag. The server falls back to the stored
@@ -221,6 +274,8 @@ export function FlipdeskVerifiedPage() {
       {/* US-2543 AC2: seven stacked panels, so the badge tools sat below three
           screens of profile setup and the identity control below those. Three
           tabs, most-used first. */}
+      <UnsavedChangesDialog guard={guard} noun="profile change" />
+
       <Tabs defaultValue="profile" className="space-y-6">
         <TabsList>
           <TabsTrigger value="profile">Profile</TabsTrigger>
@@ -234,6 +289,7 @@ export function FlipdeskVerifiedPage() {
           it — the same two numbers, shown where they appear to a buyer. */}
       <VerifiedProfilePreview
         handle={normalizedHandle}
+        savedHandle={savedHandle}
         displayName={displayName}
         bio={bio}
         isLive={isLive}
@@ -326,12 +382,17 @@ export function FlipdeskVerifiedPage() {
             </p>
           </div>
 
-          <Button onClick={handleSave} disabled={!canSave || update.isPending}>
-            {update.isPending && (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button onClick={handleSave} disabled={!canSave || update.isPending}>
+              {update.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Save profile
+            </Button>
+            {isDirty && (
+              <span className="text-sm text-muted-foreground">Unsaved changes</span>
             )}
-            Save profile
-          </Button>
+          </div>
         </CardContent>
       </Card>
 

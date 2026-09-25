@@ -296,3 +296,78 @@ describe("badge performance card (V8)", () => {
     expect(c.textContent).toContain("Referral signups (all channels)");
   });
 });
+
+describe("save flow (V10)", () => {
+  function saveButton() {
+    return byText("button", "Save profile") as HTMLButtonElement;
+  }
+
+  it("Save is off on a fresh form and on after an edit", () => {
+    const c = render();
+    expect(saveButton().disabled).toBe(true);
+    expect(c.textContent).not.toContain("Unsaved changes");
+    typeInto(c.querySelector<HTMLTextAreaElement>("#bio")!, "Vintage denim and workwear.");
+    expect(saveButton().disabled).toBe(false);
+    expect(c.textContent).toContain("Unsaved changes");
+  });
+
+  it("a successful save says so and clears the dirty state", async () => {
+    mutateAsync.mockResolvedValue(profile({ bio: "New bio" }));
+    const c = render();
+    typeInto(c.querySelector<HTMLTextAreaElement>("#bio")!, "New bio");
+    act(() => saveButton().click());
+    await flush();
+    expect(toast.success).toHaveBeenCalledWith("Profile saved");
+    expect(c.textContent).not.toContain("Unsaved changes");
+  });
+
+  it("a rejected save leaves no unhandled rejection", async () => {
+    const seen: unknown[] = [];
+    const onWindow = (e: PromiseRejectionEvent) => seen.push(e.reason);
+    const onProcess = (r: unknown) => seen.push(r);
+    window.addEventListener("unhandledrejection", onWindow);
+    process.on("unhandledRejection", onProcess);
+    try {
+      mutateAsync.mockRejectedValue(new Error("server said no"));
+      const c = render();
+      typeInto(c.querySelector<HTMLTextAreaElement>("#bio")!, "New bio");
+      act(() => saveButton().click());
+      await flush();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(seen).toEqual([]);
+      expect(toast.success).not.toHaveBeenCalled();
+      // The edit is kept.
+      expect(c.querySelector<HTMLTextAreaElement>("#bio")!.value).toBe("New bio");
+    } finally {
+      window.removeEventListener("unhandledrejection", onWindow);
+      process.off("unhandledRejection", onProcess);
+    }
+  });
+
+  it("renaming a live handle asks first, and Cancel sends nothing", async () => {
+    vi.useFakeTimers();
+    setProfile(profile({ enabled: true }));
+    checkHandleAvailable.mockResolvedValue({ available: true, reason: null });
+    confirmFn.mockResolvedValue(false);
+    const c = render();
+    typeInto(c.querySelector<HTMLInputElement>("#handle")!, "beta-store");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    act(() => saveButton().click());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(confirmFn).toHaveBeenCalledTimes(1);
+    expect(String(confirmFn.mock.calls[0]?.[0]?.description)).toContain("/verified/alpha");
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("the preview names the saved URL under Live, and the draft separately", () => {
+    setProfile(profile({ enabled: true }));
+    const c = render();
+    typeInto(c.querySelector<HTMLInputElement>("#handle")!, "beta");
+    expect(c.textContent).toContain("Live at gradethread.com/verified/alpha");
+    expect(c.textContent).toContain("Unsaved: /verified/beta");
+  });
+});
