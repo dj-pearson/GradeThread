@@ -129,15 +129,45 @@ export function nameProblem(name: string): string | null {
   return null;
 }
 
+/**
+ * An API failure, carrying the edge's `code` when it sent one. The two 409s a
+ * save can hit need different advice: a name clash is fixed by renaming, a
+ * default clash (another save made a different row the default meanwhile) by
+ * reloading.
+ */
+export class TemplateApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  constructor(message: string, status: number, code: string | null) {
+    super(message);
+    this.name = "TemplateApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await edgeFetch(path, init);
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(
-      (json as { error?: string }).error || "That did not save. Try again.",
+    const body = json as { error?: string; code?: string };
+    throw new TemplateApiError(
+      body.error || "That did not save. Try again.",
+      res.status,
+      typeof body.code === "string" ? body.code : null,
     );
   }
   return json as T;
+}
+
+/** What a failed save should tell the seller to do next, by the edge's code. */
+export function saveErrorNextStep(err: unknown): string | undefined {
+  const code = err instanceof TemplateApiError ? err.code : null;
+  if (code === "template_name_taken") return "That name is taken. Pick a different one.";
+  if (code === "template_default_conflict") {
+    return "Another template just became your default. Reload and try again.";
+  }
+  return undefined;
 }
 
 export async function listTemplates(): Promise<ListingTemplate[]> {

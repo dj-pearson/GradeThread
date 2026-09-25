@@ -40,6 +40,8 @@ import {
   deleteTemplate,
   listTemplates,
   nameProblem,
+  saveErrorNextStep,
+  TemplateApiError,
   templateSummary,
   updateTemplate,
 } from "@/lib/flipdesk-templates";
@@ -151,12 +153,15 @@ export function TemplatesPage() {
         state.existing ? `Saved "${saved.name}".` : `Created "${saved.name}".`,
       );
     },
-    onError: (err) =>
-      toastError(err, "That did not save.", {
-        // The one failure a seller can act on themselves: two templates cannot
-        // share a name (a partial unique index, not a validation rule we chose).
-        nextStep: "If the name is already taken, pick a different one.",
-      }),
+    onError: (err) => {
+      // Advice only where the edge said what went wrong: a name clash (the
+      // (user_id, name) unique constraint) is fixed by renaming, a default
+      // clash by reloading. A 500 gets the generic next step.
+      toastError(err, "That did not save.", { nextStep: saveErrorNextStep(err) });
+      if (err instanceof TemplateApiError && err.code === "template_default_conflict") {
+        void queryClient.invalidateQueries({ queryKey: TEMPLATES_QUERY_KEY });
+      }
+    },
   });
 
   // US-2968: add the ticked starter templates as the seller's own rows.
