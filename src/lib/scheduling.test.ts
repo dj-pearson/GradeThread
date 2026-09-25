@@ -7,7 +7,12 @@ import {
   zonedInputToIso,
   formatInZone,
   assertFutureDrop,
+  dropHealth,
+  MAX_SCHEDULED_PUBLISH_ATTEMPTS,
+  PUBLISH_CLAIM_STALE_MS,
 } from "./scheduling";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 describe("zonedWallTimeToUtc", () => {
   it("converts a winter (CST, UTC-6) wall time to UTC", () => {
@@ -107,5 +112,55 @@ describe("assertFutureDrop (SD-2)", () => {
   });
   it("rejects junk", () => {
     expect(assertFutureDrop("nope", NOW).ok).toBe(false);
+  });
+});
+
+describe("dropHealth (SD-3)", () => {
+  const NOW = Date.parse("2026-09-25T12:00:00Z");
+  const at = (ms: number) => new Date(NOW + ms).toISOString();
+  const base = { scheduled_publish_at: at(3_600_000) };
+
+  it("a future drop with no history is scheduled", () => {
+    expect(dropHealth(base, NOW)).toBe("scheduled");
+  });
+  it("a fresh claim reads as publishing", () => {
+    expect(dropHealth({ ...base, publish_claimed_at: at(-60_000) }, NOW)).toBe("publishing");
+  });
+  it("a stale claim does not", () => {
+    expect(dropHealth({ ...base, publish_claimed_at: at(-11 * 60_000) }, NOW)).toBe("scheduled");
+  });
+  it("an attempt with an error reads as retrying", () => {
+    expect(
+      dropHealth({ ...base, publish_attempts: 3, publish_error: "Missing item specific" }, NOW),
+    ).toBe("retrying");
+  });
+  it("a drop more than ten minutes past with no fresh claim is overdue", () => {
+    expect(dropHealth({ scheduled_publish_at: at(-11 * 60_000) }, NOW)).toBe("overdue");
+    expect(dropHealth({ scheduled_publish_at: at(-2 * 60_000) }, NOW)).toBe("scheduled");
+  });
+  it("a synced row or an exhausted budget is blocked", () => {
+    expect(dropHealth({ ...base, synced_to_ebay_at: at(-1) }, NOW)).toBe("blocked");
+    expect(dropHealth({ ...base, publish_attempts: 5, publish_error: "x" }, NOW)).toBe("blocked");
+  });
+});
+
+describe("the client mirrors the cron's constants (SD-3)", () => {
+  const edge = (rel: string) =>
+    readFileSync(resolve(process.cwd(), "services/edge-functions/src", rel), "utf8");
+
+  it("MAX_SCHEDULED_PUBLISH_ATTEMPTS matches publish-due-policy.ts", () => {
+    const m = /export const MAX_SCHEDULED_PUBLISH_ATTEMPTS = (\d+);/.exec(
+      edge("lib/publish-due-policy.ts"),
+    );
+    expect(m, "constant not found in the edge policy file").not.toBeNull();
+    expect(Number(m![1])).toBe(MAX_SCHEDULED_PUBLISH_ATTEMPTS);
+  });
+
+  it("PUBLISH_CLAIM_STALE_MS matches the publish-due route", () => {
+    const m = /const PUBLISH_CLAIM_STALE_MS = (\d+) \* 60_000;/.exec(
+      edge("routes/flipdesk-ebay-publish-due.ts"),
+    );
+    expect(m, "constant not found in the publish-due route").not.toBeNull();
+    expect(Number(m![1]) * 60_000).toBe(PUBLISH_CLAIM_STALE_MS);
   });
 });

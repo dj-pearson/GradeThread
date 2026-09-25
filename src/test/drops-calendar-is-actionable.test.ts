@@ -116,3 +116,13 @@ describe("dialog copy is plain ASCII punctuation (SD-2)", () => {
     expect(read(DIALOG)).not.toMatch(/[−—]/);
   });
 });
+
+describe("the drops read matches the cron's view of a row (SD-3)", () => {
+  it("selects the publish health columns and adds no platform filter", () => {
+    const src = read(HOOK);
+    for (const col of ["publish_attempts", "synced_to_ebay_at", "publish_claimed_at", "publish_error"]) {
+      expect(src).toMatch(new RegExp(`SCHEDULED_DROPS_SELECT =[^;]*${col}`));
+    }
+    expect(src).not.toMatch(/\.eq\("platform"/);
+  });
+});

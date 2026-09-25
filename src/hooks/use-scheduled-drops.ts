@@ -39,7 +39,18 @@ export interface ScheduledDropRow {
   scheduled_publish_at: string;
   promo_opt_out: boolean | null;
   promo_rate_pct: number | null;
+  // SD-3: what the publish-due cron has done with the row so far. Without
+  // these a drop failing its fourth attempt looked like a fresh one.
+  publish_error: string | null;
+  publish_failed_at: string | null;
+  publish_attempts: number | null;
+  publish_claimed_at: string | null;
+  synced_to_ebay_at: string | null;
 }
+
+/** Columns the drops read asks for. Exported so a test can pin them. */
+export const SCHEDULED_DROPS_SELECT =
+  "id, inventory_item_id, listing_title, listing_price, scheduled_publish_at, promo_opt_out, promo_rate_pct, publish_error, publish_failed_at, publish_attempts, publish_claimed_at, synced_to_ebay_at";
 
 /**
  * Every scheduled drop, soonest first.
@@ -59,9 +70,9 @@ export function useScheduledDrops() {
       fetchCapped<ScheduledDropRow>(async (limit) => {
         const { data, error } = await supabase
           .from("listings")
-          .select(
-            "id, inventory_item_id, listing_title, listing_price, scheduled_publish_at, promo_opt_out, promo_rate_pct",
-          )
+          // No platform filter: the cron has none, so adding one here would
+          // hide drafts it will really publish.
+          .select(SCHEDULED_DROPS_SELECT)
           .eq("listing_status", "draft")
           .not("scheduled_publish_at", "is", null)
           .order("scheduled_publish_at", { ascending: true })

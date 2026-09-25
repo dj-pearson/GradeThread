@@ -223,3 +223,55 @@ export function assertFutureDrop(
   }
   return { ok: true };
 }
+
+// -- Publish health (SD-3) ---------------------------------------------------
+//
+// Mirrors of the publish-due cron's own constants. Keep them in step with
+// services/edge-functions/src/lib/publish-due-policy.ts
+// (MAX_SCHEDULED_PUBLISH_ATTEMPTS) and
+// services/edge-functions/src/routes/flipdesk-ebay-publish-due.ts
+// (PUBLISH_CLAIM_STALE_MS); src/lib/scheduling.test.ts reads both files and
+// fails if either number moves.
+
+/** The cron publishes a scheduled draft at most this many times. */
+export const MAX_SCHEDULED_PUBLISH_ATTEMPTS = 5;
+/** A publish claim older than this is stale and the cron may retake the row. */
+export const PUBLISH_CLAIM_STALE_MS = 10 * 60_000;
+
+export type DropHealth = "scheduled" | "publishing" | "retrying" | "overdue" | "blocked";
+
+/** The columns dropHealth reads, so it does not depend on the hook's row type. */
+export interface DropHealthInput {
+  scheduled_publish_at: string;
+  publish_error?: string | null;
+  publish_attempts?: number | null;
+  publish_claimed_at?: string | null;
+  synced_to_ebay_at?: string | null;
+}
+
+/**
+ * What the cron will do with this drop, read the way the cron reads it:
+ * due is `scheduled_publish_at <= now`, not yet synced, under the attempt cap,
+ * and not held by a fresh claim. No platform filter, because the cron has none.
+ */
+export function dropHealth(row: DropHealthInput, now: number = Date.now()): DropHealth {
+  const attempts = Number(row.publish_attempts ?? 0) || 0;
+  // The cron's scan skips both of these for good; the row will never publish
+  // from its schedule.
+  if (row.synced_to_ebay_at != null || attempts >= MAX_SCHEDULED_PUBLISH_ATTEMPTS) {
+    return "blocked";
+  }
+  const claimed = row.publish_claimed_at ? Date.parse(row.publish_claimed_at) : NaN;
+  if (Number.isFinite(claimed) && now - claimed < PUBLISH_CLAIM_STALE_MS) {
+    return "publishing";
+  }
+  if (attempts > 0 && row.publish_error) return "retrying";
+  const at = Date.parse(row.scheduled_publish_at);
+  if (Number.isFinite(at) && now - at > PUBLISH_CLAIM_STALE_MS) return "overdue";
+  return "scheduled";
+}
+
+/** Health states the seller has to act on or at least know about. */
+export function dropNeedsAttention(health: DropHealth): boolean {
+  return health === "overdue" || health === "retrying" || health === "blocked";
+}

@@ -188,6 +188,11 @@ describe("dropsDueWithin (US-3077 AC7)", () => {
     scheduled_publish_at: iso,
     promo_opt_out: null,
     promo_rate_pct: null,
+    publish_error: null,
+    publish_failed_at: null,
+    publish_attempts: 0,
+    publish_claimed_at: null,
+    synced_to_ebay_at: null,
   });
 
   it("keeps the next seven days, soonest first", () => {
