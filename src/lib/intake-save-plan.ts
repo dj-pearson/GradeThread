@@ -8,6 +8,8 @@
 // carries the new source's NAME and the photo bytes, and flushIntakeQueue
 // (src/lib/offline-queue.ts) resolves and uploads them on reconnect.
 
+import { isOffline } from "@/lib/friendly-error";
+
 export type IntakeSourceChoice =
   | { kind: "existing"; id: string }
   | { kind: "new"; name: string }
@@ -66,4 +68,36 @@ export function offlineSavedMessage(
   if (plan.newSourceName) extras.push(`the new source "${plan.newSourceName}"`);
   const withExtras = extras.length > 0 ? `, with ${extras.join(" and ")},` : "";
   return `Saved "${title}"${withExtras} offline. It will sync when you reconnect.`;
+}
+
+/**
+ * The online save failed: should it fall back to the queue? navigator.onLine
+ * says true on captive-portal and weak store wifi, and then the RPC or insert
+ * rejects with 'Failed to fetch'. A request we aborted on a timer is the same
+ * dead zone. A real refusal (RLS, a constraint) is not, and must surface.
+ */
+export function shouldQueueAfterError(err: unknown): boolean {
+  if (isOffline(err)) return true;
+  const name = readString(err, "name");
+  if (name === "AbortError" || name === "TimeoutError") return true;
+  // postgrest-js folds a rejected fetch into { message: "<Name>: <message>" }.
+  const message = readString(err, "message") ?? "";
+  return /^(AbortError|TimeoutError)\b/.test(message);
+}
+
+/**
+ * A 23505 on the PRIMARY KEY means an earlier try with this same draft id
+ * already landed (its response was lost), so the item is saved. A 23505 on the
+ * SKU index is a real clash and is not this.
+ */
+export function isDraftAlreadySaved(err: unknown): boolean {
+  if (readString(err, "code") !== "23505") return false;
+  const text = `${readString(err, "message") ?? ""} ${readString(err, "details") ?? ""}`;
+  return text.includes("inventory_items_pkey") || /Key \(id\)=/.test(text);
+}
+
+function readString(err: unknown, key: string): string | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  const v = (err as Record<string, unknown>)[key];
+  return typeof v === "string" ? v : undefined;
 }

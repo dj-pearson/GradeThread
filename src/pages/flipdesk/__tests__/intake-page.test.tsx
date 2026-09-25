@@ -161,6 +161,23 @@ async function go(to: string) {
   await flush();
 }
 
+/** supabase.from("inventory_items").insert().select().abortSignal().single() */
+function insertChain(result: () => Promise<unknown>) {
+  const insert = vi.fn();
+  mocks.from.mockImplementation(() => ({
+    insert: (row: unknown) => {
+      insert(row);
+      const chain = {
+        select: () => chain,
+        abortSignal: () => chain,
+        single: result,
+      };
+      return chain;
+    },
+  }));
+  return insert;
+}
+
 function titleInput(): HTMLInputElement {
   const input = host.querySelector<HTMLInputElement>(
     'input[placeholder="e.g. Lululemon Align Pant"]',
@@ -253,5 +270,63 @@ describe("the leave guard and the mode tabs", () => {
     await go("/dashboard/flipdesk/items");
     expect(document.body.textContent).toContain("Leave without saving?");
     expect(host.textContent).not.toContain("ITEMS PAGE");
+  });
+});
+
+describe("a save on weak signal", () => {
+  it("queues the item under its draft id when the insert fails to fetch", async () => {
+    const insert = insertChain(() => Promise.reject(new TypeError("Failed to fetch")));
+    await renderPage();
+    await typeTitle("Wool coat");
+    await click("stage photos");
+    await click("Save & Add another");
+
+    expect(insert).toHaveBeenCalledTimes(1);
+    const draftId = (insert.mock.calls[0]![0] as { id: string }).id;
+    expect(draftId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(mocks.enqueueIntake).toHaveBeenCalledTimes(1);
+    const [row, extras] = mocks.enqueueIntake.mock.calls[0]! as [
+      { id: string },
+      { id: string; queuedBy: string; photos: unknown[] },
+    ];
+    expect(extras.id).toBe(draftId);
+    expect(row.id).toBe(draftId);
+    expect(extras.queuedBy).toBe("member-1");
+    expect(extras.photos).toHaveLength(1);
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(
+      "Weak signal. Saved to your queue. It will sync on its own.",
+    );
+    expect(titleInput().value).toBe("");
+  });
+
+  it("treats a primary-key 23505 as saved", async () => {
+    insertChain(() =>
+      Promise.resolve({
+        data: null,
+        error: {
+          code: "23505",
+          message: 'duplicate key value violates unique constraint "inventory_items_pkey"',
+        },
+      }),
+    );
+    await renderPage();
+    await typeTitle("Wool coat");
+    await click("Save & Add another");
+    expect(mocks.enqueueIntake).not.toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('Added "Wool coat".');
+  });
+
+  it("gives the next item a new draft id", async () => {
+    const insert = insertChain(() => Promise.resolve({ data: { id: "x" }, error: null }));
+    await renderPage();
+    await typeTitle("One");
+    await click("Save & Add another");
+    await typeTitle("Two");
+    await click("Save & Add another");
+    const ids = insert.mock.calls.map((c) => (c[0] as { id: string }).id);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).not.toBe(ids[1]);
   });
 });

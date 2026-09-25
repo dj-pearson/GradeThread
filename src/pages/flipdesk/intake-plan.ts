@@ -69,6 +69,11 @@ export function resolveIntakeSource(
 }
 
 export function buildIntakeInsert(args: {
+  /**
+   * The draft's client id, used as the item id. A retry after a lost response
+   * then hits the same row instead of making a duplicate.
+   */
+  id?: string;
   form: IntakeFormState;
   ownerId: string;
   sourceId: string | null;
@@ -103,6 +108,7 @@ export function buildIntakeInsert(args: {
   const garment = deriveGarmentDefaults(itemCategory, aiGarment);
 
   return {
+    ...(args.id ? { id: args.id } : {}),
     user_id: ownerId,
     title: form.title.trim(),
     sku: trimOrNull(form.sku),

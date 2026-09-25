@@ -136,12 +136,18 @@ export async function enqueueIntake(
   extras: {
     /** The signed-in auth user id. Only they will see or flush this record. */
     queuedBy: string;
+    /**
+     * The form's draft id, which becomes the item id. Passed when an online
+     * try may already have landed, so the replay finds that row instead of
+     * making a second item.
+     */
+    id?: string;
     newSourceName?: string | null;
     photos?: QueuedIntakePhoto[];
   },
 ): Promise<void> {
   const record: QueuedIntake = {
-    id: crypto.randomUUID(),
+    id: extras.id ?? crypto.randomUUID(),
     createdAt: Date.now(),
     queuedBy: extras.queuedBy,
     payload,

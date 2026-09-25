@@ -54,7 +54,12 @@ import { SnapCatalog } from "@/components/flipdesk/snap-catalog";
 import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
 import { useOfflineIntakeSync } from "@/hooks/use-offline-intake";
 import { enqueueIntake } from "@/lib/offline-queue";
-import { offlineSavedMessage, planIntakeSave } from "@/lib/intake-save-plan";
+import {
+  isDraftAlreadySaved,
+  offlineSavedMessage,
+  planIntakeSave,
+  shouldQueueAfterError,
+} from "@/lib/intake-save-plan";
 import {
   AiFillPanel,
   type AcceptedField,
@@ -187,6 +192,9 @@ export function FlipdeskIntakePage() {
       : INITIAL,
   );
   const [saving, setSaving] = useState(false);
+  // The item id this draft will be saved under, chosen here so a retry after
+  // a lost response is idempotent. Renewed after each successful save.
+  const [draftId, setDraftId] = useState(() => crypto.randomUUID());
   // US-2546 AC2: photos staged in memory until the item row exists.
   // SNAP-13: the snap photo is staged as the Front, so it goes up through the
   // same uploadItemPhoto path after the owner-scoped insert.
@@ -396,6 +404,29 @@ export function FlipdeskIntakePage() {
     condition_notes: form.condition_notes,
   };
 
+  // Reset to add another, keeping source + container + sourced_by (the common
+  // case: cataloging a batch from the same trip). A fresh draft id, so the
+  // next garment is a new row.
+  function resetForNext(sourceIdToKeep: string) {
+    setForm({
+      ...INITIAL,
+      source_id: sourceIdToKeep,
+      container: form.container,
+      sourced_by: form.sourced_by,
+      purchase_date: form.purchase_date,
+    });
+    setDraftId(crypto.randomUUID());
+    setAiFields(new Set());
+    setAiMeta({});
+    // US-3223: an AI extract for the garment just saved must not repopulate
+    // the panel for the blank one that replaces it.
+    aiExtractRuns.supersede();
+    setAiResult(null);
+    setStagedPhotos([]);
+    setMeasurements({});
+    setSnapCarry(null);
+  }
+
   async function save(goBackToList: boolean) {
     if (!user || !workspaceOwnerId) {
       toast.error("You must be signed in.");
@@ -423,49 +454,34 @@ export function FlipdeskIntakePage() {
 
     setSaving(true);
     try {
-      let sourceId: string | null = plan.sourceId;
-      if (plan.route === "insert" && plan.newSourceName) {
-        const supabaseAny = supabase as unknown as {
-          rpc: (
-            fn: string,
-            args: Record<string, unknown>,
-          ) => Promise<{ data: string | null; error: Error | null }>;
-        };
-        const { data, error } = await supabaseAny.rpc(
-          "get_or_create_source",
-          {
-            p_user_id: workspaceOwnerId,
-            p_name: plan.newSourceName,
-            p_source_type: "other",
+      const buildInsert = (sourceId: string | null) =>
+        buildIntakeInsert({
+          id: draftId,
+          form,
+          ownerId: workspaceOwnerId,
+          sourceId,
+          aiFields,
+          aiMeta,
+          aiGarment: {
+            garment_type:
+              aiResult?.suggestions?.garment_type?.value ?? snapCarry?.garment.garment_type ?? null,
+            garment_category:
+              aiResult?.suggestions?.garment_category?.value ??
+              snapCarry?.garment.garment_category ??
+              null,
           },
-        );
-        if (error) throw error;
-        sourceId = data;
-      }
+          measurements,
+          targetPrice: snapCarry?.targetPrice ?? null,
+        });
 
-      const insert = buildIntakeInsert({
-        form,
-        ownerId: workspaceOwnerId,
-        sourceId,
-        aiFields,
-        aiMeta,
-        aiGarment: {
-          garment_type:
-            aiResult?.suggestions?.garment_type?.value ?? snapCarry?.garment.garment_type ?? null,
-          garment_category:
-            aiResult?.suggestions?.garment_category?.value ??
-            snapCarry?.garment.garment_category ??
-            null,
-        },
-        measurements,
-        targetPrice: snapCarry?.targetPrice ?? null,
-      });
-
-      // Offline: persist to the IndexedDB queue and flush on reconnect.
-      if (plan.route === "queue") {
-        await enqueueIntake(insert, {
+      // Offline, or a network failure below: persist to the IndexedDB queue
+      // and flush on reconnect. The draft id rides along as the item id, so
+      // an online try that did land is found, not duplicated.
+      const queueSave = async (sourceId: string | null, newSourceName: string | null) => {
+        await enqueueIntake(buildInsert(sourceId), {
           queuedBy: user.id,
-          newSourceName: plan.newSourceName,
+          id: draftId,
+          newSourceName,
           photos: stagedPhotos.map((p, i) => ({
             blob: p.file,
             name: p.file.name,
@@ -475,33 +491,55 @@ export function FlipdeskIntakePage() {
           })),
         });
         await offline.refresh();
+        resetForNext(form.source_id === "__new" ? "" : form.source_id);
+      };
+
+      if (plan.route === "queue") {
+        await queueSave(plan.sourceId, plan.newSourceName);
         toast.success(offlineSavedMessage(form.title.trim(), plan));
-        setForm({
-          ...INITIAL,
-          source_id: form.source_id === "__new" ? "" : form.source_id,
-          container: form.container,
-          sourced_by: form.sourced_by,
-          purchase_date: form.purchase_date,
-        });
-        setAiFields(new Set());
-        setAiMeta({});
-        // US-3223: an AI extract for the garment just saved must not repopulate
-        // the panel for the blank one that replaces it.
-        aiExtractRuns.supersede();
-        setAiResult(null);
-        setStagedPhotos([]);
-        setMeasurements({});
-        setSnapCarry(null);
         return;
       }
 
-      const { data: row, error } = await supabase
-        .from("inventory_items")
-        .insert(insert as never)
-        .select("id")
-        .single();
-      if (error) throw error;
-      const newId = (row as { id: string } | null)?.id;
+      let sourceId: string | null = plan.sourceId;
+      let newSourceName: string | null = plan.newSourceName;
+      try {
+        if (newSourceName) {
+          const supabaseAny = supabase as unknown as {
+            rpc: (
+              fn: string,
+              args: Record<string, unknown>,
+            ) => Promise<{ data: string | null; error: Error | null }>;
+          };
+          const { data, error } = await supabaseAny.rpc(
+            "get_or_create_source",
+            {
+              p_user_id: workspaceOwnerId,
+              p_name: newSourceName,
+              p_source_type: "other",
+            },
+          );
+          if (error) throw error;
+          sourceId = data;
+          newSourceName = null;
+        }
+
+        // A hung request on weak wifi aborts after 10s and falls back to the
+        // queue like any other network failure.
+        const { error } = await supabase
+          .from("inventory_items")
+          .insert(buildInsert(sourceId) as never)
+          .select("id")
+          .abortSignal(AbortSignal.timeout(10_000))
+          .single();
+        // 23505 on the primary key: an earlier try of this draft landed.
+        if (error && !isDraftAlreadySaved(error)) throw error;
+      } catch (err) {
+        if (!shouldQueueAfterError(err)) throw err;
+        await queueSave(sourceId, newSourceName);
+        toast.success("Weak signal. Saved to your queue. It will sync on its own.");
+        return;
+      }
+      const newId = draftId;
 
       // US-2546 AC2: the staged photos go up through the SAME core the item
       // page uses (src/lib/item-photo-upload.ts). A failure here must not read
@@ -554,24 +592,7 @@ export function FlipdeskIntakePage() {
           );
         }
       } else {
-        // Reset to add another, keeping source + container + sourced_by
-        // (most common scenario: cataloging a batch from the same trip)
-        setForm({
-          ...INITIAL,
-          source_id: form.source_id === "__new" ? "" : form.source_id,
-          container: form.container,
-          sourced_by: form.sourced_by,
-          purchase_date: form.purchase_date,
-        });
-        setAiFields(new Set());
-        setAiMeta({});
-        // US-3223: an AI extract for the garment just saved must not repopulate
-        // the panel for the blank one that replaces it.
-        aiExtractRuns.supersede();
-        setAiResult(null);
-        setStagedPhotos([]);
-        setMeasurements({});
-        setSnapCarry(null);
+        resetForNext(form.source_id === "__new" ? "" : form.source_id);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

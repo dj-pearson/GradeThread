@@ -3341,6 +3341,8 @@ export interface ApiKeyInsert {
 }
 
 export interface InventoryItemInsert {
+  /** Client-chosen id, so a retried insert is idempotent. Defaults server-side. */
+  id?: string;
   user_id: string;
   title: string;
   brand?: string | null;
