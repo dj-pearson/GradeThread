@@ -167,6 +167,8 @@ export function FlipdeskMeasureCardPage() {
   // MC-08: the address is never echoed back by the server, so this is the
   // seller's only chance to catch a typo before a card goes to the wrong door.
   const [reviewing, setReviewing] = useState(false);
+  // MC-09: a shipped card can be replaced by opening the same form again.
+  const [replacing, setReplacing] = useState(false);
   const isUs = form.country === "US";
   const needsState = (STATE_REQUIRED_COUNTRIES as readonly string[]).includes(
     form.country,
@@ -202,6 +204,7 @@ export function FlipdeskMeasureCardPage() {
         return;
       }
       setReviewing(false);
+      setReplacing(false);
       toast.success("Card request received — we'll mail it out shortly.");
       // MC-07: the POST already returns the new request, so use it rather
       // than paying for a second GET to learn what we were just told.
@@ -362,14 +365,14 @@ export function FlipdeskMeasureCardPage() {
                 Requested {new Date(activeRequest.requested_at).toLocaleDateString()}
               </span>
             </div>
-          ) : request?.status === "shipped" ? (
+          ) : request?.status === "shipped" && !replacing ? (
             <div className="space-y-1.5 text-sm text-muted-foreground">
               <p>
                 Your card (v{request.card_version}) shipped
                 {request.shipped_at
                   ? ` on ${new Date(request.shipped_at).toLocaleDateString()}`
                   : ""}
-                . Need another? Contact support.
+                .
               </p>
               {/* Most cards go as untracked letters, so NULL is the normal case
                   and this renders nothing at all rather than an empty row.
@@ -390,6 +393,19 @@ export function FlipdeskMeasureCardPage() {
                   </span>
                   {request.tracking_carrier ? ` (${request.tracking_carrier})` : ""}
                 </p>
+              ) : null}
+              {/* MC-09: this used to send the seller to support with no link. The
+                  server only blocks while a request is requested or exported,
+                  so a new request after shipping already works; offer it. */}
+              {reason === "ok" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setReplacing(true)}
+                >
+                  Lost or damaged? Request a replacement card
+                </Button>
               ) : null}
             </div>
           ) : reason === "viewer" ? (

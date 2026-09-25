@@ -211,3 +211,15 @@ describe("the address form matches what the server accepts (MC-08)", () => {
     expect(src.indexOf('htmlFor="mc-country"')).toBeLessThan(src.indexOf('htmlFor="mc-name"'));
   });
 });
+
+describe("a shipped card can be replaced (MC-09)", () => {
+  it("the dead-end support line is gone", () => {
+    expect(read(PAGE)).not.toContain("Contact support");
+  });
+
+  it("offers a replacement only when the server says ok", () => {
+    const src = read(PAGE);
+    expect(src).toContain("Lost or damaged? Request a replacement card");
+    expect(src).toMatch(/reason === "ok" \? \(\s*<Button/);
+  });
+});

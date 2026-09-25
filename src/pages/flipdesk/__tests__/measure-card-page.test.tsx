@@ -188,3 +188,34 @@ describe("eligibility from the server (MC-01)", () => {
     expect(container!.querySelector("#mc-name")).toBeNull();
   });
 });
+
+describe("a shipped card (MC-09)", () => {
+  const SHIPPED = {
+    id: "r1",
+    status: "shipped",
+    card_version: 2,
+    requested_at: "2026-08-01T00:00:00Z",
+    shipped_at: "2026-08-05T00:00:00Z",
+    tracking_number: "9400111",
+    tracking_carrier: "USPS",
+  };
+
+  it("keeps the shipped summary and offers a replacement that opens the form", async () => {
+    await mount({ request: SHIPPED, eligibility: { can_request: true, reason: "ok" } });
+    expect(text()).toContain("shipped");
+    expect(text()).toContain("9400111");
+    expect(text()).not.toContain("Contact support");
+    expect(container!.querySelector("#mc-name")).toBeNull();
+    const replace = button("Lost or damaged? Request a replacement card");
+    expect(replace).toBeTruthy();
+    act(() => {
+      replace!.click();
+    });
+    expect(container!.querySelector("#mc-name")).not.toBeNull();
+  });
+
+  it("no replacement button when the workspace cannot request one", async () => {
+    await mount({ request: SHIPPED, eligibility: { can_request: false, reason: "free_plan" } });
+    expect(button("Lost or damaged? Request a replacement card")).toBeUndefined();
+  });
+});
