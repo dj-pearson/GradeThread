@@ -266,3 +266,22 @@ describe("accessibility and copy (MC-11)", () => {
     expect(src).toContain('<span className="sr-only">Checking your card request</span>');
   });
 });
+
+describe("Test my card (MC-12)", () => {
+  it("the page and the route agree on the corner names", () => {
+    const union = (src: string) => {
+      const m = /type CardCorner =([^;]+);/.exec(src);
+      expect(m, "CardCorner is missing").toBeTruthy();
+      return [...m![1]!.matchAll(/"([a-z-]+)"/g)].map((x) => x[1]).sort();
+    };
+    const detect = read("services/edge-functions/src/lib/measure-detect.ts");
+    expect(union(read(PAGE))).toEqual(union(detect));
+  });
+
+  it("posts the photo to the card-test route and stores nothing client-side", () => {
+    const src = read(PAGE);
+    expect(src).toContain('edgeFetch("/api/flipdesk/measure/card-test"');
+    expect(src).toContain('accept="image/jpeg,image/png"');
+    expect(src).not.toMatch(/localStorage/);
+  });
+});

@@ -53,7 +53,19 @@ import {
   withAiAction,
 } from "../lib/ai-metering.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
-import { readImageDimensions } from "../lib/upload-validation.ts";
+import {
+  readImageDimensions,
+  validateImageUpload,
+} from "../lib/upload-validation.ts";
+import {
+  CALIBRATE_REMEDIATION,
+  CARD_TEST_LAYOUT_TOLERANCE,
+  type CardCorner,
+  cardLayoutErrorFraction,
+  detectMarkers,
+  estimateTiltDeg,
+  missingMarkerCorners,
+} from "../lib/measure-detect.ts";
 
 export const flipdeskMeasureRoutes = new Hono<{
   Variables: {
@@ -870,7 +882,7 @@ const FORMULA_CHECKED_FIELDS = [
 ] as const;
 
 export type MailAddress = {
-  [K in keyof typeof MAIL_FIELD_LIMITS]: string;
+  -readonly [K in keyof typeof MAIL_FIELD_LIMITS]: string;
 } & { country: string };
 
 export type MailAddressCheck =
@@ -1091,6 +1103,125 @@ flipdeskMeasureRoutes.post("/card-downloaded", async (c) => {
       .eq("id", ownerId);
   }
   return c.json({ ok: true, card_version: version });
+});
+
+// ── MC-12: "Test my card" ─────────────────────────────────────────────
+//
+// POST /api/flipdesk/measure/card-test  (multipart, field "photo")
+//   -> { ok, markers_found, missing_corner?, missing_corners, card_version,
+//        residual_in, tilt_deg, layout_error_pct, warning?, scale_checked:false,
+//        scale_note, reason?, message? }
+//
+// A test shot of the seller's printed card, run through the same detector the
+// measure passes use. Nothing is stored and nothing is billed (no model call);
+// the photo never leaves this request. Rate-limited with the rest of
+// /api/flipdesk/measure/* in main.ts.
+//
+// US-268: this route reads and writes no tenant table. The only input is the
+// uploaded bytes, which are validated by magic bytes before decode (US-276).
+
+/** The honest limit of a card-only photo, sent with every answer. */
+export const CARD_TEST_SCALE_NOTE =
+  "A photo of the card alone cannot tell a 100% print from a scaled one. " +
+  "Check it once with the credit-card box printed on the card.";
+
+export interface CardTestResult {
+  ok: boolean;
+  markers_found: number;
+  missing_corner?: CardCorner;
+  missing_corners: CardCorner[];
+  card_version: number | null;
+  residual_in: number | null;
+  tilt_deg: number | null;
+  layout_error_pct: number | null;
+  warning?: string;
+  reason?: string;
+  message?: string;
+  scale_checked: false;
+  scale_note: string;
+}
+
+/** Run the card test on a decoded image. Pure apart from CPU; exported for tests. */
+export function runCardTest(img: Image): CardTestResult {
+  const adaptive = calibrateAdaptive(img, MEASURE_CARD_VERSIONS, {
+    evidenceOnly: false,
+  });
+  const result = adaptive.result;
+  const base = { scale_checked: false as const, scale_note: CARD_TEST_SCALE_NOTE };
+  if (!result.ok) {
+    const found = detectMarkers(adaptive.gray, MEASURE_CARD_VERSIONS);
+    const { cardVersion, missing } = missingMarkerCorners(
+      found.map((m) => m.id),
+      MEASURE_CARD_VERSIONS,
+    );
+    const r = Number.isFinite(result.quality.reprojResidualIn)
+      ? result.quality.reprojResidualIn
+      : null;
+    return {
+      ok: false,
+      markers_found: found.length,
+      ...(missing.length === 1 ? { missing_corner: missing[0] } : {}),
+      missing_corners: missing,
+      card_version: cardVersion,
+      residual_in: r === null ? null : Math.round(r * 1000) / 1000,
+      tilt_deg: estimateTiltDeg(found, MEASURE_CARD_VERSIONS[0]!),
+      layout_error_pct: null,
+      reason: result.reason,
+      message: missing.length === 1 && result.reason === "card_not_fully_visible"
+        ? `The ${missing[0]} square is missing or covered. ` +
+          CALIBRATE_REMEDIATION.card_not_fully_visible
+        : result.message,
+      ...base,
+    };
+  }
+  const card = MEASURE_CARD_VERSIONS.find((v) => v.version === result.cardVersion) ??
+    MEASURE_CARD_VERSIONS[0]!;
+  const layout = cardLayoutErrorFraction(result.homography, result.markers, card);
+  const layoutPct = Math.round(layout * 10000) / 100;
+  return {
+    ok: true,
+    markers_found: result.markers.length,
+    missing_corners: [],
+    card_version: result.cardVersion,
+    residual_in: Math.round(result.quality.reprojResidualIn * 1000) / 1000,
+    tilt_deg: estimateTiltDeg(result.markers, card),
+    layout_error_pct: layoutPct,
+    ...(layout > CARD_TEST_LAYOUT_TOLERANCE
+      ? {
+        warning:
+          `The squares are ${layoutPct}% off where the card says they should be. ` +
+          "Reprint at 100% on flat paper, or shoot it again flatter.",
+      }
+      : {}),
+    ...base,
+  };
+}
+
+flipdeskMeasureRoutes.post("/card-test", async (c) => {
+  let form: FormData;
+  try {
+    form = await c.req.formData();
+  } catch {
+    return c.json(
+      { error: "Invalid form data. Expected multipart/form-data." },
+      400,
+    );
+  }
+  const file = form.get("photo");
+  if (!(file instanceof File) || file.size === 0) {
+    return c.json({ error: "Add a photo of your card." }, 400);
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const verdict = validateImageUpload(bytes, { allow: ["jpeg", "png"] });
+  if (!verdict.ok) return c.json({ error: verdict.reason }, 400);
+
+  let decoded: Image;
+  try {
+    decoded = (await Image.decode(bytes)) as Image;
+  } catch {
+    return c.json({ error: "Could not read that image." }, 422);
+  }
+  return c.json(runCardTest(decoded));
 });
 
 // US-1580: correction telemetry — the production evidence behind the word

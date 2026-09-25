@@ -5099,6 +5099,36 @@ Deno.test({
   },
 });
 
+// MC-12: POST /card-test reads and writes no tenant table: it decodes the
+// uploaded bytes, runs the detector and answers. What it must still do is sit
+// behind the same auth and workspace gate as the rest of /measure/*, so it is
+// not an anonymous CPU endpoint and a non-member cannot act in A's workspace.
+Deno.test({
+  name: "MC-12: card-test needs a session and refuses a non-member in A's workspace",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const form = () => {
+      const f = new FormData();
+      f.append("photo", new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" }), "x.png");
+      return f;
+    };
+    const anon = await fetch(`${BASE}/api/flipdesk/measure/card-test`, {
+      method: "POST",
+      body: form(),
+    });
+    await anon.body?.cancel();
+    assertDenied(anon.status, "POST measure card-test with no JWT");
+
+    const foreign = await fetch(`${BASE}/api/flipdesk/measure/card-test`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${B_JWT}`, "X-Workspace-Owner": WS_OWNER! },
+      body: form(),
+    });
+    await foreign.body?.cancel();
+    assertDenied(foreign.status, "POST measure card-test as non-member");
+  },
+});
+
 // ── US-2595: flipdesk-measure autofill (US-268 workspace scope) ──────────────
 //
 // POST /autofill takes an item_id from the request body and, when it finds the

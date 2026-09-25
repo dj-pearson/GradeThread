@@ -906,3 +906,111 @@ export function calibrateMeasurePhoto(
     },
   };
 }
+
+// ── MC-12: "Test my card" ───────────────────────────────────────────
+//
+// A seller's printed card is the scale reference for every measurement taken
+// with it, and until now nothing checked it: the page said "verify with the
+// credit-card box" and trusted the seller to. These helpers read a single test
+// shot of the card and say which corner failed, how consistent the print is,
+// and how steep the shot was. They make no model call and store nothing.
+//
+// WHAT A PHOTO OF THE CARD ALONE CANNOT TELL. A print scaled uniformly (97%
+// "fit to page") is geometrically the same card at a different distance, and a
+// homography absorbs it completely; so does an affine x/y stretch. Nothing
+// here claims to verify print SCALE, and the route says so in its response.
+// What it can check is whether the four markers sit where the card says they
+// do relative to EACH OTHER once the 16 corners are fitted.
+
+export type CardCorner = "top-left" | "top-right" | "bottom-right" | "bottom-left";
+
+/** Marker-layout disagreement above this fraction of the 6x4in rect warns. */
+export const CARD_TEST_LAYOUT_TOLERANCE = 0.005;
+
+/** Which corner of the card a marker id sits in. */
+export function markerCorner(card: MeasureCardGeometry, id: number): CardCorner | null {
+  const c = card.markerCentersInches[String(id)];
+  if (!c) return null;
+  const left = c[0] < card.cardInches.w / 2;
+  const top = c[1] < card.cardInches.h / 2;
+  return top ? (left ? "top-left" : "top-right") : (left ? "bottom-left" : "bottom-right");
+}
+
+/**
+ * The corners whose markers were NOT found, against the card version the found
+ * ids fit best. With no markers at all there is no card to name corners of.
+ */
+export function missingMarkerCorners(
+  foundIds: readonly number[],
+  cards: readonly MeasureCardGeometry[],
+): { cardVersion: number | null; missing: CardCorner[] } {
+  const found = new Set(foundIds);
+  let best: MeasureCardGeometry | null = null;
+  let bestHits = 0;
+  for (const card of cards) {
+    const hits = card.markerIds.filter((id) => found.has(id)).length;
+    if (hits > bestHits) {
+      best = card;
+      bestHits = hits;
+    }
+  }
+  if (!best) return { cardVersion: null, missing: [] };
+  const card = best;
+  const missing = card.markerIds
+    .filter((id) => !found.has(id))
+    .map((id) => markerCorner(card, id))
+    .filter((c): c is CardCorner => c !== null);
+  return { cardVersion: card.version, missing };
+}
+
+/**
+ * The worst disagreement between where the fitted homography puts each
+ * detected marker CENTER and where the card says it is, as a fraction of the
+ * centre rectangle (6x4in on v1): max(|dx| / w, |dy| / h).
+ *
+ * The homography is fitted to the 16 marker CORNERS, so the centres are an
+ * independent check on it: a warped or unevenly printed card shows up here
+ * even when each marker, on its own, decodes cleanly.
+ */
+export function cardLayoutErrorFraction(
+  homography: number[],
+  markers: readonly DetectedMarker[],
+  card: MeasureCardGeometry,
+): number {
+  let worst = 0;
+  for (const m of markers) {
+    const want = card.markerCentersInches[String(m.id)];
+    if (!want) continue;
+    const [x, y] = applyHomography(homography, m.center[0], m.center[1]);
+    worst = Math.max(
+      worst,
+      Math.abs(x - want[0]) / card.centerRectInches.w,
+      Math.abs(y - want[1]) / card.centerRectInches.h,
+    );
+  }
+  return worst;
+}
+
+/**
+ * A rough camera tilt, in degrees, from how far the marker rectangle's aspect
+ * in the photo departs from the card's (foreshortening shrinks the side
+ * pointing away from the camera by about cos(tilt)). A weak-perspective
+ * estimate: good enough to say "shoot straighter", not a pose. Null without
+ * all four markers.
+ */
+export function estimateTiltDeg(
+  markers: readonly DetectedMarker[],
+  card: MeasureCardGeometry,
+): number | null {
+  const byId = new Map(markers.map((m) => [m.id, m.center] as const));
+  const [tl, tr, br, bl] = card.markerIds.map((id) => byId.get(id));
+  if (!tl || !tr || !br || !bl) return null;
+  const len = (a: [number, number], b: [number, number]) =>
+    Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const wPx = (len(tl, tr) + len(bl, br)) / 2;
+  const hPx = (len(tl, bl) + len(tr, br)) / 2;
+  if (wPx <= 0 || hPx <= 0) return null;
+  const r = (wPx / hPx) / (card.centerRectInches.w / card.centerRectInches.h);
+  const ratio = Math.min(r, 1 / r);
+  return Math.round((Math.acos(Math.min(1, ratio)) * 180) / Math.PI * 10) / 10;
+}

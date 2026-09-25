@@ -3,10 +3,11 @@
 // Addresses go straight to the edge (deny-all operator table) and are never
 // echoed back; the status card shows progress only.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import {
+  Camera,
   Check,
   Download,
   Loader2,
@@ -74,6 +75,23 @@ interface CardRequestState {
   // card on record for the owner, returned by the same GET.
   waiting_count?: number | null;
   card?: { source: "download" | "mail" | null; version: number | null };
+}
+
+// MC-12: what POST /api/flipdesk/measure/card-test answers. Nothing is stored.
+type CardCorner = "top-left" | "top-right" | "bottom-right" | "bottom-left";
+interface CardTestResult {
+  ok: boolean;
+  markers_found: number;
+  missing_corner?: CardCorner;
+  missing_corners: CardCorner[];
+  card_version: number | null;
+  residual_in: number | null;
+  tilt_deg: number | null;
+  layout_error_pct: number | null;
+  warning?: string;
+  message?: string;
+  scale_checked: false;
+  scale_note: string;
 }
 
 const CAPTURE_DOS = [
@@ -233,6 +251,38 @@ export function FlipdeskMeasureCardPage() {
     }
   }
 
+  // MC-12: a test shot of the printed card, checked before it can spoil a
+  // real measurement.
+  const testInput = useRef<HTMLInputElement>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<CardTestResult | null>(null);
+
+  async function testCard(file: File) {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const body = new FormData();
+      body.append("photo", file);
+      const res = await edgeFetch("/api/flipdesk/measure/card-test", {
+        method: "POST",
+        body,
+      });
+      const json = (await res.json().catch(() => ({}))) as
+        | CardTestResult
+        | { error?: string };
+      if (!res.ok || !("ok" in json)) {
+        toast.error(
+          ("error" in json && json.error) || "Could not check that photo.",
+        );
+        return;
+      }
+      setTestResult(json);
+    } finally {
+      setTesting(false);
+      if (testInput.current) testInput.current.value = "";
+    }
+  }
+
   function downloadPdf() {
     // Stamp the profile record (best-effort) and open the bundled PDF.
     void edgeFetch("/api/flipdesk/measure/card-downloaded", {
@@ -296,6 +346,68 @@ export function FlipdeskMeasureCardPage() {
               : "No card yet. Print one below, or request one by mail."}
         </p>
       ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Test your card</CardTitle>
+          <CardDescription>
+            Take one photo of the printed card on its own, straight down. We
+            check all four squares before the card measures anything real.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <input
+            ref={testInput}
+            id="mc-test-photo"
+            type="file"
+            accept="image/jpeg,image/png"
+            capture="environment"
+            className="sr-only"
+            aria-label="Photo of your printed card"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void testCard(f);
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            disabled={testing}
+            onClick={() => testInput.current?.click()}
+          >
+            {testing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Camera className="mr-2 h-4 w-4" />
+            )}
+            Test my card
+          </Button>
+          {testResult ? (
+            <div className="space-y-1.5 text-sm" role="status" data-testid="mc-test-result">
+              {testResult.ok ? (
+                <Badge variant="outline" className="gap-1">
+                  <Check aria-hidden="true" className="h-3 w-3 text-emerald-600" />
+                  Card passed: all {testResult.markers_found} squares found
+                </Badge>
+              ) : (
+                <Badge variant="destructive" className="gap-1">
+                  <X aria-hidden="true" className="h-3 w-3" />
+                  {testResult.missing_corner
+                    ? `Card failed: ${testResult.missing_corner} square not found`
+                    : "Card failed"}
+                </Badge>
+              )}
+              {!testResult.ok && testResult.message ? (
+                <p className="text-muted-foreground">{testResult.message}</p>
+              ) : null}
+              {testResult.warning ? (
+                <p className="text-muted-foreground">{testResult.warning}</p>
+              ) : null}
+              <p className="text-muted-foreground">{testResult.scale_note}</p>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
 
       <details
         open={!isSetUp}

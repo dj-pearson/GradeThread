@@ -7,9 +7,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-type Call = { path: string; init?: { method?: string; json?: unknown } };
+type Call = { path: string; init?: { method?: string; json?: unknown; body?: unknown } };
 const calls: Call[] = [];
 let getBody: unknown = null;
+let cardTestBody: unknown = null;
 
 function jsonRes(body: unknown, status = 200) {
   return Promise.resolve({
@@ -22,6 +23,7 @@ function jsonRes(body: unknown, status = 200) {
 vi.mock("@/lib/edge-fetch", () => ({
   edgeFetch: (path: string, init?: Call["init"]) => {
     calls.push({ path, init });
+    if (path === "/api/flipdesk/measure/card-test") return jsonRes(cardTestBody);
     if (path === "/api/flipdesk/measure/card-request" && !init?.method) {
       return jsonRes(getBody);
     }
@@ -266,5 +268,54 @@ describe("accessible names (MC-11)", () => {
       (ul) => document.getElementById(ul.getAttribute("aria-labelledby")!)?.textContent?.trim(),
     );
     expect(names).toEqual(["Do", "Avoid"]);
+  });
+});
+
+describe("Test my card (MC-12)", () => {
+  async function shoot(result: unknown) {
+    cardTestBody = result;
+    const input = container!.querySelector<HTMLInputElement>("#mc-test-photo")!;
+    const file = new File([new Uint8Array([137, 80, 78, 71])], "card.png", { type: "image/png" });
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
+
+  const BASE_RESULT = {
+    missing_corners: [],
+    card_version: 1,
+    residual_in: 0.01,
+    tilt_deg: 2,
+    layout_error_pct: 0.1,
+    scale_checked: false,
+    scale_note: "A photo of the card alone cannot tell a 100% print from a scaled one.",
+  };
+
+  it("shows a pass badge from the server's answer", async () => {
+    await mount(OK);
+    await shoot({ ...BASE_RESULT, ok: true, markers_found: 4 });
+    const post = calls.find((c) => c.path === "/api/flipdesk/measure/card-test");
+    expect(post?.init?.method).toBe("POST");
+    expect(post?.init?.body).toBeInstanceOf(FormData);
+    const result = container!.querySelector('[data-testid="mc-test-result"]');
+    expect(result?.textContent).toContain("Card passed: all 4 squares found");
+    expect(result?.textContent).toContain("cannot tell a 100% print");
+  });
+
+  it("names the failing corner", async () => {
+    await mount(OK);
+    await shoot({
+      ...BASE_RESULT,
+      ok: false,
+      markers_found: 3,
+      missing_corner: "bottom-left",
+      missing_corners: ["bottom-left"],
+      message: "The bottom-left square is missing or covered.",
+    });
+    const result = container!.querySelector('[data-testid="mc-test-result"]');
+    expect(result?.textContent).toContain("Card failed: bottom-left square not found");
+    expect(result?.textContent).toContain("The bottom-left square is missing or covered.");
   });
 });
