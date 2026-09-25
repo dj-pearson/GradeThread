@@ -49574,6 +49574,20 @@
         "The pinned version is recorded in one place and the guard names it."
       ],
       "notes": "Done 2026-09-25. All three supabase/setup-cli steps (db-migrations.yml, money-cert-integration.yml, tenant-isolation.yml) pin version 2.117.0, the release every green run used before 2.118.0 shipped (npm dist-tags checked; GitHub asset v2.117.0/supabase_linux_amd64.tar.gz answers 200). Guard: src/test/ci-supabase-cli-pinned.test.ts holds SUPABASE_CLI_VERSION in one place and fails on latest or a missing version; sabotaged by setting tenant-isolation.yml back to latest (1 failed), restored (2 passed)."
+    },
+    {
+      "id": "US-3497",
+      "passes": true,
+      "title": "Web sign-in never asks for the second factor: add AAL2 step-up on the SPA",
+      "description": "As a seller who turned on 2FA, I want the website to ask for my code at sign-in, so that a stolen password alone cannot open my account on the web.",
+      "acceptanceCriteria": [
+        "A user with a verified TOTP factor who signs in with a password on the web lands on a code screen and cannot reach any /dashboard route until supabase.auth.mfa.verify succeeds (session aal = aal2); ProtectedRoute holds on aal1.",
+        "A recovery code can be used on that screen once, and the edge marks it consumed; a second use of the same code is refused.",
+        "A user with no factor signs in exactly as today (no extra screen).",
+        "MfaCard copy stops saying or implying that 2FA is enforced on the web until this ships, and says so after it does.",
+        "A vitest render test covers aal1-with-factor -> code screen, aal2 -> dashboard, and no-factor -> dashboard."
+      ],
+      "notes": "2026-09-25: ProtectedRoute wraps signed-in routes in MfaSignInGate (src/components/auth/mfa-sign-in-gate.tsx). AAL1 + nextLevel aal2 holds on a code screen in place (URL and ?next= kept) until challengeAndVerifyTotp lifts the session to aal2; no factor passes with no screen and no request; unreadable level fails closed; sign-out on every state. Recovery code on the same screen reuses the existing POST /api/account/mfa/recovery-codes/consume (US-374: conditional update on user_id + code_hash + used_at is null, 400 on no row, then removes factors), then refreshSession. No edge change, no migration. MfaCard copy now says the website asks for a code at every password sign-in. Test: src/components/auth/__tests__/mfa-sign-in-gate.test.tsx, 12 cases through the real ProtectedRoute + router; sabotage (decideSignInGate always pass, and gate removed from the route) turned 7 red each. Checks: tsc -b 0, lint 0 errors/38 warnings (pre-existing), vitest 13123 passed/120 skipped/0 failed across 1116 files, ui:check OK, vault:lint OK, held-migration-gate OK. OPEN, not in scope: the edge does not refuse AAL1 tokens from users with a factor outside admin and the workspace policy, so a stolen password can still call edge routes directly; recorded in vault/10-ops/mfa.md. Follow-up for the edge half filed as US-3512."
     }
   ]
 }
