@@ -152,6 +152,13 @@ flipdeskImportRoutes.get("/runs/:id", async (c) => {
 // the values recorded before the write. An item that has since been published
 // to a marketplace is left alone and counted, because deleting it would strand
 // a live listing.
+//
+// IMP-05: the undo is CLAIMED with a conditional UPDATE on undone_at, so two
+// clicks cannot run two undos. If any step fails the claim is released and the
+// seller can press Undo again; a retry is safe because every step checks what
+// is there before it acts. A column the seller edited after the import, an item
+// with a sale recorded after the import, and an item since published are all
+// kept and counted.
 flipdeskImportRoutes.post("/runs/:id/undo", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const runId = c.req.param("id");
@@ -171,12 +178,49 @@ flipdeskImportRoutes.post("/runs/:id/undo", async (c) => {
     return c.json({ error: "Wait for the import to finish first." }, 409);
   }
 
+  const claimedAt = new Date().toISOString();
+  const { data: claim, error: claimErr } = await supabaseAdmin
+    .from("flipdesk_import_runs")
+    .update({ undone_at: claimedAt })
+    .eq("id", runId)
+    .eq("user_id", ownerId)
+    .is("undone_at", null)
+    .in("status", ["completed", "failed"])
+    .select("id")
+    .maybeSingle();
+  if (claimErr) {
+    console.error("[flipdesk-import] undo claim failed:", claimErr.message);
+    return c.json({ error: "Could not start the undo." }, 500);
+  }
+  if (!claim) return c.json({ error: "This import was already undone." }, 409);
+
   const result = await undoImportRun(runId, ownerId);
-  if (!result.ok) return c.json({ error: result.error }, 500);
+  if (!result.ok || result.failedItems > 0) {
+    // Release the claim so the seller can try again. Keyed on our own claim
+    // time so a release can never clear someone else's.
+    await supabaseAdmin
+      .from("flipdesk_import_runs")
+      .update({ undone_at: null })
+      .eq("id", runId)
+      .eq("user_id", ownerId)
+      .eq("undone_at", claimedAt);
+    if (!result.ok) return c.json({ error: result.error }, 500);
+    return c.json({
+      error: `Undo could not finish: ${result.failedItems} step${
+        result.failedItems === 1 ? "" : "s"
+      } failed. Press Undo again to finish it.`,
+      failed_items: result.failedItems,
+      deleted_items: result.deletedItems,
+      restored_items: result.restoredItems,
+      kept_published: result.keptPublished,
+      kept_edited: result.keptEdited,
+      kept_modified: result.keptModified,
+    }, 500);
+  }
 
   await supabaseAdmin
     .from("flipdesk_import_runs")
-    .update({ status: "undone", undone_at: new Date().toISOString() })
+    .update({ status: "undone" })
     .eq("id", runId)
     .eq("user_id", ownerId);
 
@@ -184,8 +228,21 @@ flipdeskImportRoutes.post("/runs/:id/undo", async (c) => {
     deleted_items: result.deletedItems,
     restored_items: result.restoredItems,
     kept_published: result.keptPublished,
+    kept_edited: result.keptEdited,
+    kept_modified: result.keptModified,
   });
 });
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Value equality for column values read back from PostgREST. */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a == null || b == null) return a == null && b == null;
+  if (typeof a === "number" || typeof b === "number") return Number(a) === Number(b);
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 
 export async function undoImportRun(
   runId: string,
@@ -196,6 +253,9 @@ export async function undoImportRun(
     deletedItems: number;
     restoredItems: number;
     keptPublished: number;
+    keptEdited: number;
+    keptModified: number;
+    failedItems: number;
   }
   | { ok: false; error: string }
 > {
@@ -220,6 +280,9 @@ export async function undoImportRun(
   let deletedItems = 0;
   let restoredItems = 0;
   let keptPublished = 0;
+  let keptEdited = 0;
+  let keptModified = 0;
+  let failedItems = 0;
 
   for (const e of effects) {
     if (!e.inventory_item_id) continue;
@@ -230,36 +293,67 @@ export async function undoImportRun(
       // US-9201: a closet re-read may also fill condition_notes and refresh the
       // listing row (price, URL); those previous values sit under the same
       // effect row, the listing half under `_listing`.
-      const patch: Record<string, unknown> = {};
-      for (const field of [...FILL_ITEM_FIELDS, ...CLOSET_FILL_ITEM_FIELDS]) {
-        if (field in e.previous) patch[field] = e.previous[field];
-      }
       const listingPrevious = e.previous._listing;
-      if (
-        e.listing_id && listingPrevious && typeof listingPrevious === "object" &&
-        !Array.isArray(listingPrevious)
-      ) {
+      if (e.listing_id && isRecord(listingPrevious)) {
         const listingPatch: Record<string, unknown> = {};
         for (const field of CLOSET_LISTING_FIELDS) {
-          if (field in (listingPrevious as Record<string, unknown>)) {
-            listingPatch[field] = (listingPrevious as Record<string, unknown>)[field];
-          }
+          if (field in listingPrevious) listingPatch[field] = listingPrevious[field];
         }
         if (Object.keys(listingPatch).length > 0) {
-          await supabaseAdmin
+          const { error: lErr } = await supabaseAdmin
             .from("listings")
             .update(listingPatch)
             .eq("id", e.listing_id)
             .eq("user_id", ownerId);
+          if (lErr) failedItems++;
         }
       }
+      const fields = [...FILL_ITEM_FIELDS, ...CLOSET_FILL_ITEM_FIELDS].filter((f) =>
+        f in e.previous!
+      );
+      if (fields.length === 0) continue;
+
+      // IMP-05: `_written` is what the import put in each column. A column that
+      // no longer holds it was edited by the seller afterwards, and restoring
+      // over it would destroy their work. Effects written before `_written`
+      // existed restore as they always did.
+      const written = isRecord(e.previous._written) ? e.previous._written : null;
+      const patch: Record<string, unknown> = {};
+      let edited = false;
+      if (written) {
+        const { data: cur, error: curErr } = await supabaseAdmin
+          .from("inventory_items")
+          .select(fields.join(", "))
+          .eq("id", e.inventory_item_id)
+          .eq("user_id", ownerId)
+          .maybeSingle();
+        if (curErr) {
+          failedItems++;
+          continue;
+        }
+        if (!cur) continue; // the seller deleted the item; nothing to restore
+        const current = cur as unknown as Record<string, unknown>;
+        for (const f of fields) {
+          // Already back to the old value (a retried undo): nothing to do.
+          if (sameValue(current[f], e.previous[f])) continue;
+          if (f in written && sameValue(current[f], written[f])) {
+            patch[f] = e.previous[f];
+          } else {
+            edited = true;
+          }
+        }
+      } else {
+        for (const f of fields) patch[f] = e.previous[f];
+      }
+      if (edited) keptEdited++;
       if (Object.keys(patch).length === 0) continue;
       const { error: upErr } = await supabaseAdmin
         .from("inventory_items")
         .update(patch)
         .eq("id", e.inventory_item_id)
         .eq("user_id", ownerId);
-      if (!upErr) restoredItems++;
+      if (upErr) failedItems++;
+      else restoredItems++;
       continue;
     }
 
@@ -277,9 +371,32 @@ export async function undoImportRun(
       .eq("user_id", ownerId)
       .not("platform_listing_id", "is", null);
     if (e.listing_id) publishedQuery = publishedQuery.neq("id", e.listing_id);
-    const { data: published } = await publishedQuery.limit(1);
+    const { data: published, error: pubErr } = await publishedQuery.limit(1);
+    if (pubErr) {
+      failedItems++;
+      continue;
+    }
     if ((published ?? []).length > 0) {
       keptPublished++;
+      continue;
+    }
+
+    // IMP-05: a sale recorded after the import is the seller's money record.
+    // Sales cascade when the item is deleted, so an item with one is kept.
+    // Scoped through the owner-verified parent item (US-268).
+    let laterSaleQuery = supabaseAdmin
+      .from("sales")
+      .select("id, inventory_items!inner(user_id)")
+      .eq("inventory_item_id", e.inventory_item_id)
+      .eq("inventory_items.user_id", ownerId);
+    if (e.sale_id) laterSaleQuery = laterSaleQuery.neq("id", e.sale_id);
+    const { data: laterSales, error: saleReadErr } = await laterSaleQuery.limit(1);
+    if (saleReadErr) {
+      failedItems++;
+      continue;
+    }
+    if ((laterSales ?? []).length > 0) {
+      keptModified++;
       continue;
     }
 
@@ -300,28 +417,74 @@ export async function undoImportRun(
     }
 
     if (e.sale_id) {
-      await supabaseAdmin
+      const { error: sDelErr } = await supabaseAdmin
         .from("sales")
         .delete()
         .eq("id", e.sale_id)
         .eq("inventory_item_id", e.inventory_item_id);
+      if (sDelErr) {
+        failedItems++;
+        continue;
+      }
     }
     if (e.listing_id) {
-      await supabaseAdmin
+      const { error: lDelErr } = await supabaseAdmin
         .from("listings")
         .delete()
         .eq("id", e.listing_id)
         .eq("user_id", ownerId);
+      if (lDelErr) {
+        failedItems++;
+        continue;
+      }
     }
-    const { error: delErr } = await supabaseAdmin
+    const { data: gone, error: delErr } = await supabaseAdmin
       .from("inventory_items")
       .delete()
       .eq("id", e.inventory_item_id)
-      .eq("user_id", ownerId);
-    if (!delErr) deletedItems++;
+      .eq("user_id", ownerId)
+      .select("id");
+    if (delErr) failedItems++;
+    // A retried undo finds the item already gone; that is not a second delete.
+    else if ((gone ?? []).length > 0) deletedItems++;
   }
 
-  return { ok: true, deletedItems, restoredItems, keptPublished };
+  return {
+    ok: true,
+    deletedItems,
+    restoredItems,
+    keptPublished,
+    keptEdited,
+    keptModified,
+    failedItems,
+  };
+}
+
+/**
+ * IMP-03: remove an item the worker just inserted, when a later write for the
+ * same row failed. Without this the item is an orphan: no effect row points at
+ * it, so Undo never removes it and a resumed run inserts it a second time.
+ */
+async function rollbackInsertedItem(
+  itemId: string,
+  ownerId: string,
+  listingId: string | null,
+  saleId: string | null,
+): Promise<void> {
+  if (saleId) {
+    await supabaseAdmin.from("sales").delete().eq("id", saleId).eq("inventory_item_id", itemId);
+  }
+  if (listingId) {
+    await supabaseAdmin.from("listings").delete().eq("id", listingId).eq("user_id", ownerId);
+  }
+  const { error } = await supabaseAdmin
+    .from("inventory_items")
+    .delete()
+    .eq("id", itemId)
+    .eq("user_id", ownerId);
+  if (error) {
+    console.error("[flipdesk-import] rollback of item", itemId, "failed:", error.message);
+  }
 }
 
 // ── The worker ───────────────────────────────────────────────────────────
@@ -334,7 +497,7 @@ export async function processImportRun(runId: string): Promise<void> {
     .update({ status: "running", error: null })
     .eq("id", runId)
     .eq("status", "pending")
-    .select("id, user_id, status, payload, attempts")
+    .select("id, user_id, status, payload, attempts, errors")
     .maybeSingle();
   if (claimErr) {
     // Never swallowed — a failed claim that reads as "someone else has it"
@@ -344,7 +507,7 @@ export async function processImportRun(runId: string): Promise<void> {
   }
   if (!claimed) return; // another worker has it
 
-  const run = claimed as RunRow;
+  const run = claimed as RunRow & { errors?: unknown };
   const ownerId = run.user_id;
   const attempts = (run.attempts ?? 0) + 1;
   await supabaseAdmin
@@ -366,7 +529,6 @@ export async function processImportRun(runId: string): Promise<void> {
   const rows = Array.isArray(run.payload)
     ? (run.payload as ImportRowInput[])
     : [];
-  const errors: Array<{ row: number; message: string }> = [];
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
@@ -374,15 +536,37 @@ export async function processImportRun(runId: string): Promise<void> {
   // Rows already accounted for by an earlier attempt. A resumed run must not
   // re-insert what it already inserted, so the effect rows are the resume
   // marker — they are the only durable record of what landed.
-  const { data: doneRows } = await supabaseAdmin
+  const { data: doneRows, error: doneErr } = await supabaseAdmin
     .from("flipdesk_import_effects")
     .select("row_number, action")
     .eq("run_id", runId)
     .eq("user_id", ownerId);
-  const alreadyDone = new Set<number>();
-  for (const d of (doneRows ?? []) as Array<{ row_number: number | null }>) {
-    if (typeof d.row_number === "number") alreadyDone.add(d.row_number);
+  if (doneErr) {
+    // Without the resume marker a retry would duplicate the catalog. Leave the
+    // run 'running'; the reclaim sweep resumes it once it goes stale.
+    console.error("[flipdesk-import] could not read effects:", doneErr.message);
+    return;
   }
+  const alreadyDone = new Set<number>();
+  // IMP-04: the counters are DERIVED from effect rows (00592), so a resumed
+  // run reports every attempt's work, not just the last one's.
+  for (
+    const d of (doneRows ?? []) as Array<{ row_number: number | null; action: string }>
+  ) {
+    if (typeof d.row_number === "number") alreadyDone.add(d.row_number);
+    if (d.action === "inserted") inserted++;
+    else if (d.action === "filled") updated++;
+  }
+  // Errors from an earlier attempt are kept only for rows this attempt will
+  // not process again; a row that failed before is retried and reports afresh.
+  const errors: Array<{ row: number; message: string }> = Array.isArray(run.errors)
+    ? (run.errors as Array<{ row: number; message: string }>).filter((e) =>
+      typeof e?.row === "number" && alreadyDone.has(e.row)
+    )
+    : [];
+
+  const heartbeat = (processed: number) =>
+    bumpProgress(runId, attempts, processed, inserted, updated, skipped, errors);
 
   try {
     // Sources first: one get_or_create_source per distinct name.
@@ -403,7 +587,8 @@ export async function processImportRun(runId: string): Promise<void> {
         { p_user_id: ownerId, p_name: name, p_source_type: "other" },
       );
       if (sErr) {
-        errors.push({ row: 0, message: `Source "${name}": ${sErr.message}` });
+        console.error(`[flipdesk-import] source "${name}":`, sErr.message);
+        errors.push({ row: 0, message: `Could not create the source "${name}".` });
         continue;
       }
       if (sid) sourceCache.set(name, sid);
@@ -436,7 +621,15 @@ export async function processImportRun(runId: string): Promise<void> {
       }
     }
 
+    // IMP-04: source and SKU setup can take a while on a big file; heartbeat
+    // before the first row so a live run never reads as stale, and stop at
+    // once if another worker has taken the run in the meantime.
+    if (!(await heartbeat(alreadyDone.size))) return;
+
     const insertedSkus = new Set<string>();
+    // IMP-04: SKUs this attempt already filled. A second row with the same SKU
+    // must not fill again from a stale snapshot and overwrite the first fill.
+    const filledSkus = new Set<string>();
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]!;
@@ -448,9 +641,11 @@ export async function processImportRun(runId: string): Promise<void> {
           ? row.sku.trim()
           : null;
 
-        // An existing SKU is FILLED, never overwritten (US-1082). The prior
-        // values go on the effect row so an undo can put them back.
-        if (sku && existing.has(sku)) {
+        if (sku && filledSkus.has(sku)) {
+          skipped++;
+        } else if (sku && existing.has(sku)) {
+          // An existing SKU is FILLED, never overwritten (US-1082). The prior
+          // values go on the effect row so an undo can put them back.
           const prior = existing.get(sku)!;
           const patch = fillPatch(prior, row);
           if (Object.keys(patch).length === 0) {
@@ -458,13 +653,16 @@ export async function processImportRun(runId: string): Promise<void> {
           } else {
             const previous: Record<string, unknown> = {};
             for (const key of Object.keys(patch)) previous[key] = prior[key] ?? null;
+            // IMP-05: what this import wrote, so undo can tell a column the
+            // seller has since edited from one still holding the import's value.
+            previous._written = patch;
             const { error: upErr } = await supabaseAdmin
               .from("inventory_items")
               .update(patch)
               .eq("id", prior.id as string)
               .eq("user_id", ownerId);
-            if (upErr) throw new Error(upErr.message);
-            await supabaseAdmin.from("flipdesk_import_effects").insert({
+            if (upErr) throw rowDbError(upErr);
+            const { error: effErr } = await supabaseAdmin.from("flipdesk_import_effects").insert({
               run_id: runId,
               user_id: ownerId,
               row_number: rowNumber,
@@ -472,6 +670,19 @@ export async function processImportRun(runId: string): Promise<void> {
               inventory_item_id: prior.id as string,
               previous,
             });
+            if (effErr) {
+              // IMP-03: an unrecorded fill cannot be undone. Put it back.
+              const revert: Record<string, unknown> = {};
+              for (const key of Object.keys(patch)) revert[key] = previous[key];
+              await supabaseAdmin
+                .from("inventory_items")
+                .update(revert)
+                .eq("id", prior.id as string)
+                .eq("user_id", ownerId);
+              throw rowDbError(effErr);
+            }
+            existing.set(sku, { ...prior, ...patch });
+            filledSkus.add(sku);
             updated++;
           }
         } else if (sku && insertedSkus.has(sku)) {
@@ -510,68 +721,81 @@ export async function processImportRun(runId: string): Promise<void> {
             if ((itemErr as { code?: string }).code === "23505" && sku) {
               insertedSkus.add(sku);
               skipped++;
-              await bumpProgress(runId, i + 1, inserted, updated, skipped, errors);
+              if (!(await heartbeat(i + 1))) return;
               continue;
             }
-            throw new Error(itemErr.message);
+            throw rowDbError(itemErr);
           }
 
           const itemId = (itemRow as { id: string }).id;
+
+          // IMP-03: everything after the item insert is one unit with it. If
+          // the listing, the sale or the effect row fails, the item goes too,
+          // so no row is left that Undo cannot see.
+          let listingId: string | null = null;
+          let saleId: string | null = null;
+          try {
+            if (row.listing) {
+              const { data: lRow, error: lErr } = await supabaseAdmin
+                .from("listings")
+                .insert({
+                  inventory_item_id: itemId,
+                  // Set explicitly (the tenant trigger would derive the same
+                  // value) so the rollback's owner-scoped delete matches it.
+                  user_id: ownerId,
+                  platform: "ebay",
+                  // US-1077: a CSV is a linking source recorded through
+                  // GradeThread, so the row stays fully editable here.
+                  listing_origin: "gradethread",
+                  listing_price: row.listing.listing_price ?? 0,
+                  listing_url: row.listing.listing_url ?? null,
+                  listed_at: row.listing.listed_at ?? undefined,
+                  is_active: row.status === "listed",
+                })
+                .select("id")
+                .single();
+              if (lErr) throw rowDbError(lErr);
+              listingId = (lRow as { id: string }).id;
+            }
+
+            if (row.sale) {
+              const { data: sRow, error: sErr } = await supabaseAdmin
+                .from("sales")
+                .insert({
+                  inventory_item_id: itemId,
+                  user_id: ownerId,
+                  sale_price: row.sale.sale_price ?? 0,
+                  platform_fees: row.sale.platform_fees ?? 0,
+                  tax: row.sale.tax ?? 0,
+                  shipping_cost: row.sale.shipping_cost ?? 0,
+                  net_profit: row.sale.net_profit ?? null,
+                  payout_amount: row.sale.payout_amount ?? null,
+                  tracking_number: row.sale.tracking_number ?? null,
+                  sold_at: row.sale.sold_at ?? null,
+                  sale_date: row.sale.sold_at ?? undefined,
+                })
+                .select("id")
+                .single();
+              if (sErr) throw rowDbError(sErr);
+              saleId = (sRow as { id: string }).id;
+            }
+
+            const { error: effErr } = await supabaseAdmin.from("flipdesk_import_effects").insert({
+              run_id: runId,
+              user_id: ownerId,
+              row_number: rowNumber,
+              action: "inserted",
+              inventory_item_id: itemId,
+              listing_id: listingId,
+              sale_id: saleId,
+            });
+            if (effErr) throw rowDbError(effErr);
+          } catch (err) {
+            await rollbackInsertedItem(itemId, ownerId, listingId, saleId);
+            throw err;
+          }
           if (sku) insertedSkus.add(sku);
           inserted++;
-
-          let listingId: string | null = null;
-          if (row.listing) {
-            const { data: lRow, error: lErr } = await supabaseAdmin
-              .from("listings")
-              .insert({
-                inventory_item_id: itemId,
-                platform: "ebay",
-                // US-1077: a CSV is a linking source recorded through
-                // GradeThread, so the row stays fully editable here.
-                listing_origin: "gradethread",
-                listing_price: row.listing.listing_price ?? 0,
-                listing_url: row.listing.listing_url ?? null,
-                listed_at: row.listing.listed_at ?? undefined,
-                is_active: row.status === "listed",
-              })
-              .select("id")
-              .single();
-            if (lErr) throw new Error(lErr.message);
-            listingId = (lRow as { id: string }).id;
-          }
-
-          let saleId: string | null = null;
-          if (row.sale) {
-            const { data: sRow, error: sErr } = await supabaseAdmin
-              .from("sales")
-              .insert({
-                inventory_item_id: itemId,
-                sale_price: row.sale.sale_price ?? 0,
-                platform_fees: row.sale.platform_fees ?? 0,
-                tax: row.sale.tax ?? 0,
-                shipping_cost: row.sale.shipping_cost ?? 0,
-                net_profit: row.sale.net_profit ?? null,
-                payout_amount: row.sale.payout_amount ?? null,
-                tracking_number: row.sale.tracking_number ?? null,
-                sold_at: row.sale.sold_at ?? null,
-                sale_date: row.sale.sold_at ?? undefined,
-              })
-              .select("id")
-              .single();
-            if (sErr) throw new Error(sErr.message);
-            saleId = (sRow as { id: string }).id;
-          }
-
-          await supabaseAdmin.from("flipdesk_import_effects").insert({
-            run_id: runId,
-            user_id: ownerId,
-            row_number: rowNumber,
-            action: "inserted",
-            inventory_item_id: itemId,
-            listing_id: listingId,
-            sale_id: saleId,
-          });
         }
       } catch (err) {
         errors.push({
@@ -581,61 +805,113 @@ export async function processImportRun(runId: string): Promise<void> {
       }
 
       if ((i + 1) % HEARTBEAT_EVERY === 0) {
-        await bumpProgress(runId, i + 1, inserted, updated, skipped, errors);
+        if (!(await heartbeat(i + 1))) return;
       }
     }
 
-    await supabaseAdmin
-      .from("flipdesk_import_runs")
-      .update({
-        status: "completed",
-        processed_rows: rows.length,
-        inserted_count: inserted,
-        updated_count: updated,
-        skipped_count: skipped,
-        failed_count: errors.length,
-        errors: errors.slice(0, 200),
-      })
-      .eq("id", runId);
+    const finished = await fencedRunUpdate(runId, attempts, {
+      status: "completed",
+      processed_rows: rows.length,
+      inserted_count: inserted,
+      updated_count: updated,
+      skipped_count: skipped,
+      failed_count: errors.length,
+      errors: errors.slice(0, 200),
+    });
+    if (!finished) {
+      console.warn("[flipdesk-import] run", runId, "was taken by another worker; final write skipped");
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[flipdesk-import] run failed:", message);
-    await supabaseAdmin
-      .from("flipdesk_import_runs")
-      .update({
-        status: "failed",
-        error: message,
-        inserted_count: inserted,
-        updated_count: updated,
-        skipped_count: skipped,
-        failed_count: errors.length,
-        errors: errors.slice(0, 200),
-      })
-      .eq("id", runId);
+    await fencedRunUpdate(runId, attempts, {
+      status: "failed",
+      error: "The import stopped before it finished. Anything it saved can be undone.",
+      inserted_count: inserted,
+      updated_count: updated,
+      skipped_count: skipped,
+      failed_count: errors.length,
+      errors: errors.slice(0, 200),
+    });
   }
+}
+
+/**
+ * IMP-15: a Postgres error as a seller-readable row message. The raw text goes
+ * to the log only; it names columns and constraints the seller never sees.
+ */
+export function friendlyRowError(err: { message: string; code?: string }): string {
+  switch (err.code) {
+    case "22007":
+    case "22008":
+      return "The date isn't a real date.";
+    case "23505":
+      return "This row repeats an item that is already in your catalog.";
+    case "23514":
+      return "A value in this row isn't allowed, such as a negative price.";
+    case "22P02":
+    case "22003":
+      return "A number in this row couldn't be read.";
+    default:
+      return "This row couldn't be saved.";
+  }
+}
+
+function rowDbError(err: { message: string; code?: string }): Error {
+  console.error("[flipdesk-import] row write failed:", err.code ?? "", err.message);
+  return new Error(friendlyRowError(err));
+}
+
+/**
+ * IMP-04: a write to the run row that only lands while this worker still owns
+ * the run. After a reclaim the new owner has bumped `attempts`, so the old
+ * worker's writes match nothing and it stops instead of fighting over the row.
+ * Returns false only when the run is no longer ours; a transient error is
+ * logged and treated as still ours so a blip does not abandon the run.
+ */
+async function fencedRunUpdate(
+  runId: string,
+  attempts: number,
+  patch: Record<string, unknown>,
+): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("flipdesk_import_runs")
+    .update(patch)
+    .eq("id", runId)
+    .eq("attempts", attempts)
+    .eq("status", "running")
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error("[flipdesk-import] run update failed:", error.message);
+    return true;
+  }
+  return Boolean(data);
 }
 
 async function bumpProgress(
   runId: string,
+  attempts: number,
   processed: number,
   inserted: number,
   updated: number,
   skipped: number,
   errors: Array<{ row: number; message: string }>,
-): Promise<void> {
+): Promise<boolean> {
   // Also the heartbeat: the UPDATE bumps updated_at through the trigger, so a
   // live run never looks stale to the reclaim sweep.
-  await supabaseAdmin
-    .from("flipdesk_import_runs")
-    .update({
-      processed_rows: processed,
-      inserted_count: inserted,
-      updated_count: updated,
-      skipped_count: skipped,
-      failed_count: errors.length,
-    })
-    .eq("id", runId);
+  return await fencedRunUpdate(runId, attempts, {
+    processed_rows: processed,
+    inserted_count: inserted,
+    updated_count: updated,
+    skipped_count: skipped,
+    failed_count: errors.length,
+  });
 }
+
+/** IMP-06: a 'pending' run this old was never claimed (a deploy between the
+ * insert and the fire-and-forget start). */
+export const PENDING_STALE_MS = 60 * 1000;
 
 // ── Reclaim cron ─────────────────────────────────────────────────────────
 //
@@ -692,20 +968,44 @@ export async function handleImportReclaimCron(c: Context): Promise<Response> {
         .select("id")
         .maybeSingle();
       if (!reset) continue; // lost the race
-      // US-9201: a closet read shares the run table and the reclaim, and its
-      // own worker. Dispatch on origin so a stale closet run is resumed by the
-      // code that knows its payload shape, not re-read as a CSV.
-      const resume = isClosetImportPlatform(run.origin)
-        ? processClosetImportRun
-        : processImportRun;
-      void resume(run.id).catch((err) =>
-        console.error("[flipdesk-import] reclaim resume crashed:", err)
-      );
+      resumeRun(run);
       resumed++;
     }
 
-    return c.json({ scanned: stale.length, resumed, abandoned });
+    // IMP-06: a run inserted as 'pending' whose fire-and-forget start never ran
+    // (the container was replaced between the insert and the claim) has no
+    // worker and never goes 'running', so the sweep above never saw it. The
+    // worker's own conditional claim on status='pending' keeps this race-safe.
+    const pendingBefore = new Date(Date.now() - PENDING_STALE_MS).toISOString();
+    const { data: pendingRows, error: pendingErr } = await supabaseAdmin
+      .from("flipdesk_import_runs")
+      .select("id, attempts, origin")
+      .eq("status", "pending")
+      .lt("updated_at", pendingBefore)
+      .limit(20);
+    if (pendingErr) {
+      console.error("[flipdesk-import] pending scan failed:", pendingErr.message);
+    }
+    const pending = (pendingRows ?? []) as Array<{ id: string; attempts: number; origin: string }>;
+    for (const run of pending) {
+      resumeRun(run);
+      resumed++;
+    }
+
+    return c.json({ scanned: stale.length + pending.length, resumed, abandoned });
   } finally {
     await lock.release();
   }
+}
+
+function resumeRun(run: { id: string; origin: string }): void {
+  // US-9201: a closet read shares the run table and the reclaim, and its
+  // own worker. Dispatch on origin so a stale closet run is resumed by the
+  // code that knows its payload shape, not re-read as a CSV.
+  const resume = isClosetImportPlatform(run.origin)
+    ? processClosetImportRun
+    : processImportRun;
+  void resume(run.id).catch((err) =>
+    console.error("[flipdesk-import] reclaim resume crashed:", err)
+  );
 }

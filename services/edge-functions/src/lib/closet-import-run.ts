@@ -96,11 +96,16 @@ export async function copyClosetPhotos(
   ownerId: string,
   itemId: string,
   row: ClosetImportRow,
-  deps: { fetch: typeof safeFetch } = { fetch: safeFetch },
+  deps: {
+    fetch: typeof safeFetch;
+    /** IMP-04: called between photos so a long copy keeps the run alive. */
+    heartbeat?: () => Promise<void>;
+  } = { fetch: safeFetch },
 ): Promise<PhotoCopyResult> {
   const failures: string[] = [];
   let copied = 0;
   for (let i = 0; i < row.photo_urls.length; i++) {
+    if (i > 0 && deps.heartbeat) await deps.heartbeat();
     const url = row.photo_urls[i]!;
     if (!photoHostAllowed(row.platform, url)) {
       failures.push(`photo ${i + 1}: not a ${row.platform} image host`);
@@ -170,25 +175,50 @@ async function itemPhotoCount(ownerId: string, itemId: string): Promise<number> 
   return count ?? 0;
 }
 
+/** IMP-04: heartbeat at least this often, even inside one slow row. */
+const HEARTBEAT_MS = 30_000;
+
+/**
+ * IMP-04: a run-row write that only lands while this worker still owns the
+ * run (same fence as the CSV worker). False means another worker has it.
+ */
+async function fencedRunUpdate(
+  runId: string,
+  attempts: number,
+  patch: Record<string, unknown>,
+): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("flipdesk_import_runs")
+    .update(patch)
+    .eq("id", runId)
+    .eq("attempts", attempts)
+    .eq("status", "running")
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error("[closet-import] run update failed:", error.message);
+    return true;
+  }
+  return Boolean(data);
+}
+
 async function bumpProgress(
   runId: string,
+  attempts: number,
   processed: number,
   inserted: number,
   updated: number,
   skipped: number,
   errors: Array<{ row: number; message: string }>,
-): Promise<void> {
-  await supabaseAdmin
-    .from("flipdesk_import_runs")
-    .update({
-      processed_rows: processed,
-      inserted_count: inserted,
-      updated_count: updated,
-      skipped_count: skipped,
-      failed_count: errors.length,
-      errors: errors.slice(0, 200),
-    })
-    .eq("id", runId);
+): Promise<boolean> {
+  return await fencedRunUpdate(runId, attempts, {
+    processed_rows: processed,
+    inserted_count: inserted,
+    updated_count: updated,
+    skipped_count: skipped,
+    failed_count: errors.length,
+    errors: errors.slice(0, 200),
+  });
 }
 
 /**
@@ -204,7 +234,7 @@ export async function processClosetImportRun(runId: string): Promise<void> {
     .update({ status: "running", error: null })
     .eq("id", runId)
     .eq("status", "pending")
-    .select("id, user_id, status, origin, payload, attempts")
+    .select("id, user_id, status, origin, payload, attempts, errors")
     .maybeSingle();
   if (claimErr) {
     console.error("[closet-import] claim failed:", claimErr.message);
@@ -212,7 +242,7 @@ export async function processClosetImportRun(runId: string): Promise<void> {
   }
   if (!claimed) return; // another worker has it
 
-  const run = claimed as RunRow;
+  const run = claimed as RunRow & { errors?: unknown };
   const ownerId = run.user_id;
   const attempts = (run.attempts ?? 0) + 1;
   await supabaseAdmin.from("flipdesk_import_runs").update({ attempts }).eq("id", runId);
@@ -234,22 +264,52 @@ export async function processClosetImportRun(runId: string): Promise<void> {
   }
 
   const rows = Array.isArray(run.payload) ? (run.payload as ClosetImportRow[]) : [];
-  const errors: Array<{ row: number; message: string }> = [];
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
 
-  const { data: doneRows } = await supabaseAdmin
+  const { data: doneRows, error: doneErr } = await supabaseAdmin
     .from("flipdesk_import_effects")
-    .select("row_number")
+    .select("row_number, action")
     .eq("run_id", runId)
     .eq("user_id", ownerId);
-  const alreadyDone = new Set<number>();
-  for (const d of (doneRows ?? []) as Array<{ row_number: number | null }>) {
-    if (typeof d.row_number === "number") alreadyDone.add(d.row_number);
+  if (doneErr) {
+    // Without the resume marker a retry would duplicate items. Leave the run
+    // for the reclaim sweep.
+    console.error("[closet-import] could not read effects:", doneErr.message);
+    return;
   }
+  const alreadyDone = new Set<number>();
+  // IMP-04: counters are derived from effect rows, so a resumed run reports
+  // every attempt's work.
+  for (
+    const d of (doneRows ?? []) as Array<{ row_number: number | null; action: string }>
+  ) {
+    if (typeof d.row_number === "number") alreadyDone.add(d.row_number);
+    if (d.action === "inserted") inserted++;
+    else if (d.action === "filled") updated++;
+  }
+  // Photo warnings on rows that are already done are not re-created by this
+  // attempt, so they carry over; everything else reports afresh.
+  const errors: Array<{ row: number; message: string }> = Array.isArray(run.errors)
+    ? (run.errors as Array<{ row: number; message: string }>).filter((e) =>
+      typeof e?.row === "number" && alreadyDone.has(e.row)
+    )
+    : [];
 
   const nowIso = new Date().toISOString();
+  let processedSoFar = alreadyDone.size;
+  let lastBeat = Date.now();
+  // Set when a fenced write finds the run taken by another worker.
+  let lost = false;
+  const beat = async (force = false) => {
+    if (lost) return;
+    if (!force && Date.now() - lastBeat < HEARTBEAT_MS) return;
+    lastBeat = Date.now();
+    const ok = await bumpProgress(runId, attempts, processedSoFar, inserted, updated, skipped, errors);
+    if (!ok) lost = true;
+  };
+  const photoDeps = { fetch: safeFetch, heartbeat: () => beat() };
 
   try {
     for (let i = 0; i < rows.length; i++) {
@@ -287,6 +347,8 @@ export async function processClosetImportRun(runId: string): Promise<void> {
           const previous: Record<string, unknown> = {};
           for (const key of Object.keys(itemPatch)) previous[key] = item[key] ?? null;
           if (Object.keys(listingPatch).length > 0) previous._listing = listingPrevious;
+          // IMP-05: what this read wrote, so undo leaves a later seller edit.
+          if (Object.keys(itemPatch).length > 0) previous._written = itemPatch;
 
           if (Object.keys(itemPatch).length > 0) {
             const { error: upErr } = await supabaseAdmin
@@ -305,20 +367,12 @@ export async function processClosetImportRun(runId: string): Promise<void> {
             if (lErr) throw new Error(lErr.message);
           }
 
-          // Photos only when the item has none: a second read must never
-          // duplicate a gallery the first one already copied.
-          let photos: PhotoCopyResult = { copied: 0, failures: [] };
-          if (row.photo_urls.length > 0 && (await itemPhotoCount(ownerId, itemId)) === 0) {
-            photos = await copyClosetPhotos(ownerId, itemId, row);
-          }
-          for (const f of photos.failures) errors.push({ row: rowNumber, message: f });
-
-          const changed = Object.keys(itemPatch).length > 0 ||
-            Object.keys(listingPatch).length > 0 || photos.copied > 0;
-          if (!changed) {
-            skipped++;
-          } else {
-            await supabaseAdmin.from("flipdesk_import_effects").insert({
+          // IMP-03: record the fill BEFORE the slow photo copy, and check it.
+          // An unrecorded fill cannot be undone, so on failure it is reverted.
+          const patched = Object.keys(itemPatch).length > 0 ||
+            Object.keys(listingPatch).length > 0;
+          if (patched) {
+            const { error: effErr } = await supabaseAdmin.from("flipdesk_import_effects").insert({
               run_id: runId,
               user_id: ownerId,
               row_number: rowNumber,
@@ -327,7 +381,45 @@ export async function processClosetImportRun(runId: string): Promise<void> {
               listing_id: existing.id,
               previous,
             });
+            if (effErr) {
+              if (Object.keys(itemPatch).length > 0) {
+                const revert: Record<string, unknown> = {};
+                for (const key of Object.keys(itemPatch)) revert[key] = previous[key];
+                await supabaseAdmin.from("inventory_items").update(revert).eq("id", itemId)
+                  .eq("user_id", ownerId);
+              }
+              if (Object.keys(listingPatch).length > 0) {
+                await supabaseAdmin.from("listings").update(listingPrevious).eq("id", existing.id)
+                  .eq("user_id", ownerId);
+              }
+              throw new Error(effErr.message);
+            }
+          }
+
+          // Photos only when the item has none: a second read must never
+          // duplicate a gallery the first one already copied.
+          let photos: PhotoCopyResult = { copied: 0, failures: [] };
+          if (row.photo_urls.length > 0 && (await itemPhotoCount(ownerId, itemId)) === 0) {
+            photos = await copyClosetPhotos(ownerId, itemId, row, photoDeps);
+          }
+          for (const f of photos.failures) errors.push({ row: rowNumber, message: f });
+
+          if (patched) {
             updated++;
+          } else if (photos.copied > 0) {
+            const { error: effErr } = await supabaseAdmin.from("flipdesk_import_effects").insert({
+              run_id: runId,
+              user_id: ownerId,
+              row_number: rowNumber,
+              action: "filled",
+              inventory_item_id: itemId,
+              listing_id: existing.id,
+              previous,
+            });
+            if (effErr) throw new Error(effErr.message);
+            updated++;
+          } else {
+            skipped++;
           }
         } else {
           const { data: itemRow, error: itemErr } = await supabaseAdmin
@@ -352,6 +444,8 @@ export async function processClosetImportRun(runId: string): Promise<void> {
             .from("listings")
             .insert({
               inventory_item_id: itemId,
+              // Explicit; the tenant trigger would derive the same value.
+              user_id: ownerId,
               platform: row.platform,
               platform_listing_id: row.platform_listing_id,
               listing_url: row.listing_url,
@@ -377,10 +471,10 @@ export async function processClosetImportRun(runId: string): Promise<void> {
           }
           const listingId = (lRow as { id: string }).id;
 
-          const photos = await copyClosetPhotos(ownerId, itemId, row);
-          for (const f of photos.failures) errors.push({ row: rowNumber, message: f });
-
-          await supabaseAdmin.from("flipdesk_import_effects").insert({
+          // IMP-03: the effect row goes in BEFORE the photo copy (up to about
+          // 96s), and its error is checked. It is the undo record and the
+          // resume marker; without it the item is an orphan a resume duplicates.
+          const { error: effErr } = await supabaseAdmin.from("flipdesk_import_effects").insert({
             run_id: runId,
             user_id: ownerId,
             row_number: rowNumber,
@@ -388,7 +482,15 @@ export async function processClosetImportRun(runId: string): Promise<void> {
             inventory_item_id: itemId,
             listing_id: listingId,
           });
+          if (effErr) {
+            await supabaseAdmin.from("listings").delete().eq("id", listingId).eq("user_id", ownerId);
+            await supabaseAdmin.from("inventory_items").delete().eq("id", itemId).eq("user_id", ownerId);
+            throw new Error(effErr.message);
+          }
           inserted++;
+
+          const photos = await copyClosetPhotos(ownerId, itemId, row, photoDeps);
+          for (const f of photos.failures) errors.push({ row: rowNumber, message: f });
         }
       } catch (err) {
         errors.push({
@@ -397,37 +499,37 @@ export async function processClosetImportRun(runId: string): Promise<void> {
         });
       }
 
-      if ((i + 1) % HEARTBEAT_EVERY === 0) {
-        await bumpProgress(runId, i + 1, inserted, updated, skipped, errors);
+      processedSoFar = i + 1;
+      await beat((i + 1) % HEARTBEAT_EVERY === 0);
+      if (lost) {
+        console.warn("[closet-import] run", runId, "was taken by another worker; stopping");
+        return;
       }
     }
 
-    await supabaseAdmin
-      .from("flipdesk_import_runs")
-      .update({
-        status: "completed",
-        processed_rows: rows.length,
-        inserted_count: inserted,
-        updated_count: updated,
-        skipped_count: skipped,
-        failed_count: errors.length,
-        errors: errors.slice(0, 200),
-      })
-      .eq("id", runId);
+    const finished = await fencedRunUpdate(runId, attempts, {
+      status: "completed",
+      processed_rows: rows.length,
+      inserted_count: inserted,
+      updated_count: updated,
+      skipped_count: skipped,
+      failed_count: errors.length,
+      errors: errors.slice(0, 200),
+    });
+    if (!finished) {
+      console.warn("[closet-import] run", runId, "was taken by another worker; final write skipped");
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[closet-import] run failed:", message);
-    await supabaseAdmin
-      .from("flipdesk_import_runs")
-      .update({
-        status: "failed",
-        error: message,
-        inserted_count: inserted,
-        updated_count: updated,
-        skipped_count: skipped,
-        failed_count: errors.length,
-        errors: errors.slice(0, 200),
-      })
-      .eq("id", runId);
+    await fencedRunUpdate(runId, attempts, {
+      status: "failed",
+      error: message,
+      inserted_count: inserted,
+      updated_count: updated,
+      skipped_count: skipped,
+      failed_count: errors.length,
+      errors: errors.slice(0, 200),
+    });
   }
 }
