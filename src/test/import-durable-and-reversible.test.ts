@@ -151,7 +151,8 @@ describe("an import is reversible (US-2518)", () => {
     expect(src).toContain("Undo this import");
     expect(src).toMatch(/\/undo/);
     // Wrapped across lines in the JSX, so match the clause that survives it.
-    expect(src).toMatch(/already published to a[\s\n]+marketplace is left alone/);
+    // IMP-05 widened what undo keeps: published, sold since, or edited since.
+    expect(src).toMatch(/since published, sold or[\s\n]+edited is left alone/);
   });
 });
 

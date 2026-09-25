@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Upload,
   Loader2,
@@ -80,33 +81,28 @@ import {
   type ClosetImportStart,
 } from "@/components/flipdesk/closet-import-card";
 import { track } from "@/lib/analytics";
+import {
+  IMPORT_RUNS_KEY,
+  isOpenRun,
+  useImportRuns,
+  type ImportRun,
+} from "@/hooks/use-import-runs";
+import { RecentImportsCard } from "@/components/flipdesk/recent-imports-card";
 
 type ImportRow = {
   raw: string[];
   mapped: Partial<Record<ImportField, string>>;
 };
 
-// US-2518: the run row the server owns. The browser polls it; it no longer does
-// the importing, so closing the tab costs nothing.
-type ImportRun = {
-  id: string;
-  status: "pending" | "running" | "completed" | "failed" | "undone";
-  // US-9201: 'csv' | 'sheet' | 'paste' for a spreadsheet, or the marketplace a
-  // closet read came from. Present on polled runs; absent on the stub the page
-  // seeds while the first poll is in flight.
-  origin?: string;
-  total_rows: number;
-  processed_rows: number;
-  inserted_count: number;
-  updated_count: number;
-  skipped_count: number;
-  failed_count: number;
-  errors?: { row: number; message: string }[];
-  error?: string | null;
-  undone_at?: string | null;
+// IMP-07: shown when the server refuses a file for its size or row count.
+type UndoResult = {
+  deleted_items?: number;
+  restored_items?: number;
+  kept_published?: number;
+  kept_edited?: number;
+  kept_modified?: number;
 };
 
-// IMP-07: shown when the server refuses a file for its size or row count.
 const NO_IMPORT_PERMISSION =
   "Importing and undoing need inventory access in this workspace. Ask a workspace admin.";
 
@@ -234,10 +230,22 @@ export function FlipdeskImportPage() {
     readExistingListings(user?.id),
   );
   const [importing, setImporting] = useState(false);
-  // US-2518: the server's run, polled. `run` is the whole progress and result
-  // surface now — a browser refresh mid-import picks it back up.
+  // US-2518: the server's run, polled. `run` is the LAST RUN, and it is kept
+  // apart from the loaded file (headers/rows/mapping): loading a new file never
+  // clears it, so its Undo survives. IMP-10: it is also seeded on mount from
+  // ?run= or from the newest open run, which is what makes "refresh or close
+  // the tab and it picks back up" true.
   const [run, setRun] = useState<ImportRun | null>(null);
-  const [undoing, setUndoing] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
+  const recentRuns = useImportRuns({ refetchWhileOpen: true });
+  const seededRef = useRef(false);
+  // The run this page watched while it was open. Only its completion toasts;
+  // a run resumed already finished just shows its results.
+  const watchedOpenRef = useRef<string | null>(null);
+  const [undoingId, setUndoingId] = useState<string | null>(null);
+  const [lastUndo, setLastUndo] = useState<UndoResult | null>(null);
+  const runOpen = isOpenRun(run);
   // IMP-02: set when polling stops because the run can no longer be read.
   const [pollError, setPollError] = useState<string | null>(null);
   // US-9201: the extension's install time, handed over with the run so the
@@ -245,6 +253,50 @@ export function FlipdeskImportPage() {
   // only; the timestamp itself is never sent.
   const closetInstalledAtRef = useRef<string | null>(null);
   const fetchSheet = useFetchGoogleSheet();
+
+  // IMP-10: the open run lives in the URL, so a refresh resumes it.
+  function rememberRun(id: string) {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("run", id);
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  // IMP-10: on mount, pick up ?run= or the newest run that is still going.
+  const runParam = searchParams.get("run");
+  const recentData = recentRuns.data;
+  useEffect(() => {
+    if (seededRef.current || run) return;
+    if (runParam) {
+      seededRef.current = true;
+      const known = recentData?.find((r) => r.id === runParam);
+      setRun(
+        known ?? {
+          id: runParam,
+          status: "pending",
+          total_rows: 0,
+          processed_rows: 0,
+          inserted_count: 0,
+          updated_count: 0,
+          skipped_count: 0,
+          failed_count: 0,
+        },
+      );
+      return;
+    }
+    if (!recentData) return;
+    seededRef.current = true;
+    const open = recentData.find(isOpenRun);
+    if (open) setRun(open);
+  }, [runParam, recentData, run]);
+
+  useEffect(() => {
+    setImporting(runOpen);
+  }, [runOpen]);
 
   async function handleFetchSheet() {
     if (!sheetUrl.trim()) return;
@@ -283,7 +335,6 @@ export function FlipdeskImportPage() {
     const found = detected ?? getImportPreset(presetIdForAnswer(signupAnswer) ?? "") ?? null;
     setPreset(found);
     setMapping(found ? applyImportPreset(h, found) : h.map(guessField));
-    setRun(null);
     toast.success(
       found
         ? `Looks like a ${found.name}. ${h.length} columns mapped, ${r.length} rows.`
@@ -408,9 +459,12 @@ export function FlipdeskImportPage() {
       if (!res.ok || !json.run_id) {
         throw new Error(json.error || "Could not start the import.");
       }
+      watchedOpenRef.current = json.run_id;
+      rememberRun(json.run_id);
       setRun({
         id: json.run_id,
         status: "pending",
+        origin: sheetUrl.trim() ? "sheet" : "csv",
         total_rows: json.total_rows ?? mappedRows.length,
         processed_rows: 0,
         inserted_count: 0,
@@ -431,6 +485,8 @@ export function FlipdeskImportPage() {
     closetInstalledAtRef.current = start.installedAt;
     setImporting(true);
     setPollError(null);
+    watchedOpenRef.current = start.runId;
+    rememberRun(start.runId);
     setRun({
       id: start.runId,
       status: "pending",
@@ -529,8 +585,14 @@ export function FlipdeskImportPage() {
         }
         setPollError(null);
         setRun(json.run);
+        if (isOpenRun(json.run)) watchedOpenRef.current = json.run.id;
         if (json.run.status !== "pending" && json.run.status !== "running") {
           setImporting(false);
+          void queryClient.invalidateQueries({ queryKey: [IMPORT_RUNS_KEY] });
+          // A run that had already finished before this page saw it open is
+          // shown, not announced again.
+          if (watchedOpenRef.current !== json.run.id) return;
+          watchedOpenRef.current = null;
           recordClosetCompletion(json.run);
           if (json.run.failed_count > 0 || json.run.status === "failed") {
             toast.warning(
@@ -564,32 +626,30 @@ export function FlipdeskImportPage() {
       document.removeEventListener("visibilitychange", onVisible);
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [run?.id, run?.status, recordClosetCompletion]);
+  }, [run?.id, run?.status, recordClosetCompletion, queryClient]);
 
   // US-2518 — put the catalog back. Items the run created are deleted, columns
   // it filled are restored to what they held, and anything since published to a
-  // marketplace is left alone and reported.
-  async function handleUndo() {
-    if (!run) return;
-    setUndoing(true);
+  // marketplace is left alone and reported. IMP-10: any recent run, not only
+  // the one this page started.
+  async function handleUndo(target: ImportRun) {
+    setUndoingId(target.id);
     try {
-      const res = await edgeFetch(`/api/flipdesk/import/runs/${run.id}/undo`, {
+      const res = await edgeFetch(`/api/flipdesk/import/runs/${target.id}/undo`, {
         method: "POST",
       });
-      const json = (await res.json().catch(() => ({}))) as {
-        deleted_items?: number;
-        restored_items?: number;
-        kept_published?: number;
-        error?: string;
-      };
+      const json = (await res.json().catch(() => ({}))) as UndoResult & { error?: string };
       if (!res.ok) throw new Error(json.error || "Undo failed.");
-      setRun({ ...run, status: "undone", undone_at: new Date().toISOString() });
-      const kept = json.kept_published ?? 0;
+      if (run?.id === target.id) {
+        setRun({ ...run, status: "undone", undone_at: new Date().toISOString() });
+      }
+      setLastUndo(json);
+      const kept = (json.kept_published ?? 0) + (json.kept_edited ?? 0) + (json.kept_modified ?? 0);
       toast.success(
         `Undone: ${json.deleted_items ?? 0} deleted, ${json.restored_items ?? 0} restored.`,
         kept > 0
           ? {
-              description: `${kept} item${kept === 1 ? "" : "s"} kept — already published to a marketplace.`,
+              description: `${kept} item${kept === 1 ? "" : "s"} kept because you changed, sold or published them since.`,
               duration: 12_000,
             }
           : undefined,
@@ -597,7 +657,8 @@ export function FlipdeskImportPage() {
     } catch (err) {
       toastError(err);
     } finally {
-      setUndoing(false);
+      setUndoingId(null);
+      void queryClient.invalidateQueries({ queryKey: [IMPORT_RUNS_KEY] });
     }
   }
 
@@ -676,7 +737,7 @@ export function FlipdeskImportPage() {
               <Button
                 variant="outline"
                 onClick={handleFetchSheet}
-                disabled={!sheetUrl.trim() || fetchSheet.isPending}
+                disabled={!sheetUrl.trim() || fetchSheet.isPending || runOpen}
               >
                 {fetchSheet.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -704,6 +765,7 @@ export function FlipdeskImportPage() {
               type="file"
               accept=".csv,.tsv,text/csv,text/tab-separated-values,text/plain"
               onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
+              disabled={runOpen}
               className="hidden"
               id="csv-file-input"
             />
@@ -756,7 +818,7 @@ A1	GT-0001	Lululemon Align Pant	..."
             className="font-mono text-xs"
           />
           <div className="flex justify-end">
-            <Button onClick={handleDetect} disabled={!text.trim()}>
+            <Button onClick={handleDetect} disabled={!text.trim() || runOpen}>
               Detect columns
             </Button>
           </div>
@@ -920,7 +982,6 @@ A1	GT-0001	Lululemon Align Pant	..."
               setHeaders([]);
               setRows([]);
               setMapping([]);
-              setRun(null);
             }}
           >
             Reset
@@ -1011,10 +1072,10 @@ A1	GT-0001	Lululemon Align Pant	..."
                 run.inserted_count + run.updated_count > 0 && (
                   <Button
                     variant="outline"
-                    onClick={handleUndo}
-                    disabled={undoing || !canImport}
+                    onClick={() => void handleUndo(run)}
+                    disabled={undoingId !== null || !canImport}
                   >
-                    {undoing ? (
+                    {undoingId === run.id ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <Undo2 className="mr-2 h-4 w-4" />
@@ -1026,13 +1087,34 @@ A1	GT-0001	Lululemon Align Pant	..."
             {run.status !== "undone" && (
               <p className="text-xs text-muted-foreground">
                 Undo deletes the items this import created and puts back the
-                values it filled in. Anything you have already published to a
-                marketplace is left alone.
+                values it filled in. Anything you have since published, sold or
+                edited is left alone.
+              </p>
+            )}
+            {run.status === "undone" && lastUndo && (
+              <p role="status" className="text-sm text-muted-foreground">
+                {lastUndo.deleted_items ?? 0} deleted, {lastUndo.restored_items ?? 0} restored
+                {(lastUndo.kept_published ?? 0) > 0 &&
+                  `, ${lastUndo.kept_published} kept because published`}
+                {(lastUndo.kept_modified ?? 0) > 0 &&
+                  `, ${lastUndo.kept_modified} kept because sold since`}
+                {(lastUndo.kept_edited ?? 0) > 0 &&
+                  `, ${lastUndo.kept_edited} with your later edits kept`}
+                .
               </p>
             )}
           </CardContent>
         </Card>
       )}
+
+      {/* IMP-10: every recent run, including the extension's own closet
+          reads, each with its own Undo. */}
+      <RecentImportsCard
+        runs={recentRuns.data ?? []}
+        onUndo={(r) => void handleUndo(r)}
+        undoingId={undoingId}
+        canUndo={canImport}
+      />
     </div>
   );
 }

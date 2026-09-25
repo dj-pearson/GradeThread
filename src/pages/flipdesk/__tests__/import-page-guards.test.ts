@@ -26,7 +26,7 @@ describe("import page: permission (IMP-09)", () => {
     expect(src).toMatch(/const canImport = can\("manage_inventory"\)/);
     expect(src.match(/can\("manage_inventory"\)/g)?.length).toBe(1);
     expect(src).toMatch(/onClick=\{handleImport\} disabled=\{importing \|\| !canImport\}/);
-    expect(src).toMatch(/disabled=\{undoing \|\| !canImport\}/);
+    expect(src).toMatch(/disabled=\{undoingId !== null \|\| !canImport\}/);
     expect(src).toMatch(/\{!canImport && \(/);
     expect(src).toContain("Importing and undoing need inventory access in this workspace.");
   });
