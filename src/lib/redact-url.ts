@@ -17,12 +17,25 @@ const SENSITIVE_QUERY_PARAMS = [
   "confirmation_token",
 ];
 
+// Free text a seller typed, carried in the URL of an in-app page: the Help
+// search box (?q=) and the support hand-off (?subject=, ?article=). What goes
+// into Help can hold an order number, a buyer's name or an address, and the
+// help_search event deliberately sends only its length, so the pageview must
+// not send the text either. Scoped by path so other pages' ?q= is untouched.
+const FREE_TEXT_PARAMS_BY_PATH: Array<[RegExp, string[]]> = [
+  [/^\/dashboard\/help(\/|$)/, ["q"]],
+  [/^\/dashboard\/support(\/|$)/, ["subject", "article"]],
+];
+
 /** Return `raw` with any sensitive auth params redacted (query + hash). */
 export function redactSensitiveUrl(raw: string): string {
   try {
     const url = new URL(raw, "http://localhost");
     let changed = false;
-    for (const p of SENSITIVE_QUERY_PARAMS) {
+    const freeText = FREE_TEXT_PARAMS_BY_PATH.flatMap(([re, ps]) =>
+      re.test(url.pathname) ? ps : [],
+    );
+    for (const p of [...SENSITIVE_QUERY_PARAMS, ...freeText]) {
       if (url.searchParams.has(p)) {
         url.searchParams.set(p, "redacted");
         changed = true;
