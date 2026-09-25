@@ -125,6 +125,21 @@ describe("Settings unsaved-changes guard", () => {
     expect(router!.state.location.pathname).toBe("/dashboard/settings");
   });
 
+  it("lets the held navigation through once the section is clean again", async () => {
+    // The AI cap's blur-save path: the dirty flag clears while the dialog is
+    // up, and the click that asked to leave should then take effect.
+    typeInto(businessName(), "Typed");
+    const link = [...container!.querySelectorAll("a")].find((a) => a.textContent === "sidebar-link")!;
+    await act(async () => {
+      link.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, cancelable: true }));
+    });
+    await flush();
+    expect(dialogText()).toMatch(/leave without saving/i);
+    typeInto(businessName(), "Stored");
+    await flush();
+    expect(router!.state.location.pathname).toBe("/dashboard/flipdesk");
+  });
+
   it("does not ask when nothing is dirty", async () => {
     const link = [...container!.querySelectorAll("a")].find((a) => a.textContent === "sidebar-link")!;
     await act(async () => {

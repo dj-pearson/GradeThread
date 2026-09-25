@@ -59,7 +59,13 @@ export function SettingsPage() {
       return next;
     });
   }, []);
-  const guard = useNavigationGuard(dirtySections.size > 0);
+  // proceedWhenCleared: the AI cap saves on blur, so clicking another tab
+  // straight from that field both saves it and asks to leave. The save
+  // clears the dirty flag a moment later, and the tab change should then go
+  // ahead instead of the dialog flashing and the click being lost.
+  const guard = useNavigationGuard(dirtySections.size > 0, undefined, {
+    proceedWhenCleared: true,
+  });
 
   function handleTabChange(next: string) {
     setSearchParams(
