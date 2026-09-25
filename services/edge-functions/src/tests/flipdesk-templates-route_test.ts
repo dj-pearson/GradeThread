@@ -160,6 +160,12 @@ Deno.test("POST: a failed clear returns 500 and never sets a second default", as
     const r = await send("POST", "/", { name: "Shoes", is_default: true });
     assertEquals(r.status, 500);
     assertEquals(defaults(db), [DEFAULT_ID]);
+    // The failed create is undone, so retrying the same form cannot 409.
+    assertEquals(
+      db.tables.listing_templates.filter((t) => t.name === "Shoes").length,
+      0,
+      "a create that answered 500 must not leave its row behind",
+    );
   } finally {
     db.restore();
   }

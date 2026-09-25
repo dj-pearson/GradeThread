@@ -139,7 +139,21 @@ flipdeskTemplatesRoutes.post("/", async (c) => {
   if (!wantDefault) return c.json({ template: data }, 201);
   const newId = (data as unknown as { id: string }).id;
   const promoted = await promoteDefault(c, ownerId, newId);
-  if ("res" in promoted) return promoted.res;
+  if ("res" in promoted) {
+    // Take the new row back out, so a failed create means nothing was saved.
+    // Left in place, the seller's retry of the same form would hit the name
+    // rule on the row they were just told did not save.
+    const { error: undoErr } = await supabaseAdmin
+      .from("listing_templates")
+      .delete()
+      .eq("id", newId)
+      .eq("user_id", ownerId);
+    if (undoErr) {
+      return jsonError(c, 500, "Template saved, but it could not be made the default");
+    }
+    if (promoted.res.status === 409) return promoted.res;
+    return jsonError(c, 500, "Could not create template");
+  }
   return c.json({ template: promoted.row }, 201);
 });
 
