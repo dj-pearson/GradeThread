@@ -13,6 +13,7 @@ import {
 } from "@/lib/seo/competitor-alternative-slugs";
 import { SWITCH_FROM_SLUGS, switchFromPath } from "@/lib/seo/switch-from-slugs";
 import { CROSSLIST_PAIR_SLUGS, crosslistPairPath } from "@/lib/seo/crosslist-pair-slugs";
+import { registerAppNavigate } from "@/lib/app-navigate";
 
 // RootLayout stays eager (it renders on the first paint of every route). The
 // authenticated layouts + auth guards are lazy: they pull Supabase, react-query
@@ -804,3 +805,9 @@ export const router = createBrowserRouter([
     errorElement: <RouteErrorFallback />,
   },
 ]);
+
+// Toast actions in lib/edge-fetch.ts navigate through this, so "Open Settings"
+// is a client-side route change instead of a full page reload.
+registerAppNavigate((to) => {
+  void router.navigate(to);
+});

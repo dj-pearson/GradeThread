@@ -1,19 +1,21 @@
-import { useState } from "react";
-import { Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { useRef, useState } from "react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
+import { useMissingTooLong } from "@/hooks/use-missing-too-long";
 import { supabase } from "@/lib/supabase";
 import type {
   NotificationPreferences,
   NotificationChannel,
 } from "@/types/database";
 import {
+  MARKETING_GRANULAR_KEYS,
   NOTIFICATION_TYPES,
+  mergePreference,
   withPreferenceDefaults,
 } from "@/lib/notification-preferences";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -32,11 +34,20 @@ const CHANNEL_LABELS: Record<string, string> = {
 // action 6).
 export function NotificationsSettingsTab() {
   const { user, profile, refreshProfile } = useAuth();
+  const profileFailed = useMissingTooLong(!profile);
 
-  const [prefs, setPrefs] = useState<NotificationPreferences>(() =>
-    withPreferenceDefaults(profile?.notification_preferences)
-  );
-  const [savingPrefs, setSavingPrefs] = useState(false);
+  // What the server last said. Starts from the profile in the store, then
+  // tracks the row read back on each save. Nothing is edited locally and saved
+  // later: each switch writes itself, so there is nothing to lose on leaving.
+  const [fresh, setFresh] = useState<NotificationPreferences | null>(null);
+  const serverPrefs =
+    fresh ?? withPreferenceDefaults(profile?.notification_preferences);
+  // Switches whose write is in flight, with the value they are moving to.
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+  // Writes run one at a time. Each one reads the row, merges one key and
+  // writes it back; two in parallel would each miss the other's key.
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const [retryingProfile, setRetryingProfile] = useState(false);
 
   // Usage-alert thresholds (US-209). Percentages of any plan cap at which a
   // soft upgrade toast fires. Default [80]; the chooser offers 50/80/95.
@@ -47,52 +58,81 @@ export function NotificationsSettingsTab() {
   );
   const [savingAlerts, setSavingAlerts] = useState(false);
 
-  function setChannel(
+  function channelValue(
     typeKey: keyof NotificationPreferences,
     channel: NotificationChannel,
-    value: boolean
-  ) {
-    setPrefs((prev) => {
-      const current = prev[typeKey] as Record<string, boolean>;
-      return {
-        ...prev,
-        [typeKey]: { ...current, [channel]: value },
-      } as NotificationPreferences;
-    });
+  ): boolean {
+    const k = `${typeKey}.${channel}`;
+    if (k in pending) return pending[k]!;
+    return (serverPrefs[typeKey] as Record<string, boolean>)[channel] ?? false;
   }
 
-  async function handleSavePreferences() {
+  function saveChannel(
+    typeKey: keyof NotificationPreferences,
+    channel: NotificationChannel,
+    value: boolean,
+  ) {
     if (!user) return;
-    setSavingPrefs(true);
+    const k = `${typeKey}.${channel}`;
+    setPending((p) => ({ ...p, [k]: value }));
+    const run = async () => {
+      try {
+        const { data, error: readError } = await supabase
+          .from("users")
+          .select("notification_preferences")
+          .eq("id", user.id)
+          .single();
+        if (readError) throw readError;
+        const stored = (data as { notification_preferences?: unknown } | null)
+          ?.notification_preferences as
+          | Partial<NotificationPreferences>
+          | null
+          | undefined;
+        const merged = mergePreference(stored, typeKey, channel, value);
+        const { error } = await supabase
+          .from("users")
+          .update({ notification_preferences: merged } as never)
+          .eq("id", user.id);
+        if (error) throw error;
+        setFresh(withPreferenceDefaults(merged));
+      } catch (err) {
+        // Dropping the pending value IS the rollback: the switch falls back
+        // to what the server last said.
+        toastError(err, "Couldn't save that notification setting");
+      } finally {
+        setPending((p) => {
+          const next = { ...p };
+          delete next[k];
+          return next;
+        });
+      }
+    };
+    queue.current = queue.current.then(run);
+    // Keep the auth store's copy in step for readers elsewhere in the app.
+    void queue.current.then(() => refreshProfile()).catch(() => {});
+  }
+
+  async function handleRetryProfile() {
+    setRetryingProfile(true);
     try {
-      const { error } = await supabase
-        .from("users")
-        .update({ notification_preferences: prefs } as never)
-        .eq("id", user.id);
-      if (error) throw error;
       await refreshProfile();
-      toast.success("Notification preferences saved");
-    } catch (err) {
-      toastError(err, "Failed to save preferences");
     } finally {
-      setSavingPrefs(false);
+      setRetryingProfile(false);
     }
   }
 
-  function toggleAlertThreshold(t: number) {
-    setAlertThresholds((prev) =>
-      prev.includes(t)
-        ? prev.filter((x) => x !== t)
-        : [...prev, t].sort((a, b) => a - b)
-    );
-  }
-
-  async function handleSaveAlertThresholds() {
+  // Each chip saves on click. A failed save puts the chips back.
+  async function toggleAlertThreshold(t: number) {
+    const previous = alertThresholds;
+    const next = previous.includes(t)
+      ? previous.filter((x) => x !== t)
+      : [...previous, t].sort((a, b) => a - b);
+    setAlertThresholds(next);
     setSavingAlerts(true);
     try {
       const res = await edgeFetch("/api/payments/usage-alerts", {
         method: "POST",
-        json: { thresholds: alertThresholds },
+        json: { thresholds: next },
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -101,13 +141,15 @@ export function NotificationsSettingsTab() {
       // Server normalizes (dedupes/sorts, empty → default 80).
       if (Array.isArray(json.thresholds)) setAlertThresholds(json.thresholds);
       await refreshProfile();
-      toast.success("Usage alert settings saved.");
     } catch (err) {
+      setAlertThresholds(previous);
       toastError(err, "Failed to save usage alert settings.");
     } finally {
       setSavingAlerts(false);
     }
   }
+
+  const marketingOff = channelValue("marketing", "email") === false;
 
   return (
     <>
@@ -125,52 +167,93 @@ export function NotificationsSettingsTab() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {NOTIFICATION_TYPES.map((type, index) => (
-            <div key={type.key}>
-              {index > 0 && <Separator className="mb-4" />}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="space-y-0.5">
-                  <p className="text-sm font-medium">{type.label}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {type.description}
-                  </p>
-                </div>
-                <div className="flex gap-4">
-                  {type.channels.map((channel) => {
-                    const checked =
-                      (prefs[type.key] as Record<string, boolean>)[channel] ??
-                      false;
-                    const switchId = `${type.key}-${channel}`;
-                    return (
-                      <div
-                        key={channel}
-                        className="flex items-center gap-2"
-                      >
-                        <Switch
-                          id={switchId}
-                          checked={checked}
-                          onCheckedChange={(value) =>
-                            setChannel(type.key, channel, value)
-                          }
-                        />
-                        <Label
-                          htmlFor={switchId}
-                          className="text-xs text-muted-foreground"
-                        >
-                          {CHANNEL_LABELS[channel]}
-                        </Label>
-                      </div>
-                    );
-                  })}
-                </div>
+          {!profile && !profileFailed ? (
+            <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              Loading your notification settings…
+            </p>
+          ) : !profile ? (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-destructive" />
+              <div className="space-y-1">
+                <p className="font-medium">
+                  Couldn&apos;t load your notification settings
+                </p>
+                <p className="text-muted-foreground">
+                  The switches are hidden until they load, so none of them can
+                  show a setting you did not choose.{" "}
+                  <button
+                    type="button"
+                    onClick={() => void handleRetryProfile()}
+                    disabled={retryingProfile}
+                    className="font-medium underline underline-offset-2"
+                  >
+                    {retryingProfile ? "Retrying…" : "Retry"}
+                  </button>
+                </p>
               </div>
             </div>
-          ))}
-
-          <Button onClick={handleSavePreferences} disabled={savingPrefs}>
-            {savingPrefs && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save Preferences
-          </Button>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">
+                Each switch saves as soon as you flip it.
+              </p>
+              {NOTIFICATION_TYPES.map((type, index) => {
+                const overridden =
+                  marketingOff && MARKETING_GRANULAR_KEYS.includes(type.key);
+                return (
+                  <div key={type.key} id={`notif-${type.key}`}>
+                    {index > 0 && <Separator className="mb-4" />}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="space-y-0.5">
+                        <p className="text-sm font-medium">{type.label}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {type.description}
+                        </p>
+                        {overridden && (
+                          <p className="text-xs text-muted-foreground">
+                            Off while All marketing email is off.
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex gap-4">
+                        {type.channels.map((channel) => {
+                          const checked = channelValue(type.key, channel);
+                          const switchId = `${type.key}-${channel}`;
+                          const saving = `${type.key}.${channel}` in pending;
+                          return (
+                            <div
+                              key={channel}
+                              className="flex items-center gap-2"
+                            >
+                              <Switch
+                                id={switchId}
+                                checked={checked}
+                                disabled={saving || overridden}
+                                aria-label={`${type.label}: ${CHANNEL_LABELS[channel]}`}
+                                onCheckedChange={(value) =>
+                                  saveChannel(type.key, channel, value)
+                                }
+                              />
+                              <Label
+                                htmlFor={switchId}
+                                className="text-xs text-muted-foreground"
+                              >
+                                {CHANNEL_LABELS[channel]}
+                              </Label>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -194,7 +277,7 @@ export function NotificationsSettingsTab() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <p className="text-sm font-medium">Notify me at</p>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               {[50, 80, 95].map((t) => {
                 const active = alertThresholds.includes(t);
                 return (
@@ -204,23 +287,26 @@ export function NotificationsSettingsTab() {
                     size="sm"
                     variant={active ? "default" : "outline"}
                     aria-pressed={active}
-                    onClick={() => toggleAlertThreshold(t)}
+                    disabled={savingAlerts}
+                    onClick={() => void toggleAlertThreshold(t)}
                   >
                     {t}%
                   </Button>
                 );
               })}
+              {savingAlerts && (
+                <Loader2
+                  className="h-4 w-4 animate-spin text-muted-foreground"
+                  aria-label="Saving"
+                />
+              )}
             </div>
             <p className="text-xs text-muted-foreground">
-              Defaults to 80%. Each alert fires at most once per cap per month.
-              Clear all to keep just the 80% default.
+              Saves when you tap. Defaults to 80%. Each alert fires at most once
+              per cap per month. Clear all to keep just the 80% default.
             </p>
           </div>
 
-          <Button onClick={handleSaveAlertThresholds} disabled={savingAlerts}>
-            {savingAlerts && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save Alert Settings
-          </Button>
         </CardContent>
       </Card>
     </>

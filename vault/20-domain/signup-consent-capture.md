@@ -10,10 +10,16 @@ code_refs:
   - services/edge-functions/src/routes/legal.ts
   - services/edge-functions/src/tests/legal-acceptance-trigger_test.ts
   - src/lib/auth.ts
-reviewed: 2026-08-10
+reviewed: 2026-09-25
 tags: [legal, consent, gdpr, signup, migrations]
 summary: How a signup's terms acceptance is recorded, why the version is server-resolved, and the CREATE OR REPLACE failure that silently deleted the whole capture for months.
 ---
+
+> **Re-reviewed 2026-09-25.** Drift on `src/lib/auth.ts` only: `2ef5335c3`
+> added `hasPasswordIdentity` and `oauthProviderLabel`, which the Settings
+> Delete and Change Password cards use to match the account-delete password
+> rule. `signUpWithEmail` and the consent fields it sends in `options.data`
+> did not change, so nothing below moved.
 
 # Signup consent capture
 

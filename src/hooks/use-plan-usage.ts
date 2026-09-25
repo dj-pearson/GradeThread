@@ -40,6 +40,8 @@ export interface PlanUsage {
   /** Per-"cap:threshold" → "YYYY-MM" dedup ledger from the server. */
   lastWarning: Record<string, string>;
   isLoading: boolean;
+  /** The billing summary could not be read; every number above is a placeholder. */
+  isError: boolean;
 }
 
 function cap(used: number, limit: number): CapUsage {
@@ -51,7 +53,7 @@ function cap(used: number, limit: number): CapUsage {
 const EMPTY_CAP: CapUsage = { used: 0, limit: 0, pct: 0, unlimited: false };
 
 export function usePlanUsage(): PlanUsage {
-  const { data, isLoading } = useBillingSummary();
+  const { data, isLoading, isError } = useBillingSummary();
 
   return useMemo(() => {
     if (!data) {
@@ -64,6 +66,7 @@ export function usePlanUsage(): PlanUsage {
         thresholds: [80],
         lastWarning: {},
         isLoading,
+        isError,
       };
     }
 
@@ -94,8 +97,9 @@ export function usePlanUsage(): PlanUsage {
           : [80],
       lastWarning: data.alerts?.last_warning ?? {},
       isLoading,
+      isError,
     };
-  }, [data, isLoading]);
+  }, [data, isLoading, isError]);
 }
 
 // Friendly cap labels — shared by the watcher toast + meters.

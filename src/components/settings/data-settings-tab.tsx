@@ -5,12 +5,12 @@ import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { downloadBlob } from "@/lib/download";
-import { buildAccountExport } from "@/lib/account-export";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { toastError } from "@/lib/toast-error";
-import { readStored } from "@/lib/safe-storage";
+import { readStored, writeStored } from "@/lib/safe-storage";
 import { isExportingFor, useAccountExportStore } from "@/stores/account-export-store";
 
 const EXPORT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -27,6 +27,7 @@ export function DataSettingsTab() {
   const exportStage = useAccountExportStore((s) => s.stage);
   const exportPct = useAccountExportStore((s) => s.pct);
   const [filingRequest, setFilingRequest] = useState<"export" | "delete" | null>(null);
+  const confirm = useConfirm();
 
   async function handleExportData() {
     if (!user) return;
@@ -48,15 +49,20 @@ export function DataSettingsTab() {
     // export is running, and it is atomic with claiming the slot.
     if (!store.begin(user.id)) return;
     try {
+      // Loaded on click: the export builder and its zip writer are only
+      // needed by the few people who press this button.
+      const { buildAccountExport } = await import("@/lib/account-export");
       const blob = await buildAccountExport((stage, pct) => {
         store.progress(user.id, stage, pct);
       });
-      localStorage.setItem(key, String(Date.now()));
-
+      // Download first. The cooldown stamp is a convenience; when storage is
+      // blocked or full a bare setItem threw here and the finished ZIP was
+      // lost behind "Failed to export data." writeStored swallows that.
       downloadBlob(
         blob,
         `gradethread-export-${new Date().toISOString().split("T")[0]}.zip`,
       );
+      writeStored(key, String(Date.now()));
 
       toast.success("Your data export has been downloaded.");
     } catch (err) {
@@ -70,6 +76,19 @@ export function DataSettingsTab() {
   // Unlike the instant export above, this lands an audited, tracked request in
   // the compliance queue for an operator to fulfill.
   async function handleFileDataRequest(type: "export" | "delete") {
+    // A deletion request starts an operator-run erasure of the whole account.
+    // It must never be one stray click.
+    if (type === "delete") {
+      const ok = await confirm({
+        title: "Ask us to erase your account?",
+        description:
+          "Our staff will erase your account and all of its data within 30 days, and it cannot be undone. " +
+          "To delete it yourself right now instead, use Danger, then Delete account.",
+        confirmLabel: "File deletion request",
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     setFilingRequest(type);
     try {
       const res = await edgeFetch("/api/account/data-requests", {

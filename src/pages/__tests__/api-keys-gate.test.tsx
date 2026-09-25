@@ -26,6 +26,7 @@ function planUsage(plan: FlipdeskPlanKey, isLoading = false): PlanUsage {
     thresholds: [80],
     lastWarning: {},
     isLoading,
+    isError: false,
   };
 }
 

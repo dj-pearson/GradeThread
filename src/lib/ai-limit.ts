@@ -13,3 +13,35 @@ export function effectiveAiLimit(planLimit: number, userLimit: number | null): n
   if (userLimit == null) return planLimit;
   return Math.min(planLimit, userLimit);
 }
+
+// The AI allowance resets at 00:00 UTC on the 1st, on the server's clock,
+// so the date is computed and printed in UTC. Local time put it a day early
+// for anyone west of Greenwich on the evening of the last day.
+export function nextAiResetLabel(now: Date = new Date()): string {
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  return next.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+// What the typed cap will actually do. A cap can only LOWER the plan's
+// allowance (effectiveAiLimit), and a cap below the plan also stops Action
+// Credits from topping it up, so a number that looks harmless can either be
+// ignored or quietly switch something off. Say which.
+export function aiCapHint(typed: string, planLimit: number): string {
+  const t = typed.trim();
+  if (t === "") {
+    return planLimit < 0
+      ? "Blank uses your plan's allowance, which is unlimited."
+      : `Blank uses your plan's allowance of ${planLimit} a month.`;
+  }
+  if (!/^\d+$/.test(t)) return "Enter a whole number, or leave it blank.";
+  const n = Number.parseInt(t, 10);
+  if (n === 0) return "0 turns AI off. No AI actions will run.";
+  if (planLimit >= 0 && n >= planLimit) {
+    return `No effect: your plan already stops at ${planLimit} a month.`;
+  }
+  return `Stops at ${n} a month, and Action Credits won't be used past it.`;
+}

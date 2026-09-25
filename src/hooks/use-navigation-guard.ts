@@ -47,6 +47,17 @@ export function useNavigationGuard(
    * Omitted, every navigation is blocked while shouldBlock is true.
    */
   isLeaving?: (current: Location, next: Location) => boolean,
+  options?: {
+    /**
+     * When the condition clears while a prompt is open, let the held
+     * navigation through instead of cancelling it. For forms that save on
+     * blur (Settings' AI cap): the click that moves focus to a tab both
+     * triggers the save and asks to leave, and once the save clears the dirty
+     * flag there is nothing left to warn about, so the move the person asked
+     * for should happen rather than being silently dropped.
+     */
+    proceedWhenCleared?: boolean;
+  },
 ): NavigationGuard {
   const blocker = useBlocker(
     isLeaving
@@ -70,9 +81,12 @@ export function useNavigationGuard(
   // condition clears (the user submitted, or removed the last photo) while a
   // prompt is open, release it rather than stranding them behind a dialog about
   // work that no longer exists.
+  const proceedWhenCleared = options?.proceedWhenCleared ?? false;
   useEffect(() => {
-    if (!shouldBlock && blocker.state === "blocked") blocker.reset();
-  }, [shouldBlock, blocker]);
+    if (shouldBlock || blocker.state !== "blocked") return;
+    if (proceedWhenCleared) blocker.proceed();
+    else blocker.reset();
+  }, [shouldBlock, blocker, proceedWhenCleared]);
 
   return {
     blocked: blocker.state === "blocked",

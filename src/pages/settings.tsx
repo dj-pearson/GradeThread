@@ -1,18 +1,13 @@
+import { useCallback, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { usePageHost } from "@/hooks/use-page-host";
+import { useHashScroll } from "@/hooks/use-hash-scroll";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
+import { SettingsDirtyContext } from "@/hooks/use-settings-dirty";
+import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import { cn } from "@/lib/utils";
-import {
-  Sparkles,
-  Compass,
-  Archive,
-  AlertTriangle,
-  User,
-  Shield,
-  Bell,
-  Download,
-} from "lucide-react";
 import { ProfileSettingsTab } from "@/components/settings/profile-settings-tab";
 import { SecuritySettingsTab } from "@/components/settings/security-settings-tab";
 import { NotificationsSettingsTab } from "@/components/settings/notifications-settings-tab";
@@ -21,28 +16,21 @@ import { FlipdeskSettingsTab } from "@/components/settings/flipdesk-settings-tab
 import { DataSettingsTab } from "@/components/settings/data-settings-tab";
 import { PhotoArchiveCard } from "@/components/settings/photo-archive-card";
 import { DangerZoneCard } from "@/components/settings/danger-zone-card";
-
-// US-608: settings are split into deep-linkable tabs (?tab=<value>) so a long
-// single scroll becomes findable sections. Order here drives the tab strip.
-const SETTINGS_TABS = [
-  { value: "profile", label: "Profile", icon: User },
-  { value: "security", label: "Security", icon: Shield },
-  { value: "notifications", label: "Notifications", icon: Bell },
-  { value: "ai", label: "AI", icon: Sparkles },
-  { value: "flipdesk", label: "FlipDesk", icon: Compass },
-  { value: "data", label: "Data", icon: Download },
-  { value: "storage", label: "Storage", icon: Archive },
-  { value: "danger", label: "Danger", icon: AlertTriangle },
-] as const;
-
-type SettingsTab = (typeof SETTINGS_TABS)[number]["value"];
-const SETTINGS_TAB_VALUES = SETTINGS_TABS.map((t) => t.value) as SettingsTab[];
-const DEFAULT_SETTINGS_TAB: SettingsTab = "profile";
+import {
+  DEFAULT_SETTINGS_TAB,
+  SETTINGS_TABS,
+  SETTINGS_TAB_VALUES,
+  type SettingsTab,
+} from "@/lib/settings-tabs";
 
 // Web-growth action 6: each tab's cards, state and save handlers live in their
-// own component under src/components/settings/. This page owns only the tab
-// strip and the ?tab= deep link. Radix unmounts an inactive TabsContent, so a
-// tab's unsaved edits are dropped when you switch away from it.
+// own component under src/components/settings/. This page owns the tab strip,
+// the ?tab= deep link and the unsaved-changes guard. Radix unmounts an
+// inactive TabsContent, so a tab's unsaved typing would be dropped when you
+// switch away from it; sections with a text form report their dirty state
+// (useReportSettingsDirty) and any navigation is held behind a dialog while
+// one is dirty. Tab changes go through setSearchParams, so the same blocker
+// catches inner tabs, outer hub tabs and sidebar links.
 export function SettingsPage() {
   const { embedded } = usePageHost();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -54,6 +42,30 @@ export function SettingsPage() {
   )
     ? (tabParam as SettingsTab)
     : DEFAULT_SETTINGS_TAB;
+
+  // ?tab=notifications#email-preferences (the unsubscribe email) has to land
+  // on the card, which mounts after the browser's own hash jump has fired.
+  useHashScroll(activeTab);
+
+  const [dirtySections, setDirtySections] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const setDirty = useCallback((section: string, dirty: boolean) => {
+    setDirtySections((prev) => {
+      if (prev.has(section) === dirty) return prev;
+      const next = new Set(prev);
+      if (dirty) next.add(section);
+      else next.delete(section);
+      return next;
+    });
+  }, []);
+  // proceedWhenCleared: the AI cap saves on blur, so clicking another tab
+  // straight from that field both saves it and asks to leave. The save
+  // clears the dirty flag a moment later, and the tab change should then go
+  // ahead instead of the dialog flashing and the click being lost.
+  const guard = useNavigationGuard(dirtySections.size > 0, undefined, {
+    proceedWhenCleared: true,
+  });
 
   function handleTabChange(next: string) {
     setSearchParams(
@@ -67,6 +79,7 @@ export function SettingsPage() {
   }
 
   return (
+    <SettingsDirtyContext.Provider value={setDirty}>
     <div className="space-y-6">
       <PageHeader
         title="Settings"
@@ -82,9 +95,12 @@ export function SettingsPage() {
             above these. Rendering both as identical pill strips reads as two
             stacked tab bars, so switch these to an underline sub-nav that's
             clearly secondary to (not a sibling of) the hub tabs. */}
+        {/* One row that scrolls sideways on a phone. It used to flex-wrap,
+            but the list's h-9 variant wins over h-auto, so wrapped rows
+            spilled out of the 36px box and the border cut through them. */}
         <TabsList
           className={cn(
-            "h-auto w-full flex-wrap justify-start",
+            "w-full max-w-full justify-start overflow-x-auto",
             embedded &&
               "gap-1 rounded-none border-b bg-transparent p-0",
           )}
@@ -94,8 +110,9 @@ export function SettingsPage() {
               key={t.value}
               value={t.value}
               className={cn(
+                "shrink-0",
                 embedded &&
-                  "rounded-none border-b-2 border-transparent bg-transparent px-3 pb-2 shadow-none data-[state=active]:border-brand-navy data-[state=active]:bg-transparent data-[state=active]:shadow-none",
+                  "rounded-none border-b-2 border-transparent bg-transparent px-3 pb-2 shadow-none focus-visible:ring-inset data-[state=active]:border-brand-navy data-[state=active]:bg-transparent data-[state=active]:shadow-none",
               )}
             >
               <t.icon className="h-4 w-4" />
@@ -136,6 +153,8 @@ export function SettingsPage() {
           <DangerZoneCard />
         </TabsContent>
       </Tabs>
+      <UnsavedChangesDialog guard={guard} noun="change" />
     </div>
+    </SettingsDirtyContext.Provider>
   );
 }

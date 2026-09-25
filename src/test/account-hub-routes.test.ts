@@ -68,3 +68,24 @@ describe("the account hub owns its five legacy paths (US-2511)", () => {
     }
   });
 });
+
+describe("the account hub loads each tab's page on demand (ACC-11)", () => {
+  it("imports none of the five pages statically", () => {
+    for (const page of ["settings", "billing", "team", "api-keys", "referrals"]) {
+      expect(account).not.toMatch(
+        new RegExp(`^import [^\\n]* from "@/pages/${page}";`, "m"),
+      );
+      expect(account).toContain(`import("@/pages/${page}")`);
+    }
+    expect(account).toContain('from "@/routes/lazy"');
+  });
+
+  it("the Data tab loads the export builder only when asked", () => {
+    const data = readFileSync(
+      resolve(process.cwd(), "src/components/settings/data-settings-tab.tsx"),
+      "utf8",
+    );
+    expect(data).not.toMatch(/^import [^\n]* from "@\/lib\/account-export";/m);
+    expect(data).toContain('await import("@/lib/account-export")');
+  });
+});

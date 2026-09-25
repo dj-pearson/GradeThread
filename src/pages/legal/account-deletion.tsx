@@ -49,10 +49,10 @@ export function AccountDeletionPage() {
 
       <h3>On the website</h3>
       <p>
-        Sign in and go to{" "}
-        <Link to="/dashboard/account">Account settings</Link>. The delete option
-        is in the danger zone at the bottom of the page, behind the same typed
-        confirmation.
+        Sign in, open <strong>Account</strong>, then <strong>Settings</strong>,
+        then the <strong>Danger</strong> tab. This link{" "}
+        <Link to="/dashboard/account?tab=danger">goes straight there</Link>.
+        Delete account is behind the same typed confirmation.
       </p>
 
       <h3>By email</h3>
