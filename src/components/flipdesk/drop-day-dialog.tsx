@@ -35,6 +35,7 @@ import {
   type DropShift,
 } from "@/lib/scheduling";
 import { DropHealthTag } from "@/components/flipdesk/drop-health-tag";
+import { DropSpreadPanel } from "@/components/flipdesk/drop-spread-panel";
 
 // US-2522: everything the calendar could not do. One day's drops, each
 // reschedulable and cancellable in place, plus a shift that moves the whole day
@@ -79,6 +80,7 @@ export function DropDayDialog({
   drops,
   timeZone,
   onDayChange,
+  suggestedStart,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -87,6 +89,8 @@ export function DropDayDialog({
   timeZone: string;
   /** SD-10: show another day (month 1-based), after a day shift or on request. */
   onDayChange?: (year: number, month: number, day: number) => void;
+  /** SD-15: a suggested start for a spread, from the seller's best hours. */
+  suggestedStart?: { iso: string; label: string } | null;
 }) {
   const reschedule = useRescheduleDrop();
   const cancel = useCancelDrop();
@@ -319,6 +323,15 @@ export function DropDayDialog({
               as you set them.
             </span>
           </div>
+        )}
+
+        {drops.length > 1 && (
+          <DropSpreadPanel
+            drops={drops}
+            timeZone={timeZone}
+            disabled={locked}
+            suggestedStart={suggestedStart}
+          />
         )}
 
         <div className="space-y-2">

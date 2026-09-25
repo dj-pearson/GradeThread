@@ -14,6 +14,8 @@ import {
   zonedInputToIsoDetailed,
   getFormatter,
   formatTimeInZone,
+  spreadTimes,
+  orderForSpread,
 } from "./scheduling";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -243,5 +245,33 @@ describe("getFormatter (SD-13)", () => {
   it("formats a clock time in the zone", () => {
     expect(formatTimeInZone("2026-06-15T00:00:00.000Z", "America/Chicago")).toBe("7:00 PM");
     expect(formatTimeInZone("junk", "UTC")).toBe("-");
+  });
+});
+
+describe("spreadTimes and orderForSpread (SD-14)", () => {
+  it("spreads three drops ten minutes apart from the start", () => {
+    const T = "2026-10-04T00:00:00.000Z";
+    expect(spreadTimes(3, T, 10)).toEqual([
+      "2026-10-04T00:00:00.000Z",
+      "2026-10-04T00:10:00.000Z",
+      "2026-10-04T00:20:00.000Z",
+    ]);
+    expect(spreadTimes(0, T, 10)).toEqual([]);
+    expect(spreadTimes(2, "junk", 10)).toEqual([]);
+  });
+
+  const drops = [
+    { id: "a", scheduled_publish_at: "2026-10-04T00:00:00Z", listing_price: 20, promoted: false },
+    { id: "b", scheduled_publish_at: "2026-10-04T00:05:00Z", listing_price: 80, promoted: true },
+    { id: "c", scheduled_publish_at: "2026-10-03T23:00:00Z", listing_price: 80, promoted: false },
+  ];
+  it("current order is time order", () => {
+    expect(orderForSpread(drops, "current").map((d) => d.id)).toEqual(["c", "a", "b"]);
+  });
+  it("price high to low keeps time order on ties", () => {
+    expect(orderForSpread(drops, "price").map((d) => d.id)).toEqual(["c", "b", "a"]);
+  });
+  it("promoted first", () => {
+    expect(orderForSpread(drops, "promoted").map((d) => d.id)).toEqual(["b", "c", "a"]);
   });
 });

@@ -252,6 +252,30 @@ export interface DropBatchResult {
 }
 
 /**
+ * Write each row's new instant and count what really changed. Every target is
+ * checked BEFORE any write, so a refused batch leaves the day exactly as it
+ * was rather than half moved. Sequential so a partial failure leaves a
+ * readable count behind.
+ */
+async function writeBatch(assignments: { id: string; at: string }[]): Promise<DropBatchResult> {
+  for (const a of assignments) assertFutureOrThrow(a.at);
+  const result: DropBatchResult = { moved: 0, unchanged: 0, failed: 0, movedIds: [] };
+  for (const a of assignments) {
+    try {
+      if (await writeDropTime(a.id, a.at)) {
+        result.moved += 1;
+        result.movedIds.push(a.id);
+      } else {
+        result.unchanged += 1;
+      }
+    } catch {
+      result.failed += 1;
+    }
+  }
+  return result;
+}
+
+/**
  * Shift a set of drops by the same amount, keeping their order and the gaps
  * between them. Each row moves relative to ITS OWN time, so a day's staggered
  * drops stay staggered. Whole days move on the wall clock in `timeZone`
@@ -272,29 +296,32 @@ export function useShiftDrops() {
       // One UPDATE per row: they all move to DIFFERENT times, so there is no
       // single-statement version of this. These are direct PostgREST writes
       // under the caller's RLS; they never pass through the edge rate limiter.
-      // Sequential so a partial failure leaves a readable count behind.
       const planned = drops.map((d) => ({
         id: d.id,
         next: shiftInZone(d.scheduled_publish_at, timeZone, shift),
       }));
-      // Checked for every row BEFORE any write, so a refused shift leaves the
-      // day exactly as it was rather than half moved.
-      for (const p of planned) assertFutureOrThrow(p.next);
-      const result: DropBatchResult = { moved: 0, unchanged: 0, failed: 0, movedIds: [] };
-      for (const p of planned) {
-        try {
-          if (await writeDropTime(p.id, p.next)) {
-            result.moved += 1;
-            result.movedIds.push(p.id);
-          } else {
-            result.unchanged += 1;
-          }
-        } catch {
-          result.failed += 1;
-        }
-      }
-      return result;
+      return writeBatch(planned.map((p) => ({ id: p.id, at: p.next })));
     },
+    onSettled: invalidate,
+  });
+}
+
+/**
+ * SD-14: give each drop its own new instant (a spread across time slots).
+ *
+ * The same per-row path as a shift: every target is checked against the cron's
+ * five-minute window before anything is written, and rows that change nothing
+ * are counted rather than reported as moved. Not atomic; a one-transaction
+ * version needs an RPC and a migration, and is deferred.
+ */
+export function useSpreadDrops() {
+  const invalidate = useInvalidateDrops();
+  return useMutation({
+    mutationFn: async ({
+      assignments,
+    }: {
+      assignments: { id: string; at: string }[];
+    }): Promise<DropBatchResult> => writeBatch(assignments),
     onSettled: invalidate,
   });
 }

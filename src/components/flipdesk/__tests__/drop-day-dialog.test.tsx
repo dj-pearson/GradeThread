@@ -16,6 +16,7 @@ const state = {
   reschedule: vi.fn(),
   cancel: vi.fn(),
   shift: vi.fn(),
+  spread: vi.fn(),
 };
 
 function mutation(fn: ReturnType<typeof vi.fn>) {
@@ -32,6 +33,7 @@ vi.mock("@/hooks/use-scheduled-drops", async (orig) => ({
   useRescheduleDrop: () => mutation(state.reschedule),
   useCancelDrop: () => mutation(state.cancel),
   useShiftDrops: () => mutation(state.shift),
+  useSpreadDrops: () => mutation(state.spread),
 }));
 
 vi.mock("@/components/ui/confirm-dialog", () => ({
@@ -76,6 +78,12 @@ beforeEach(() => {
     unchanged: 0,
     failed: 0,
     movedIds: drops.map((d) => d.id),
+  }));
+  state.spread = vi.fn(async ({ assignments }: { assignments: { id: string }[] }) => ({
+    moved: assignments.length,
+    unchanged: 0,
+    failed: 0,
+    movedIds: assignments.map((a) => a.id),
   }));
   for (const k of ["success", "error", "warning", "info"] as const) toastSpy[k].mockReset();
 });
@@ -191,6 +199,7 @@ describe("roles without manage_inventory (SD-5)", () => {
     button("Back 1 hour"),
     button("+1 hour"),
     button("+1 day"),
+    button("Spread over time slots"),
   ];
 
   it("a viewer sees every write disabled and the role note", async () => {
@@ -321,5 +330,45 @@ describe("undo and the time editor's keys (SD-11)", () => {
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
     expect(document.body.querySelector('input[type="datetime-local"]')).toBeNull();
     expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+  });
+});
+
+describe("spread a day's drops over time slots (SD-14)", () => {
+  async function setInput(label: string, value: string) {
+    const input = document.body.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("writes three instants 15 minutes apart, the ones it previewed", async () => {
+    await render([drop("a", 48 * 3_600_000), drop("b", 49 * 3_600_000), drop("c", 50 * 3_600_000), drop("d", 51 * 3_600_000)]);
+    await click(button("Spread over time slots"));
+    // Pick three of four.
+    const d = document.body.querySelector<HTMLInputElement>('input[aria-label="Include Drop d"]')!;
+    await act(async () => d.click());
+    await click(button("15 min"));
+    await setInput("Spread start time", "2030-06-14T19:00");
+    const previewB = document.body.querySelector('[data-testid="spread-at-b"]')!.textContent;
+    expect(previewB).toContain("to 7:15 PM");
+    await click(button("Spread 3 drops"));
+    expect(state.spread).toHaveBeenCalledTimes(1);
+    const { assignments } = state.spread.mock.calls[0]![0] as { assignments: { id: string; at: string }[] };
+    expect(assignments).toEqual([
+      { id: "a", at: "2030-06-15T00:00:00.000Z" },
+      { id: "b", at: "2030-06-15T00:15:00.000Z" },
+      { id: "c", at: "2030-06-15T00:30:00.000Z" },
+    ]);
+    expect(toastSpy.success).toHaveBeenCalledWith("Spread 3 of 3.", expect.anything());
+  });
+
+  it("a past start disables the spread and says why", async () => {
+    await render([drop("a", 48 * 3_600_000), drop("b", 49 * 3_600_000)]);
+    await click(button("Spread over time slots"));
+    await setInput("Spread start time", "2020-01-01T10:00");
+    expect(button("Spread 2 drops").disabled).toBe(true);
+    expect(document.body.textContent).toContain("That time has passed. Pick a later time.");
   });
 });

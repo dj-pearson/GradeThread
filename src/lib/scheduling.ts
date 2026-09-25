@@ -423,3 +423,50 @@ export function shiftInZone(iso: string, timeZone: string, shift: DropShift): st
   }
   return new Date(t + minutes * 60_000).toISOString();
 }
+
+// -- Spread (SD-14) ----------------------------------------------------------
+
+/** Intervals offered when spreading a day's drops, in minutes. */
+export const SPREAD_INTERVALS = [5, 10, 15, 30, 60] as const;
+
+/**
+ * `count` instants starting at `startIso`, `intervalMinutes` apart. Absolute
+ * time, so a spread that crosses a DST change keeps its real gaps.
+ */
+export function spreadTimes(count: number, startIso: string, intervalMinutes: number): string[] {
+  const start = Date.parse(startIso);
+  if (!Number.isFinite(start) || count <= 0) return [];
+  return Array.from({ length: count }, (_, i) =>
+    new Date(start + i * intervalMinutes * 60_000).toISOString(),
+  );
+}
+
+export type SpreadOrder = "current" | "price" | "promoted";
+
+export const SPREAD_ORDER_LABEL: Record<SpreadOrder, string> = {
+  current: "Current order",
+  price: "Price, high to low",
+  promoted: "Promoted first",
+};
+
+/**
+ * The order drops take their new slots in. Stable: ties keep their current
+ * (time) order, so re-running a spread never shuffles equal rows.
+ */
+export function orderForSpread<
+  T extends { scheduled_publish_at: string; listing_price: number | null; promoted: boolean },
+>(drops: readonly T[], order: SpreadOrder): T[] {
+  const byTime = [...drops].sort(
+    (a, b) => Date.parse(a.scheduled_publish_at) - Date.parse(b.scheduled_publish_at),
+  );
+  if (order === "price") {
+    return byTime
+      .map((d, i) => ({ d, i }))
+      .sort((a, b) => (b.d.listing_price ?? -1) - (a.d.listing_price ?? -1) || a.i - b.i)
+      .map(({ d }) => d);
+  }
+  if (order === "promoted") {
+    return [...byTime.filter((d) => d.promoted), ...byTime.filter((d) => !d.promoted)];
+  }
+  return byTime;
+}
