@@ -80,7 +80,7 @@ Deno.test("connect readiness: a transfers-only account with charges disabled is 
 Deno.test("POST /connect: a non-creator is refused with 403 before Stripe", async () => {
   const db = installFakePostgrest();
   try {
-    for (const seed of [{}, account({ program: "user", creator_terms_version: "2026-09-01" })]) {
+    for (const seed of [{}, account({ program: "user", creator_terms_version: "2026-09-25" })]) {
       db.reset(seed);
       const res = await post("/connect", {});
       assertEquals(res.status, 403);
@@ -107,10 +107,26 @@ Deno.test("POST /tax-profile: no accepted creator terms is 403 and writes no row
   }
 });
 
+Deno.test("POST /tax-profile: a creator on older terms is sent to accept the new ones", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset(account({ program: "creator", creator_terms_version: "2026-09-01" }));
+    const res = await post("/tax-profile", FULL_TAX);
+    assertEquals(res.status, 403);
+    assertEquals(
+      (await res.json()).error,
+      "The creator terms changed. Accept the new terms before adding tax details.",
+    );
+    assertEquals(db.writes("affiliate_tax_profiles").length, 0);
+  } finally {
+    db.restore();
+  }
+});
+
 Deno.test("POST /tax-profile: a certified form missing the address is 400", async () => {
   const db = installFakePostgrest();
   try {
-    db.reset(account({ program: "user", creator_terms_version: "2026-09-01" }));
+    db.reset(account({ program: "user", creator_terms_version: "2026-09-25" }));
     const { address_line1: _drop, ...noAddress } = FULL_TAX;
     const res = await post("/tax-profile", noAddress);
     assertEquals(res.status, 400);
@@ -124,7 +140,7 @@ Deno.test("POST /tax-profile: a certified form missing the address is 400", asyn
 Deno.test("POST /tax-profile: an applicant with current terms and a full form is saved", async () => {
   const db = installFakePostgrest();
   try {
-    db.reset(account({ program: "user", creator_terms_version: "2026-09-01" }));
+    db.reset(account({ program: "user", creator_terms_version: "2026-09-25" }));
     const res = await post("/tax-profile", FULL_TAX);
     assertEquals(res.status, 200);
     const body = await res.json();

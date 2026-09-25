@@ -668,7 +668,12 @@ affiliateRoutes.post("/tax-profile", async (c) => {
   // else hands over a tax ID for money they cannot earn.
   const creator = await loadCreatorAccount(userId);
   if (creator?.creator_terms_version !== CREATOR_TERMS_VERSION) {
-    return c.json({ error: "Apply to the creator program first." }, 403);
+    // Someone who accepted an older version is in the programme already; what
+    // they need is the new text, not an application.
+    const error = creator?.creator_terms_version
+      ? "The creator terms changed. Accept the new terms before adding tax details."
+      : "Apply to the creator program first.";
+    return c.json({ error }, 403);
   }
 
   let body: Record<string, unknown>;
