@@ -157,11 +157,14 @@ export function HelpArticlePage() {
               </p>
             )}
             {article.hero_image_url && (
+              // Decorative (the h1 already names it) and above the fold, so it
+              // loads first rather than lazily.
               <img
                 src={article.hero_image_url}
-                alt={article.title}
-                loading="lazy"
-                className="mt-6 w-full rounded-xl"
+                alt=""
+                loading="eager"
+                fetchPriority="high"
+                className="mt-6 aspect-[16/9] w-full rounded-xl object-cover"
               />
             )}
             <HelpArticleBody html={article.body_html} className="mt-6 max-w-[70ch]" />

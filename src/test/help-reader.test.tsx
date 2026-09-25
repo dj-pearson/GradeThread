@@ -458,3 +458,85 @@ describe("H10: query and category live in the URL", () => {
     expect(document.activeElement).toBe(input());
   });
 });
+
+describe("H12: the article leads somewhere", () => {
+  it("related shows only articles this viewer can see, as in-app links", async () => {
+    handler = (path) => {
+      if (path === "/api/help") return defaultIndex();
+      return res({
+        article: articleView("start", { related_slugs: ["refunds", "internal-y"] }),
+        category: CATEGORIES[0],
+        viewer: "member",
+      });
+    };
+    render("/dashboard/help/start");
+    await settle(20);
+    const related = Array.from(container.querySelectorAll("section")).find((s) =>
+      s.querySelector("h2")?.textContent === "Related",
+    );
+    expect(related).toBeTruthy();
+    const hrefs = Array.from(related!.querySelectorAll("a")).map((a) => a.getAttribute("href"));
+    expect(hrefs).toEqual(["/dashboard/help/refunds"]);
+  });
+
+  it("two h2s give an 'On this page' list whose anchors match the heading ids", async () => {
+    handler = (path) =>
+      path === "/api/help"
+        ? defaultIndex()
+        : res({
+            article: articleView("start", { body_html: "<h2>First step</h2><p>a</p><h2>Second step</h2>" }),
+            category: CATEGORIES[0],
+            viewer: "member",
+          });
+    render("/dashboard/help/start");
+    await settle(20);
+    const nav = container.querySelector('nav[aria-label="On this page"]');
+    expect(nav).toBeTruthy();
+    const anchors = Array.from(nav!.querySelectorAll("a")).map((a) => a.getAttribute("href"));
+    expect(anchors).toEqual(["#first-step", "#second-step"]);
+    const ids = Array.from(container.querySelectorAll(".prose h2")).map((h2) => h2.id);
+    expect(ids).toEqual(["first-step", "second-step"]);
+  });
+
+  it("the crumb links to the index filtered to the article's category", async () => {
+    render("/dashboard/help/refunds");
+    await settle(20);
+    const crumb = container.querySelector('nav[aria-label="Breadcrumb"]');
+    const link = Array.from(crumb!.querySelectorAll("a")).find((a) => a.textContent === "Billing");
+    expect(link?.getAttribute("href")).toBe("/dashboard/help?category=billing");
+  });
+
+  it("the hero is decorative and the date line is in UTC", async () => {
+    handler = (path) =>
+      path === "/api/help"
+        ? defaultIndex()
+        : res({
+            article: articleView("start", {
+              hero_image_url: "https://cdn.example/h.png",
+              updated_at: "2026-09-01T00:00:00Z",
+            }),
+            category: CATEGORIES[0],
+            viewer: "member",
+          });
+    render("/dashboard/help/start");
+    await settle(20);
+    const img = container.querySelector("article img");
+    expect(img?.getAttribute("alt")).toBe("");
+    expect(img?.getAttribute("loading")).toBe("eager");
+    expect(text()).toContain("Updated September 1, 2026");
+  });
+
+  it("FAQ answers are disclosures keyed by question", async () => {
+    handler = (path) =>
+      path === "/api/help"
+        ? defaultIndex()
+        : res({
+            article: articleView("start", { faq: [{ question: "Q1?", answer: "A1" }] }),
+            category: CATEGORIES[0],
+            viewer: "member",
+          });
+    render("/dashboard/help/start");
+    await settle(20);
+    expect(container.querySelector("details summary")?.textContent).toBe("Q1?");
+  });
+});

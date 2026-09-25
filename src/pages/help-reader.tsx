@@ -31,6 +31,7 @@ import {
 } from "@/hooks/use-help-center";
 import { HelpArticleBody } from "@/components/help/help-article-body";
 import { inAppHelpPath } from "@/lib/help/paths";
+import { buildHelpToc } from "@/lib/help/toc";
 import { track } from "@/lib/analytics";
 import { HELP_VISIBILITY_LABELS, type HelpVisibility } from "@/types/help-center";
 
@@ -438,12 +439,40 @@ function HelpReaderIndexPage() {
 }
 
 // ── one article ───────────────────────────────────────────
+
+// UTC, so a date stored as midnight UTC does not read as the day before for a
+// seller west of Greenwich.
+function formatHelpDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 function HelpReaderArticle({ slug }: { slug: string }) {
   const { data, isLoading, isError, error, refetch } = useHelpReaderArticle(slug);
   const article = data?.article;
   const notFound = isError && isHelpNotFound(error);
+  const category = data?.category ?? null;
 
-  const basis = article?.reviewed_at ?? article?.published_at ?? null;
+  // Section anchors, the same ids the public SSR gives the same article.
+  const bodyHtml = article?.body_html;
+  const { html: bodyWithAnchors, toc } = useMemo(() => buildHelpToc(bodyHtml ?? ""), [bodyHtml]);
+
+  // Related articles come from the reader index this viewer already loaded
+  // (it is the same query the Help page uses, so usually a cache hit). The
+  // index is filtered to what this viewer may read, so a related slug that is
+  // internal, a draft, or gone simply is not in it and is dropped.
+  const index = useHelpReaderIndex();
+  const related = useMemo(() => {
+    const bySlug = new Map((index.data?.articles ?? []).map((a) => [a.slug, a]));
+    return (article?.related_slugs ?? [])
+      .filter((s) => s !== article?.slug)
+      .map((s) => bySlug.get(s))
+      .filter((a): a is NonNullable<typeof a> => Boolean(a));
+  }, [index.data, article]);
 
   // A new article opens at its top with focus on its title, so a keyboard or
   // screen-reader user lands on what they just opened. A #hash wins: a link to
@@ -481,9 +510,22 @@ function HelpReaderArticle({ slug }: { slug: string }) {
   return (
     <div className="space-y-4">
       <SEO title={article?.title ?? "Help"} noindex />
-      <Link to="/dashboard/help" className="text-sm text-muted-foreground hover:underline">
-        All help articles
-      </Link>
+      <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
+        <Link to="/dashboard/help" className="hover:underline">
+          Help
+        </Link>
+        {category && (
+          <>
+            <span aria-hidden="true"> / </span>
+            <Link
+              to={`/dashboard/help?category=${encodeURIComponent(category.key)}`}
+              className="hover:underline"
+            >
+              {category.title}
+            </Link>
+          </>
+        )}
+      </nav>
 
       {isLoading && (
         <LoadingRegion label="Loading article" className="p-4">
@@ -521,33 +563,70 @@ function HelpReaderArticle({ slug }: { slug: string }) {
           {article.summary && (
             <p className="mt-2 max-w-[70ch] text-muted-foreground">{article.summary}</p>
           )}
-          {basis && (
-            <p className="mt-1 text-sm text-muted-foreground">
-              {article.reviewed_at ? "Last reviewed" : "Published"}{" "}
-              {new Date(basis).toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}
-            </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Updated {formatHelpDate(article.updated_at)}
+            {article.reviewed_at && <> · Last reviewed {formatHelpDate(article.reviewed_at)}</>}
+          </p>
+
+          {article.hero_image_url && (
+            // Decorative: the title above already says what the article is.
+            <img
+              src={article.hero_image_url}
+              alt=""
+              loading="eager"
+              fetchPriority="high"
+              className="mt-6 aspect-[16/9] w-full max-w-[70ch] rounded-xl object-cover"
+            />
           )}
+
+          {toc.length >= 2 && (
+            <nav aria-label="On this page" className="mt-6 max-w-[70ch] text-sm">
+              <p className="font-medium">On this page</p>
+              <ul className="mt-2 space-y-1">
+                {toc.map((t) => (
+                  <li key={t.id}>
+                    <a href={`#${t.id}`} className="text-muted-foreground hover:underline">
+                      {t.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          )}
+
           <HelpArticleBody
-            html={article.body_html}
-            className="mt-6 max-w-[70ch]"
+            html={bodyWithAnchors}
+            className="mt-6 max-w-[70ch] [&_h2]:scroll-mt-20"
             linkFor={inAppHelpPath}
           />
 
           {(article.faq ?? []).length > 0 && (
-            <section className="mt-10">
+            <section className="mt-10 max-w-[70ch]">
               <h2 className="text-lg font-semibold">Frequently asked questions</h2>
-              <dl className="mt-4 space-y-4">
-                {(article.faq ?? []).map((f, i) => (
-                  <div key={i}>
-                    <dt className="font-medium">{f.question}</dt>
-                    <dd className="mt-1 text-muted-foreground">{f.answer}</dd>
-                  </div>
+              <div className="mt-4 space-y-3">
+                {(article.faq ?? []).map((f) => (
+                  <details key={f.question} className="group">
+                    <summary className="cursor-pointer font-medium">{f.question}</summary>
+                    <p className="mt-1 text-muted-foreground">{f.answer}</p>
+                  </details>
                 ))}
-              </dl>
+              </div>
+            </section>
+          )}
+
+          {related.length > 0 && (
+            <section className="mt-10 max-w-[70ch]">
+              <h2 className="text-lg font-semibold">Related</h2>
+              <ul className="mt-3 space-y-3">
+                {related.map((r) => (
+                  <li key={r.slug}>
+                    <Link to={inAppHelpPath(r.slug)} className="font-medium hover:underline">
+                      {r.title}
+                    </Link>
+                    {r.summary && <p className="text-sm text-muted-foreground">{r.summary}</p>}
+                  </li>
+                ))}
+              </ul>
             </section>
           )}
 
