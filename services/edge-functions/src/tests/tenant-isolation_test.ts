@@ -132,6 +132,9 @@ const REQUIRED_RESOURCE_IDS = [
   "TEST_USER_A_CONFLICT_ID",
   "TEST_USER_A_RECONCILE_SESSION",
   "TEST_USER_A_CONSIGNOR_ID",
+  "TEST_USER_A_CONSIGNOR_PAYOUT_ID",
+  "TEST_USER_B_CONSIGNOR_ID",
+  "TEST_USER_B_ITEM_ID",
   // US-2228: the receipt routes read from a PRIVATE bucket, so a skipped case
   // here is an unverified path to another tenant's card tails.
   "TEST_USER_A_EXPENSE_ID",
@@ -3205,6 +3208,152 @@ Deno.test({
     };
     const ids = (body.consignors ?? []).map((r) => r.id);
     assert(!ids.includes(aId), `B's consignor list leaked A's consignor ${aId}`);
+  },
+});
+
+// Consignment page pass (C2): the routes the US-600 block above never covered.
+Deno.test({
+  name: "B cannot record an intake signature on A's consignor",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_CONSIGNOR_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/consignors/${id}/intake`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ signature_name: "x" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST consignor intake (A's)");
+  },
+});
+
+Deno.test({
+  name: "B cannot start Stripe onboarding for A's consignor",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_CONSIGNOR_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/consignors/${id}/connect`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({}),
+    });
+    await res.body?.cancel();
+    // assertDenied, NOT assertDeniedOrGated: the ownership 404 must come
+    // before the 503 "Payments are not configured" branch. A 503 here means
+    // the route reached Stripe setup for a consignor B does not own.
+    assertDenied(res.status, "POST consignor connect (A's)");
+  },
+});
+
+Deno.test({
+  name: "B cannot read or refresh A's consignor Stripe status",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_CONSIGNOR_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/consignors/${id}/connect/status`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    assertDenied(res.status, "GET consignor connect/status (A's)");
+    assert(!("connected" in body), "connect/status told B whether A's consignor is connected");
+  },
+});
+
+Deno.test({
+  name: "B's payout ledger filtered to A's consignor is empty",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_CONSIGNOR_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/consignment/payouts?consignor_id=${id}`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    const body = (await res.json().catch(() => ({}))) as { payouts?: unknown[] };
+    if (res.status === 200) {
+      assertEquals(body.payouts ?? [], [], "B's filtered ledger returned A's payouts");
+    } else {
+      assertDenied(res.status, "GET payouts?consignor_id= (A's)");
+    }
+  },
+});
+
+// C15: the "Add items" picker lists only the caller's own items.
+Deno.test({
+  name: "B's unassigned-items picker never lists A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const aItem = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/unassigned-items`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = (await res.json().catch(() => ({}))) as { items?: Array<{ id: string }> };
+    assert(
+      !(body.items ?? []).some((i) => i.id === aItem),
+      "B's unassigned-items picker listed A's item",
+    );
+  },
+});
+
+// C7: settling a manual payout by id.
+Deno.test({
+  name: "B cannot mark A's consignor payout paid",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_PAYOUT_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_CONSIGNOR_PAYOUT_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/payouts/${id}`, {
+      method: "PATCH",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ action: "mark_paid" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "PATCH consignor payout (A's)");
+  },
+});
+
+// C15: attaching inventory to a consignor, in both directions.
+Deno.test({
+  name: "B cannot attach B's items to A's consignor",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_ID") ||
+    !Deno.env.get("TEST_USER_B_ITEM_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_CONSIGNOR_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/consignors/${id}/items`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ item_ids: [Deno.env.get("TEST_USER_B_ITEM_ID")!] }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST consignor items (A's consignor)");
+  },
+});
+
+Deno.test({
+  name: "B attaching A's item to B's consignor updates nothing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_B_CONSIGNOR_ID") ||
+    !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_B_CONSIGNOR_ID")!;
+    const aItem = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/consignors/${id}/items`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ item_ids: [aItem] }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { updated?: number };
+    if (res.status === 200) {
+      assertEquals(body.updated, 0, "B attached A's item to B's consignor");
+    } else {
+      assertDenied(res.status, "POST consignor items (A's item)");
+    }
+    // A's item must still be unassigned when read back as A.
+    const list = await fetch(`${BASE}/api/flipdesk/consignment/consignors/${id}/items`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const listed = (await list.json().catch(() => ({}))) as { items?: Array<{ id: string }> };
+    assert(
+      !(listed.items ?? []).some((i) => i.id === aItem),
+      "A's item shows up under B's consignor",
+    );
   },
 });
 
