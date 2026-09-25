@@ -72,7 +72,7 @@ describe("a filled form warns before it is abandoned (US-2546 AC3)", () => {
     // click through, which is how a guard stops working.
     const src = read(INTAKE);
     expect(src).toMatch(/const dirty =\s*\n?\s*!saving &&/);
-    expect(src).toContain("v !== INITIAL[k as keyof FormState]");
+    expect(src).toContain("v !== baseline[k as keyof FormState]");
   });
 
   it("it names the photos, which are the part that cannot be recovered", () => {

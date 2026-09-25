@@ -45,7 +45,11 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
-import { useSkuSequence } from "@/hooks/use-sku-sequence";
+import {
+  SKU_PREVIEW_KEY,
+  SKU_SEQUENCE_KEY,
+  useSkuSequence,
+} from "@/hooks/use-sku-sequence";
 import { useSources } from "@/hooks/use-sources";
 import { SourcedBySelect } from "@/components/flipdesk/sourced-by-select";
 import { SkuAutoHint } from "@/components/flipdesk/sku-auto-hint";
@@ -75,6 +79,7 @@ import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import {
   IntakePhotoStager,
+  revokeStagedPreviews,
   type StagedPhoto,
 } from "@/components/flipdesk/intake-photo-stager";
 import { useNavigationGuard } from "@/hooks/use-navigation-guard";
@@ -139,7 +144,10 @@ const AI_FIELD_LABELS: Record<string, string> = {
 
 type FormState = IntakeFormState;
 
-const INITIAL: FormState = {
+// A function, not a constant: a module-level object froze purchase_date at the
+// day the bundle loaded, so a tab left open overnight saved yesterday's date.
+function initialForm(): FormState {
+  return {
   title: "",
   sku: "",
   container: "",
@@ -157,7 +165,8 @@ const INITIAL: FormState = {
   description: "",
   condition_notes: "",
   status: "cataloged",
-};
+  };
+}
 
 export function FlipdeskIntakePage() {
   const navigate = useNavigate();
@@ -194,10 +203,13 @@ export function FlipdeskIntakePage() {
         }
       : null,
   );
+  // What "untouched" means for the leave guard: the form as it was at mount
+  // or at the last reset. Carried-forward source, bin and date are not a draft.
+  const [baseline, setBaseline] = useState<FormState>(initialForm);
   const [form, setForm] = useState<FormState>(() =>
     snapIntake
       ? {
-          ...INITIAL,
+          ...baseline,
           title: snapIntake.title ?? "",
           brand: snapIntake.brand ?? "",
           condition_notes: snapIntake.conditionNote ?? "",
@@ -206,7 +218,7 @@ export function FlipdeskIntakePage() {
           // Seen on the rack and bought: sourced, not yet cataloged.
           status: "sourced",
         }
-      : INITIAL,
+      : baseline,
   );
   const [saving, setSaving] = useState(false);
   // Inline errors under the field that needs fixing, with focus sent there.
@@ -237,6 +249,11 @@ export function FlipdeskIntakePage() {
     }
     return [{ id: "snap-front", file, previewUrl, photoType: "front", photoRole: null }];
   });
+  // The stager revokes a preview when its photo is removed; whatever is still
+  // staged when the page itself goes away is revoked here.
+  const stagedRef = useRef(stagedPhotos);
+  stagedRef.current = stagedPhotos;
+  useEffect(() => () => revokeStagedPreviews(stagedRef.current), []);
   // US-9204: when the first photo was staged. With the file's own capture time
   // it is the start of "seconds from first photo to Approve" on the review
   // screen. Cleared with the photos, so a batch does not inherit its first item's.
@@ -298,7 +315,7 @@ export function FlipdeskIntakePage() {
     !saving &&
     (stagedPhotos.length > 0 ||
       Object.entries(form).some(
-        ([k, v]) => v !== INITIAL[k as keyof FormState],
+        ([k, v]) => v !== baseline[k as keyof FormState],
       ) ||
       Object.keys(measurements).length > 0);
   // Only the single form has a draft to lose, and only it renders the dialog.
@@ -466,15 +483,23 @@ export function FlipdeskIntakePage() {
 
   // Reset to add another, keeping source + container + sourced_by (the common
   // case: cataloging a batch from the same trip). A fresh draft id, so the
-  // next garment is a new row.
-  function resetForNext(sourceIdToKeep: string) {
-    setForm({
-      ...INITIAL,
-      source_id: sourceIdToKeep,
+  // next garment is a new row. The source is the one this save used: a source
+  // just created online comes back as its id, and one named offline stays
+  // "__new" with its name so the next item queues against it too. The date
+  // carries forward only if the seller changed it; otherwise it is today's.
+  function resetForNext(source: { id: string | null; newName: string | null }) {
+    const fresh = initialForm();
+    const next: FormState = {
+      ...fresh,
+      source_id: source.id ?? (source.newName ? "__new" : ""),
+      source_new: source.id ? "" : (source.newName ?? ""),
       container: form.container,
       sourced_by: form.sourced_by,
-      purchase_date: form.purchase_date,
-    });
+      purchase_date:
+        form.purchase_date !== baseline.purchase_date ? form.purchase_date : fresh.purchase_date,
+    };
+    setForm(next);
+    setBaseline(next);
     setDraftId(crypto.randomUUID());
     setAiFields(new Set());
     setAiMeta({});
@@ -574,7 +599,7 @@ export function FlipdeskIntakePage() {
           })),
         });
         await offline.refresh();
-        resetForNext(form.source_id === "__new" ? "" : form.source_id);
+        resetForNext({ id: sourceId, newName: newSourceName });
       };
 
       if (plan.route === "queue") {
@@ -691,6 +716,9 @@ export function FlipdeskIntakePage() {
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["sources"] });
+      // The hint under SKU named the number this item just took.
+      await qc.invalidateQueries({ queryKey: [SKU_SEQUENCE_KEY, workspaceOwnerId] });
+      await qc.invalidateQueries({ queryKey: [SKU_PREVIEW_KEY, workspaceOwnerId] });
 
       toast.success(`Added "${form.title.trim()}".`);
 
@@ -712,7 +740,7 @@ export function FlipdeskIntakePage() {
           );
         }
       } else {
-        resetForNext(form.source_id === "__new" ? "" : form.source_id);
+        resetForNext({ id: sourceId, newName: null });
       }
     } catch (err) {
       // Never raw Postgres text: say what to change, next to the field.
@@ -796,7 +824,7 @@ export function FlipdeskIntakePage() {
 
       {/* US-9204 AC7: existing accounts get the review flow as a one-time switch.
           Shown only while it is off; the review screen carries the way back. */}
-      {!reviewFlow.enabled && !reviewFlow.isLoading ? (
+      {!reviewFlow.enabled && !reviewFlow.chosen && !reviewFlow.isLoading ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
           <div>
             <p className="font-medium">Try the new flow</p>
@@ -818,6 +846,18 @@ export function FlipdeskIntakePage() {
               aria-label="Try the new review flow"
             />
             <label htmlFor="review-flow-switch">Turn on</label>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={setReviewFlow.isPending}
+              onClick={() =>
+                setReviewFlow.mutate(false, {
+                  onError: (err) => toastError(err, "Couldn't save that."),
+                })
+              }
+            >
+              Not now
+            </Button>
           </div>
         </div>
       ) : null}

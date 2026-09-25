@@ -25,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   reviewFlow: { enabled: false, isLoading: false, chosen: false },
   useSources: vi.fn(() => ({ data: [] as Array<{ id: string; name: string }> })),
   aiPanelProps: null as null | Record<string, unknown>,
+  today: "2026-09-24",
+  setReviewFlow: vi.fn(),
   scannerProps: null as null | Record<string, unknown>,
 }));
 
@@ -56,7 +58,11 @@ vi.mock("@/stores/auth-store", () => ({
 vi.mock("@/hooks/use-workspace", () => ({
   useWorkspace: () => ({ workspaceOwnerId: mocks.ownerId, can: mocks.can }),
 }));
-vi.mock("@/hooks/use-sku-sequence", () => ({ useSkuSequence: () => ({ nextSku: null }) }));
+vi.mock("@/hooks/use-sku-sequence", () => ({
+  SKU_SEQUENCE_KEY: "sku_sequence",
+  SKU_PREVIEW_KEY: "sku_preview",
+  useSkuSequence: () => ({ nextSku: null, isEnabled: false }),
+}));
 vi.mock("@/hooks/use-sources", () => ({ useSources: () => mocks.useSources() }));
 vi.mock("@/hooks/use-ai-extract", () => ({
   useAiExtract: () => ({ mutateAsync: mocks.extract, isPending: false }),
@@ -66,7 +72,11 @@ vi.mock("@/hooks/use-product-lookup", () => ({
 }));
 vi.mock("@/hooks/use-review-flow", () => ({
   useReviewFlowEnabled: () => mocks.reviewFlow,
-  useSetReviewFlow: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetReviewFlow: () => ({ mutate: mocks.setReviewFlow, isPending: false }),
+}));
+vi.mock("@/lib/local-date", async (orig) => ({
+  ...(await orig<typeof import("@/lib/local-date")>()),
+  todayLocalDate: () => mocks.today,
 }));
 vi.mock("@/components/flipdesk/sourced-by-select", () => ({ SourcedBySelect: () => null }));
 vi.mock("@/components/flipdesk/sku-auto-hint", () => ({ SkuAutoHint: () => null }));
@@ -98,6 +108,7 @@ vi.mock("@/components/flipdesk/grade-roi-hint", () => ({ GradeRoiHint: () => nul
 vi.mock("@/components/flipdesk/measurement-form", () => ({ MeasurementForm: () => null }));
 vi.mock("@/components/help/page-help", () => ({ PageHelp: () => null }));
 vi.mock("@/components/flipdesk/intake-photo-stager", () => ({
+  revokeStagedPreviews: () => {},
   IntakePhotoStager: ({
     photos,
     onChange,
@@ -257,6 +268,8 @@ beforeEach(() => {
   mocks.can.mockReset().mockReturnValue(true);
   mocks.ownerId = "owner-1";
   mocks.lookupPending = false;
+  mocks.today = "2026-09-24";
+  mocks.setReviewFlow.mockReset();
   mocks.reviewFlow = { enabled: false, isLoading: false, chosen: false };
   mocks.useSources.mockReset().mockReturnValue({ data: [] });
   mocks.enqueueIntake.mockResolvedValue(undefined);
@@ -538,5 +551,50 @@ describe("photo uploads after an online save", () => {
       expect.objectContaining({ photoType: "front", sortOrder: 0, id: "00000000-0000-4000-8000-000000000001" }),
     ]);
     expect(mocks.toastWarning).not.toHaveBeenCalled();
+  });
+});
+
+describe("small state bugs", () => {
+  const dateInput = () => host.querySelector<HTMLInputElement>('input[type="date"]')!;
+
+  it("a reset after midnight shows the new day", async () => {
+    insertChain(() => Promise.resolve({ data: { id: "x" }, error: null }));
+    await renderPage();
+    expect(dateInput().value).toBe("2026-09-24");
+    mocks.today = "2026-09-25";
+    await typeTitle("One");
+    await click("Save & Add another");
+    expect(dateInput().value).toBe("2026-09-25");
+  });
+
+  it("keeps a date the seller changed", async () => {
+    insertChain(() => Promise.resolve({ data: { id: "x" }, error: null }));
+    await renderPage();
+    await typeInto(dateInput(), "2026-09-01");
+    mocks.today = "2026-09-25";
+    await typeTitle("One");
+    await click("Save & Add another");
+    expect(dateInput().value).toBe("2026-09-01");
+  });
+
+  it("an untouched form after a reset is not a draft", async () => {
+    insertChain(() => Promise.resolve({ data: { id: "x" }, error: null }));
+    await renderPage();
+    await typeTitle("One");
+    await click("Save & Add another");
+    expect(host.textContent).not.toContain("Your draft stays here while you switch.");
+  });
+
+  it("hides the review-flow banner once the seller has chosen, and Not now stores false", async () => {
+    mocks.reviewFlow = { enabled: false, isLoading: false, chosen: true };
+    await renderPage();
+    expect(host.textContent).not.toContain("Try the new flow");
+    act(() => root.unmount());
+    root = createRoot(host);
+    mocks.reviewFlow = { enabled: false, isLoading: false, chosen: false };
+    await renderPage();
+    expect(host.textContent).toContain("Try the new flow");
+    await click("Not now");
+    expect(mocks.setReviewFlow).toHaveBeenCalledWith(false, expect.anything());
   });
 });

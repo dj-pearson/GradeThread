@@ -43,7 +43,11 @@ vi.mock("@/stores/auth-store", () => ({
 vi.mock("@/hooks/use-workspace", () => ({
   useWorkspace: () => ({ workspaceOwnerId: "owner-1", can: () => true }),
 }));
-vi.mock("@/hooks/use-sku-sequence", () => ({ useSkuSequence: () => ({ nextSku: null }) }));
+vi.mock("@/hooks/use-sku-sequence", () => ({
+  SKU_SEQUENCE_KEY: "sku_sequence",
+  SKU_PREVIEW_KEY: "sku_preview",
+  useSkuSequence: () => ({ nextSku: null, isEnabled: false }),
+}));
 vi.mock("@/hooks/use-sources", () => ({ useSources: () => ({ data: [] }) }));
 vi.mock("@/hooks/use-ai-extract", () => ({
   useAiExtract: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -74,6 +78,7 @@ vi.mock("@/hooks/use-navigation-guard", () => ({
 // The stager's own picker is a file input; a button that stages two photos
 // stands in for it.
 vi.mock("@/components/flipdesk/intake-photo-stager", () => ({
+  revokeStagedPreviews: () => {},
   IntakePhotoStager: ({
     photos,
     onChange,

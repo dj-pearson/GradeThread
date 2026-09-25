@@ -44,6 +44,11 @@ export interface StagedPhoto {
   photoId?: string;
 }
 
+/** Revoke every preview URL in a staged list. For the page's own unmount. */
+export function revokeStagedPreviews(photos: readonly StagedPhoto[]): void {
+  for (const p of photos) if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+}
+
 /** Slot identity is (type, role), so a suit can hold three separate tag slots. */
 const keyOf = (p: { photoType: FlipdeskPhotoType; photoRole?: string | null }) =>
   slotKey(p.photoType, p.photoRole ?? null);
@@ -102,16 +107,20 @@ export function IntakePhotoStager({
   const optionalRoles = profile.roles.filter((r) => !r.required);
 
   // Object URLs are a leak if nobody revokes them, and this form can stage and
-  // clear several batches in one session (Save & Add another).
+  // clear several batches in one session (Save & Add another). The old effect
+  // captured only the first render's list, so every later batch leaked. Now a
+  // URL is revoked when its photo leaves the list. The photos themselves live
+  // in the page's state and outlast this component (a switch to Bulk mode
+  // unmounts it and keeps the draft), so the page revokes what is left when
+  // IT unmounts, via revokeStagedPreviews.
+  const liveUrlsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const urls = photos.map((p) => p.previewUrl);
-    return () => {
-      for (const u of urls) URL.revokeObjectURL(u);
-    };
-    // Only on unmount: revoking on every change would kill the URLs of photos
-    // still on screen.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const now = new Set(photos.map((p) => p.previewUrl).filter(Boolean));
+    for (const u of liveUrlsRef.current) {
+      if (!now.has(u)) URL.revokeObjectURL(u);
+    }
+    liveUrlsRef.current = now;
+  }, [photos]);
 
   function openPicker(
     which: "camera" | "library",
