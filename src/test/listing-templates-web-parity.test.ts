@@ -13,7 +13,7 @@ import {
   normalizeInput,
   preferredTemplate,
   templateChanges,
-  templateSummary,
+  templateChips,
   type ListingTemplate,
 } from "@/lib/flipdesk-templates";
 import { ALL_SURFACES } from "@/lib/surfaces";
@@ -366,11 +366,30 @@ describe("the client agrees with the server about normalization", () => {
     expect(nameProblem("Vintage denim")).toBeNull();
   });
 
-  it("the summary says what a template carries", () => {
-    expect(templateSummary(blank())).toContain("Empty");
-    const t = { ...blank(), description_template: "hi", item_specifics: { Brand: "Levi's" } };
-    expect(templateSummary(t)).toContain("description");
-    expect(templateSummary(t)).toContain("1 item detail");
+  it("the chips say what a template carries", () => {
+    expect(templateChips(blank())).toEqual([]);
+    const t = {
+      ...blank(),
+      description_template: "hi",
+      ebay_condition: "PRE_OWNED_EXCELLENT",
+      item_specifics: { Brand: "Levi's" },
+      shipping_policy_id: "1",
+    };
+    const labels = templateChips(t).map((c) => c.label);
+    expect(labels).toContain("Footer");
+    expect(labels).toContain("1 detail");
+    expect(labels.some((l) => l.startsWith("Pre-owned"))).toBe(true);
+    const policies = templateChips(t).find((c) => c.label === "1 of 3 policies");
+    expect(policies?.tone).toBe("warn");
+    const all = templateChips({ ...t, payment_policy_id: "2", return_policy_id: "3" });
+    expect(all.find((c) => c.label === "3 of 3 policies")?.tone).toBeUndefined();
+  });
+
+  it("a template with only a condition note is not empty", () => {
+    const labels = templateChips({ ...blank(), condition_description: "Light wear." }).map(
+      (c) => c.label,
+    );
+    expect(labels).toEqual(["Condition note"]);
   });
 });
 

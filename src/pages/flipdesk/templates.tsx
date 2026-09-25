@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -25,7 +24,7 @@ import {
   listTemplates,
   nextSortOrder,
   type SampleAddResult,
-  templateSummary,
+  templateChips,
   templateToInput,
   updateTemplate,
 } from "@/lib/flipdesk-templates";
@@ -250,88 +249,111 @@ export function TemplatesPage() {
               </Button>
             </p>
           )}
-          {templates.map((t) => (
-            <Card key={t.id}>
-              <CardContent className="flex flex-wrap items-center gap-3 p-4">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-medium">{t.name}</span>
-                    {t.is_default && (
-                      <Badge variant="secondary" className="shrink-0">
-                        <Star className="mr-1 h-3 w-3" />
-                        Default
-                      </Badge>
+          {/* One bordered list, not a card per row: a stack of cards each with
+              its own border and shadow is the nested-card look. */}
+          <ul className="divide-y rounded-lg border bg-card">
+            {templates.map((t) => {
+              const chips = templateChips(t);
+              return (
+                <li key={t.id} className="flex flex-wrap items-center gap-3 p-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-medium">{t.name}</span>
+                      {t.is_default && (
+                        <Badge variant="secondary" className="shrink-0">
+                          <Star className="mr-1 h-3 w-3" />
+                          Default
+                        </Badge>
+                      )}
+                    </div>
+                    {chips.length === 0 ? (
+                      <p className="mt-0.5 text-sm text-muted-foreground">
+                        Empty. Nothing in it to apply yet.
+                      </p>
+                    ) : (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {chips.map((c) => (
+                          <Badge
+                            key={c.label}
+                            variant="outline"
+                            className={cn(
+                              "font-normal",
+                              c.tone === "warn" &&
+                                "border-amber-300 text-amber-700 dark:border-amber-900/50 dark:text-amber-400",
+                            )}
+                          >
+                            {c.label}
+                          </Badge>
+                        ))}
+                      </div>
                     )}
                   </div>
-                  <p className="mt-0.5 truncate text-sm text-muted-foreground">
-                    {templateSummary(t)}
-                  </p>
-                </div>
-                <div className="flex shrink-0 gap-2">
-                  {canEdit && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-pressed={t.is_default}
-                      aria-label={
-                        t.is_default
-                          ? `Stop using ${t.name} as the default`
-                          : `Make ${t.name} the default`
-                      }
-                      disabled={toggleDefault.isPending}
-                      onClick={() => toggleDefault.mutate(t)}
-                    >
-                      <Star
-                        className={cn("h-4 w-4", t.is_default && "fill-current text-primary")}
-                      />
-                    </Button>
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openEditor(t)}
-                    aria-label={`${canEdit ? "Edit" : "View"} ${t.name}`}
-                  >
-                    {canEdit ? (
-                      <Pencil className="mr-1.5 h-4 w-4" />
-                    ) : (
-                      <Eye className="mr-1.5 h-4 w-4" />
+                  <div className="flex shrink-0 gap-2">
+                    {canEdit && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-pressed={t.is_default}
+                        aria-label={
+                          t.is_default
+                            ? `Stop using ${t.name} as the default`
+                            : `Make ${t.name} the default`
+                        }
+                        disabled={toggleDefault.isPending}
+                        onClick={() => toggleDefault.mutate(t)}
+                      >
+                        <Star
+                          className={cn("h-4 w-4", t.is_default && "fill-current text-primary")}
+                        />
+                      </Button>
                     )}
-                    {canEdit ? "Edit" : "View"}
-                  </Button>
-                  {canEdit && (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => duplicate(t)}
-                      aria-label={`Duplicate ${t.name}`}
+                      onClick={() => openEditor(t)}
+                      aria-label={`${canEdit ? "Edit" : "View"} ${t.name}`}
                     >
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                  )}
-                  {canEdit && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void confirmDelete(t)}
-                      // Only the row being deleted waits; the others stay usable.
-                      disabled={remove.isPending && remove.variables?.id === t.id}
-                      aria-label={`Delete ${t.name}`}
-                    >
-                      {remove.isPending && remove.variables?.id === t.id ? (
-                        <>
-                          <span className="mr-1.5 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                          Deleting...
-                        </>
+                      {canEdit ? (
+                        <Pencil className="mr-1.5 h-4 w-4" />
                       ) : (
-                        <Trash2 className="h-4 w-4" />
+                        <Eye className="mr-1.5 h-4 w-4" />
                       )}
+                      {canEdit ? "Edit" : "View"}
                     </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                    {canEdit && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => duplicate(t)}
+                        aria-label={`Duplicate ${t.name}`}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {canEdit && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void confirmDelete(t)}
+                        // Only the row being deleted waits; the others stay usable.
+                        disabled={remove.isPending && remove.variables?.id === t.id}
+                        aria-label={`Delete ${t.name}`}
+                      >
+                        {remove.isPending && remove.variables?.id === t.id ? (
+                          <>
+                            <span className="mr-1.5 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                            Deleting...
+                          </>
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
 
@@ -364,6 +386,7 @@ export function TemplatesPage() {
         taken={templates.map((t) => t.name)}
         nameMax={TEMPLATE_NAME_MAX}
         noun="template"
+        bodyLabel="Footer"
         adding={addSamples.isPending}
         progress={sampleProgress}
         result={sampleResult}

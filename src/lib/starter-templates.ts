@@ -40,7 +40,15 @@ export interface StarterTemplate extends StarterPreset {
   conditionDescription: string;
 }
 
-export const STARTER_TEMPLATES: readonly StarterTemplate[] = Object.freeze([
+/** What the picker lists under a starter: the condition and the note it saves. */
+function details(ebayCondition: string, conditionDescription: string) {
+  return [
+    { label: "Condition", value: conditionLine(ebayCondition).replace(/^Condition: /, "") },
+    { label: "Condition note", value: conditionDescription },
+  ];
+}
+
+const STARTERS: ReadonlyArray<Omit<StarterTemplate, "details">> = [
   {
     id: "everyday-basics",
     name: "Everyday basics",
@@ -99,4 +107,8 @@ export const STARTER_TEMPLATES: readonly StarterTemplate[] = Object.freeze([
       "Ships in one business day from a smoke-free, pet-free home.",
     note: conditionLine("USED_EXCELLENT"),
   },
-]);
+]
+
+export const STARTER_TEMPLATES: readonly StarterTemplate[] = Object.freeze(
+  STARTERS.map((t) => ({ ...t, details: details(t.ebayCondition, t.conditionDescription) })),
+);

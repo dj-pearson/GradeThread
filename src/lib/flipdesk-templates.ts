@@ -1,4 +1,5 @@
 import { edgeFetch } from "@/lib/edge-fetch";
+import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
 
 // US-2877. Saved listing templates, on the web.
 //
@@ -292,20 +293,42 @@ export function templateChanges(
   return out;
 }
 
-/** A one-line summary of what a template carries, for the list row. */
-export function templateSummary(t: ListingTemplate): string {
-  const parts: string[] = [];
-  if (t.description_template) parts.push("description");
-  if (t.ebay_condition) parts.push("condition");
-  if (t.ebay_category_id) parts.push("category");
+/** One thing a template sets, as a chip on its list row. */
+export interface TemplateChip {
+  label: string;
+  /** "warn" for a partial set of policies: one or two of three is usually a slip. */
+  tone?: "warn";
+}
+
+/**
+ * What a template actually does, one chip per field it sets. An empty list
+ * means the template carries nothing. The condition note counts: a template
+ * holding only a note used to read "Empty".
+ */
+export function templateChips(t: ListingTemplate): TemplateChip[] {
+  const chips: TemplateChip[] = [];
+  if (t.ebay_condition) {
+    chips.push({
+      label:
+        EBAY_CONDITION_OPTIONS.find((o) => o.value === t.ebay_condition)?.label ??
+        t.ebay_condition,
+    });
+  }
+  if (t.condition_description) chips.push({ label: "Condition note" });
+  if (t.description_template) chips.push({ label: "Footer" });
+  if (t.ebay_category_id) chips.push({ label: `Category ${t.ebay_category_id}` });
   const specifics = Object.keys(t.item_specifics ?? {}).length;
-  if (specifics > 0) parts.push(`${specifics} item detail${specifics === 1 ? "" : "s"}`);
+  if (specifics > 0) chips.push({ label: `${specifics} detail${specifics === 1 ? "" : "s"}` });
   const policies = [t.shipping_policy_id, t.payment_policy_id, t.return_policy_id].filter(
     Boolean,
   ).length;
-  if (policies > 0) parts.push(`${policies} polic${policies === 1 ? "y" : "ies"}`);
-  if (parts.length === 0) return "Empty. Nothing in it to apply yet.";
-  return `Sets ${parts.join(", ")}.`;
+  if (policies > 0) {
+    chips.push({
+      label: `${policies} of 3 policies`,
+      tone: policies < 3 ? "warn" : undefined,
+    });
+  }
+  return chips;
 }
 
 /** The next free sort_order: one past the highest, so new rows sort last. */

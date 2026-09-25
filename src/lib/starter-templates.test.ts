@@ -45,6 +45,8 @@ describe("STARTER_TEMPLATES", () => {
       "note",
       "ebayCondition",
       "conditionDescription",
+      // The picker's labelled condition and note, derived from the two above.
+      "details",
     ]);
     for (const t of STARTER_TEMPLATES) {
       for (const key of Object.keys(t)) {

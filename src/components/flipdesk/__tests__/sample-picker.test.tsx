@@ -10,6 +10,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { SamplePickerBody } from "@/components/flipdesk/sample-picker";
 import { STARTER_SNIPPETS } from "@/lib/starter-snippets";
 import { SNIPPET_NAME_MAX } from "@/lib/flipdesk-snippets";
+import { STARTER_TEMPLATES } from "@/lib/starter-templates";
+import { TEMPLATE_NAME_MAX } from "@/lib/flipdesk-templates";
 
 function paint(
   taken: string[] = [],
@@ -59,5 +61,28 @@ describe("SamplePickerBody", () => {
   it("shows progress while adding", () => {
     const html = paint([], { adding: true, progress: { done: 1, total: 4 } });
     expect(html).toContain("Adding 2 of 4...");
+  });
+
+  it("shows each template starter's condition and buyer-facing condition note", () => {
+    const html = renderToStaticMarkup(
+      <SamplePickerBody
+        onOpenChange={() => {}}
+        samples={STARTER_TEMPLATES}
+        taken={[]}
+        nameMax={TEMPLATE_NAME_MAX}
+        noun="template"
+        adding={false}
+        onAdd={() => {}}
+        bodyLabel="Footer"
+      />,
+    );
+    expect(html).toContain("Footer");
+    for (const t of STARTER_TEMPLATES) {
+      // renderToStaticMarkup escapes apostrophes.
+      expect(html).toContain(t.conditionDescription.replace(/'/g, "&#x27;"));
+      expect(html).toContain(t.note!.replace(/^Condition: /, ""));
+      // The checkbox label is the name alone.
+      expect(html).toMatch(new RegExp(`id="sample-${t.id}-name"[^>]*>${t.name}</label>`));
+    }
   });
 });
