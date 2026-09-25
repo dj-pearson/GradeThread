@@ -1953,6 +1953,9 @@ export interface ConsignorPayoutRow {
   // US-1123: id of the reconciled payout_imports row this payout is backed by,
   // back-filled by reconciliation. NULL while the sale is unreconciled.
   payout_reference: string | null;
+  // US-1112 (00301): who created the row. 'manual' = the Pay dialog or an
+  // operator; 'auto' = the sale-ingest payout engine.
+  source?: "manual" | "auto";
   created_at: string;
   updated_at: string;
 }

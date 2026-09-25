@@ -10,6 +10,7 @@ export type WorkspaceCapability =
   | "manage_marketplaces"
   | "manage_ads"
   | "manage_campaign"
+  | "manage_consignor_money"
   | "manage_api_keys"
   | "manage_members"
   | "manage_billing"
@@ -33,6 +34,10 @@ const CAPABILITY_MIN_ROLE: Record<WorkspaceCapability, WorkspaceRole> = {
   // MP-02: mirror the edge floors on the eBay marketing routes.
   manage_ads: "listing_manager",
   manage_campaign: "admin",
+  // Consignment page pass (C1): splits, consignor status, the intake
+  // signature, Stripe Connect onboarding and payouts are money terms. Mirrors
+  // requireAdmin in flipdesk-consignment.ts.
+  manage_consignor_money: "admin",
   manage_api_keys: "admin",
   manage_members: "admin",
   manage_billing: "owner",
@@ -43,6 +48,11 @@ const CAPABILITY_MIN_ROLE: Record<WorkspaceCapability, WorkspaceRole> = {
 // role below admin. The edge returns the same sentence with its 403.
 export const MARKETPLACE_ADMIN_ONLY =
   "Only a workspace admin can change marketplace connections.";
+
+// C1: shown wherever a consignor money control is withheld. The edge returns
+// the same sentence with its 403 (CONSIGNOR_MONEY_ADMIN_ONLY).
+export const CONSIGNOR_MONEY_ADMIN_ONLY =
+  "Only a workspace admin can change payouts or splits.";
 
 // MP-06: shown on a per-user setting while acting in another owner's workspace.
 export const SETTINGS_OWNER_ONLY =

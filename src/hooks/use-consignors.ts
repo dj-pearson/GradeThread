@@ -9,28 +9,42 @@ export interface ConsignorWithPnl extends ConsignorRow {
   pnl: ConsignorPnlRow | null;
 }
 
+export interface ConsignorList {
+  consignors: ConsignorWithPnl[];
+  // C10: the P&L read failed. Balances are unknown, not $0.00.
+  pnlError: boolean;
+}
+
 export function useConsignors() {
   const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId ?? s.user?.id);
   return useQuery({
     queryKey: ["consignors", ownerId],
     enabled: !!ownerId,
-    queryFn: async (): Promise<ConsignorWithPnl[]> => {
+    queryFn: async (): Promise<ConsignorList> => {
       const res = await edgeFetch("/api/flipdesk/consignment/consignors");
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? "Failed to load consignors");
+        throw new Error(body.error ?? "Couldn't load consignors.");
       }
       const data = await res.json();
-      return (data.consignors ?? []) as ConsignorWithPnl[];
+      return {
+        consignors: (data.consignors ?? []) as ConsignorWithPnl[],
+        pnlError: data.pnl_error === true,
+      };
     },
   });
 }
 
-export function useConsignorPayouts(consignorId?: string) {
+// C11: `enabled` lets the history dialog fetch only while it is open. The
+// dashboard widget calls this with no arguments and keeps its all-rows read.
+export function useConsignorPayouts(
+  consignorId?: string,
+  options: { enabled?: boolean } = {},
+) {
   const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId ?? s.user?.id);
   return useQuery({
     queryKey: ["consignor-payouts", ownerId, consignorId ?? "all"],
-    enabled: !!ownerId,
+    enabled: !!ownerId && (options.enabled ?? true),
     queryFn: async (): Promise<ConsignorPayoutRow[]> => {
       const qs = consignorId ? `?consignor_id=${encodeURIComponent(consignorId)}` : "";
       const res = await edgeFetch(`/api/flipdesk/consignment/payouts${qs}`);

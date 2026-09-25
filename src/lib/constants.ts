@@ -1318,6 +1318,12 @@ export const CONSIGNOR_STATUS_LABELS: Record<
   archived: "Archived",
 };
 
+// C12: what the split is a percentage OF. The agreement, the edit dialog and
+// the math (consignor_pnl, consignor-payout-math.ts) all use net proceeds, and
+// the edit dialog used to say gross. One sentence, used everywhere.
+export const CONSIGNOR_SPLIT_BASIS =
+  "their share of each item's net proceeds (sale price minus marketplace and payment fees; shipping is not taken out)";
+
 // A plain union, not an `as const` array: nothing iterates these, so the array
 // only ever existed to derive this type and was emitted into the bundle for it.
 //

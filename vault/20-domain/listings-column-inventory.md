@@ -8,11 +8,16 @@ code_refs:
   - src/test/listings-select-star.test.ts
   - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
-reviewed: 2026-09-24
+reviewed: 2026-09-25
 tags: [schema, listings, flipdesk, perf]
 summary: What the listings table's ninety-odd columns are for, why none of them is provably dead, and the rule for reading them.
 ---
 
+
+> [!note] Re-reviewed 2026-09-25. `src/types/database.ts` gained an optional
+> `ConsignorPayoutRow.source` (`manual` | `auto`), the 00301 column the
+> Consignment page now reads for its payout history. That is the
+> `consignor_payouts` table, not listings; nothing this note inventories moved.
 
 > [!note] Re-reviewed 2026-09-24. This time one change IS a listings column:
 > `ListingRow.publish_attempts` (00827), the scheduled-publish try counter the
