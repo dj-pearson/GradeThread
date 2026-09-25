@@ -50,7 +50,7 @@ Deno.test("feed: a stored alias that fails the alias rules is not published", as
     db.reset({
       users: [
         { id: uid(1), referral_leaderboard_enabled: true, referral_display_name: "GradeThread Official" },
-        { id: uid(2), referral_leaderboard_enabled: true, referral_display_name: "Evil‮eman" },
+        { id: uid(2), referral_leaderboard_enabled: true, referral_display_name: "Evil\u202Eeman" },
         { id: uid(3), referral_leaderboard_enabled: true, referral_display_name: "ThriftKing" },
       ],
       referral_events: [1, 2, 3].map((i) => ({
@@ -78,7 +78,7 @@ Deno.test("PUT /leaderboard: a reserved or bidi alias is a 400", async () => {
       await next();
     });
     app.route("/", referralRoutes);
-    for (const name of ["GradeThread Official", "Evil‮eman"]) {
+    for (const name of ["GradeThread Official", "Evil\u202Eeman"]) {
       const res = await app.request("/leaderboard", {
         method: "PUT",
         headers: { "content-type": "application/json" },
