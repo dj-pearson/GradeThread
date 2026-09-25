@@ -1109,6 +1109,9 @@ export function FlipdeskIntakePage() {
           <MeasurementForm
             category={form.item_category || null}
             brand={form.brand || null}
+            size={form.size || null}
+            style={form.style || null}
+            onSizeChange={(next) => patch("size", next)}
             values={measurements}
             onChange={setMeasurements}
           />
