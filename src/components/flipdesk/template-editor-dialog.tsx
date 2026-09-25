@@ -171,6 +171,12 @@ export interface TemplateEditorDialogProps {
   /** sort_order a NEW template gets, so it lands after the rows already there. */
   nextSortOrder: number;
   onOpenChange: (open: boolean) => void;
+  /** Start a NEW template prefilled from this row (Duplicate). */
+  copyOf?: ListingTemplate | null;
+  /** The name the copy starts with, already made unique by the caller. */
+  copyName?: string;
+  /** View only: every field disabled and no Save (a workspace viewer). */
+  readOnly?: boolean;
 }
 
 export function TemplateEditorDialog({
@@ -179,13 +185,26 @@ export function TemplateEditorDialog({
   templates,
   nextSortOrder,
   onOpenChange,
+  copyOf = null,
+  copyName,
+  readOnly = false,
 }: TemplateEditorDialogProps) {
   const queryClient = useQueryClient();
   const confirm = useConfirm();
   // A callback ref: the form lives in a portal that mounts after this
   // component's first commit, so a plain ref is still null in the effect.
   const [form, setForm] = useState<HTMLFormElement | null>(null);
-  const [initial] = useState(() => blankEditor(template, nextSortOrder));
+  const [initial] = useState<EditorState>(() =>
+    copyOf && !template
+      ? {
+          ...blankEditor(copyOf),
+          existing: null,
+          name: copyName ?? copyOf.name,
+          isDefault: false,
+          sortOrder: nextSortOrder,
+        }
+      : blankEditor(template, nextSortOrder),
+  );
   const [editor, setEditor] = useState<EditorState>(initial);
   const isDirty = useMemo(
     () => fingerprint(editor) !== fingerprint(initial),
@@ -316,7 +335,7 @@ export function TemplateEditorDialog({
   const rowProblems = specificRowProblems(editor.specifics);
 
   function submit() {
-    if (save.isPending) return;
+    if (save.isPending || readOnly) return;
     if (problem !== null) {
       setNameTouched(true);
       nameInput.current?.focus();
@@ -339,10 +358,13 @@ export function TemplateEditorDialog({
     >
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{editor.existing ? "Edit template" : "New template"}</DialogTitle>
+          <DialogTitle>
+            {readOnly ? editor.name : editor.existing ? "Edit template" : "New template"}
+          </DialogTitle>
           <DialogDescription>
-            Everything here is optional except the name. Leave a field blank
-            and the template will not touch it.
+            {readOnly
+              ? "You can view this template. Only people who manage inventory in this workspace can change it."
+              : "Everything here is optional except the name. Leave a field blank and the template will not touch it."}
           </DialogDescription>
         </DialogHeader>
 
@@ -354,13 +376,14 @@ export function TemplateEditorDialog({
             submit();
           }}
         >
+          <fieldset disabled={readOnly} className="min-w-0 space-y-5">
           <div className="space-y-2">
             <Label htmlFor="tpl-name">Name</Label>
             <Input
               id="tpl-name"
               ref={nameInput}
               // A new template has nothing else to start from.
-              autoFocus={editor.existing === null}
+              autoFocus={editor.existing === null && !readOnly}
               aria-invalid={showProblem || undefined}
               aria-describedby={showProblem ? "tpl-name-error" : undefined}
               onBlur={() => setNameTouched(true)}
@@ -733,6 +756,8 @@ export function TemplateEditorDialog({
             </Button>
           </div>
 
+          </fieldset>
+
           <DialogFooter>
             <Button
               type="button"
@@ -740,14 +765,16 @@ export function TemplateEditorDialog({
               onClick={() => void requestClose()}
               disabled={save.isPending}
             >
-              Cancel
+              {readOnly ? "Close" : "Cancel"}
             </Button>
             {/* Enabled even with a name problem: pressing it shows the problem
                 and puts the cursor on the field, which a greyed-out button
                 never explains. */}
-            <Button type="submit" disabled={save.isPending}>
-              {save.isPending ? "Saving..." : "Save template"}
-            </Button>
+            {!readOnly && (
+              <Button type="submit" disabled={save.isPending}>
+                {save.isPending ? "Saving..." : "Save template"}
+              </Button>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>

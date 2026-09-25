@@ -190,7 +190,10 @@ describe("the page can create, edit and delete (US-2877 AC1)", () => {
     // ticket.
     expect(page).toContain("useConfirm");
     expect(page).toMatch(/destructive: true/);
-    expect(page).toContain("keep everything it filled in");
+    // The wording lives in deleteConfirmText so deleting the default can also
+    // say which template takes over.
+    expect(page).toContain("deleteConfirmText(t, templates)");
+    expect(read(WEB_LIB)).toContain("keep everything it filled in");
   });
 
   it("every field iOS's editor captures is on the page too", () => {

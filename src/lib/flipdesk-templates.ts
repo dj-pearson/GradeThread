@@ -419,3 +419,39 @@ export function specificRowProblems(
   }
   return out;
 }
+
+/** A stored row as a full update body, for PUTs that change one thing. */
+export function templateToInput(t: ListingTemplate): TemplateInput {
+  return {
+    name: t.name,
+    description_template: t.description_template,
+    ebay_condition: t.ebay_condition,
+    condition_description: t.condition_description,
+    item_specifics: { ...(t.item_specifics ?? {}) },
+    ebay_category_id: t.ebay_category_id,
+    return_policy_id: t.return_policy_id,
+    shipping_policy_id: t.shipping_policy_id,
+    payment_policy_id: t.payment_policy_id,
+    is_default: t.is_default,
+    sort_order: t.sort_order,
+  };
+}
+
+/**
+ * The confirm text for deleting `t`. Deleting the default says which template
+ * takes over, because `preferredTemplate` falls back to the first remaining
+ * row rather than to nothing.
+ */
+export function deleteConfirmText(
+  t: ListingTemplate,
+  templates: readonly ListingTemplate[],
+): string {
+  const base =
+    "Listings you already made with it keep everything it filled in. " +
+    "You just will not be able to apply it again.";
+  if (!t.is_default) return base;
+  const next = preferredTemplate(templates.filter((x) => x.id !== t.id));
+  return next
+    ? `${base} This is your default. After it is gone, AutoLister and Publish will start with "${next.name}" instead.`
+    : `${base} This is your default and your only template, so AutoLister and Publish will start with no template.`;
+}

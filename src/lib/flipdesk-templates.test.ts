@@ -7,6 +7,7 @@ import {
   TemplateApiError,
   addStarterTemplates,
   createTemplate,
+  deleteConfirmText,
   duplicateNameProblem,
   nextSortOrder,
   saveErrorNextStep,
@@ -115,5 +116,33 @@ describe("specificRowProblems", () => {
     expect(p.has("c")).toBe(false);
     expect(p.has("d")).toBe(false);
     expect(p.get("e")).toContain("already a detail above");
+  });
+});
+
+describe("deleteConfirmText", () => {
+  const row = (id: string, name: string, is_default = false) => ({
+    id,
+    name,
+    description_template: null,
+    ebay_condition: null,
+    condition_description: null,
+    item_specifics: {},
+    ebay_category_id: null,
+    return_policy_id: null,
+    shipping_policy_id: null,
+    payment_policy_id: null,
+    is_default,
+    sort_order: 0,
+  });
+  it("says nothing extra for a non-default row", () => {
+    expect(deleteConfirmText(row("a", "A"), [row("a", "A")])).not.toContain("default");
+  });
+  it("names the first remaining row, which is what preferredTemplate falls back to", () => {
+    const a = row("a", "A", true);
+    expect(deleteConfirmText(a, [a, row("b", "B"), row("c", "C")])).toContain('start with "B" instead');
+  });
+  it("says so when the default is the only template", () => {
+    const a = row("a", "A", true);
+    expect(deleteConfirmText(a, [a])).toContain("start with no template");
   });
 });

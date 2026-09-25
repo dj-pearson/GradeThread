@@ -22,8 +22,29 @@ vi.mock("@/lib/flipdesk-templates", async () => {
 });
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/toast-error", () => ({ toastError: vi.fn() }));
-const confirmMock = vi.hoisted(() => vi.fn(() => Promise.resolve(true)));
+const confirmMock = vi.hoisted(() =>
+  vi.fn<(o: { title: string; description?: string }) => Promise<boolean>>(() =>
+    Promise.resolve(true),
+  ),
+);
 vi.mock("@/components/ui/confirm-dialog", () => ({ useConfirm: () => confirmMock }));
+
+const workspace = vi.hoisted(() => ({ canEdit: true }));
+vi.mock("@/hooks/use-workspace", () => ({
+  useWorkspace: () => ({ can: () => workspace.canEdit }),
+}));
+vi.mock("@/hooks/use-ebay", () => ({
+  useEbayConnection: () => ({ data: null }),
+  useEbayPolicies: () => ({ data: undefined, isError: false }),
+  useEbayCategoryConditions: () => ({ data: null }),
+  useEbayCategoryAspects: () => ({ data: null }),
+  useEbayCategorySuggest: () => ({ data: undefined, isFetching: false, isError: false }),
+}));
+vi.stubGlobal("ResizeObserver", class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+});
 
 const { TemplatesPage } = await import("@/pages/flipdesk/templates");
 
@@ -78,6 +99,7 @@ function button(label: RegExp): HTMLButtonElement | undefined {
 }
 
 beforeEach(() => {
+  workspace.canEdit = true;
   for (const f of Object.values(api)) f.mockReset();
   confirmMock.mockClear();
 });
@@ -121,5 +143,91 @@ describe("templates page", () => {
     api.listTemplates.mockRejectedValue(new Error("offline"));
     await render();
     expect(document.body.textContent).toContain("Couldn't load your templates");
+  });
+
+  describe("row actions", () => {
+    const rows = () => [
+      tpl({ id: "a", name: "Denim", is_default: true, sort_order: 0 }),
+      tpl({ id: "b", name: "Tees", sort_order: 1 }),
+    ];
+
+    async function click(el: Element | undefined) {
+      if (!el) throw new Error("no element");
+      await act(async () => {
+        (el as HTMLElement).click();
+      });
+      await flush();
+    }
+
+    function badges(): number {
+      return [...document.querySelectorAll("span, div")].filter(
+        (e) => e.children.length <= 1 && e.textContent?.trim() === "Default",
+      ).length;
+    }
+
+    it("a viewer sees no write buttons and can only View", async () => {
+      workspace.canEdit = false;
+      api.listTemplates.mockResolvedValue(rows());
+      await render();
+      expect(button(/New template/)).toBeUndefined();
+      expect(button(/Browse samples/)).toBeUndefined();
+      expect(button(/^Delete /)).toBeUndefined();
+      expect(button(/the default/)).toBeUndefined();
+      expect(button(/^View Denim$/)).toBeDefined();
+      expect(button(/^Edit Denim$/)).toBeUndefined();
+    });
+
+    it("the star makes a row the only default, without opening the editor", async () => {
+      api.listTemplates.mockResolvedValue(rows());
+      api.updateTemplate.mockReturnValue(new Promise(() => {}));
+      await render();
+      await click(button(/^Make Tees the default$/));
+      expect(api.updateTemplate).toHaveBeenCalledTimes(1);
+      expect(api.updateTemplate.mock.calls[0]![0]).toBe("b");
+      expect(api.updateTemplate.mock.calls[0]![1]).toMatchObject({ name: "Tees", is_default: true });
+      expect(document.getElementById("tpl-name")).toBeNull();
+      expect(button(/^Stop using Tees as the default$/)?.getAttribute("aria-pressed")).toBe("true");
+      expect(button(/^Make Denim the default$/)?.getAttribute("aria-pressed")).toBe("false");
+      expect(badges()).toBe(1);
+    });
+
+    it("a failed star rolls the default back", async () => {
+      api.listTemplates.mockResolvedValue(rows());
+      api.updateTemplate.mockRejectedValue(new Error("nope"));
+      await render();
+      api.listTemplates.mockReturnValue(new Promise(() => {}));
+      await click(button(/^Make Tees the default$/));
+      expect(button(/^Stop using Denim as the default$/)).toBeDefined();
+      expect(button(/^Make Tees the default$/)).toBeDefined();
+    });
+
+    it("Duplicate opens a new template named '<name> (copy)'", async () => {
+      api.listTemplates.mockResolvedValue(rows());
+      await render();
+      await click(button(/^Duplicate Denim$/));
+      const name = document.getElementById("tpl-name") as HTMLInputElement;
+      expect(name.value).toBe("Denim (copy)");
+      expect(document.body.textContent).toContain("New template");
+    });
+
+    it("deleting one row leaves the other rows' Delete enabled", async () => {
+      api.listTemplates.mockResolvedValue(rows());
+      api.deleteTemplate.mockReturnValue(new Promise(() => {}));
+      await render();
+      await click(button(/^Delete Denim$/));
+      expect(button(/^Delete Denim$/)?.disabled).toBe(true);
+      expect(button(/^Delete Denim$/)?.textContent).toContain("Deleting...");
+      expect(button(/^Delete Tees$/)?.disabled).toBe(false);
+    });
+
+    it("deleting the default names the template that takes over", async () => {
+      api.listTemplates.mockResolvedValue(rows());
+      confirmMock.mockResolvedValueOnce(false);
+      await render();
+      await click(button(/^Delete Denim$/));
+      expect(confirmMock.mock.calls[0]![0].description).toContain(
+          'AutoLister and Publish will start with "Tees" instead',
+      );
+    });
   });
 });
