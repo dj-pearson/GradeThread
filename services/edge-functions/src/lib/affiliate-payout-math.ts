@@ -166,6 +166,7 @@ export type AccrualPlan =
       | "not_creator"
       | "disabled"
       | "zero_rate"
+      | "wrong_model"
       | "already_accrued";
   }
   // amount is INTEGER CENTS (the ledger unit) — the config USD rate converted.
@@ -189,12 +190,19 @@ export function planAccrual(args: {
    * referrals.ts, which this function has never touched.
    */
   program?: AffiliateProgram;
+  /**
+   * The commission model in force. The flat bounty is paid ONLY under the
+   * flat model: under `subscription_pct` the invoice webhook accrues the
+   * percentage, and a flat row on top of it would pay the creator twice.
+   */
+  model: AffiliateCommissionModel;
 }): AccrualPlan {
   const { attributionSource, mode, rate, alreadyAccrued } = args;
   if (alreadyAccrued) return { action: "skip", reason: "already_accrued" };
   if (attributionSource !== "affiliate") return { action: "skip", reason: "not_affiliate" };
   if (args.program !== "creator") return { action: "skip", reason: "not_creator" };
   if (mode === "off") return { action: "skip", reason: "disabled" };
+  if (args.model !== "flat") return { action: "skip", reason: "wrong_model" };
   const amount = dollarsToCents(rate);
   if (amount <= 0) return { action: "skip", reason: "zero_rate" };
   return { action: "accrue", amount };

@@ -424,6 +424,11 @@ export async function applyReferredSignupIncentive(
   }
 }
 
+/** Cash accrual follows the credit grant: only a granted referral accrues. */
+export function shouldAccrueAfterGrant(result: GrantReferralResult): boolean {
+  return result.status === "granted" || result.status === "already_granted";
+}
+
 // Called when a referred user performs their first PAID action. Flips the
 // still-pending row to `qualified`, then (US-864) AUTO-GRANTS it. Idempotent
 // (only matches the pending row) and best-effort — never throws, so it can't
@@ -453,8 +458,12 @@ export async function maybeQualifyReferral(userId: string): Promise<void> {
       // US-1295: accrue the affiliate commission for this conversion (no-op for
       // non-affiliate referrals or when the engine is disabled). Idempotent via
       // the UNIQUE(referral_event_id) ledger constraint; the affiliate-payouts
-      // sweep also backfills, so a miss here is recovered.
-      await accrueAffiliateCommission(row.id);
+      // sweep also backfills, so a miss here is recovered. Only a GRANTED
+      // referral earns cash: an expired, capped or blocked one paid no credits
+      // and must not pay money either.
+      if (shouldAccrueAfterGrant(result)) {
+        await accrueAffiliateCommission(row.id);
+      }
     }
   } catch (err) {
     console.error("[referrals] qualify hook threw:", err instanceof Error ? err.message : err);
