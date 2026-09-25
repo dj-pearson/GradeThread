@@ -99,6 +99,44 @@ export async function signInWithApple() {
 export const appleOAuthEnabled =
   String(import.meta.env.VITE_APPLE_OAUTH_ENABLED).toLowerCase() === "true";
 
+// Whether this account can sign in with a password. It has to match the
+// server's own rule in services/edge-functions/src/routes/account.ts (the
+// account-delete re-auth gate): a password exists when the provider list OR the
+// primary provider includes "email". Checking `provider === "google"` got this
+// wrong both ways: a Google-first user who later set a password was treated as
+// passwordless (and the server then answered 400 password_required), and an
+// Apple user was asked for a password they never had.
+export interface ProviderMetadataUser {
+  app_metadata?: { provider?: unknown; providers?: unknown } | null;
+}
+
+export function hasPasswordIdentity(
+  user: ProviderMetadataUser | null | undefined,
+): boolean {
+  const meta = user?.app_metadata ?? {};
+  const providers = [
+    ...(Array.isArray(meta.providers) ? (meta.providers as unknown[]) : []),
+    ...(typeof meta.provider === "string" ? [meta.provider] : []),
+  ];
+  return providers.includes("email");
+}
+
+// Human name for a passwordless account's sign-in method, for copy like
+// "You sign in with Google".
+export function oauthProviderLabel(
+  user: ProviderMetadataUser | null | undefined,
+): string {
+  const meta = user?.app_metadata ?? {};
+  const all = [
+    ...(typeof meta.provider === "string" ? [meta.provider] : []),
+    ...(Array.isArray(meta.providers) ? (meta.providers as unknown[]) : []),
+  ];
+  const first = all.find((p) => p === "google" || p === "apple");
+  if (first === "apple") return "Apple";
+  if (first === "google") return "Google";
+  return "a sign-in provider";
+}
+
 export async function signOut() {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;

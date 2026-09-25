@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeAuthHeaders } from "@/lib/edge-fetch";
-import { signOut } from "@/lib/auth";
+import { hasPasswordIdentity, oauthProviderLabel, signOut } from "@/lib/auth";
 import { toastError } from "@/lib/toast-error";
 
 const DELETE_CONFIRM_PHRASE = "DELETE MY ACCOUNT";
@@ -30,7 +30,10 @@ export function DangerZoneCard() {
   // the typed phrase is the gate, and the server exempts them for the same
   // reason (re-running the OAuth dance to delete would be hostile, and they can
   // revoke the app from their Google account separately).
-  const isOAuthUser = user?.app_metadata?.provider === "google";
+  // hasPasswordIdentity mirrors the server's rule exactly (any "email" identity
+  // means a password exists), so a Google-first account that later added a
+  // password is asked for it, and an Apple-only account is not.
+  const isOAuthUser = !hasPasswordIdentity(user);
 
   async function handleDelete() {
     if (confirmText !== DELETE_CONFIRM_PHRASE) return;
@@ -100,6 +103,12 @@ export function DangerZoneCard() {
             autoComplete="off"
           />
         </div>
+        {isOAuthUser && (
+          <p className="text-sm text-muted-foreground">
+            You sign in with {oauthProviderLabel(user)}, so no password is needed.
+            Typing the phrase above is enough.
+          </p>
+        )}
         {!isOAuthUser && (
           <div className="space-y-2">
             <Label htmlFor="delete-reauth">Confirm your password</Label>

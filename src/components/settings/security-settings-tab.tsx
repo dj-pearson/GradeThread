@@ -9,7 +9,13 @@ import { FieldError } from "@/components/ui/form-feedback";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
-import { signOutEverywhere, signOutOtherSessions } from "@/lib/auth";
+import {
+  hasPasswordIdentity,
+  oauthProviderLabel,
+  resetPassword,
+  signOutEverywhere,
+  signOutOtherSessions,
+} from "@/lib/auth";
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
 import { toastError } from "@/lib/toast-error";
 import { MfaCard } from "@/components/settings/mfa-card";
@@ -25,7 +31,25 @@ export function SecuritySettingsTab() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
-  const isOAuthUser = user?.app_metadata?.provider === "google";
+  // Same rule the server uses (any "email" identity means a password exists).
+  const isOAuthUser = !hasPasswordIdentity(user);
+  const [sendingSetLink, setSendingSetLink] = useState(false);
+
+  // Passwordless (Google/Apple) accounts can add a password through the reset
+  // email: it lands on /auth/reset-password with a recovery token, and the new
+  // password becomes an "email" identity alongside the OAuth one.
+  async function handleSendSetPasswordLink() {
+    if (!user?.email) return;
+    setSendingSetLink(true);
+    try {
+      await resetPassword(user.email);
+      toast.success(`We sent a link to ${user.email}. Open it to set a password.`);
+    } catch (err) {
+      toastError(err, "Couldn't send the set-password email");
+    } finally {
+      setSendingSetLink(false);
+    }
+  }
 
   async function handleChangePassword() {
     setPasswordError(null);
@@ -91,7 +115,29 @@ export function SecuritySettingsTab() {
           {/* Two-Factor Authentication (US-374) */}
           <MfaCard />
 
-      {/* Password Section - only for email/password users */}
+      {isOAuthUser && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Password</CardTitle>
+            <CardDescription>
+              You sign in with {oauthProviderLabel(user)}. Your account has no
+              password yet.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant="outline"
+              onClick={handleSendSetPasswordLink}
+              disabled={sendingSetLink || !user?.email}
+            >
+              {sendingSetLink && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Set a password
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Password Section - only for accounts that have a password identity */}
       {!isOAuthUser && (
         <Card>
           <CardHeader>
