@@ -7,7 +7,7 @@ source_of_truth: code
 code_refs:
   - src/components/breadcrumbs.tsx
   - src/lib/seo/public-routes.ts
-reviewed: 2026-09-24
+reviewed: 2026-09-25
 tags: [accessibility, compliance, wcag, vpat]
 summary: WCAG 2.1 AA, Section 508 and EN 301 549 conformance claims — a published artifact that must stay true, not a snapshot.
 ---
@@ -25,6 +25,11 @@ summary: WCAG 2.1 AA, Section 508 and EN 301 549 conformance claims — a publis
 > flags it when the accessibility surface changes. It should be re-reviewed on
 > any a11y-affecting change, not on a schedule.
 # Accessibility Conformance Report — GradeThread & FlipDesk
+
+> **Re-reviewed 2026-09-25.** Drift flagged `public-routes.ts` for `6e4a220a3`,
+> which moves the `/partners` last-modified date to 2026-09-25 after a copy
+> change ($600 to $2,000 in the creator terms). No route, layout or control
+> changed, so no row below moves.
 
 > **Re-reviewed 2026-09-06.** Drift flagged `public-routes.ts` for `f23fb4c34`
 > (US-3130), which registers two indexable pages: `/reselling/nifty-alternative`
