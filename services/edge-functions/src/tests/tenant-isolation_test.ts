@@ -10522,6 +10522,25 @@ Deno.test({
 });
 
 Deno.test({
+  // Cash onboarding is for admitted creators only. The fixture has no operator,
+  // so B is never admitted: /connect must refuse before creating a Stripe
+  // account, and a user_id in the body cannot borrow someone else's standing.
+  name: "creator cash: /connect refuses a seller who is not an admitted creator",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/affiliate/connect`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ user_id: crypto.randomUUID() }),
+    });
+    const body = res.status === 403 ? await res.json() : null;
+    if (!body) await res.body?.cancel();
+    assertEquals(res.status, 403, "a non-creator reached Stripe Connect onboarding");
+    assert(!("url" in (body ?? {})), "a non-creator was handed a Stripe onboarding link");
+  },
+});
+
+Deno.test({
   // Admission is platform-level and lives under /api/admin/*. A seller's JWT
   // reaching it would let anyone make themselves a cash-earning creator.
   name: "US-9212: creator admission refuses a seller JWT",
