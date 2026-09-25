@@ -125,6 +125,10 @@ export function FlipdeskMeasureCardPage() {
       }
       return (await res.json()) as CardRequestState;
     },
+    // MC-07: shipped and tracking are set by the operator, so a seller coming
+    // back to the tab should see them without waiting out the default 5 min.
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
   });
   const request = data?.request ?? null;
   const reason = data?.eligibility.reason ?? "free_plan";
@@ -156,13 +160,27 @@ export function FlipdeskMeasureCardPage() {
         method: "POST",
         json: form,
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        request?: CardRequest;
+      };
       if (!res.ok) {
         toast.error(json.error ?? "Could not submit the request.");
         return;
       }
       toast.success("Card request received — we'll mail it out shortly.");
-      await qc.invalidateQueries({ queryKey });
+      // MC-07: the POST already returns the new request, so use it rather
+      // than paying for a second GET to learn what we were just told.
+      if (json.request) {
+        const created = json.request;
+        qc.setQueryData<CardRequestState>(queryKey, (prev) => ({
+          ...prev,
+          request: created,
+          eligibility: { can_request: false, reason: "active_request" },
+        }));
+      } else {
+        await qc.invalidateQueries({ queryKey });
+      }
     } finally {
       setSubmitting(false);
     }

@@ -148,3 +148,17 @@ describe("the server decides who may request a card (MC-01)", () => {
     expect(src).toMatch(/reason !== "ok" \? \(/);
   });
 });
+
+describe("the new request is shown from the POST response (MC-07)", () => {
+  it("writes the returned request into the cache instead of refetching", () => {
+    const src = read(PAGE);
+    expect(src).toMatch(/qc\.setQueryData<CardRequestState>\(queryKey/);
+    expect(src).toContain('reason: "active_request"');
+  });
+
+  it("refreshes the status when the seller comes back to the tab", () => {
+    const src = read(PAGE);
+    expect(src).toContain("refetchOnWindowFocus: true");
+    expect(src).toContain("staleTime: 60_000");
+  });
+});
