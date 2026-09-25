@@ -187,3 +187,67 @@ describe("H5: each article gets its own reader", () => {
     expect(document.activeElement?.textContent).toContain("Title drafts");
   });
 });
+
+describe("H6: a vote is thanked only once the server has it", () => {
+  const feedbackCalls = () => calls.filter((c) => c.path.endsWith("/feedback"));
+
+  it("disables the buttons while the vote is in flight", async () => {
+    let release: (r: Response) => void = () => {};
+    handler = (path) => {
+      if (path.endsWith("/feedback")) return new Promise<Response>((r) => { release = r; });
+      if (path === "/api/help") return defaultIndex();
+      return res({ article: articleView("refunds"), category: CATEGORIES[0], viewer: "member" });
+    };
+    render("/dashboard/help/refunds");
+    await settle(20);
+    await click(buttonByText(container, "Yes"));
+    expect(buttonByText(container, "Yes")?.disabled).toBe(true);
+    expect(buttonByText(container, "No")?.disabled).toBe(true);
+    expect(text()).not.toContain("Thanks");
+    await act(async () => release(res({ ok: true, recorded: true })));
+    await settle();
+    expect(text()).toContain("Thanks.");
+  });
+
+  it("recorded:false shows the retry message and keeps the buttons", async () => {
+    handler = (path) => {
+      if (path.endsWith("/feedback")) return res({ ok: true, recorded: false });
+      if (path === "/api/help") return defaultIndex();
+      return res({ article: articleView("refunds"), category: CATEGORIES[0], viewer: "member" });
+    };
+    render("/dashboard/help/refunds");
+    await settle(20);
+    await click(buttonByText(container, "Yes"));
+    expect(text()).toContain("That didn't save. Try again.");
+    expect(text()).not.toContain("Thanks");
+    expect(buttonByText(container, "Yes")?.disabled).toBe(false);
+    expect(mocks.track).not.toHaveBeenCalledWith("help_feedback_vote", expect.anything());
+  });
+
+  it("a failed request keeps the buttons live for a retry", async () => {
+    handler = (path) => {
+      if (path.endsWith("/feedback")) return res({ error: "boom" }, 500);
+      if (path === "/api/help") return defaultIndex();
+      return res({ article: articleView("refunds"), category: CATEGORIES[0], viewer: "member" });
+    };
+    render("/dashboard/help/refunds");
+    await settle(20);
+    await click(buttonByText(container, "Yes"));
+    expect(text()).toContain("That didn't save. Try again.");
+    expect(buttonByText(container, "Yes")).toBeTruthy();
+  });
+
+  it("No asks what was missing, then Send posts ONE request carrying the comment", async () => {
+    render("/dashboard/help/refunds");
+    await settle(20);
+    await click(buttonByText(container, "No"));
+    expect(feedbackCalls()).toHaveLength(0);
+    await click(buttonByText(container, "Out of date"));
+    await click(buttonByText(container, "Send"));
+    expect(feedbackCalls()).toHaveLength(1);
+    expect(feedbackCalls()[0]!.json).toEqual({ helpful: "no", comment: "Out of date" });
+    expect(text()).toContain("We'll take another look");
+    const link = container.querySelector('a[href="/dashboard/support?article=refunds"]');
+    expect(link?.textContent).toBe("Open a ticket about this article");
+  });
+});

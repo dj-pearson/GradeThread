@@ -249,7 +249,8 @@ export function useHelpFeedback() {
           json: { helpful: input.helpful ? "yes" : "no", comment: input.comment ?? "" },
         },
       ),
-    onError: () => toast.error("Couldn't record that. Try again in a moment."),
+    // No toast: the reader shows its own inline "That didn't save" next to the
+    // buttons, which stay live so the vote can be retried.
   });
 }
 

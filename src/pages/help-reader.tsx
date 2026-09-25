@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/ui/page-header";
 import { useGuidedPathStore } from "@/stores/guided-path-store";
 import { useAuthStore } from "@/stores/auth-store";
@@ -412,34 +413,137 @@ function HelpReaderArticle({ slug }: { slug: string }) {
  * One vote per article per visit, and the buttons are replaced by the thank-you
  * rather than staying live. A widget that lets somebody click Yes eleven times
  * is not collecting an opinion, it is collecting a click count.
+ *
+ * The thank-you waits for the server. A vote that did not save (an error, or
+ * the edge answering recorded:false) keeps the buttons so it can be retried,
+ * instead of thanking somebody for a vote nobody has.
+ *
+ * A No asks what was missing before it is sent, so the one POST carries the
+ * reason. The freshness report already shows comments; until now nothing
+ * could send one.
  */
-function HelpArticleFeedback({ slug }: { slug: string }) {
-  const [voted, setVoted] = useState<boolean | null>(null);
-  const feedback = useHelpFeedback();
+const NO_REASONS = [
+  "Steps didn't match my screen",
+  "Out of date",
+  "Didn't cover my marketplace",
+] as const;
 
-  const vote = (helpful: boolean) => {
-    setVoted(helpful);
-    feedback.mutate({ slug, helpful });
-    track("help_feedback_vote", { slug, helpful, surface: "app" });
+function HelpArticleFeedback({ slug }: { slug: string }) {
+  const [asking, setAsking] = useState(false);
+  const [reasons, setReasons] = useState<string[]>([]);
+  const [comment, setComment] = useState("");
+  const [voted, setVoted] = useState<boolean | null>(null);
+  const [failed, setFailed] = useState(false);
+  const feedback = useHelpFeedback();
+  const pending = feedback.isPending;
+
+  const send = (helpful: boolean, text = "") => {
+    setFailed(false);
+    feedback.mutate(
+      { slug, helpful, comment: text },
+      {
+        onSuccess: (data) => {
+          if (!data.recorded) {
+            setFailed(true);
+            return;
+          }
+          setVoted(helpful);
+          track("help_feedback_vote", { slug, helpful, surface: "app" });
+        },
+        onError: () => setFailed(true),
+      },
+    );
   };
+
+  const failure = failed && (
+    <p className="text-sm text-destructive" role="alert">
+      That didn't save. Try again.
+    </p>
+  );
 
   if (voted !== null) {
     return (
-      <p className="mt-10 text-sm text-muted-foreground" role="status">
-        {voted ? "Thanks." : "Thanks. We'll take another look at this one."}
-      </p>
+      <div className="mt-10 space-y-1 text-sm text-muted-foreground" role="status">
+        <p>{voted ? "Thanks." : "Thanks. We'll take another look at this one."}</p>
+        {!voted && (
+          <p>
+            <Link to={`/dashboard/support?article=${encodeURIComponent(slug)}`} className="underline">
+              Open a ticket about this article
+            </Link>
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (asking) {
+    const toggle = (r: string) =>
+      setReasons((cur) => (cur.includes(r) ? cur.filter((x) => x !== r) : [...cur, r]));
+    const text = [...reasons, comment.trim()].filter(Boolean).join("; ").slice(0, 1000);
+    return (
+      <div className="mt-10 max-w-[70ch] space-y-3 text-sm" aria-busy={pending}>
+        <p className="font-medium">What was missing?</p>
+        <div className="flex flex-wrap gap-2">
+          {NO_REASONS.map((r) => (
+            <Button
+              key={r}
+              type="button"
+              size="sm"
+              variant={reasons.includes(r) ? "secondary" : "outline"}
+              aria-pressed={reasons.includes(r)}
+              disabled={pending}
+              onClick={() => toggle(r)}
+            >
+              {r}
+            </Button>
+          ))}
+        </div>
+        <Label htmlFor={`help-feedback-${slug}`} className="sr-only">
+          Anything else? (optional)
+        </Label>
+        <Textarea
+          id={`help-feedback-${slug}`}
+          rows={2}
+          maxLength={1000}
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="Anything else? (optional)"
+          disabled={pending}
+        />
+        <div className="flex gap-2">
+          <Button type="button" size="sm" disabled={pending} onClick={() => send(false, text)}>
+            Send
+          </Button>
+          <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={() => send(false)}>
+            Skip
+          </Button>
+        </div>
+        {failure}
+      </div>
     );
   }
 
   return (
-    <div className="mt-10 flex items-center gap-3 text-sm">
-      <span className="text-muted-foreground">Was this helpful?</span>
-      <Button type="button" variant="outline" size="sm" onClick={() => vote(true)}>
-        Yes
-      </Button>
-      <Button type="button" variant="outline" size="sm" onClick={() => vote(false)}>
-        No
-      </Button>
+    <div className="mt-10 space-y-2 text-sm">
+      <div className="flex items-center gap-3" aria-busy={pending}>
+        <span className="text-muted-foreground">Was this helpful?</span>
+        <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => send(true)}>
+          Yes
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={pending}
+          onClick={() => {
+            setFailed(false);
+            setAsking(true);
+          }}
+        >
+          No
+        </Button>
+      </div>
+      {failure}
     </div>
   );
 }
