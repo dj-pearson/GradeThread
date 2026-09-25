@@ -31,4 +31,12 @@ describe("buildHelpToc", () => {
     expect(client.html).toBe(ssr.html);
     expect(client.toc.map(({ id, text }) => ({ id, text }))).toEqual(ssr.toc);
   });
+
+  it("never leaves a tag behind in a heading's text, even a nested one", () => {
+    // An unclosed "<script" survives a single tag-stripping pass.
+    const { toc } = buildHelpToc("<h2>Care <b>tips</b> <script</h2>");
+    expect(toc).toHaveLength(1);
+    expect(toc[0]!.text).not.toMatch(/</);
+    expect(toc[0]!.label).not.toMatch(/<script/i);
+  });
 });

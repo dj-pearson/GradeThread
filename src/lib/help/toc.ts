@@ -14,7 +14,15 @@ export interface HelpTocEntry {
 }
 
 function stripTags(s: string): string {
-  return s.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+  // Repeat until nothing changes: one pass turns "<scr<b>ipt>" into "<script>".
+  // For ordinary markup the result is the same as the SSR's single pass.
+  let prev: string;
+  let out = s;
+  do {
+    prev = out;
+    out = out.replace(/<[^>]*>/g, "");
+  } while (out !== prev);
+  return out.replace(/</g, "").replace(/\s+/g, " ").trim();
 }
 
 function slugifyHeading(text: string): string {
