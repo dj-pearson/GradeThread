@@ -424,7 +424,6 @@ flipdeskAiRoutes.post("/extract", async (c) => {
         photoTypes: cappedPhotos.map((p) => p.type ?? "untyped"),
         photoHosts: cappedPhotos.map((p) => {
           if (p.inline) return "inline";
-        if (p.inline) return "inline";
           try {
             return new URL(p.url).host;
           } catch {

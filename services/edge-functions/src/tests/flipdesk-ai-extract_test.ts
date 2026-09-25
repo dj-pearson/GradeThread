@@ -54,6 +54,13 @@ Deno.test("non-image bytes and broken base64 are refused", () => {
   assertEquals(parseInlineExtractPhotos([{ data: "@@not base64@@" }]).ok, false);
 });
 
+Deno.test("inline base64 is re-encoded from the checked bytes, so line breaks never reach the model", () => {
+  const wrapped = PNG_1X1.slice(0, 40) + "\n" + PNG_1X1.slice(40);
+  const parsed = parseInlineExtractPhotos([{ data: wrapped, type: "front" }]);
+  assert(parsed.ok, parsed.ok ? "" : parsed.error);
+  assertEquals(parsed.photos[0]?.inline?.data, PNG_1X1);
+});
+
 Deno.test("more than the cap of inline photos is refused", () => {
   const many = Array.from({ length: MAX_INLINE_PHOTOS + 1 }, () => ({ data: PNG_1X1 }));
   assertEquals(parseInlineExtractPhotos(many).ok, false);

@@ -49,6 +49,9 @@ Deno.test("capForPath: photo-bearing JSON endpoints get the upload cap", () => {
   assertEquals(capForPath("/api/flipdesk/ai/embed-photos"), UPLOAD_MAX_BYTES);
   assertEquals(capForPath("/api/flipdesk/ai/classify-photos"), UPLOAD_MAX_BYTES);
   assertEquals(capForPath("/api/flipdesk/ai/suggest-item-match"), UPLOAD_MAX_BYTES);
+  // Add item AI Fill sends its staged photos inline (up to 8 at ~1024px).
+  // Two of them already pass 256 KB, so the JSON cap 413'd AI Fill.
+  assertEquals(capForPath("/api/flipdesk/ai/extract"), UPLOAD_MAX_BYTES);
 });
 
 // The rest of the AI surface is JSON-only and must not inherit the photo cap

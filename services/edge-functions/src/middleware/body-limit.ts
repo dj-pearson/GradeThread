@@ -44,6 +44,7 @@ const UPLOAD_PREFIXES = [
   "/api/flipdesk/ai/embed-photos", // reconcile visual pass: up to 40 base64 photos
   "/api/flipdesk/ai/classify-photos", // same body shape
   "/api/flipdesk/ai/suggest-item-match", // same body shape
+  "/api/flipdesk/ai/extract", // Add item AI Fill: up to 8 inline ~1024px JPEGs
 ];
 
 // Upload paths whose route carries a path PARAMETER, so a prefix can't reach

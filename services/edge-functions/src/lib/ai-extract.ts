@@ -901,9 +901,6 @@ function sniffImageMediaType(b: Uint8Array): AnthropicImageMediaType | null {
   return null;
 }
 
-// Base64-encode bytes via the global btoa (no extra dependency, so the frozen
-// edge lockfile stays untouched). Chunked so String.fromCharCode never gets an
-// argument list big enough to overflow for multi-MB photos.
 function base64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
@@ -953,7 +950,9 @@ export function parseInlineExtractPhotos(
       url: "",
       type: typeof p.type === "string" ? p.type : undefined,
       role: typeof p.role === "string" ? p.role : undefined,
-      inline: { data, mediaType },
+      // Re-encoded from the checked bytes, so whitespace or line breaks that
+      // atob tolerated never reach the model as a malformed image block.
+      inline: { data: bytesToBase64(bytes), mediaType },
     });
   }
   return { ok: true, photos };
@@ -975,6 +974,9 @@ export function sanitizeKnownFields(raw: unknown): Record<string, unknown> {
   return out;
 }
 
+// Base64-encode bytes via the global btoa (no extra dependency, so the frozen
+// edge lockfile stays untouched). Chunked so String.fromCharCode never gets an
+// argument list big enough to overflow for multi-MB photos.
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   const chunk = 0x8000;

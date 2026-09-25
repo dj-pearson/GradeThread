@@ -405,6 +405,9 @@ app.use(
     origin: (origin) => (isAllowedOrigin(origin) ? origin : null),
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ALLOWED_HEADERS,
+    // A cross-origin fetch cannot read Retry-After unless it is exposed, and
+    // the web AI toasts name the wait from it.
+    exposeHeaders: ["Retry-After"],
     maxAge: 86400,
   })
 );
