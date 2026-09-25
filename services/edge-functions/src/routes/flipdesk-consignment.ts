@@ -252,7 +252,11 @@ flipdeskConsignmentRoutes.post("/consignors", async (c) => {
 flipdeskConsignmentRoutes.patch("/consignors/:id", async (c) => {
   const userId = tenantId(c);
   const id = c.req.param("id");
-  const body = await c.req.json().catch(() => ({}));
+  const raw = await c.req.json().catch(() => ({}));
+  // `"x" in body` throws on a string or number, so a non-object body is empty.
+  const body: Record<string, unknown> = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? raw
+    : {};
 
   const touchesMoney = "default_split_pct" in body || "split_pct" in body || "status" in body;
   if (touchesMoney) {
@@ -472,6 +476,10 @@ flipdeskConsignmentRoutes.get("/consignors/:id/items", async (c) => {
 // GET /unassigned-items?q= — the caller's own unsold items with no consignor,
 // for the "Add items" picker. Tenant-scoped; takes no id from the caller.
 const NOT_ASSIGNABLE = ["sold", "shipped", "completed", "archived", "keeping", "wearing"];
+// A sold item's share is already part of what the consignor is owed (and may
+// already be paid). Detaching it would quietly rewrite their balance, so a
+// sold item stays attached.
+export const SOLD_ITEM_STATUSES = ["sold", "shipped", "completed"];
 flipdeskConsignmentRoutes.get("/unassigned-items", async (c) => {
   const userId = tenantId(c);
   const q = (c.req.query("q") ?? "").trim().slice(0, 80);
@@ -520,6 +528,7 @@ flipdeskConsignmentRoutes.post("/consignors/:id/items", async (c) => {
       .in("id", ids)
       .eq("user_id", userId)
       .eq("consignor_id", id)
+      .not("status", "in", `(${SOLD_ITEM_STATUSES.join(",")})`)
     : supabaseAdmin
       .from("inventory_items")
       .update({
@@ -536,13 +545,32 @@ flipdeskConsignmentRoutes.post("/consignors/:id/items", async (c) => {
 
 // ── Payouts ─────────────────────────────────────────────────────
 
-// GET /payouts — payout ledger (optionally ?consignor_id=, ?before=<created_at>).
+// GET /payouts — payout ledger (optionally ?consignor_id=, ?before=<created_at>,
+// ?status=pending,failed).
 // C11: capped at 200 rows per page.
 export const PAYOUT_PAGE_SIZE = 200;
+// A status-filtered read (the dashboard's "consignors owed" tile sums every
+// unpaid row) gets a larger cap: summing only the newest 200 would return a
+// plausible, wrong total. has_more still says when even this was not enough.
+export const PAYOUT_STATUS_PAGE_SIZE = 2000;
+const PAYOUT_STATUSES = new Set([
+  "pending",
+  "processing",
+  "paid",
+  "failed",
+  "canceled",
+  "reversed",
+  "clawback_pending",
+]);
 flipdeskConsignmentRoutes.get("/payouts", async (c) => {
   const userId = tenantId(c);
   const consignorId = c.req.query("consignor_id");
   const before = c.req.query("before");
+  const statusParam = c.req.query("status");
+  const statuses = statusParam ? [...new Set(statusParam.split(",").map((s) => s.trim()))] : [];
+  if (statuses.some((s) => !PAYOUT_STATUSES.has(s))) {
+    return c.json({ error: "status must be a comma-separated list of payout statuses" }, 400);
+  }
   if (consignorId && !UUID_RE.test(consignorId)) {
     return c.json({ error: "consignor_id must be a valid id" }, 400);
   }
@@ -550,19 +578,21 @@ flipdeskConsignmentRoutes.get("/payouts", async (c) => {
     return c.json({ error: "before must be a timestamp" }, 400);
   }
 
+  const pageSize = statuses.length > 0 ? PAYOUT_STATUS_PAGE_SIZE : PAYOUT_PAGE_SIZE;
   let query = supabaseAdmin
     .from("consignor_payouts")
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
-    .limit(PAYOUT_PAGE_SIZE);
+    .limit(pageSize);
   if (consignorId) query = query.eq("consignor_id", consignorId);
+  if (statuses.length > 0) query = query.in("status", statuses);
   if (before) query = query.lt("created_at", before);
 
   const { data, error } = await query;
   if (error) return failSafe(c, 500, "Couldn't load payouts.", error, "consignment.payouts.list");
   const payouts = data ?? [];
-  return c.json({ payouts, has_more: payouts.length === PAYOUT_PAGE_SIZE });
+  return c.json({ payouts, has_more: payouts.length === pageSize });
 });
 
 // POST /payouts — pay a consignor. When the consignor has an onboarded Connect

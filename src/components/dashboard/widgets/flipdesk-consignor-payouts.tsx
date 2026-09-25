@@ -1,6 +1,6 @@
 import { Users } from "lucide-react";
 import { useConsignorPayouts } from "@/hooks/use-consignors";
-import { summarizeDuePayouts } from "@/lib/consignor-payouts";
+import { DUE_PAYOUT_STATUSES, summarizeDuePayouts } from "@/lib/consignor-payouts";
 import { fmtMoney } from "@/lib/flipdesk-overview-format";
 import {
   StatTile,
@@ -11,8 +11,8 @@ import {
 // US-3078 AC6: who is owed money, and how much of it.
 //
 // Read through the same useConsignorPayouts the Consignment page uses, with no
-// consignor id, so it is every payout on the account. One hook, one cache key,
-// one definition of "due" -- a widget that counted its own would eventually
+// consignor id and only the unpaid statuses, so it is every unpaid payout on
+// the account. One hook, one definition of "due" -- a widget that counted its own would eventually
 // disagree with the page a seller opens to pay them.
 //
 // This widget is REMOVED from the catalog for an account with no consignors
@@ -21,7 +21,11 @@ import {
 // fill, it is a card about a feature they do not use.
 
 export function FlipdeskConsignorPayoutsWidget() {
-  const { data, isLoading, isError, isFetching, refetch } = useConsignorPayouts();
+  // Only the unpaid rows, so the server's page cap applies to what is summed
+  // rather than cutting the newest 200 rows of the whole ledger.
+  const { data, isLoading, isError, isFetching, refetch } = useConsignorPayouts(undefined, {
+    statuses: DUE_PAYOUT_STATUSES,
+  });
 
   if (isLoading) return <StatTileSkeleton label="consignor payouts" />;
   if (isError) {

@@ -92,6 +92,11 @@ import { PageHelp } from "@/components/help/page-help";
 import { Term } from "@/components/help/term";
 import { ConsignorItemsSheet } from "@/components/flipdesk/consignor-items-sheet";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Matches PAYOUT_PAGE_SIZE in flipdesk-consignment.ts.
+const PAYOUT_PAGE_SIZE = 200;
+
 function money(n: number | null | undefined): string {
   return `$${(Number(n) || 0).toFixed(2)}`;
 }
@@ -334,6 +339,7 @@ export function FlipdeskConsignmentPage() {
     if (!mode || !consignorId) return;
     connectHandled.current = true;
     setParam({ connect: null, consignor: null });
+    if (!UUID_RE.test(consignorId)) return;
     if (mode === "done") void checkStatus(consignorId);
     // The onboarding link expired; start a fresh one.
     else if (mode === "refresh" && canManageMoney) void startConnect(consignorId);
@@ -761,7 +767,16 @@ export function FlipdeskConsignmentPage() {
                         {CONSIGNOR_STATUS_LABELS[c.status]}
                       </Badge>
                       <span className="text-muted-foreground">
-                        {c.pnl?.total_items ?? 0} item{(c.pnl?.total_items ?? 0) === 1 ? "" : "s"}
+                        {pnlError ? (
+                          <>
+                            <Unknown /> items
+                          </>
+                        ) : (
+                          <>
+                            {c.pnl?.total_items ?? 0} item
+                            {(c.pnl?.total_items ?? 0) === 1 ? "" : "s"}
+                          </>
+                        )}
                       </span>
                       {c.intake_signed_at && signedBadge(c)}
                       {c.payouts_enabled && (
@@ -813,7 +828,7 @@ export function FlipdeskConsignmentPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {c.pnl?.total_items ?? 0}
+                          {pnlError ? <Unknown /> : (c.pnl?.total_items ?? 0)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {pnlError ? <Unknown /> : money(c.pnl?.gross_revenue)}
@@ -936,7 +951,8 @@ function ConsignorEditDialog({
       setNameError("Name is required.");
       return;
     }
-    if (!Number.isFinite(splitNum) || splitNum < 0 || splitNum > 100) {
+    // Number("") is 0, so a cleared field would silently save a 0% split.
+    if (!draft.split_pct.trim() || !Number.isFinite(splitNum) || splitNum < 0 || splitNum > 100) {
       toast.error("Split must be between 0 and 100.");
       return;
     }
@@ -1388,6 +1404,8 @@ function PayoutDialog({
   );
 }
 
+const EMPTY_PAYOUTS: ConsignorPayoutRow[] = [];
+
 function PayoutHistoryDialog({
   consignor,
   canManageMoney,
@@ -1401,13 +1419,48 @@ function PayoutHistoryDialog({
 }) {
   // C11: fetch only while the dialog is open.
   const {
-    data: payouts = [],
+    data: firstPage = EMPTY_PAYOUTS,
     isLoading,
     error,
     refetch,
     isFetching,
   } = useConsignorPayouts(consignor?.id, { enabled: !!consignor });
   const [busy, setBusy] = useState<string | null>(null);
+  // C11: the ledger comes back 200 rows at a time. Older pages are fetched on
+  // request with ?before=<oldest created_at> and appended.
+  const [older, setOlder] = useState<ConsignorPayoutRow[]>([]);
+  const [olderHasMore, setOlderHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [olderError, setOlderError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setOlder([]);
+    setOlderHasMore(false);
+    setOlderError(null);
+  }, [consignor?.id, firstPage]);
+
+  const payouts = useMemo(() => [...firstPage, ...older], [firstPage, older]);
+  const hasMore = older.length > 0 ? olderHasMore : firstPage.length >= PAYOUT_PAGE_SIZE;
+
+  async function loadOlder() {
+    const last = payouts[payouts.length - 1];
+    if (!consignor || !last) return;
+    setLoadingOlder(true);
+    setOlderError(null);
+    try {
+      const qs = new URLSearchParams({ consignor_id: consignor.id, before: last.created_at });
+      const res = await edgeFetch(`/api/flipdesk/consignment/payouts?${qs.toString()}`);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Couldn't load older payouts.");
+      const rows = (body.payouts ?? []) as ConsignorPayoutRow[];
+      setOlder((prev) => [...prev, ...rows]);
+      setOlderHasMore(body.has_more === true);
+    } catch (err) {
+      setOlderError(err instanceof Error ? err.message : "Couldn't load older payouts.");
+    } finally {
+      setLoadingOlder(false);
+    }
+  }
 
   async function settle(p: ConsignorPayoutRow, action: "mark_paid" | "cancel") {
     setBusy(p.id);
@@ -1541,6 +1594,19 @@ function PayoutHistoryDialog({
                 })}
               </TableBody>
             </Table>
+            {(hasMore || olderError) && (
+              <div className="space-y-2 py-3 text-center text-sm">
+                {olderError && <p className="text-destructive">{olderError}</p>}
+                <Button
+                  variant="outline"
+                  onClick={() => void loadOlder()}
+                  disabled={loadingOlder}
+                >
+                  {loadingOlder && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {olderError ? "Try again" : "Load older payouts"}
+                </Button>
+              </div>
+            )}
           </div>
         )}
         <DialogFooter>

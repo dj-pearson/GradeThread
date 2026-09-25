@@ -23,6 +23,10 @@ import { CONSIGNOR_MONEY_ADMIN_ONLY } from "@/lib/workspace-permissions";
 // the web wrote inventory_items.consignor_id, so the Items, Gross and Owed
 // columns and the auto-payout engine had no input.
 
+// A sold item's share is already in what the consignor is owed, so the edge
+// refuses to detach it (SOLD_ITEM_STATUSES in flipdesk-consignment.ts).
+const SOLD_STATUSES = new Set(["sold", "shipped", "completed"]);
+
 interface ConsignedItem {
   id: string;
   title: string;
@@ -169,7 +173,7 @@ export function ConsignorItemsSheet({
                   <li key={i.id} className="flex items-center gap-2 px-3 py-2 text-sm">
                     <span className="min-w-0 flex-1 truncate">{itemLabel(i)}</span>
                     <Badge variant="outline">{i.status}</Badge>
-                    {canManageMoney && (
+                    {canManageMoney && !SOLD_STATUSES.has(i.status) && (
                       <Button
                         variant="ghost"
                         size="icon"

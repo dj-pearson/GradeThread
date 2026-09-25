@@ -15,7 +15,8 @@ import type { ConsignorPayoutRow } from "@/types/database";
  * finished. `clawback_pending` is money owed BACK to the seller after a sale
  * reversed, which points the other way and belongs on a different card.
  */
-const DUE_STATES = new Set(["pending", "processing", "failed"]);
+export const DUE_PAYOUT_STATUSES = ["pending", "processing", "failed"] as const;
+const DUE_STATES = new Set<string>(DUE_PAYOUT_STATUSES);
 
 export interface DuePayoutSummary {
   /** How many distinct consignors are owed something. */

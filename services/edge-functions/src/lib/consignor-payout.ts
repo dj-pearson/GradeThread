@@ -16,8 +16,9 @@
 //
 // Lump-sum manual payouts (consignment page pass, C6): the web Pay dialog
 // records a manual payout with no sale_id. The per-sale US-2290 guard cannot
-// see it, so the engine skips every sale for a consignor that has one pending
-// or paid ('unallocated_manual') and warns ops once per consignor. The full fix,
+// see it, so the engine skips a sale when the consignor has one pending or
+// paid that was recorded on or after that sale ('unallocated_manual'), and
+// warns ops once per consignor. The full fix,
 // allocating manual payouts to specific sales so the two paths net correctly,
 // needs a migration and is deferred.
 //
@@ -275,15 +276,22 @@ export async function processSaleConsignorPayout(
 
   // C6: any lump-sum manual payout for this consignor that is not tied to a
   // sale. Tenant-scoped by the item owner.
-  const { data: lumpRows, error: lumpErr } = await supabaseAdmin
+  //
+  // Only lump sums recorded ON OR AFTER this sale can have covered it: before
+  // the sale there was no share to pay, and POST /payouts refuses an overpay
+  // without an explicit override. Without this bound one cash payout would
+  // hold every later sale for that consignor forever.
+  const saleAt = sale.sold_at ?? sale.sale_date ?? sale.created_at;
+  let lumpQuery = supabaseAdmin
     .from("consignor_payouts")
     .select("id")
     .eq("consignor_id", consignor.id)
     .eq("user_id", ownerId)
     .eq("source", "manual")
     .is("sale_id", null)
-    .in("status", ["pending", "paid"])
-    .limit(1);
+    .in("status", ["pending", "paid"]);
+  if (saleAt) lumpQuery = lumpQuery.gte("created_at", saleAt);
+  const { data: lumpRows, error: lumpErr } = await lumpQuery.limit(1);
   // A failed read must not look like "none": skip rather than risk paying twice.
   if (lumpErr) return skip("unallocated_manual_unknown");
   const unallocatedManual = (lumpRows ?? []).length > 0;

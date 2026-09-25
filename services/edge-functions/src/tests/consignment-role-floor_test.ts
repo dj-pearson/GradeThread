@@ -557,3 +557,41 @@ Deno.test("C15: the unassigned-items picker is tenant-scoped and strips filter s
   assert(q.includes("consignor_id=is.null"), q);
   assert(!q.includes("user_id.eq.x"), q);
 });
+
+// ── Review fixes ────────────────────────────────────────────────
+
+Deno.test("C15: detaching never touches a sold item", async () => {
+  reset((c) => {
+    if (c.method === "GET") return json([consignorRow()]);
+    if (c.method === "PATCH") return json([]);
+    return undefined;
+  });
+  const r = await call("admin", "POST", `/consignors/${CONSIGNOR}/items`, {
+    item_ids: [ITEM],
+    unassign: true,
+  });
+  assertEquals(r.status, 200);
+  const write = restCalls.find((c) => c.method === "PATCH");
+  assert(write?.url.includes(`consignor_id=eq.${CONSIGNOR}`), write?.url);
+  assert(write?.url.includes("status=not.in.(sold,shipped,completed)"), write?.url);
+});
+
+Deno.test("C11: a status-filtered ledger read is filtered and not cut at 200", async () => {
+  reset();
+  const ok = await call("viewer", "GET", "/payouts?status=pending,processing,failed");
+  assertEquals(ok.status, 200);
+  const q = restCalls[0].url;
+  assert(q.includes("status=in.(pending,processing,failed)"), q);
+  assert(q.includes("limit=2000"), q);
+  assert(q.includes(`user_id=eq.${OWNER}`), q);
+  reset();
+  const bad = await call("viewer", "GET", "/payouts?status=pending,nope");
+  assertEquals(bad.status, 400);
+  assertEquals(restCalls.length, 0);
+});
+
+Deno.test("C8: a non-object PATCH body is a 400, not a crash", async () => {
+  reset((c) => (c.method === "GET" ? json([consignorRow()]) : undefined));
+  const r = await call("member", "PATCH", `/consignors/${CONSIGNOR}`, "status");
+  assertEquals(r.status, 400);
+});

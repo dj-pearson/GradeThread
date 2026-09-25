@@ -35,18 +35,25 @@ export function useConsignors() {
   });
 }
 
-// C11: `enabled` lets the history dialog fetch only while it is open. The
-// dashboard widget calls this with no arguments and keeps its all-rows read.
+// C11: `enabled` lets the history dialog fetch only while it is open.
+// `statuses` narrows the read on the server. The ledger is paged (200 rows
+// unfiltered), so the dashboard widget, which SUMS every unpaid row, asks for
+// just those statuses and gets the larger filtered cap instead of the newest
+// 200 rows of everything.
 export function useConsignorPayouts(
   consignorId?: string,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; statuses?: readonly string[] } = {},
 ) {
   const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId ?? s.user?.id);
+  const statusKey = options.statuses?.length ? [...options.statuses].sort().join(",") : "";
   return useQuery({
-    queryKey: ["consignor-payouts", ownerId, consignorId ?? "all"],
+    queryKey: ["consignor-payouts", ownerId, consignorId ?? "all", statusKey],
     enabled: !!ownerId && (options.enabled ?? true),
     queryFn: async (): Promise<ConsignorPayoutRow[]> => {
-      const qs = consignorId ? `?consignor_id=${encodeURIComponent(consignorId)}` : "";
+      const params = new URLSearchParams();
+      if (consignorId) params.set("consignor_id", consignorId);
+      if (statusKey) params.set("status", statusKey);
+      const qs = params.toString() ? `?${params.toString()}` : "";
       const res = await edgeFetch(`/api/flipdesk/consignment/payouts${qs}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));

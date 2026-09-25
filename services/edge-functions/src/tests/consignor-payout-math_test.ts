@@ -325,6 +325,9 @@ Deno.test("C6: the engine reads lump-sum manual rows and passes the flag", () =>
   );
   assertEquals(src.includes('.is("sale_id", null)'), true);
   assertEquals(src.includes("unallocatedManual,"), true);
+  // Only lump sums recorded on or after the sale can have covered it, so one
+  // cash payout does not hold every later sale forever.
+  assertEquals(src.includes('lumpQuery.gte("created_at", saleAt)'), true);
 });
 
 // US-2296: roundCents must be half-up at CURRENCY magnitudes, not just near 1.
