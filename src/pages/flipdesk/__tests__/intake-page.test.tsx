@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   lookup: vi.fn(),
   lookupPending: false,
   extract: vi.fn(),
-  can: vi.fn((_: string) => true),
+  can: vi.fn((perm: string) => perm.length > 0),
   ownerId: "owner-1" as string | null,
   reviewFlow: { enabled: false, isLoading: false, chosen: false },
   useSources: vi.fn(() => ({ data: [] as Array<{ id: string; name: string }> })),
@@ -380,5 +380,61 @@ describe("save errors in plain words", () => {
     await click("Save & Add another");
     expect(host.textContent).toContain("Add a title to save this item.");
     expect(document.activeElement).toBe(titleInput());
+  });
+});
+
+describe("barcode lookup", () => {
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => (resolve = r));
+    return { promise, resolve };
+  }
+  const found = {
+    found: true,
+    sku: "",
+    brand: "Patagonia",
+    style: "Better Sweater",
+    productTitle: "Patagonia Better Sweater",
+  };
+
+  it("does not land on the next item after Save & add another", async () => {
+    insertChain(() => Promise.resolve({ data: { id: "x" }, error: null }));
+    const pending = deferred<typeof found>();
+    mocks.lookup.mockReturnValue(pending.promise);
+    await renderPage();
+    await typeTitle("First coat");
+    await act(async () => {
+      void (mocks.scannerProps!.onDetected as (c: string) => Promise<void>)("ABC-123");
+    });
+    await click("Save & Add another");
+    expect(titleInput().value).toBe("");
+
+    await act(async () => pending.resolve(found));
+    await flush();
+    expect(titleInput().value).toBe("");
+    expect(host.querySelector<HTMLInputElement>("#sku-input")!.value).toBe("");
+  });
+
+  it("keeps a typed SKU", async () => {
+    mocks.lookup.mockResolvedValue({ ...found, sku: "UPC-1" });
+    await renderPage();
+    const sku = host.querySelector<HTMLInputElement>("#sku-input")!;
+    await typeInto(sku, "MY-SKU");
+    await act(async () => {
+      await (mocks.scannerProps!.onDetected as (c: string) => Promise<void>)("012345678905");
+    });
+    await flush();
+    expect(sku.value).toBe("MY-SKU");
+    expect(titleInput().value).toBe("Patagonia Better Sweater");
+  });
+
+  it("fills a blank SKU with the code", async () => {
+    mocks.lookup.mockResolvedValue({ ...found, found: false, brand: "", style: "", productTitle: "" });
+    await renderPage();
+    await act(async () => {
+      await (mocks.scannerProps!.onDetected as (c: string) => Promise<void>)("ABC-123");
+    });
+    await flush();
+    expect(host.querySelector<HTMLInputElement>("#sku-input")!.value).toBe("ABC-123");
   });
 });

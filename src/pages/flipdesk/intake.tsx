@@ -265,6 +265,12 @@ export function FlipdeskIntakePage() {
 
   // US-598: barcode/UPC scan-to-autofill.
   const productLookup = useProductLookup();
+  // Same ownership rule as the AI extract: a lookup that resolves after "Save
+  // & add another" belongs to the item just saved, not the blank one.
+  const lookupRuns = useLatestRun();
+  // The latest form, for code that runs after an await.
+  const formRef = useRef(form);
+  formRef.current = form;
   const [scannerOpen, setScannerOpen] = useState(false);
 
   // US-2546 AC3: Cancel and Back used to abandon a filled form in silence,
@@ -348,20 +354,28 @@ export function FlipdeskIntakePage() {
   }
 
   // US-598: a scanned code resolves to product data we autofill into empty
-  // fields. The code is always saved as the SKU, match or not.
+  // fields. The code goes into SKU only when SKU is blank, and an all-digit
+  // GTIN never does while SKU numbering is on (the sequence numbers it).
   async function handleScanDetected(code: string) {
     setScannerOpen(false);
-    const before = form;
-    patch("sku", code);
+    const run = lookupRuns.begin();
+    const isGtin = /^\d{8,14}$/.test(code);
+    const codeMaySetSku = !(isGtin && skuSequence.isEnabled);
+    const writeSku = (sku: string) =>
+      setForm((f) => (f.sku.trim() || !codeMaySetSku ? f : { ...f, sku }));
+    const skuWasBlank = !formRef.current.sku.trim();
+    const skuTaken = skuWasBlank && codeMaySetSku;
     try {
       const r = await productLookup.mutateAsync({ code });
+      if (run.superseded) return;
+      const before = formRef.current;
       setForm((f) => ({
         ...f,
-        sku: r.sku || code,
         brand: r.brand && !f.brand.trim() ? r.brand : f.brand,
         style: r.style && !f.style.trim() ? r.style : f.style,
         title: r.productTitle && !f.title.trim() ? r.productTitle : f.title,
       }));
+      writeSku(r.sku || code);
       const filled: string[] = [];
       if (r.brand && !before.brand.trim()) filled.push("brand");
       if (r.style && !before.style.trim()) filled.push("style");
@@ -369,14 +383,17 @@ export function FlipdeskIntakePage() {
       if (r.found && filled.length > 0) {
         toast.success(`Autofilled ${filled.join(", ")} from the scan.`);
       } else if (r.found) {
-        toast.success("Matched — code saved to SKU.");
+        toast.success(skuTaken ? "Matched. Code saved to SKU." : "Matched.");
       } else {
         toast.message("No product match", {
-          description: "Saved the code as the SKU — fill the rest in manually.",
+          description: skuTaken
+            ? "Saved the code as the SKU. Fill the rest in by hand."
+            : "Fill the rest in by hand.",
         });
       }
     } catch {
-      /* hook shows the error toast; the SKU is already set */
+      /* hook shows the error toast */
+      if (!run.superseded) writeSku(code);
     }
   }
 
@@ -439,6 +456,7 @@ export function FlipdeskIntakePage() {
     // US-3223: an AI extract for the garment just saved must not repopulate
     // the panel for the blank one that replaces it.
     aiExtractRuns.supersede();
+    lookupRuns.supersede();
     setAiResult(null);
     setStagedPhotos([]);
     setMeasurements({});
@@ -1091,7 +1109,7 @@ export function FlipdeskIntakePage() {
         <Button
           variant="outline"
           onClick={() => save(false)}
-          disabled={saving}
+          disabled={saving || productLookup.isPending}
         >
           {saving ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1100,7 +1118,7 @@ export function FlipdeskIntakePage() {
           )}
           Save & Add another
         </Button>
-        <Button onClick={() => save(true)} disabled={saving}>
+        <Button onClick={() => save(true)} disabled={saving || productLookup.isPending}>
           {saving ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
