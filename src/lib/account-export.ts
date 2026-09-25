@@ -129,7 +129,13 @@ export async function buildAccountExport(
 ): Promise<Blob> {
   // The caller's id. Every read below is filtered to it explicitly (see
   // ExportScope); getSession reads the local session and makes no request.
-  const { data: sessionData } = await supabase.auth.getSession();
+  const { data: sessionData, error: sessionErr } =
+    await supabase.auth.getSession();
+  if (sessionErr) {
+    throw new Error(
+      `Your export could not be completed: your sign-in could not be read (${sessionErr.message}). Please try again.`,
+    );
+  }
   const me = sessionData.session?.user?.id;
   if (!me) {
     throw new Error(
