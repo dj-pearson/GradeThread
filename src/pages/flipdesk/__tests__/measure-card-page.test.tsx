@@ -257,3 +257,14 @@ describe("the work that is waiting comes first (MC-10)", () => {
     expect(text()).toContain("No card yet.");
   });
 });
+
+describe("accessible names (MC-11)", () => {
+  it("each capture list is named by its heading", async () => {
+    await mount(OK);
+    const lists = Array.from(container!.querySelectorAll("ul[aria-labelledby]"));
+    const names = lists.map(
+      (ul) => document.getElementById(ul.getAttribute("aria-labelledby")!)?.textContent?.trim(),
+    );
+    expect(names).toEqual(["Do", "Avoid"]);
+  });
+});

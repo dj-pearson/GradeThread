@@ -1,7 +1,7 @@
-// US-1579: the MeasureCard tools page — what the card is, how to shoot with
+// US-1579: the MeasureCard tools page: what the card is, how to shoot with
 // it, the free print-at-home PDF, and (paid plans) request-a-mailed-card.
 // Addresses go straight to the edge (deny-all operator table) and are never
-// echoed back — the status card shows progress only.
+// echoed back; the status card shows progress only.
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -47,7 +47,7 @@ interface CardRequest {
   requested_at: string;
   shipped_at: string | null;
   // US-2231: the seller's own parcel. 00561 added the columns, the route has
-  // returned them since, and this interface did not declare them — so the one
+  // returned them since, and this interface did not declare them, so the one
   // person the number is FOR never saw it. The route's own comment says "the
   // page renders nothing rather than an empty link", which was true in the way
   // that hides a gap: it rendered nothing for every request, tracked or not.
@@ -79,14 +79,14 @@ interface CardRequestState {
 const CAPTURE_DOS = [
   "Lay the garment flat and place the card BESIDE it (never on top)",
   "Shoot top-down with all four black squares fully visible",
-  "Use even lighting — no hard shadows across the card",
+  "Use even lighting, with no hard shadows across the card",
   "Keep the card flat; a bent card skews every measurement",
 ];
 
 const CAPTURE_DONTS = [
   "Don't crop or cover any corner square",
-  "Don't shoot at a steep angle — straight down beats artsy",
-  "Don't scale the print — the PDF must print at 100% size",
+  "Don't shoot at a steep angle. Straight down beats artsy",
+  "Don't scale the print. The PDF must print at 100% size",
 ];
 
 // US-2540: where a card can be posted. Deliberately a SHORT list rather than
@@ -123,7 +123,7 @@ const MAIL_FIELD_LIMITS = {
 const STATE_REQUIRED_COUNTRIES = ["US", "CA", "AU"] as const;
 
 const STATUS_LABEL: Record<CardRequest["status"], string> = {
-  requested: "Requested — in the fulfillment queue",
+  requested: "Requested: in the fulfillment queue",
   exported: "Sent to the print vendor",
   shipped: "Shipped",
 };
@@ -138,7 +138,7 @@ export function FlipdeskMeasureCardPage() {
     queryFn: async (): Promise<CardRequestState> => {
       const res = await edgeFetch("/api/flipdesk/measure/card-request");
       // US-2540: this used to `return null` on any failure, which is the same
-      // value as "you have never requested one" — so a seller whose request was
+      // value as "you have never requested one", so a seller whose request was
       // already in the queue was shown the form again, and the server answered
       // their second attempt with a 409 they had no way to anticipate.
       if (!res.ok) {
@@ -215,7 +215,7 @@ export function FlipdeskMeasureCardPage() {
       }
       setReviewing(false);
       setReplacing(false);
-      toast.success("Card request received — we'll mail it out shortly.");
+      toast.success("Card request received. We'll mail it out shortly.");
       // MC-07: the POST already returns the new request, so use it rather
       // than paying for a second GET to learn what we were just told.
       if (json.request) {
@@ -311,23 +311,42 @@ export function FlipdeskMeasureCardPage() {
           {/* US-2540: the instructions said "all four black squares" to people
               who had never seen one. */}
           <MeasureCardDiagram className="mx-auto max-w-sm" />
+          {/* MC-11: the two lists differed only by aria-hidden icons, so a
+              screen reader read them the same. Each now has a visible heading
+              that names it. */}
           <div className="grid gap-4 sm:grid-cols-2">
-            <ul className="space-y-1.5 text-sm">
-              {CAPTURE_DOS.map((d) => (
-                <li key={d} className="flex gap-2">
-                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                  {d}
-                </li>
-              ))}
-            </ul>
-            <ul className="space-y-1.5 text-sm">
-              {CAPTURE_DONTS.map((d) => (
-                <li key={d} className="flex gap-2">
-                  <X className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-                  {d}
-                </li>
-              ))}
-            </ul>
+            <div className="space-y-1.5">
+              <h3 id="mc-capture-do" className="text-sm font-semibold">
+                Do
+              </h3>
+              <ul aria-labelledby="mc-capture-do" className="space-y-1.5 text-sm">
+                {CAPTURE_DOS.map((d) => (
+                  <li key={d} className="flex gap-2">
+                    <Check
+                      aria-hidden="true"
+                      className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600"
+                    />
+                    {d}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="space-y-1.5">
+              <h3 id="mc-capture-avoid" className="text-sm font-semibold">
+                Avoid
+              </h3>
+              <ul aria-labelledby="mc-capture-avoid" className="space-y-1.5 text-sm">
+                {CAPTURE_DONTS.map((d) => (
+                  <li key={d} className="flex gap-2">
+                    <X
+                      aria-hidden="true"
+                      className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
+                    />
+                    {d}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
       </details>
@@ -340,12 +359,12 @@ export function FlipdeskMeasureCardPage() {
             &quot;fit to page&quot;) on matte paper, then verify with the
             built-in credit-card check box before first use.
             {/* US-2540: the page said "US-Letter" and left a seller with A4
-                paper to guess. The card artwork is 7.5in x 5.5in — 191mm x
-                140mm — so it fits inside A4's printable area with room to
+                paper to guess. The card artwork is 7.5in x 5.5in (191mm x
+                140mm), so it fits inside A4's printable area with room to
                 spare, and the only thing that breaks it is the scaling that
                 "fit to page" applies. That is worth saying out loud. */}{" "}
             <strong>On A4:</strong> print the same file and choose
-            &quot;Actual size&quot; or 100% — the card is 191mm × 140mm, well
+            &quot;Actual size&quot; or 100%. The card is 191mm × 140mm, well
             inside A4, and only scaling would break the calibration.
           </CardDescription>
         </CardHeader>
@@ -361,7 +380,7 @@ export function FlipdeskMeasureCardPage() {
         <CardHeader>
           <CardTitle className="text-base">Get a card mailed to you</CardTitle>
           <CardDescription>
-            Professionally printed on rigid matte stock — the most accurate
+            Professionally printed on rigid matte stock, the most accurate
             option. Included with paid plans. Cards post from the United
             States, so delivery elsewhere takes longer; the print-at-home PDF
             above uses the same pipeline and works today.
@@ -369,7 +388,13 @@ export function FlipdeskMeasureCardPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           {isLoading ? (
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            <div role="status">
+              <div
+                aria-hidden="true"
+                className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"
+              />
+              <span className="sr-only">Checking your card request</span>
+            </div>
           ) : isError ? (
             // US-2540: a failed read is NOT "you have no request". Offering the
             // form here is how a seller sends a second request and meets a 409.
@@ -404,7 +429,7 @@ export function FlipdeskMeasureCardPage() {
 
                   TEXT, NOT A LINK, and that is the decision rather than an
                   omission. Nothing in this repo maps a carrier to a tracking
-                  URL, so linking means guessing a URL shape per carrier — and
+                  URL, so linking means guessing a URL shape per carrier, and
                   the shape changes without telling us. The migration that added
                   these columns already made the same call about placeholders:
                   a wrong tracking link is worse than none, because the seller
@@ -439,7 +464,7 @@ export function FlipdeskMeasureCardPage() {
             </p>
           ) : reason !== "ok" ? (
             <p className="text-sm text-muted-foreground">
-              Mailed cards are included with paid plans — the print-at-home PDF
+              Mailed cards are included with paid plans. The print-at-home PDF
               above works with the same pipeline, or upgrade to have one mailed.
             </p>
           ) : (

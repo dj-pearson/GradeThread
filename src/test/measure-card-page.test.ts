@@ -244,3 +244,25 @@ describe("measuring comes first (MC-10)", () => {
     expect(src).toMatch(/const isSetUp = Boolean\(request \|\| cardSource\)/);
   });
 });
+
+describe("accessibility and copy (MC-11)", () => {
+  it("no em dash anywhere in the page or the diagram", () => {
+    for (const f of [PAGE, DIAGRAM]) {
+      expect(read(f).includes("—"), `${f} contains an em dash`).toBe(false);
+    }
+  });
+
+  it("the Do and Avoid lists are named by visible headings", () => {
+    const src = read(PAGE);
+    expect(src).toMatch(/<h3 id="mc-capture-do"[^>]*>\s*Do\s*<\/h3>/);
+    expect(src).toMatch(/<h3 id="mc-capture-avoid"[^>]*>\s*Avoid\s*<\/h3>/);
+    expect(src).toContain('aria-labelledby="mc-capture-do"');
+    expect(src).toContain('aria-labelledby="mc-capture-avoid"');
+  });
+
+  it("the loading spinner announces itself", () => {
+    const src = read(PAGE);
+    expect(src).toContain('<div role="status">');
+    expect(src).toContain('<span className="sr-only">Checking your card request</span>');
+  });
+});
