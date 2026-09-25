@@ -5136,7 +5136,8 @@
         "contracts/push-contract.json category index 8 (marketing) has a non-null kind, or the Swift decoder accepts a nullable kind; test_category_allCases_listsAll and test_deepLink_everyKnownCategory_resolvesToARoute pass.",
         "ExtensionQueueService offers no lifecycle actions for depop and never pushes an unselectable channel; test_ebayAndShopifyOfferNothingHere and test_anUnselectableChannelIsNeverPushed pass.",
         "iOS CI 'Build + test' is green on main after the fix."
-      ]
+      ],
+      "notes": "2026-09-25: test fixes committed (PushContract kind optional; allCases 20; marketing excluded from the deep-link sweep as in noDestination; Depop expectations moved to US-3462's extension channel). No app code changed. Left open until iOS CI Build + test is green on main, which is AC3."
     }
   ]
 }
