@@ -34,6 +34,7 @@ vi.mock("@/lib/supabase", () => ({
 vi.mock("@/hooks/use-scheduled-drops", async (orig) => ({
   ...(await orig<typeof import("@/hooks/use-scheduled-drops")>()),
   useScheduledDrops: () => ({
+    // A background refetch keeps isLoading false; only isFetching flips.
     data: { rows: state.rows, truncated: false, limit: 500 },
     isLoading: false,
     isError: false,
@@ -78,6 +79,7 @@ afterEach(() => {
   document.body.innerHTML = "";
   root = null;
   container = null;
+  client = null;
 });
 
 function row(id: string, msFromNow: number, extra: Partial<ScheduledDropRow> = {}): ScheduledDropRow {
@@ -94,18 +96,24 @@ function row(id: string, msFromNow: number, extra: Partial<ScheduledDropRow> = {
     publish_attempts: 0,
     publish_claimed_at: null,
     synced_to_ebay_at: null,
+    item_title: null,
     ...extra,
   } as ScheduledDropRow;
 }
 
+let client: QueryClient | null = null;
+
+/** Mounts the page, or re-renders the mounted one with the current state. */
 async function render() {
-  container = document.createElement("div");
-  document.body.appendChild(container);
-  root = createRoot(container);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  if (!root) {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  }
   await act(async () => {
     root!.render(
-      <QueryClientProvider client={client}>
+      <QueryClientProvider client={client!}>
         <MemoryRouter>
           <FlipdeskScheduledDropsPage />
         </MemoryRouter>
@@ -150,5 +158,25 @@ describe("stuck drops lead the page (SD-4)", () => {
     const cells = Array.from(document.querySelectorAll('[role="gridcell"][aria-label]'));
     const labelled = cells.filter((c) => c.getAttribute("aria-label")!.includes("overdue"));
     expect(labelled).toHaveLength(1);
+  });
+});
+
+describe("one read, no title waterfall (SD-8)", () => {
+  it("reads no inventory_items rows and names a drop from the embedded title", async () => {
+    state.rows = [row("a", 3 * 3_600_000, { listing_title: null, item_title: "Levi's 501" })];
+    await render();
+    expect(state.itemReads).toBe(0);
+    expect(document.body.textContent).toContain("Levi's 501");
+  });
+
+  it("keeps the grid mounted through a refetch after a row goes away", async () => {
+    state.rows = [row("a", 3 * 3_600_000), row("b", 4 * 3_600_000)];
+    await render();
+    expect(document.querySelector('[role="grid"]')).not.toBeNull();
+    state.rows = [state.rows[0]!];
+    state.isFetching = true;
+    await render();
+    expect(document.querySelector('[role="grid"]')).not.toBeNull();
+    expect(document.querySelector(".animate-spin.border-t-transparent")).toBeNull();
   });
 });

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
-import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CalendarClock,
@@ -20,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { TruncatedNotice } from "@/components/flipdesk/truncated-notice";
 import {
+  dropTitle,
   useScheduledDrops,
   type ScheduledDropRow as HookScheduledDropRow,
 } from "@/hooks/use-scheduled-drops";
@@ -33,8 +33,6 @@ import {
 } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
-import { supabase } from "@/lib/supabase";
-import { useAuthStore } from "@/stores/auth-store";
 import {
   COMMON_TIMEZONES,
   detectTimezone,
@@ -99,7 +97,6 @@ function fmtMoney(n: number | null | undefined): string {
 }
 
 export function FlipdeskScheduledDropsPage() {
-  const user = useAuthStore((s) => s.user);
   const [timeZone, setTimeZone] = useState(() => detectTimezone());
   // Which month the grid shows, as a {y, m} pair (m is 0-based). Seeded to the
   // current month in the viewer's zone.
@@ -153,39 +150,8 @@ export function FlipdeskScheduledDropsPage() {
     [drops, now],
   );
 
-  // Titles fall back to the inventory item when listing_title is blank.
-  const itemIds = useMemo(
-    () => drops.map((d) => d.inventory_item_id),
-    [drops],
-  );
-  // Key on the id CONTENTS, not the count — a length-only key serves the stale
-  // title map when the set turns over without changing size.
-  const itemIdsKey = useMemo(() => [...itemIds].sort().join(","), [itemIds]);
-  const { data: titles = {}, isError: titlesError, isLoading: titlesLoading, refetch: reloadTitles } = useQuery<Record<string, string>>({
-    queryKey: ["scheduled_drops_titles", user?.id, itemIdsKey],
-    enabled: itemIds.length > 0,
-    queryFn: async () => {
-      // Chunk the id list: a single `.in("id", [...])` with hundreds of UUIDs
-      // overflows the request URL length limit (ERR_FAILED on large queues) —
-      // same cap the sibling listing-performance query guards against.
-      const map: Record<string, string> = {};
-      const CHUNK = 100;
-      for (let i = 0; i < itemIds.length; i += CHUNK) {
-        const { data, error: dataReadError } = await supabase
-          .from("inventory_items")
-          .select("id, title")
-          .in("id", itemIds.slice(i, i + CHUNK));
-        if (dataReadError) throw dataReadError;
-        for (const row of (data ?? []) as { id: string; title: string | null }[]) {
-          if (row.title) map[row.id] = row.title;
-        }
-      }
-      return map;
-    },
-  });
-
-  const titleOf = (d: ScheduledDropRow) =>
-    d.listing_title?.trim() || titles[d.inventory_item_id] || "Untitled draft";
+  // SD-8: the item title rides along in the drops read (dropTitle).
+  const titleOf = (d: ScheduledDropRow) => dropTitle(d);
   const isPromoted = (d: ScheduledDropRow) =>
     !d.promo_opt_out && (d.promo_rate_pct ?? 0) > 0;
 
@@ -273,13 +239,12 @@ export function FlipdeskScheduledDropsPage() {
       listing_price: d.listing_price,
       // Same fallbacks as titleOf/isPromoted, inlined: both are recreated every
       // render, so depending on them would rebuild this list every render too.
-      title:
-        d.listing_title?.trim() || titles[d.inventory_item_id] || "Untitled draft",
+      title: dropTitle(d),
       promoted: !d.promo_opt_out && (d.promo_rate_pct ?? 0) > 0,
       health: healthById.get(d.id) ?? "scheduled",
       healthNote: dropHealthNote(d, healthById.get(d.id) ?? "scheduled"),
     }));
-  }, [openDayNum, view, dropsByDay, titles, healthById]);
+  }, [openDayNum, view, dropsByDay, healthById]);
 
   const shiftMonth = (delta: number) => {
     setView((v) => {
@@ -418,13 +383,13 @@ export function FlipdeskScheduledDropsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {isError || titlesError ? (
+          {isError ? (
             <ErrorState
               title="Couldn't load scheduled drops"
-              onRetry={() => Promise.all([refetch(), reloadTitles()])}
+              onRetry={() => refetch()}
               retrying={isFetching}
             />
-          ) : isLoading || titlesLoading ? (
+          ) : isLoading ? (
             <div className="flex h-64 items-center justify-center">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
             </div>

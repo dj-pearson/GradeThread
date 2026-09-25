@@ -1,6 +1,7 @@
 import { CalendarClock } from "lucide-react";
 import {
   dropsDueWithin,
+  dropTitle,
   DROPS_WINDOW_DAYS,
   useScheduledDrops,
 } from "@/hooks/use-scheduled-drops";
@@ -39,9 +40,7 @@ export function FlipdeskScheduledDropsWidget() {
 
   const due = dropsDueWithin(data?.rows ?? []);
   const next = due[0];
-  const title = next
-    ? next.listing_title?.trim() || "Untitled draft"
-    : null;
+  const title = next ? dropTitle(next) : null;
 
   return (
     <StatTile

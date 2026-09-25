@@ -46,11 +46,32 @@ export interface ScheduledDropRow {
   publish_attempts: number | null;
   publish_claimed_at: string | null;
   synced_to_ebay_at: string | null;
+  /**
+   * SD-8: the inventory item's title, embedded in the same read. It used to
+   * come from a second, chunked query that waited on this one and swapped the
+   * whole calendar for a spinner every time it re-keyed.
+   */
+  item_title: string | null;
 }
 
 /** Columns the drops read asks for. Exported so a test can pin them. */
 export const SCHEDULED_DROPS_SELECT =
-  "id, inventory_item_id, listing_title, listing_price, scheduled_publish_at, promo_opt_out, promo_rate_pct, publish_error, publish_failed_at, publish_attempts, publish_claimed_at, synced_to_ebay_at";
+  "id, inventory_item_id, listing_title, listing_price, scheduled_publish_at, promo_opt_out, promo_rate_pct, publish_error, publish_failed_at, publish_attempts, publish_claimed_at, synced_to_ebay_at, inventory_items(title)";
+
+type RawDropRow = Omit<ScheduledDropRow, "item_title"> & {
+  inventory_items?: { title: string | null } | { title: string | null }[] | null;
+};
+
+/** Flatten the embedded item into `item_title`. */
+function toDropRow({ inventory_items: item, ...rest }: RawDropRow): ScheduledDropRow {
+  const embedded = Array.isArray(item) ? item[0] : item;
+  return { ...rest, item_title: embedded?.title ?? null };
+}
+
+/** The name a drop goes by: its listing title, else its item's, else a placeholder. */
+export function dropTitle(row: Pick<ScheduledDropRow, "listing_title" | "item_title">): string {
+  return row.listing_title?.trim() || row.item_title?.trim() || "Untitled draft";
+}
 
 /**
  * Every scheduled drop, soonest first.
@@ -78,7 +99,7 @@ export function useScheduledDrops() {
           .order("scheduled_publish_at", { ascending: true })
           .limit(limit);
         if (error) throw error;
-        return (data ?? []) as ScheduledDropRow[];
+        return ((data ?? []) as unknown as RawDropRow[]).map(toDropRow);
       }),
   });
 }

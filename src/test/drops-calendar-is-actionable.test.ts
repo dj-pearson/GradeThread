@@ -125,3 +125,12 @@ describe("the drops read matches the cron's view of a row (SD-3)", () => {
     expect(src).not.toMatch(/\.eq\("platform"/);
   });
 });
+
+describe("drop titles come from the drops read (SD-8)", () => {
+  it("embeds the item title and the page runs no second title query", () => {
+    expect(read(HOOK)).toMatch(/SCHEDULED_DROPS_SELECT =[^;]*inventory_items\(title\)/);
+    const page = read(PAGE);
+    expect(page).not.toContain("scheduled_drops_titles");
+    expect(page).not.toContain('from("inventory_items")');
+  });
+});

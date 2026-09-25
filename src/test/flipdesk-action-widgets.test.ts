@@ -193,6 +193,7 @@ describe("dropsDueWithin (US-3077 AC7)", () => {
     publish_attempts: 0,
     publish_claimed_at: null,
     synced_to_ebay_at: null,
+    item_title: null,
   });
 
   it("keeps the next seven days, soonest first", () => {
