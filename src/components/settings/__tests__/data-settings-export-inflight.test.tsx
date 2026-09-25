@@ -31,7 +31,20 @@ const downloadBlob = vi.fn();
 vi.mock("@/lib/download", () => ({
   downloadBlob: (...args: unknown[]) => downloadBlob(...args),
 }));
-vi.mock("@/lib/edge-fetch", () => ({ edgeFetch: vi.fn() }));
+const edgeFetch = vi.fn<(...args: unknown[]) => Promise<Response>>(
+  async () => new Response("{}", { status: 200 }),
+);
+vi.mock("@/lib/edge-fetch", () => ({
+  edgeFetch: (...args: unknown[]) => edgeFetch(...args),
+}));
+// The deletion-request confirm: each test sets what the dialog answers.
+let confirmAnswer = false;
+const confirmFn = vi.fn<(...args: unknown[]) => Promise<boolean>>(
+  async () => confirmAnswer,
+);
+vi.mock("@/components/ui/confirm-dialog", () => ({
+  useConfirm: () => (...args: unknown[]) => confirmFn(...args),
+}));
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
 vi.mock("sonner", () => ({
@@ -167,6 +180,40 @@ describe("DataSettingsTab export when storage refuses writes", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("formal deletion request", () => {
+  function requestDeletion(): HTMLButtonElement {
+    return [...container!.querySelectorAll("button")].find((el) =>
+      /request data deletion/i.test(el.textContent ?? ""),
+    ) as HTMLButtonElement;
+  }
+
+  it("asks first, and cancelling sends no request", async () => {
+    edgeFetch.mockClear();
+    confirmFn.mockClear();
+    confirmAnswer = false;
+    mount();
+    await act(async () => {
+      requestDeletion().click();
+    });
+    expect(confirmFn).toHaveBeenCalledTimes(1);
+    expect(confirmFn.mock.calls[0]![0]).toMatchObject({ destructive: true });
+    expect(edgeFetch).not.toHaveBeenCalled();
+  });
+
+  it("confirming files the request", async () => {
+    edgeFetch.mockClear();
+    confirmAnswer = true;
+    mount();
+    await act(async () => {
+      requestDeletion().click();
+    });
+    expect(edgeFetch).toHaveBeenCalledWith("/api/account/data-requests", {
+      method: "POST",
+      json: { type: "delete" },
+    });
   });
 });
 

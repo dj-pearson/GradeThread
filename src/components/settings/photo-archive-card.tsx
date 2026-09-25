@@ -12,17 +12,35 @@ export function PhotoArchiveCard() {
     try {
       const r = await archive.mutateAsync();
       const freedMB = (r.freed_bytes / (1024 * 1024)).toFixed(1);
-      if (r.archived === 0) {
-        toast.info("No photos eligible for archival yet.");
+      const more = r.remaining === "unknown" || r.remaining > 0;
+      const nextBatch = more
+        ? {
+            toastAction: {
+              label: "Archive next batch",
+              onClick: () => void run(),
+            },
+          }
+        : {};
+      // Errors first: "none eligible" when every photo FAILED hid a broken
+      // storage setup behind a message that says all is well.
+      if (r.archived === 0 && r.errors.length > 0) {
+        toast.warning("No photos were archived", {
+          description: `${r.errors.length} failed. ${r.errors[0]?.message ?? ""}`.trim(),
+          duration: 14_000,
+        });
+      } else if (r.archived === 0) {
+        toast.info("No photos are ready to archive yet.");
       } else if (r.errors.length === 0) {
         toast.success(
-          `Archived ${r.archived} photo${r.archived === 1 ? "" : "s"} · freed ${freedMB} MB.`,
+          `Archived ${r.archived} photo${r.archived === 1 ? "" : "s"} · freed ${freedMB} MB.` +
+            (more ? " More photos are waiting." : ""),
+          nextBatch.toastAction ? { action: nextBatch.toastAction } : undefined,
         );
       } else {
         toastWarning(
           r.errors[0],
           `Archived ${r.archived}, ${r.errors.length} failed.`,
-          { duration: 14_000 },
+          { duration: 14_000, ...nextBatch },
         );
       }
     } catch {
@@ -38,10 +56,10 @@ export function PhotoArchiveCard() {
           Storage
         </CardTitle>
         <CardDescription>
-          Photos for items in a terminal state (sold, shipped, returned,
-          completed) older than 30 days can be moved off Supabase to
-          cold-storage on Cloudflare R2. Photos stay viewable — the URL
-          just points elsewhere.
+          Photos of items that finished more than 30 days ago (sold, shipped,
+          returned or completed) move to cheaper long-term storage. This runs
+          every night on its own; the button runs it now. The photos stay
+          viewable at a new address.
         </CardDescription>
       </CardHeader>
       <CardContent>
