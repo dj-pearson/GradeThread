@@ -86,6 +86,7 @@ import {
 } from "../lib/cert-og-template.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
 import { rankReferrers } from "../lib/referral-rewards.ts";
+import { loadReferralBoardInputs } from "../lib/referral-board.ts";
 import { isBadgeTargetType, recordBadgeClick } from "../lib/badge-analytics.ts";
 import { visitorFingerprint } from "../lib/share-to-earn.ts";
 import { clientIp } from "../middleware/rate-limit.ts";
@@ -2895,54 +2896,18 @@ contentPublicRoutes.get("/sellers.json", async (c) => {
 // one GRANTED (rewarded) referral are ranked. Counts come from referral_events,
 // which the service-role client can read; we expose only the aggregate.
 contentPublicRoutes.get("/referral-leaderboard.json", async (c) => {
-  const { data: optedIn, error } = await supabaseAdmin
-    .from("users")
-    .select("id, referral_display_name, verified_handle, verified_enabled")
-    .eq("referral_leaderboard_enabled", true)
-    .not("referral_display_name", "is", null)
-    .limit(5000);
-  if (error) return publicError(c, error, "leaderboard-users");
-
-  const users = (optedIn ?? []) as Array<{
-    id: string;
-    referral_display_name: string | null;
-    // US-1784: only a PUBLICLY-verified seller (verified_enabled) exposes a
-    // handle here, so the leaderboard row can link to their /verified profile.
-    verified_handle: string | null;
-    verified_enabled: boolean | null;
-  }>;
-  if (users.length === 0) return c.json({ referrers: [] });
-
-  const ids = users.map((u) => u.id);
-  // Count granted (rewarded) referrals per opted-in referrer.
-  const { data: grantedRows, error: gErr } = await supabaseAdmin
-    .from("referral_events")
-    .select("referrer_user_id")
-    .in("referrer_user_id", ids)
-    .eq("reward_status", "granted")
-    .limit(DIRECTORY_STATS_SAMPLE);
-  if (gErr) return publicError(c, gErr, "leaderboard-counts");
-
-  const countById = new Map<string, number>();
-  for (const r of (grantedRows ?? []) as Array<{ referrer_user_id: string }>) {
-    countById.set(r.referrer_user_id, (countById.get(r.referrer_user_id) ?? 0) + 1);
+  let inputs;
+  try {
+    inputs = await loadReferralBoardInputs();
+  } catch (err) {
+    return publicError(c, err, "leaderboard");
   }
-
+  c.header("Cache-Control", "public, max-age=300");
   // A leaderboard of zero-referral aliases isn't a leaderboard — rankReferrers
-  // ranks by granted count desc, drops zero-referral rows, and caps the list.
-  const referrers = rankReferrers(
-    users.map((u) => ({
-      id: u.id,
-      display_name: u.referral_display_name as string,
-      // Link only publicly-verified sellers; others stay alias-only (privacy).
-      verified_handle: u.verified_enabled ? u.verified_handle : null,
-    })),
-    countById,
-  );
-
+  // drops zero-referral rows, ranks with shared ranks for ties, and caps.
+  const referrers = rankReferrers(inputs.eligible, inputs.totals);
   return c.json({ referrers });
 });
-
 
 // ── GET /buyer-profile/:handle ────────────────────────────────────
 // US-1818: the PUBLIC, opt-in buyer Trust Score profile. Hard-filters to

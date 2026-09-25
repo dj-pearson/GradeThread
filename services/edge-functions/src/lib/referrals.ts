@@ -201,9 +201,12 @@ export async function grantReferralReward(
       p_stripe_payment_intent: null,
       p_notes: `Referral reward (event ${eventId})`,
     });
+  // grant_grade_credits raises on a 0-credit grant, so a config that pays one
+  // side nothing skips that side's RPC instead of failing the whole referral.
+  const skip = Promise.resolve({ error: null as { message: string } | null });
   const [{ error: e1 }, { error: e2 }] = await Promise.all([
-    grant(ev.referrer_user_id, config.referrer_credits),
-    grant(ev.referred_user_id, config.referred_credits),
+    config.referrer_credits > 0 ? grant(ev.referrer_user_id, config.referrer_credits) : skip,
+    config.referred_credits > 0 ? grant(ev.referred_user_id, config.referred_credits) : skip,
   ]);
   if (e1 || e2) {
     console.error("[referrals] credit grant failed:", e1?.message ?? e2?.message);
@@ -221,8 +224,12 @@ export async function grantReferralReward(
   }
 
   await Promise.all([
-    notifyReward(ev.referrer_user_id, config.referrer_credits, true),
-    notifyReward(ev.referred_user_id, config.referred_credits, false),
+    config.referrer_credits > 0
+      ? notifyReward(ev.referrer_user_id, config.referrer_credits, true)
+      : Promise.resolve(),
+    config.referred_credits > 0
+      ? notifyReward(ev.referred_user_id, config.referred_credits, false)
+      : Promise.resolve(),
   ]);
 
   // US-1071: now that this grant is committed, check whether the referrer just
@@ -346,11 +353,11 @@ export async function getReferredSignupIncentive(): Promise<ReferredSignupIncent
 export async function applyReferredSignupIncentive(
   eventId: string,
   referredUserId: string,
-): Promise<void> {
+): Promise<number> {
   try {
     const incentive = await getReferredSignupIncentive();
-    if (!incentive.enabled) return;
-    if (incentive.bonus_credits <= 0 && !incentive.free_month_coupon_id) return;
+    if (!incentive.enabled) return 0;
+    if (incentive.bonus_credits <= 0 && !incentive.free_month_coupon_id) return 0;
 
     // CLAIM: stamp the event row only if no incentive was applied yet. The
     // .is("signup_incentive_applied_at", null) guard makes the claim atomic.
@@ -367,11 +374,11 @@ export async function applyReferredSignupIncentive(
       .select("id");
     if (claimErr) {
       console.error("[referrals] signup-incentive claim failed:", claimErr.message);
-      return;
+      return 0;
     }
     if (!claimed || claimed.length === 0) {
       // Already applied by a prior call — nothing to do.
-      return;
+      return 0;
     }
 
     // Free-month coupon: stash it for the next subscription checkout to consume.
@@ -405,7 +412,7 @@ export async function applyReferredSignupIncentive(
             signup_incentive_coupon: null,
           })
           .eq("id", eventId);
-        return;
+        return 0;
       }
 
       await notifyUser(referredUserId, {
@@ -416,12 +423,19 @@ export async function applyReferredSignupIncentive(
         link: "/dashboard/billing",
       }).catch(() => {});
     }
+    return incentive.bonus_credits;
   } catch (err) {
     console.error(
       "[referrals] signup-incentive apply threw:",
       err instanceof Error ? err.message : err,
     );
+    return 0;
   }
+}
+
+/** Cash accrual follows the credit grant: only a granted referral accrues. */
+export function shouldAccrueAfterGrant(result: GrantReferralResult): boolean {
+  return result.status === "granted" || result.status === "already_granted";
 }
 
 // Called when a referred user performs their first PAID action. Flips the
@@ -453,8 +467,12 @@ export async function maybeQualifyReferral(userId: string): Promise<void> {
       // US-1295: accrue the affiliate commission for this conversion (no-op for
       // non-affiliate referrals or when the engine is disabled). Idempotent via
       // the UNIQUE(referral_event_id) ledger constraint; the affiliate-payouts
-      // sweep also backfills, so a miss here is recovered.
-      await accrueAffiliateCommission(row.id);
+      // sweep also backfills, so a miss here is recovered. Only a GRANTED
+      // referral earns cash: an expired, capped or blocked one paid no credits
+      // and must not pay money either.
+      if (shouldAccrueAfterGrant(result)) {
+        await accrueAffiliateCommission(row.id);
+      }
     }
   } catch (err) {
     console.error("[referrals] qualify hook threw:", err instanceof Error ? err.message : err);

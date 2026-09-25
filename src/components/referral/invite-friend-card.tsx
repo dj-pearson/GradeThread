@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { shareOrCopy } from "@/lib/share";
+import { referralLink } from "@/lib/affiliate";
 import { track } from "@/lib/analytics";
 
 // US-862: dashboard amplification for the (already wired) referral program.
@@ -41,9 +42,9 @@ export function InviteFriendCard() {
   // Don't render a half-baked card before the code resolves.
   if (!data?.code) return null;
 
-  const shareLink = `${window.location.origin}/signup?ref=${data.code}`;
+  const shareLink = referralLink(data.code, "copy");
   const text =
-    "I'm using GradeThread to get AI condition grades on my pre-owned clothing. Join with my link — we both earn grade credits.";
+    "I'm using GradeThread to get AI condition grades on my pre-owned clothing. Join with my link and we both earn grade credits.";
 
   const copy = async () => {
     try {
@@ -79,7 +80,7 @@ export function InviteFriendCard() {
         </CardTitle>
         <CardDescription>
           Share your link. When a friend joins and qualifies, you both earn
-          grade credits — added to your balance automatically.
+          grade credits, added to your balance automatically.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

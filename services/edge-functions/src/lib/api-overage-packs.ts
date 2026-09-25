@@ -26,3 +26,23 @@ export const API_OVERAGE_PACKS: Record<ApiOveragePackKey, ApiOveragePack> = {
 export function isApiOveragePackKey(v: unknown): v is ApiOveragePackKey {
   return v === "10" || v === "50" || v === "100" || v === "200";
 }
+
+/**
+ * Checkout metadata for an overage pack. `user_id` is the wallet the webhook
+ * credits, which is the workspace OWNER's, because keys debit the owner.
+ * `purchased_by` records the member who paid. Shared by the session and its
+ * PaymentIntent so a refund clawback reads the same owner.
+ */
+export function apiOverageCheckoutMetadata(
+  ownerId: string,
+  buyerId: string,
+  pack: ApiOveragePack,
+): Record<string, string> {
+  return {
+    user_id: ownerId,
+    purchased_by: buyerId,
+    product: "api_overage",
+    pack: pack.key,
+    credits: String(pack.credits),
+  };
+}

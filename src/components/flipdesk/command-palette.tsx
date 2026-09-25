@@ -47,7 +47,11 @@ import {
   PaletteShell,
   type PaletteSection,
 } from "@/components/palette/palette-shell";
-import { paletteMatches, settingsPaletteActions } from "@/lib/settings-tabs";
+import {
+  paletteMatches,
+  referralPaletteActions,
+  settingsPaletteActions,
+} from "@/lib/settings-tabs";
 
 
 // Just the columns the palette renders — kept narrow so the search query
@@ -439,6 +443,18 @@ export function CommandPalette() {
           id: a.id,
           label: a.label,
           icon: <Settings className="h-4 w-4" />,
+          run: () => go(a.href),
+          keywords: a.keywords,
+          searchOnly: true,
+        }),
+      ),
+      // The Referrals sections, reachable by "invite", "payout", "stripe"...
+      ...referralPaletteActions().map(
+        (a): ActionEntry => ({
+          kind: "action",
+          id: a.id,
+          label: a.label,
+          icon: <Gift className="h-4 w-4" />,
           run: () => go(a.href),
           keywords: a.keywords,
           searchOnly: true,

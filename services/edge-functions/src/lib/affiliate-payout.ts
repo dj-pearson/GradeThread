@@ -120,23 +120,30 @@ export async function accrueAffiliateCommission(
 
   const { data: evRaw } = await supabaseAdmin
     .from("referral_events")
-    .select("id, referrer_user_id, attribution_source")
+    .select("id, referrer_user_id, referred_user_id, attribution_source, reward_status")
     .eq("id", eventId)
     .maybeSingle();
   const ev = evRaw as
     | {
       id: string;
       referrer_user_id: string;
+      referred_user_id: string | null;
       attribution_source: string | null;
+      reward_status: string | null;
     }
     | null;
   if (!ev) return { accrued: false, reason: "not_found" };
+  // Cash follows the credit grant. A referral that qualified but was never
+  // granted (expired, over the per-referrer cap, blocked by a suspension)
+  // earns nothing, so it must not earn cash either.
+  if (ev.reward_status !== "granted") return { accrued: false, reason: "not_granted" };
 
   const plan = planAccrual({
     attributionSource: ev.attribution_source,
     mode: config.mode,
     rate: config.commission_per_conversion,
     alreadyAccrued: false,
+    model: config.commission_model,
     // US-9212: cash is creator-only. A user referral reaching this function
     // skips with "not_creator" and keeps earning grade credits in referrals.ts.
     program: await loadAffiliateProgram(ev.referrer_user_id),
@@ -150,6 +157,8 @@ export async function accrueAffiliateCommission(
   const { error } = await supabaseAdmin.from("affiliate_commissions").insert({
     affiliate_user_id: ev.referrer_user_id,
     referral_event_id: ev.id,
+    referred_user_id: ev.referred_user_id,
+    commission_model: "flat",
     amount: plan.amount,
     status: "accrued",
     hold_until: holdUntil,
@@ -790,7 +799,9 @@ export async function sweepAffiliatePayouts(): Promise<SweepSummary> {
     .from("referral_events")
     .select("id, reward_status, created_at")
     .eq("attribution_source", "affiliate")
-    .in("reward_status", ["qualified", "granted"])
+    // Only granted referrals earn cash; accrueAffiliateCommission refuses the
+    // rest, so there is no point reading them.
+    .eq("reward_status", "granted")
     .gte("created_at", sinceIso)
     .order("created_at", { ascending: false })
     .limit(SWEEP_LIMIT);

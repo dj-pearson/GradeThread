@@ -478,6 +478,23 @@ async function main(): Promise<void> {
   });
   out.TEST_USER_A_WEBHOOK_EVENT_ID = aWebhookEventId;
 
+  // DEV-05: one live OAuth grant for A, so B's list and revoke of
+  // /api/oauth/connections can be asserted against a row that exists.
+  const fixtureClient = "https://tenant-a-fixture.example.com/oauth-client";
+  const { error: clientError } = await admin.from("oauth_clients").upsert({
+    client_id: fixtureClient,
+    client_name: "tenant A fixture client",
+    redirect_uris: ["https://tenant-a-fixture.example.com/cb"],
+    registration_source: "preregistered",
+  });
+  if (clientError) die(`upsert into oauth_clients failed: ${clientError.message}`);
+  out.TEST_USER_A_OAUTH_GRANT_ID = await insert("oauth_grants", {
+    owner_user_id: aId,
+    client_id: fixtureClient,
+    scopes: ["read"],
+    resource: "https://tenant-a-fixture.example.com/mcp",
+  });
+
   // A's DEFAULT template, so the isolation case can tell whether B's PUT with
   // is_default:true cleared A's default before its own 404.
   out.TEST_USER_A_TEMPLATE_ID = await insert("listing_templates", {

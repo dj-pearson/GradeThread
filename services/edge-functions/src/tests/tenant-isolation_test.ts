@@ -8207,6 +8207,81 @@ Deno.test({
   },
 });
 
+// DEV-12: the delivery drill-in and resend take an event id from the URL.
+// B handed A's event id must get 404 on both, and A's row must be untouched.
+Deno.test({
+  name: "B's session cannot read or resend A's webhook delivery by event id",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID"),
+  fn: async () => {
+    const eventId = Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID")!;
+    const detail = await fetch(`${BASE}/api/keys/webhook/deliveries/${eventId}`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const detailBody = await detail.text();
+    assertDenied(detail.status, "GET /api/keys/webhook/deliveries/:eventId as B");
+    assert(!detailBody.includes("tenant-a-fixture-submission"), "B read A's delivery payload");
+
+    const resend = await fetch(`${BASE}/api/keys/webhook/deliveries/${eventId}/redeliver`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    await resend.body?.cancel();
+    assertDenied(resend.status, "POST /api/keys/webhook/deliveries/:eventId/redeliver as B");
+
+    // A's row is unchanged: still delivered, still one attempt.
+    const mine = await fetch(`${BASE}/api/keys/webhook/deliveries/${eventId}`, {
+      headers: authHeaders(A_JWT!),
+    });
+    const mineBody = await mine.json();
+    assertEquals(mine.status, 200, "A cannot read A's own delivery");
+    assertEquals(mineBody.data.status, "delivered", "B's resend changed A's delivery status");
+    assertEquals(mineBody.data.attempts, 1, "B's resend reset A's attempt count");
+  },
+});
+
+// ── Connected OAuth apps (/api/oauth/connections, DEV-05) ──────────
+//
+// Both handlers filter on owner_user_id = the SESSION user. B's list must not
+// carry A's grant, and B's revoke of A's grant id must leave it live. The
+// grant tables are deny-all, so A's own list is the only way to read it back.
+
+Deno.test({
+  name: "B's session cannot list A's OAuth grants (GET /api/oauth/connections)",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_OAUTH_GRANT_ID"),
+  fn: async () => {
+    const grantId = Deno.env.get("TEST_USER_A_OAUTH_GRANT_ID")!;
+    const res = await fetch(`${BASE}/api/oauth/connections`, { headers: authHeaders(B_JWT!) });
+    const body = await res.text();
+    assert(res.status === 200 || DENIED.has(res.status), `unexpected status ${res.status}`);
+    assertListExcludes(body, grantId, "GET /api/oauth/connections as B");
+
+    // Positive control: A sees it, or the exclusion above proves nothing.
+    const mine = await fetch(`${BASE}/api/oauth/connections`, { headers: authHeaders(A_JWT!) });
+    const mineBody = await mine.text();
+    assertEquals(mine.status, 200, `owner read failed: ${mineBody.slice(0, 200)}`);
+    assert(mineBody.includes(grantId), "A's own list did not include A's grant");
+  },
+});
+
+Deno.test({
+  name: "B's session cannot revoke A's OAuth grant (POST /api/oauth/connections/:id/revoke)",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_OAUTH_GRANT_ID"),
+  fn: async () => {
+    const grantId = Deno.env.get("TEST_USER_A_OAUTH_GRANT_ID")!;
+    const res = await fetch(`${BASE}/api/oauth/connections/${grantId}/revoke`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    const body = await res.text();
+    // The route answers a foreign id like an already-revoked one, so the
+    // response cannot say whether the id exists. The proof is A's row.
+    assert(res.status === 200 || DENIED.has(res.status), `unexpected status ${res.status}: ${body}`);
+    const mine = await fetch(`${BASE}/api/oauth/connections`, { headers: authHeaders(A_JWT!) });
+    const mineBody = await mine.text();
+    assert(mineBody.includes(grantId), "B's revoke revoked A's grant (revoked_at is no longer null)");
+  },
+});
+
 // ── MCP connector tools (US-9112) ──────────────────────────────────
 //
 // Every tool in the registry is exercised here as tenant B against tenant A's
@@ -10447,6 +10522,58 @@ Deno.test({
 });
 
 Deno.test({
+  // GET /api/referrals/me/events lists the caller's referrals as referrer. It
+  // takes no id at all, so the property is that nothing in the query string can
+  // point it at another account, and that it never names a referred user.
+  name: "referrals: /me/events ignores a user id in the query and names nobody",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const victim = Deno.env.get("TEST_WORKSPACE_OWNER_ID") ?? crypto.randomUUID();
+    const own = await fetch(`${BASE}/api/referrals/me/events`, { headers: authHeaders(B_JWT!) });
+    if (own.status !== 200) {
+      await own.body?.cancel();
+      assertDenied(own.status, "/api/referrals/me/events");
+      return;
+    }
+    const ownBody = await own.json();
+    for (const param of ["user_id", "referrer_user_id", "userId"]) {
+      const res = await fetch(`${BASE}/api/referrals/me/events?${param}=${victim}`, {
+        headers: authHeaders(B_JWT!),
+      });
+      assertEquals(res.status, 200);
+      const body = await res.json();
+      assertEquals(
+        body.events.length,
+        ownBody.events.length,
+        `?${param}= changed whose referrals /me/events returned`,
+      );
+      const text = JSON.stringify(body);
+      assert(!text.includes(victim), "/me/events echoed a user id");
+      assert(!/referred_user_id|referrer_user_id|email/.test(text), "/me/events exposed an identity field");
+    }
+  },
+});
+
+Deno.test({
+  // Cash onboarding is for admitted creators only. The fixture has no operator,
+  // so B is never admitted: /connect must refuse before creating a Stripe
+  // account, and a user_id in the body cannot borrow someone else's standing.
+  name: "creator cash: /connect refuses a seller who is not an admitted creator",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/affiliate/connect`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ user_id: crypto.randomUUID() }),
+    });
+    const body = res.status === 403 ? await res.json() : null;
+    if (!body) await res.body?.cancel();
+    assertEquals(res.status, 403, "a non-creator reached Stripe Connect onboarding");
+    assert(!("url" in (body ?? {})), "a non-creator was handed a Stripe onboarding link");
+  },
+});
+
+Deno.test({
   // Admission is platform-level and lives under /api/admin/*. A seller's JWT
   // reaching it would let anyone make themselves a cash-earning creator.
   name: "US-9212: creator admission refuses a seller JWT",
@@ -10743,6 +10870,48 @@ Deno.test({
       const body = await res.text();
       assertListExcludes(body, "0000000000aa", "action-credits checkout as B");
     }
+  },
+});
+
+// DEV-01: API overage credits are credited to the workspace OWNER's wallet,
+// because keys debit the owner. A viewer member must not be able to start a
+// checkout at all, and a caller cannot name whose wallet is credited.
+Deno.test({
+  name: "api overage: a viewer member cannot start an overage checkout (requires admin)",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/payments/api-overage/checkout`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ pack: "10" }),
+    });
+    await res.body?.cancel();
+    assertEquals(res.status, 403, "a viewer reached the overage checkout");
+  },
+});
+
+Deno.test({
+  name: "api overage: a checkout cannot name whose wallet to credit",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/payments/api-overage/checkout`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        pack: "10",
+        user_id: "00000000-0000-0000-0000-0000000000aa",
+        userId: "00000000-0000-0000-0000-0000000000aa",
+      }),
+    });
+    // 402 (B lacks apiAccess), 409 (no key carries a quota) or 503 (pricing
+    // not configured) are all refusals before any session. A 200 must not
+    // carry the foreign id.
+    assert(
+      [200, 402, 409, 503].includes(res.status) || DENIED.has(res.status),
+      `unexpected status ${res.status} from an overage checkout carrying a foreign user id`,
+    );
+    const body = await res.text();
+    assertListExcludes(body, "0000000000aa", "api-overage checkout as B");
   },
 });
 

@@ -112,7 +112,13 @@ export function AccountPage({
     // From a legacy standalone path, the first tab click moves the user onto the
     // canonical hub URL rather than leaving them on /dashboard/billing?tab=team.
     if (initialTab) {
-      navigate(`/dashboard/account?tab=${next}`, { replace: true });
+      // Keep the Referrals section across the move, so a click from
+      // /dashboard/referrals?section=creator lands on the same section.
+      const section = next === "referrals" ? params.get("section") : null;
+      navigate(
+        `/dashboard/account?tab=${next}${section ? `&section=${encodeURIComponent(section)}` : ""}`,
+        { replace: true },
+      );
       return;
     }
     // Deep-linkable + replace so tab switches don't pile up history entries.
@@ -128,7 +134,7 @@ export function AccountPage({
           chrome to a tab strip and "Account" appeared only in the sidebar. */}
       <PageHeader
         title="Account"
-        subtitle="Your profile, your plan, your team and your keys."
+        subtitle="Your profile, your plan, your team, your keys and your referrals."
       />
       <PageHostContext.Provider value={{ embedded: true }}>
         <Tabs value={tab} onValueChange={onTab} className="space-y-6">

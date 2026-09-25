@@ -17,8 +17,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const ROOTS = ["src/hooks", "src/components/flipdesk"];
-const PREFIXES = ["ebay_", "extension_queue", "sold_sync", "cross_channel_link"];
+const ROOTS = ["src/hooks", "src/components/flipdesk", "src/components/api"];
+const PREFIXES = ["ebay_", "extension_queue", "sold_sync", "cross_channel_link", "api-webhook"];
 const TENANT = /\b(tenantKey|workspaceOwnerId|activeWorkspaceOwnerId|ownerId)\b/;
 
 const KNOWN: Record<string, string> = {
@@ -104,6 +104,17 @@ describe("tenant-keyed query keys (MP-05)", () => {
     expect(TENANT.test(defs[0]!.text)).toBe(false);
     const ok = keyDefinitions(`useQuery({ queryKey: ["extension_queue", tenantKey] })`);
     expect(TENANT.test(ok[0]!.text)).toBe(true);
+  });
+
+  it("DEV-10: the webhook panel's keys are scanned and fail without a tenant", () => {
+    const src = `useQuery({ queryKey: ["api-webhook"], queryFn })`;
+    const defs = keyDefinitions(src).filter((d) => PREFIXES.some((p) => d.name.startsWith(p)));
+    expect(defs).toHaveLength(1);
+    expect(TENANT.test(defs[0]!.text)).toBe(false);
+    const live = readFileSync("src/components/api/webhook-panel.tsx", "utf8");
+    const liveDefs = keyDefinitions(live).filter((d) => d.name.startsWith("api-webhook"));
+    expect(liveDefs.length).toBeGreaterThanOrEqual(2);
+    for (const d of liveDefs) expect(TENANT.test(d.text), d.text).toBe(true);
   });
 
   it("the scan skips invalidations, which match by prefix", () => {

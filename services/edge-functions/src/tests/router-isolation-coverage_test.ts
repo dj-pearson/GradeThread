@@ -160,10 +160,6 @@ const EXEMPT = new Map<string, string>([
     "/api/announcements",
     "announcements are global; a dismissal row is keyed on the JWT user",
   ],
-  [
-    "/api/referrals",
-    "self-scoped; referral and campaign codes are shared across tenants by design",
-  ],
   ["/api/flipdesk/demand", "reads only buyer_wants with visibility 'public'"],
   [
     "/api/flipdesk/photo-profiles",

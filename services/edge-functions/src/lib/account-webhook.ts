@@ -14,7 +14,9 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import {
+  attemptDelivery,
   type AttemptOutcome,
+  type DeliveryRow,
   encryptWebhookSecret,
   enqueueWebhookEvent,
   generateWebhookSecret,
@@ -62,8 +64,9 @@ export async function setWebhookUrl(
   ownerId: string,
   url: string | null,
   db: WebhookDb = supabaseAdmin,
-): Promise<{ signing_secret: string | null }> {
+): Promise<{ signing_secret: string | null; secret_created_at: string | null }> {
   let signingSecret: string | null = null;
+  let secretCreatedAt: string | null = null;
   if (url === null) {
     const { error } = await db.from("api_webhook_endpoints").delete().eq("user_id", ownerId); // US-268
     if (error) throw new AccountWebhookError(`webhook clear failed: ${error.message}`);
@@ -74,18 +77,36 @@ export async function setWebhookUrl(
       .eq("user_id", ownerId) // US-268
       .maybeSingle();
     if (readError) throw new AccountWebhookError(`webhook read failed: ${readError.message}`);
-    if (existing) {
+    // DEV-11: the create is an upsert that ignores a conflict on user_id, so
+    // two first-time saves racing past the read above cannot collide on the
+    // primary key with a 500. Only the save whose row came back minted the
+    // stored secret; the other falls through to a plain URL update.
+    let created = false;
+    if (!existing) {
+      const secret = generateWebhookSecret();
+      const createdAt = new Date().toISOString();
+      const { data: inserted, error } = await db
+        .from("api_webhook_endpoints")
+        .upsert(
+          {
+            user_id: ownerId,
+            url,
+            secret_ciphertext: await encryptWebhookSecret(secret, ownerId),
+            secret_created_at: createdAt,
+          },
+          { onConflict: "user_id", ignoreDuplicates: true },
+        )
+        .select("user_id");
+      if (error) throw new AccountWebhookError(`webhook create failed: ${error.message}`);
+      if (Array.isArray(inserted) && inserted.length > 0) {
+        created = true;
+        signingSecret = secret;
+        secretCreatedAt = createdAt;
+      }
+    }
+    if (!created) {
       const { error } = await db.from("api_webhook_endpoints").update({ url }).eq("user_id", ownerId); // US-268
       if (error) throw new AccountWebhookError(`webhook update failed: ${error.message}`);
-    } else {
-      signingSecret = generateWebhookSecret();
-      const { error } = await db.from("api_webhook_endpoints").insert({
-        user_id: ownerId,
-        url,
-        secret_ciphertext: await encryptWebhookSecret(signingSecret, ownerId),
-        secret_created_at: new Date().toISOString(),
-      });
-      if (error) throw new AccountWebhookError(`webhook create failed: ${error.message}`);
     }
   }
 
@@ -99,7 +120,7 @@ export async function setWebhookUrl(
   if (mirrorError) {
     console.error(`[account-webhook] mirror onto api_keys failed: ${mirrorError.message}`);
   }
-  return { signing_secret: signingSecret };
+  return { signing_secret: signingSecret, secret_created_at: secretCreatedAt };
 }
 
 /** Mint a new secret. Null when the account has no endpoint to rotate. */
@@ -155,6 +176,124 @@ export async function listWebhookDeliveries(
     .limit(limit);
   if (error) throw new AccountWebhookError(`webhook deliveries read failed: ${error.message}`);
   return (data ?? []) as Array<Record<string, unknown>>;
+}
+
+// ── Drill-in and resend (DEV-12) ─────────────────────────────────────
+
+const EVENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Headers every attempt carries (webhook-delivery.ts buildSignedRequest). */
+export const DELIVERY_HEADER_NAMES = [
+  "Content-Type",
+  "User-Agent",
+  "webhook-id",
+  "webhook-timestamp",
+  "webhook-signature",
+];
+
+export interface WebhookAttemptView {
+  attempt: number;
+  success: boolean;
+  status_code: number | null;
+  error: string | null;
+  response_excerpt: string | null;
+  duration_ms: number | null;
+  created_at: string;
+}
+
+export interface WebhookDeliveryDetail extends Record<string, unknown> {
+  payload: Record<string, unknown>;
+  header_names: string[];
+  attempts_log: WebhookAttemptView[];
+}
+
+/**
+ * One delivery and every attempt at it. Null for an event id that is not this
+ * owner's (or not a uuid, which would otherwise reach Postgres as 22P02). The
+ * attempts are read by the delivery's own id AND the owner, never by an id
+ * from the request.
+ */
+export async function getWebhookDelivery(
+  ownerId: string,
+  eventId: string,
+  db: WebhookDb = supabaseAdmin,
+): Promise<WebhookDeliveryDetail | null> {
+  if (!EVENT_ID_RE.test(eventId)) return null;
+  const { data: row, error } = await db
+    .from("webhook_deliveries")
+    .select(`id, payload, ${DELIVERY_LIST_COLUMNS}`)
+    .eq("user_id", ownerId) // US-268
+    .eq("event_id", eventId)
+    .maybeSingle();
+  if (error) throw new AccountWebhookError(`webhook delivery read failed: ${error.message}`);
+  if (!row) return null;
+  const delivery = row as Record<string, unknown> & { id: string; payload: Record<string, unknown> };
+  const { data: attempts, error: attemptsError } = await db
+    .from("webhook_delivery_attempts")
+    .select("attempt, success, status_code, error, response_excerpt, duration_ms, created_at")
+    .eq("user_id", ownerId) // US-268
+    .eq("delivery_id", delivery.id)
+    .order("created_at", { ascending: true });
+  if (attemptsError) {
+    throw new AccountWebhookError(`webhook attempts read failed: ${attemptsError.message}`);
+  }
+  const { id: _internalId, ...rest } = delivery;
+  return {
+    ...rest,
+    payload: delivery.payload,
+    header_names: DELIVERY_HEADER_NAMES,
+    attempts_log: (attempts ?? []) as WebhookAttemptView[],
+  };
+}
+
+const REDELIVER_COLUMNS =
+  "id, user_id, event_id, event_type, subject_id, payload, status, attempts, max_attempts, next_attempt_at";
+
+export type RedeliverResult =
+  | { kind: "not_found" }
+  | { kind: "running" }
+  | { kind: "sent"; event_id: string; outcome: AttemptOutcome };
+
+/**
+ * Send a recorded event again under the SAME event_id, so a receiver that
+ * dedupes on webhook-id still sees one event. The row is reset to pending with
+ * attempts 0 and attempted once now; the retry cron takes it from there. A row
+ * already being sent is refused, in the same UPDATE, so two resends (or a
+ * resend and the cron) cannot both claim it.
+ */
+export async function redeliverWebhook(
+  ownerId: string,
+  eventId: string,
+  db: WebhookDb = supabaseAdmin,
+  deps: WebhookDeps = realWebhookDeps,
+): Promise<RedeliverResult> {
+  if (!EVENT_ID_RE.test(eventId)) return { kind: "not_found" };
+  const { data, error } = await db
+    .from("webhook_deliveries")
+    .update({
+      status: "pending",
+      attempts: 0,
+      next_attempt_at: deps.now().toISOString(),
+      delivered_at: null,
+    })
+    .eq("user_id", ownerId) // US-268
+    .eq("event_id", eventId)
+    .in("status", ["pending", "delivered", "failed", "cancelled"])
+    .select(REDELIVER_COLUMNS);
+  if (error) throw new AccountWebhookError(`webhook redeliver failed: ${error.message}`);
+  const row = ((data ?? []) as DeliveryRow[])[0];
+  if (!row) {
+    const { data: existing, error: readError } = await db
+      .from("webhook_deliveries")
+      .select("status")
+      .eq("user_id", ownerId) // US-268
+      .eq("event_id", eventId)
+      .maybeSingle();
+    if (readError) throw new AccountWebhookError(`webhook redeliver read failed: ${readError.message}`);
+    return existing ? { kind: "running" } : { kind: "not_found" };
+  }
+  const outcome = await attemptDelivery(row, deps);
+  return { kind: "sent", event_id: row.event_id, outcome };
 }
 
 export const TEST_EVENT = "webhook.test";

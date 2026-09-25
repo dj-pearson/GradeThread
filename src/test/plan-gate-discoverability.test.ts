@@ -231,7 +231,7 @@ describe("the in-page gate names a DERIVED plan (US-2872 AC3)", () => {
     // Measured, not assumed. Touching a working upgrade surface to make it
     // match a new pattern is churn with a regression risk and no user gain.
     expect(read("src/pages/api-keys.tsx")).toContain(
-      "API Access Requires the Business Plan",
+      "API access needs the Business plan",
     );
     expect(read("src/pages/flipdesk/radar.tsx")).toContain("NetworkUpgradeCard");
     expect(read("src/pages/flipdesk/reconciliation.tsx")).toMatch(/<Lock\b/);

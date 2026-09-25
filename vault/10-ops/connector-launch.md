@@ -10,12 +10,22 @@ code_refs:
   - services/edge-functions/src/middleware/mcp-auth.ts
   - services/edge-functions/src/routes/oauth.ts
   - services/edge-functions/src/routes/health.ts
-reviewed: 2026-09-08
+reviewed: 2026-09-25
 tags: [ops, connector, launch, runbook]
 summary: The two flags that gate the connector, the order to flip them in, and the checks that prove each step before the next one.
 ---
 
 # Turning the connector on
+
+> **Re-reviewed 2026-09-25.** Drift flagged `oauth.ts` for `0419e896b`
+> (DEV-05). `POST /api/oauth/connections/:id/revoke` now answers a non-uuid id
+> with the same `{ revoked: true, already: true }` it gives a foreign or
+> already-revoked id, without querying (it used to 500 on Postgres 22P02).
+> Revocation itself is unchanged: the grant's `revoked_at` still stops every
+> token at once. On the page, Disconnect now asks for confirmation first, and
+> the Connected applications list shows on every plan, including under the
+> Business upsell, so a Pro seller can see and revoke the connector. Check 6
+> below therefore has one extra click.
 
 > **Re-reviewed 2026-09-08.** Drift flagged `mcp.ts` for `41a4672f9` (US-3138).
 > The diff is five lines in the allowance-exceeded error: the JSON-RPC `data`
@@ -170,7 +180,7 @@ status codes:
    confirmation: it must be refused, telling you to preview again.
 5. **"Drop everything 60%."** — must be REFUSED even if you confirm. Anything
    over 25% is not something the connector will do on its own.
-6. **Disconnect it** from Settings → API keys, then ask it to do anything. It
+6. **Disconnect it** from Settings → API keys (confirm the dialog), then ask it to do anything. It
    must fail immediately, not at the end of the hour.
 
 Check 6 is the one people skip and the one that matters most. Revocation that

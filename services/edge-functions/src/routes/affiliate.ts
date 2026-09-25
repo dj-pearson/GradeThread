@@ -21,10 +21,12 @@ import {
   type CreatorCommissionRow,
   crossesTaxThreshold,
   isPastHold,
+  planPayout,
   summarizeCreatorEarnings,
 } from "../lib/affiliate-payout-math.ts";
-import { getAffiliatePayoutConfig } from "../lib/affiliate-payout.ts";
+import { getAffiliatePayoutConfig, loadAffiliateProgram } from "../lib/affiliate-payout.ts";
 import { encryptToken } from "../lib/crypto-aes.ts";
+import { failSafe } from "../lib/http-errors.ts";
 
 type Env = { Variables: { userId?: string } };
 
@@ -40,7 +42,17 @@ function siteUrl(): string {
   return Deno.env.get("SITE_URL") || "https://gradethread.com";
 }
 
-const VALID_SOURCES = new Set(["badge", "link", "certificate"]);
+const VALID_SOURCES = new Set([
+  "badge",
+  "link",
+  "certificate",
+  "copy",
+  "x",
+  "facebook",
+  "whatsapp",
+  "email",
+  "qr",
+]);
 
 // Trim to keep the row small and avoid storing oversized attacker-controlled
 // strings. Paths/hosts are diagnostics only.
@@ -75,14 +87,21 @@ affiliateRoutes.post("/click", async (c) => {
     .maybeSingle();
   if (!owner) return c.json({ ok: true });
 
-  await supabaseAdmin.from("affiliate_clicks").insert({
-    code,
-    source,
-    landing_path: clip(body.path, 512),
-    referrer_host: clip(body.referrer, 255),
-  });
+  // The click id goes back to THIS visitor's browser, so a later redeem stamps
+  // their own click rather than whichever click on the code came last.
+  const { data: inserted } = await supabaseAdmin
+    .from("affiliate_clicks")
+    .insert({
+      code,
+      source,
+      landing_path: clip(body.path, 512),
+      referrer_host: clip(body.referrer, 255),
+    })
+    .select("id")
+    .single();
+  const clickId = (inserted as { id?: string } | null)?.id;
 
-  return c.json({ ok: true });
+  return c.json(clickId ? { ok: true, click_id: clickId } : { ok: true });
 });
 
 // AUTHED — the caller's earned-link code + funnel. Strictly scoped to the
@@ -139,54 +158,91 @@ affiliateRoutes.get("/me", async (c) => {
 // AUTHED. The affiliate's commission ledger pays out over Stripe Connect (the
 // same rails as consignment). Every read/write is scoped to the caller's userId.
 
+/**
+ * Is a creator's Connect account able to receive our transfers?
+ *
+ * The account only requests the transfers capability, so charges_enabled may
+ * never turn true; requiring it meant payouts could never switch on. Readiness
+ * is transfers active plus payouts enabled (the consignment fix, C3).
+ */
+export function isConnectPayoutReady(account: {
+  capabilities?: { transfers?: string | null } | null;
+  payouts_enabled?: boolean | null;
+}): boolean {
+  return account.capabilities?.transfers === "active" && Boolean(account.payouts_enabled);
+}
+
+interface CreatorAccountRow {
+  program: string | null;
+  creator_terms_version: string | null;
+  creator_approved_at: string | null;
+  stripe_connect_account_id: string | null;
+}
+
+/** The caller's own affiliate_accounts row, or null. Scoped to userId. */
+async function loadCreatorAccount(userId: string): Promise<CreatorAccountRow | null> {
+  const { data } = await supabaseAdmin
+    .from("affiliate_accounts")
+    .select("program, creator_terms_version, creator_approved_at, stripe_connect_account_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return (data as CreatorAccountRow | null) ?? null;
+}
+
 // POST /connect — create (or reuse) a Stripe Connect Express account and return
 // an onboarding link the affiliate completes. Mirrors the consignor flow.
 affiliateRoutes.post("/connect", async (c) => {
   const userId = c.get("userId");
   if (!userId) return c.json({ error: "Sign-in required" }, 401);
 
+  // Cash is creator-only. A Stripe account for someone who can never be paid
+  // is a KYC record we hold for nothing.
+  const creator = await loadCreatorAccount(userId);
+  if (creator?.program !== "creator") {
+    return c.json({ error: "Cash payouts are for approved creators." }, 403);
+  }
+
   const stripe = getStripe();
   if (!stripe) return c.json({ error: "Payments are not configured" }, 503);
 
-  const { data: existingRaw } = await supabaseAdmin
-    .from("affiliate_accounts")
-    .select("stripe_connect_account_id")
-    .eq("user_id", userId)
-    .maybeSingle();
-  let accountId = (existingRaw as { stripe_connect_account_id: string | null } | null)
-    ?.stripe_connect_account_id ?? null;
+  let accountId = creator.stripe_connect_account_id;
+  try {
+    if (!accountId) {
+      const { data: userRaw } = await supabaseAdmin
+        .from("users")
+        .select("email")
+        .eq("id", userId)
+        .maybeSingle();
+      const email = (userRaw as { email: string | null } | null)?.email ?? undefined;
+      // One Express account per creator, even if two tabs race this call.
+      const account = await stripe.accounts.create({
+        type: "express",
+        email,
+        capabilities: { transfers: { requested: true } },
+        metadata: { affiliate_user_id: userId },
+      }, { idempotencyKey: `affiliate_connect_${userId}` });
+      accountId = account.id;
+      // Upsert so a re-connect for an affiliate without a row still records it.
+      await supabaseAdmin
+        .from("affiliate_accounts")
+        .upsert(
+          { user_id: userId, stripe_connect_account_id: accountId },
+          { onConflict: "user_id" },
+        );
+    }
 
-  if (!accountId) {
-    const { data: userRaw } = await supabaseAdmin
-      .from("users")
-      .select("email")
-      .eq("id", userId)
-      .maybeSingle();
-    const email = (userRaw as { email: string | null } | null)?.email ?? undefined;
-    const account = await stripe.accounts.create({
-      type: "express",
-      email,
-      capabilities: { transfers: { requested: true } },
-      metadata: { affiliate_user_id: userId },
+    const link = await stripe.accountLinks.create({
+      account: accountId,
+      // section=affiliate lands the creator back on the tab they left from.
+      refresh_url: `${siteUrl()}/dashboard/referrals?section=affiliate&connect=refresh`,
+      return_url: `${siteUrl()}/dashboard/referrals?section=affiliate&connect=done`,
+      type: "account_onboarding",
     });
-    accountId = account.id;
-    // Upsert so a re-connect for an affiliate without a row still records it.
-    await supabaseAdmin
-      .from("affiliate_accounts")
-      .upsert(
-        { user_id: userId, stripe_connect_account_id: accountId },
-        { onConflict: "user_id" },
-      );
+
+    return c.json({ url: link.url });
+  } catch (err) {
+    return failSafe(c, 502, "Could not reach Stripe. Try again in a minute.", err, "affiliate.connect");
   }
-
-  const link = await stripe.accountLinks.create({
-    account: accountId,
-    refresh_url: `${siteUrl()}/dashboard/referrals?connect=refresh`,
-    return_url: `${siteUrl()}/dashboard/referrals?connect=done`,
-    type: "account_onboarding",
-  });
-
-  return c.json({ url: link.url });
 });
 
 // GET /connect/status — refresh payouts_enabled from Stripe.
@@ -208,8 +264,13 @@ affiliateRoutes.get("/connect/status", async (c) => {
   const stripe = getStripe();
   if (!stripe) return c.json({ error: "Payments are not configured" }, 503);
 
-  const account = await stripe.accounts.retrieve(accountId);
-  const enabled = Boolean(account.payouts_enabled && account.charges_enabled);
+  let account: Stripe.Account;
+  try {
+    account = await stripe.accounts.retrieve(accountId);
+  } catch (err) {
+    return failSafe(c, 502, "Could not reach Stripe. Try again in a minute.", err, "affiliate.connect.status");
+  }
+  const enabled = isConnectPayoutReady(account);
   if (enabled !== Boolean(existing?.payouts_enabled)) {
     await supabaseAdmin
       .from("affiliate_accounts")
@@ -221,20 +282,36 @@ affiliateRoutes.get("/connect/status", async (c) => {
     connected: true,
     payouts_enabled: enabled,
     details_submitted: Boolean(account.details_submitted),
+    requirements_due: account.requirements?.currently_due ?? [],
   });
 });
 
-// GET /payouts — the affiliate's earnings: accrued (held + payable) vs paid,
-// recent payout ledger, Stripe onboarding state, and the 1099-threshold flag.
+// GET /payouts — the affiliate's earnings: accrued (held + payable), money in
+// transit, money that actually reached them, the payout history, Stripe
+// onboarding state, the tax-form gate and the 1099-threshold flag.
+//
+// Cash is creator-only, so `enabled` is false for everyone else whatever the
+// engine mode says. "Paid" means a transfer that succeeded: commissions are
+// marked paid when they are CLAIMED into a payout, before the transfer, so a
+// failed transfer used to read as money received.
 affiliateRoutes.get("/payouts", async (c) => {
   const userId = c.get("userId");
   if (!userId) return c.json({ error: "Sign-in required" }, 401);
 
   const config = await getAffiliatePayoutConfig();
   const nowMs = Date.now();
-  const yearStart = new Date(new Date().getUTCFullYear(), 0, 1).toISOString();
+  const yearStart = new Date(Date.UTC(new Date(nowMs).getUTCFullYear(), 0, 1)).toISOString();
 
-  const [{ data: commRaw }, { data: payoutsRaw }, { data: acctRaw }] = await Promise.all([
+  const [
+    program,
+    { data: commRaw },
+    { data: payoutsRaw },
+    { data: ledgerRaw },
+    { data: yearRaw },
+    { data: acctRaw },
+    { data: taxRaw },
+  ] = await Promise.all([
+    loadAffiliateProgram(userId),
     supabaseAdmin
       .from("affiliate_commissions")
       .select("amount, status, hold_until")
@@ -245,12 +322,30 @@ affiliateRoutes.get("/payouts", async (c) => {
       .eq("affiliate_user_id", userId)
       .order("created_at", { ascending: false })
       .limit(50),
+    // Totals read every payout, not the 50-row history above.
+    supabaseAdmin
+      .from("affiliate_payouts")
+      .select("amount, status")
+      .eq("affiliate_user_id", userId),
+    supabaseAdmin
+      .from("affiliate_payouts")
+      .select("amount")
+      .eq("affiliate_user_id", userId)
+      .eq("status", "paid")
+      .gte("paid_at", yearStart),
     supabaseAdmin
       .from("affiliate_accounts")
       .select("stripe_connect_account_id, payouts_enabled")
       .eq("user_id", userId)
       .maybeSingle(),
+    supabaseAdmin
+      .from("affiliate_tax_profiles")
+      .select("certified_at")
+      .eq("owner_user_id", userId)
+      .maybeSingle(),
   ]);
+
+  const cents = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v) : 0);
 
   const commissions = (commRaw ?? []) as Array<{
     amount: number | null;
@@ -260,52 +355,65 @@ affiliateRoutes.get("/payouts", async (c) => {
   // amount is INTEGER CENTS since US-1655 — sum in cents, convert at the JSON edge.
   let accruedPayableCents = 0;
   let accruedHeldCents = 0;
-  let paidCents = 0;
   for (const row of commissions) {
-    const amt = typeof row.amount === "number" && Number.isFinite(row.amount)
-      ? Math.round(row.amount)
-      : 0;
-    if (row.status === "paid") {
-      paidCents += amt;
-    } else if (row.status === "accrued") {
-      const holdMs = row.hold_until ? Date.parse(row.hold_until) : null;
-      if (isPastHold(Number.isFinite(holdMs as number) ? (holdMs as number) : null, nowMs)) {
-        accruedPayableCents += amt;
-      } else {
-        accruedHeldCents += amt;
-      }
+    if (row.status !== "accrued") continue;
+    const holdMs = row.hold_until ? Date.parse(row.hold_until) : null;
+    if (isPastHold(Number.isFinite(holdMs as number) ? (holdMs as number) : null, nowMs)) {
+      accruedPayableCents += cents(row.amount);
+    } else {
+      accruedHeldCents += cents(row.amount);
     }
   }
 
-  const payouts = (payoutsRaw ?? []) as Array<{
-    amount: number | null;
-    status: string;
-    paid_at: string | null;
-  }>;
-  // 1099 reporting flag = actually paid out this calendar year (integer cents).
-  const paidThisYearCents = payouts
-    .filter((p) => p.status === "paid" && p.paid_at && p.paid_at >= yearStart)
-    .reduce(
-      (acc, p) => acc + (typeof p.amount === "number" && Number.isFinite(p.amount) ? Math.round(p.amount) : 0),
-      0,
-    );
+  let paidCents = 0;
+  let inTransitCents = 0;
+  for (const p of (ledgerRaw ?? []) as Array<{ amount: number | null; status: string }>) {
+    if (p.status === "paid") paidCents += cents(p.amount);
+    else if (p.status === "pending" || p.status === "processing" || p.status === "failed") {
+      inTransitCents += cents(p.amount);
+    }
+  }
+
+  // 1099 reporting flag = actually paid out this UTC calendar year.
+  const paidThisYearCents = ((yearRaw ?? []) as Array<{ amount: number | null }>)
+    .reduce((acc, p) => acc + cents(p.amount), 0);
 
   const acct = acctRaw as
     | { stripe_connect_account_id: string | null; payouts_enabled: boolean | null }
     | null;
+  const taxCertified = Boolean((taxRaw as { certified_at?: string | null } | null)?.certified_at);
+  const payoutsEnabled = Boolean(acct?.payouts_enabled);
+
+  // What still stands between the payable balance and a transfer, in the order
+  // the sweep checks it. no_balance is not a block, so it reads as null.
+  const plan = planPayout({
+    eligibleBalanceCents: accruedPayableCents,
+    minimum: config.minimum_payout,
+    onboarded: payoutsEnabled,
+    taxProfileComplete: taxCertified,
+  });
+  const blockedReason = plan.action === "skip" && plan.reason !== "no_balance" ? plan.reason : null;
 
   return c.json({
-    enabled: config.mode !== "off",
+    enabled: config.mode !== "off" && program === "creator",
+    program,
+    commission_model: config.commission_model,
+    commission_pct: config.commission_pct,
+    commission_cap_usd: config.commission_cap_usd,
+    commission_window_months: config.commission_window_months,
     rate: config.commission_per_conversion,
     minimum_payout: config.minimum_payout,
     hold_days: config.hold_days,
     onboarding: {
       connected: Boolean(acct?.stripe_connect_account_id),
-      payouts_enabled: Boolean(acct?.payouts_enabled),
+      payouts_enabled: payoutsEnabled,
     },
+    tax_profile_certified: taxCertified,
+    blocked_reason: blockedReason,
     balance: {
       accrued_payable: centsToDollars(accruedPayableCents),
       accrued_held: centsToDollars(accruedHeldCents),
+      in_transit: centsToDollars(inTransitCents),
       paid: centsToDollars(paidCents),
     },
     tax: {
@@ -314,7 +422,7 @@ affiliateRoutes.get("/payouts", async (c) => {
       reaches_1099_threshold: crossesTaxThreshold(paidThisYearCents, config.tax_threshold_usd),
     },
     // amount is stored in integer cents (US-1655); convert to USD dollars for the
-    // client contract (referrals.tsx renders payouts[].amount as currency).
+    // client contract.
     payouts: ((payoutsRaw ?? []) as Array<Record<string, unknown>>).map((p) => ({
       ...p,
       amount: centsToDollars(typeof p.amount === "number" ? p.amount : 0),
@@ -413,6 +521,11 @@ affiliateRoutes.get("/creator", async (c) => {
     program: acct?.program === "creator" ? "creator" : "user",
     code,
     commission_pct: config.commission_pct,
+    // Every number the Creator tab quotes comes from here, not from a copy of
+    // the config baked into the web bundle.
+    cap_usd: config.commission_cap_usd,
+    window_months: config.commission_window_months,
+    hold_days: config.hold_days,
     earnings: {
       clicks: clicks.count ?? 0,
       signups: signups.count ?? 0,
@@ -521,6 +634,24 @@ const TAX_ENTITY_TYPES = new Set([
   "other",
 ]);
 
+/**
+ * The certification and address checks a 1099 needs, or null when they pass.
+ * A 1099 without a mailing address cannot be sent, and a row saved without the
+ * signer ticking the certification is not a W-9.
+ */
+export function taxProfileProblem(body: Record<string, unknown>): string | null {
+  if (body.certify !== true) {
+    return "Tick the box to certify your tax details.";
+  }
+  if (!clip(body.address_line1, 200)) return "Street address is required.";
+  if (!clip(body.city, 100)) return "City is required.";
+  const region = typeof body.region === "string" ? body.region.trim() : "";
+  if (!/^[A-Za-z]{2}$/.test(region)) return "Pick your state.";
+  const zip = typeof body.postal_code === "string" ? body.postal_code.trim() : "";
+  if (!/^\d{5}(-?\d{4})?$/.test(zip)) return "ZIP code is 5 digits, or 9 with the extra 4.";
+  return null;
+}
+
 // POST /tax-profile — the W-9 equivalent (ADR section 4.5).
 //
 // The TIN is encrypted with the edge's own key before it touches the database
@@ -532,12 +663,23 @@ affiliateRoutes.post("/tax-profile", async (c) => {
   const userId = c.get("userId");
   if (!userId) return c.json({ error: "Sign-in required" }, 401);
 
+  // An SSN is collected only from someone in the programme: the current
+  // creator terms accepted (an applicant may file before admission). Nobody
+  // else hands over a tax ID for money they cannot earn.
+  const creator = await loadCreatorAccount(userId);
+  if (creator?.creator_terms_version !== CREATOR_TERMS_VERSION) {
+    return c.json({ error: "Apply to the creator program first." }, 403);
+  }
+
   let body: Record<string, unknown>;
   try {
     body = (await c.req.json()) as Record<string, unknown>;
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
+
+  const problem = taxProfileProblem(body);
+  if (problem) return c.json({ error: problem }, 400);
 
   const legalName = clip(body.legal_name, 200);
   if (!legalName) return c.json({ error: "Legal name is required." }, 400);
@@ -586,7 +728,7 @@ affiliateRoutes.post("/tax-profile", async (c) => {
         address_line1: clip(body.address_line1, 200),
         address_line2: clip(body.address_line2, 200),
         city: clip(body.city, 100),
-        region: clip(body.region, 100),
+        region: clip(body.region, 2)?.toUpperCase() ?? null,
         postal_code: clip(body.postal_code, 20),
         country,
         certified_at: new Date().toISOString(),

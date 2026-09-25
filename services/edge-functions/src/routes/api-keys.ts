@@ -3,6 +3,8 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   deliveryLimit,
   getWebhookConfig,
+  getWebhookDelivery,
+  redeliverWebhook,
   listWebhookDeliveries,
   rotateWebhookSecret,
   sendTestWebhook,
@@ -11,7 +13,7 @@ import {
 import { assertPublicUrl, SsrfError } from "../lib/ssrf.ts";
 import { redactError } from "../lib/log-redact.ts";
 import { generateApiKey, normalizeScopes } from "../lib/api-key.ts";
-import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { featureAllowedForUser, requireFlipdesk } from "../lib/plan-gate.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
 import { API_RATE_TIERS } from "../middleware/api-v1-rate.ts";
 
@@ -105,10 +107,55 @@ apiKeyRoutes.get("/usage", async (c) => {
     return c.json({ error: "Failed to load API usage" }, 500);
   }
 
+  // DEV-14: success_requests and error_requests both include sandbox calls, so
+  // the tiles never added up. One count of LIVE successes lets the panel show
+  // live success + live errors + sandbox = total exactly (live errors are
+  // every other live call, including ones that never got a status code).
+  const sinceIso = (summary as { since?: string } | null)?.since ??
+    new Date(Date.now() - days * 86_400_000).toISOString();
+  const { count: liveSuccess, error: liveError } = await supabaseAdmin
+    .from("api_usage_events")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("sandbox", false)
+    .gte("created_at", sinceIso)
+    .gt("status_code", 0)
+    .lt("status_code", 400);
+  if (liveError) {
+    console.error("Failed to count live API successes:", liveError);
+    return c.json({ error: "Failed to load API usage" }, 500);
+  }
+
+  // The page gates on the OWNER's plan, never the viewer's own. Answering it
+  // here means an admin of a Business workspace is not shown an upsell, and a
+  // Business user acting in a Free workspace is not shown a key table the
+  // create route will refuse.
+  const apiAccess = await featureAllowedForUser(userId, "apiAccess");
+
+  // Overage credits are only spent by a key carrying a monthly_quota, and
+  // nothing sets one yet (US-1792 follow-up). The card hides itself until one
+  // exists, so a seller is never offered a balance nothing can draw down.
+  const { count: quotaKeys } = await supabaseAdmin
+    .from("api_keys")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .not("monthly_quota", "is", null);
+  const { data: wallet } = await supabaseAdmin
+    .from("api_credit_wallet")
+    .select("balance")
+    .eq("user_id", userId)
+    .maybeSingle();
+
   return c.json({
     data: {
       summary,
+      live_success_requests: liveSuccess ?? 0,
       plan,
+      api_access: apiAccess,
+      overage: {
+        quota_enabled: (quotaKeys ?? 0) > 0,
+        balance: Number((wallet as { balance?: number } | null)?.balance ?? 0),
+      },
       rate_limits: {
         read_per_minute: tier.read,
         write_per_minute: tier.write,
@@ -207,6 +254,28 @@ apiKeyRoutes.put("/branding", async (c) => {
     return c.json({ error: branding.error }, 400);
   }
 
+  // DEV-08: an empty body over stored branding is how a failed GET wiped it:
+  // the page rendered an empty form and Save sent nothing. Clearing is only
+  // honored when the body says so with clear: true.
+  if (Object.keys(branding).length === 0 && (body as { clear?: unknown }).clear !== true) {
+    const { data: current, error: readError } = await supabaseAdmin
+      .from("users")
+      .select("partner_branding")
+      .eq("id", userId)
+      .single();
+    if (readError) {
+      console.error("Failed to read partner branding before save:", readError);
+      return c.json({ error: "Failed to save branding" }, 500);
+    }
+    const stored = (current?.partner_branding ?? {}) as Record<string, unknown>;
+    if (Object.keys(stored).length > 0) {
+      return c.json(
+        { error: "That would clear your saved branding. Send clear: true to remove it." },
+        400,
+      );
+    }
+  }
+
   const { error } = await supabaseAdmin
     .from("users")
     .update({ partner_branding: branding })
@@ -277,12 +346,40 @@ apiKeyRoutes.put("/webhook", async (c) => {
     }
   }
 
+  let saved: Awaited<ReturnType<typeof setWebhookUrl>>;
   try {
-    const { signing_secret } = await setWebhookUrl(who.ownerId, url);
-    return c.json({ data: { ...(await getWebhookConfig(who.ownerId)), signing_secret } });
+    saved = await setWebhookUrl(who.ownerId, url);
   } catch (err) {
     console.error("Failed to save webhook:", redactError(err));
     return c.json({ error: "Failed to save webhook" }, 500);
+  }
+  // DEV-11: a freshly minted secret exists nowhere else. The answer is built
+  // from what was just written rather than a re-read, so a failing follow-up
+  // read can never swallow the one copy the seller will ever see.
+  if (saved.signing_secret) {
+    return c.json({
+      data: {
+        webhook_url: url,
+        has_signing_secret: true,
+        secret_created_at: saved.secret_created_at,
+        updated_at: saved.secret_created_at,
+        signing_secret: saved.signing_secret,
+      },
+    });
+  }
+  try {
+    return c.json({ data: { ...(await getWebhookConfig(who.ownerId)), signing_secret: null } });
+  } catch (err) {
+    console.error("Webhook saved but the re-read failed:", redactError(err));
+    return c.json({
+      data: {
+        webhook_url: url,
+        has_signing_secret: null,
+        secret_created_at: null,
+        updated_at: null,
+        signing_secret: null,
+      },
+    });
   }
 });
 
@@ -326,6 +423,43 @@ apiKeyRoutes.get("/webhook/deliveries", async (c) => {
   } catch (err) {
     console.error("Failed to list webhook deliveries:", redactError(err));
     return c.json({ error: "Failed to load deliveries" }, 500);
+  }
+});
+
+// DEV-12: one delivery with its payload and every attempt (status code,
+// duration, response excerpt). Scoped to the owner by event id; a foreign or
+// malformed id is 404.
+apiKeyRoutes.get("/webhook/deliveries/:eventId", async (c) => {
+  const who = webhookManager(c);
+  if (who instanceof Response) return who;
+  try {
+    const detail = await getWebhookDelivery(who.ownerId, c.req.param("eventId"));
+    if (!detail) return c.json({ error: "Delivery not found" }, 404);
+    return c.json({ data: detail });
+  } catch (err) {
+    console.error("Failed to load webhook delivery:", redactError(err));
+    return c.json({ error: "Failed to load delivery" }, 500);
+  }
+});
+
+// DEV-12: send a recorded event again with the same event_id. The unique
+// (user_id, event_type, subject_id) index means a failed grade.completed could
+// never be re-emitted; this is the way back.
+apiKeyRoutes.post("/webhook/deliveries/:eventId/redeliver", async (c) => {
+  const who = webhookManager(c);
+  if (who instanceof Response) return who;
+  const gate = await requireFlipdesk(c, { feature: "apiAccess", userId: who.ownerId });
+  if (gate) return gate;
+  try {
+    const result = await redeliverWebhook(who.ownerId, c.req.param("eventId"));
+    if (result.kind === "not_found") return c.json({ error: "Delivery not found" }, 404);
+    if (result.kind === "running") {
+      return c.json({ error: "This delivery is being sent right now. Try again in a moment." }, 409);
+    }
+    return c.json({ data: { event_id: result.event_id, outcome: result.outcome } });
+  } catch (err) {
+    console.error("Failed to redeliver webhook:", redactError(err));
+    return c.json({ error: "Failed to resend delivery" }, 500);
   }
 });
 
@@ -456,13 +590,20 @@ apiKeyRoutes.post("/:id/rotate", async (c) => {
   // Confirm ownership before mutating (US-268: never mutate by id alone).
   const { data: existing, error: fetchError } = await supabaseAdmin
     .from("api_keys")
-    .select("id")
+    .select("id, expires_at")
     .eq("id", keyId)
     .eq("user_id", userId)
     .single();
 
   if (fetchError || !existing) {
     return c.json({ error: "API key not found" }, 404);
+  }
+
+  // Rotation keeps expires_at and api-key-auth rejects an expired key, so
+  // rotating one hands back a secret that fails on first use. Refuse it.
+  const expiresAt = (existing as { expires_at?: string | null }).expires_at;
+  if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) {
+    return c.json({ error: "This key has expired. Create a new key instead." }, 409);
   }
 
   const { fullKey, keyHash, keyPrefix } = await generateApiKey();

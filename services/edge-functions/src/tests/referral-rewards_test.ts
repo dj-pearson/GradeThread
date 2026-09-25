@@ -17,7 +17,15 @@ import {
   REFERRAL_MILESTONES,
   REFERRED_REWARD_CREDITS,
   REFERRER_REWARD_CREDITS,
+  type ReferrerTotals,
 } from "../lib/referral-rewards.ts";
+
+// Referral counts at the historical rate, as the old count-only map meant.
+function totals(entries: Array<[string, number]>): Map<string, ReferrerTotals> {
+  return new Map(
+    entries.map(([id, n]) => [id, { referrals: n, credits: n * REFERRER_REWARD_CREDITS }]),
+  );
+}
 
 Deno.test("reward sizes are the published values", () => {
   assertEquals(REFERRER_REWARD_CREDITS, 5);
@@ -30,10 +38,12 @@ Deno.test("rankReferrers ranks by granted count desc and computes credits", () =
     { id: "b", display_name: "Bob" },
     { id: "c", display_name: "Cara" },
   ];
-  const counts = new Map([["a", 2], ["b", 7], ["c", 4]]);
+  const counts = totals([["a", 2], ["b", 7], ["c", 4]]);
   const board = rankReferrers(users, counts);
   assertEquals(board.map((r) => r.display_name), ["Bob", "Cara", "Alice"]);
   assertEquals(board[0], {
+    rank: 1,
+    tied: false,
     display_name: "Bob",
     referrals: 7,
     credits_earned: 7 * REFERRER_REWARD_CREDITS,
@@ -45,7 +55,7 @@ Deno.test("rankReferrers drops opted-in users with zero granted referrals", () =
     { id: "a", display_name: "Alice" },
     { id: "z", display_name: "Zero" },
   ];
-  const counts = new Map([["a", 1]]); // Zero has no granted referrals
+  const counts = totals([["a", 1]]); // Zero has no granted referrals
   const board = rankReferrers(users, counts);
   assertEquals(board.length, 1);
   assertEquals(board[0]!.display_name, "Alice");
@@ -56,7 +66,7 @@ Deno.test("rankReferrers caps the board at the limit", () => {
     id: `u${i}`,
     display_name: `User ${i}`,
   }));
-  const counts = new Map(users.map((u, i) => [u.id, i + 1]));
+  const counts = totals(users.map((u, i) => [u.id, i + 1]));
   const board = rankReferrers(users, counts, 100);
   assertEquals(board.length, 100);
   // Highest counts first.
@@ -154,6 +164,7 @@ Deno.test("DEFAULT_REFERRAL_REWARD_CONFIG preserves the historical 5/3 split, no
     referred_credits: REFERRED_REWARD_CREDITS,
     qualification_window_days: 0,
     per_referrer_cap: 0,
+    redeem_window_days: 14,
   });
 });
 
@@ -171,12 +182,14 @@ Deno.test("normalizeReferralRewardConfig reads a full admin config verbatim", ()
       referred_credits: 6,
       qualification_window_days: 30,
       per_referrer_cap: 25,
+      redeem_window_days: 7,
     }),
     {
       referrer_credits: 10,
       referred_credits: 6,
       qualification_window_days: 30,
       per_referrer_cap: 25,
+      redeem_window_days: 7,
     },
   );
 });
@@ -201,12 +214,13 @@ Deno.test("normalizeReferralRewardConfig falls back per-field on a partial confi
     referred_credits: REFERRED_REWARD_CREDITS,
     qualification_window_days: 0,
     per_referrer_cap: 0,
+    redeem_window_days: 14,
   });
 });
 
 // US-1784: rankReferrers threads a verified handle only when supplied.
 Deno.test("rankReferrers carries verified_handle through for verified sellers", () => {
-  const counts = new Map([["a", 5], ["b", 3]]);
+  const counts = totals([["a", 5], ["b", 3]]);
   const rows = rankReferrers(
     [
       { id: "a", display_name: "Alice", verified_handle: "alice-vintage" },

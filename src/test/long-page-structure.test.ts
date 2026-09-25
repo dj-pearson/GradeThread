@@ -14,7 +14,13 @@ function read(rel: string): string {
 
 const PAGES = [
   { rel: "src/pages/rewards.tsx", tabs: ["standing", "season", "perks"] },
-  { rel: "src/pages/referrals.tsx", tabs: ["share", "affiliate", "boards"] },
+  // The inner tab lives in ?section=, and its default is the shared constant
+  // in settings-tabs.ts that links elsewhere are checked against.
+  {
+    rel: "src/pages/referrals.tsx",
+    tabs: ["share", "affiliate", "creator", "leaderboard"],
+    defaultFrom: "src/lib/settings-tabs.ts",
+  },
   { rel: "src/pages/flipdesk/verified.tsx", tabs: ["profile", "badges", "passport"] },
   {
     // US-3032 added "ads". Connections had absorbed seven eBay advertising
@@ -46,9 +52,11 @@ describe("long settings pages are grouped (US-2543)", () => {
       // catch it.
       // A controlled Tabs (MP-14: the tab lives in the URL) names its default
       // in DEFAULT_TAB instead.
+      const defaults = "defaultFrom" in page ? read(page.defaultFrom as string) : "";
       const m =
         /<Tabs defaultValue="([a-z-]+)"/.exec(src) ??
-        /const DEFAULT_TAB = "([a-z-]+)"/.exec(src);
+        /const DEFAULT_TAB = "([a-z-]+)"/.exec(src) ??
+        /export const DEFAULT_REFERRAL_SECTION: ReferralSection = "([a-z-]+)"/.exec(defaults);
       expect(m, "no defaultValue on <Tabs>").not.toBeNull();
       expect(page.tabs).toContain(m![1]);
       expect(m![1], "the default should be the first tab").toBe(page.tabs[0]);

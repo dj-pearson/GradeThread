@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import {
@@ -9,30 +10,55 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
-import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { affiliateBadgeEmbed, affiliateLink } from "@/lib/affiliate";
+import { referralLink, storedAffiliateClickId } from "@/lib/affiliate";
+import { shareOrCopy } from "@/lib/share";
+import {
+  DEFAULT_REFERRAL_SECTION,
+  isReferralSection,
+  type ReferralSection,
+} from "@/lib/settings-tabs";
 import { TopReferrers } from "@/components/referral/top-referrers";
+import { REFERRAL_LEADERBOARD_QUERY_KEY, referralShareMessage } from "@/lib/referral-page";
 import { CreatorProgramme } from "@/components/referral/creator-programme";
-import { Gift, Copy, Check, BadgeCheck, Trophy, Target, Wallet, AlertCircle } from "lucide-react";
+import { AffiliateTab } from "@/components/referral/affiliate-tab";
+import { startPayoutOnboarding } from "@/lib/referral-page";
+import { CopyButton } from "@/components/referral/copy-button";
+import { ReferralTimeline } from "@/components/referral/referral-timeline";
+import { Gift, Check, Trophy, Target } from "lucide-react";
 
 interface ReferralMilestone {
   threshold: number;
   bonus: number;
 }
 
-interface ReferralMe {
+export interface ReferralMe {
   code: string;
-  stats: { total: number; pending: number; qualified: number; granted: number };
+  stats: {
+    total: number;
+    pending: number;
+    qualified: number;
+    granted: number;
+    // Still able to pay, and never able to pay. Absent on an older edge.
+    waiting?: number;
+    forfeit?: number;
+  };
   // US-864: reward shown in actual grade credits.
   credits: { per_referral: number; earned: number; pending: number };
+  rules?: {
+    per_referral: number;
+    referred_bonus: number;
+    referred_on_qualify: number;
+    window_days: number;
+    cap: number;
+    cap_remaining: number | null;
+  };
   // US-1071: tiered/milestone rewards.
   milestones: {
     tiers: ReferralMilestone[];
@@ -40,48 +66,65 @@ interface ReferralMe {
     earned_bonus_credits: number;
     next: { threshold: number; bonus: number; remaining: number } | null;
   };
-  leaderboard: { enabled: boolean; display_name: string | null };
+  leaderboard: {
+    enabled: boolean;
+    display_name: string | null;
+    rank?: number | null;
+    tied?: boolean;
+  };
   referred_by: { status: string; code: string } | null;
+  redeem_eligible?: boolean;
 }
 
-interface AffiliateMe {
-  code: string;
-  clicks: { total: number; last30: number; converted: number };
-  conversions: number;
-}
+// What a redeem refusal means, in words a seller can act on.
+const REDEEM_ERRORS: Record<string, string> = {
+  invalid_code:
+    "That referral code doesn't exist. Promo codes go on the Billing tab, not here.",
+  self_referral: "That's your own code. Share it with a friend instead.",
+  already_referred: "You've already used a referral code.",
+  account_suspended: "This account can't use referral codes right now.",
+  account_too_old: "Referral codes are for new accounts.",
+  already_paid: "Referral codes are for accounts that haven't bought credits yet.",
+  circular_referral: "You referred this person, so you can't use their code.",
+};
 
-// US-1295: affiliate commission earnings + Stripe Connect payout status.
-interface AffiliatePayouts {
-  enabled: boolean;
-  rate: number;
-  minimum_payout: number;
-  hold_days: number;
-  onboarding: { connected: boolean; payouts_enabled: boolean };
-  balance: { accrued_payable: number; accrued_held: number; paid: number };
-  tax: { threshold: number; paid_this_year: number; reaches_1099_threshold: boolean };
-  payouts: Array<{
-    id: string;
-    amount: number;
-    status: string;
-    stripe_transfer_id: string | null;
-    paid_at: string | null;
-    created_at: string;
-  }>;
-}
+// The referred_by status, said plainly.
+const REFERRED_STATUS: Record<string, string> = {
+  pending: "Your friend gets their reward when you make your first paid grade.",
+  qualified: "You made a paid grade. The reward is on its way.",
+  granted: "Done. You both got your reward.",
+};
 
-const usd = (n: number) =>
-  n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
 
 export function ReferralsPage() {
   const qc = useQueryClient();
-  const [copied, setCopied] = useState(false);
-  const [copiedEmbed, setCopiedEmbed] = useState(false);
-  const [copiedBadgeLink, setCopiedBadgeLink] = useState(false);
+  const [params, setParams] = useSearchParams();
   const [redeemCode, setRedeemCode] = useState("");
+  const [redeemError, setRedeemError] = useState<string | null>(null);
   const [redeeming, setRedeeming] = useState(false);
   // US-864: leaderboard opt-in form.
   const [leaderboardName, setLeaderboardName] = useState("");
   const [savingLeaderboard, setSavingLeaderboard] = useState(false);
+
+  // ?section= picks the inner tab, so email, Stripe's return and support can
+  // land on the right one. Any ?connect= (Stripe's return) forces Affiliate.
+  const rawSection = params.get("section");
+  const connectParam = params.get("connect");
+  const section: ReferralSection = connectParam
+    ? "affiliate"
+    : isReferralSection(rawSection)
+      ? rawSection
+      : DEFAULT_REFERRAL_SECTION;
+
+  const setSection = (next: string) => {
+    if (!isReferralSection(next)) return;
+    const n = new URLSearchParams(params);
+    n.set("section", next);
+    setParams(n, { replace: true });
+  };
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["referrals-me"],
@@ -93,156 +136,106 @@ export function ReferralsPage() {
     },
   });
 
-  const { data: affiliate } = useQuery({
-    queryKey: ["affiliate-me"],
-    queryFn: async (): Promise<AffiliateMe> => {
-      const res = await edgeFetch("/api/affiliate/me");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Failed to load affiliate stats");
-      return json;
-    },
-  });
-
-  // US-1295: affiliate payout earnings + Stripe Connect onboarding state.
-  const { data: payouts, refetch: refetchPayouts } = useQuery({
-    queryKey: ["affiliate-payouts"],
-    queryFn: async (): Promise<AffiliatePayouts> => {
-      const res = await edgeFetch("/api/affiliate/payouts");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Failed to load affiliate payouts");
-      return json;
-    },
-  });
-  const [connecting, setConnecting] = useState(false);
-
-  // Returning from Stripe onboarding (?connect=done) — refresh status once.
-  //
-  // US-3378: the response is discarded on purpose. The call exists to make the
-  // server re-pull the Connect account from Stripe; the ANSWER the page shows
-  // comes from refetchPayouts() in the finally, which runs either way. A failed
-  // re-pull therefore shows the seller a stale "not connected yet" rather than a
-  // wrong "connected", and the Stripe onboarding banner stays put and stays
-  // clickable, so the failure is both safe and visible without a toast.
+  // Returning from Stripe Connect (?connect=done|refresh). Handled once per
+  // arrival: the param is stripped straight away, so a reload does not call
+  // Stripe again. 'refresh' means the onboarding link expired, so it opens a
+  // fresh one; 'done' asks the edge to re-read the account and says the result.
+  const handledConnect = useRef(false);
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("connect") === "done") {
+    if (!connectParam || handledConnect.current) return;
+    handledConnect.current = true;
+    const n = new URLSearchParams(params);
+    n.delete("connect");
+    n.set("section", "affiliate");
+    setParams(n, { replace: true });
+
+    if (connectParam === "refresh") {
+      void startPayoutOnboarding().catch(() => {});
+      return;
+    }
+    if (connectParam === "done") {
       edgeFetch("/api/affiliate/connect/status")
-        .catch(() => {})
-        .finally(() => refetchPayouts());
+        .then((res) => res.json().catch(() => ({})))
+        .then((json: { payouts_enabled?: boolean }) => {
+          if (json.payouts_enabled) toast.success("Payouts are on.");
+          else toast("Stripe still needs a few details.");
+        })
+        .catch(() => toast("Stripe still needs a few details."))
+        .finally(() => {
+          void qc.invalidateQueries({ queryKey: ["affiliate-payouts"] });
+        });
     }
-  }, [refetchPayouts]);
+  }, [connectParam, params, setParams, qc]);
 
-  const startPayoutOnboarding = async () => {
-    setConnecting(true);
-    try {
-      const res = await edgeFetch("/api/affiliate/connect", { method: "POST" });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json.url) throw new Error(json.error || "Couldn't start onboarding");
-      window.location.href = json.url;
-    } catch (e) {
-      toastError(e, "Couldn't start payout onboarding.");
-      setConnecting(false);
-    }
-  };
+  const code = data?.code ?? "";
+  const shareLink = code ? referralLink(code, "copy") : "";
+  const shareMessage = referralShareMessage(data?.rules?.referred_bonus);
 
-  const shareLink = data ? `${window.location.origin}/signup?ref=${data.code}` : "";
-
-  const copy = async () => {
-    if (!shareLink) return;
-    try {
-      await navigator.clipboard.writeText(shareLink);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      toast.error("Couldn't copy — copy it manually.");
-    }
-  };
-
-  const badgeEmbed = data ? affiliateBadgeEmbed(data.code) : "";
-  const badgeLink = data ? affiliateLink(data.code, "badge") : "";
-
-  const copyTo = async (text: string, set: (v: boolean) => void) => {
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      set(true);
-      setTimeout(() => set(false), 1800);
-    } catch {
-      toast.error("Couldn't copy — copy it manually.");
-    }
-  };
-
-  const redeem = async () => {
-    const code = redeemCode.trim().toUpperCase();
-    if (!code) return;
+  const redeem = async (e: FormEvent) => {
+    e.preventDefault();
+    const typed = redeemCode.trim().toUpperCase();
+    if (!typed) return;
     setRedeeming(true);
+    setRedeemError(null);
     try {
+      // A code this browser landed on through a link still names that click.
+      const clickId = storedAffiliateClickId(typed);
       const res = await edgeFetch("/api/referrals/redeem", {
         method: "POST",
-        json: { code },
+        json: clickId ? { code: typed, source: "affiliate", click_id: clickId } : { code: typed },
         silentGate: true,
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(json.error ?? "Couldn't redeem that code.");
+        setRedeemError(REDEEM_ERRORS[json.error_code] ?? json.error ?? "Couldn't use that code.");
         return;
       }
-      toast.success("Referral code applied!");
+      const credits = typeof json.credits === "number" ? json.credits : 0;
+      toast.success(
+        credits > 0 ? `You got ${plural(credits, "free grade")}.` : "Referral code applied.",
+      );
       setRedeemCode("");
-      qc.invalidateQueries({ queryKey: ["referrals-me"] });
+      void qc.invalidateQueries({ queryKey: ["referrals-me"] });
+      void qc.invalidateQueries({ queryKey: ["billing_summary"] });
     } catch (err) {
-      // US-1634: edgeFetch throws on a network error / expired session — without
-      // a catch this was a silent unhandled rejection (the button just stopped
-      // spinning with no feedback).
-      toastError(err, "Couldn't redeem that code.");
+      // US-1634: edgeFetch throws on a network error / expired session.
+      toastError(err, "Couldn't use that code.");
     } finally {
       setRedeeming(false);
     }
   };
 
-  // US-1071: prefilled social share. The link carries the affiliate ?ref= so
-  // shares through these channels are attributed + counted like the badge.
-  const sharePromo = data ? affiliateLink(data.code, "link") : "";
-  const shareMessage =
-    "I grade my pre-owned clothing with GradeThread — get a free condition grade + certificate. Join with my link:";
-
   const openShare = (url: string) => {
     if (typeof window !== "undefined") window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const shareNative = async () => {
-    if (!sharePromo) return;
-    // Web Share API where available (mobile), else copy the message + link.
-    const nav = navigator as Navigator & { share?: (d: { title?: string; text?: string; url?: string }) => Promise<void> };
-    if (typeof nav.share === "function") {
-      try {
-        await nav.share({ title: "GradeThread", text: shareMessage, url: sharePromo });
-        return;
-      } catch {
-        /* user dismissed — fall through to copy */
-      }
-    }
-    await copyTo(`${shareMessage} ${sharePromo}`, () => {});
-    toast.success("Share message copied — paste it anywhere.");
+  const share = async () => {
+    if (!code) return;
+    await shareOrCopy({
+      title: "GradeThread",
+      text: shareMessage,
+      url: referralLink(code, "copy"),
+      copiedMessage: "Link copied. Paste it anywhere.",
+    });
   };
 
-  const shareTargets = sharePromo
+  const shareTargets = code
     ? [
         {
           label: "X",
-          url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(sharePromo)}`,
+          url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(referralLink(code, "x"))}`,
         },
         {
           label: "Facebook",
-          url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(sharePromo)}`,
+          url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(referralLink(code, "facebook"))}`,
         },
         {
           label: "WhatsApp",
-          url: `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${sharePromo}`)}`,
+          url: `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${referralLink(code, "whatsapp")}`)}`,
         },
         {
           label: "Email",
-          url: `mailto:?subject=${encodeURIComponent("Grade your clothes with GradeThread")}&body=${encodeURIComponent(`${shareMessage} ${sharePromo}`)}`,
+          url: `mailto:?subject=${encodeURIComponent("Grade your clothes with GradeThread")}&body=${encodeURIComponent(`${shareMessage} ${referralLink(code, "email")}`)}`,
         },
       ]
     : [];
@@ -273,8 +266,9 @@ export function ReferralsPage() {
         toast.error(json.error ?? "Couldn't update your leaderboard settings.");
         return;
       }
-      toast.success(enabled ? "You're on the leaderboard!" : "Removed from the leaderboard.");
-      qc.invalidateQueries({ queryKey: ["referrals-me"] });
+      toast.success(enabled ? "Saved." : "Removed from the leaderboard.");
+      void qc.invalidateQueries({ queryKey: ["referrals-me"] });
+      void qc.invalidateQueries({ queryKey: REFERRAL_LEADERBOARD_QUERY_KEY });
     } catch (err) {
       // US-1634: surface a thrown error instead of a silent unhandled rejection.
       toastError(err, "Couldn't update your leaderboard settings.");
@@ -283,363 +277,309 @@ export function ReferralsPage() {
     }
   };
 
-  return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <PageHeader
-        icon={Gift}
-        title="Refer a friend"
-        subtitle="Share your link. When a friend joins and qualifies, you both earn grade credits — added to your balance automatically, and we'll let you know."
-      />
-
-      {isError ? (
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-2xl">
         <ErrorState
           title="Couldn't load your referrals"
           onRetry={() => refetch()}
           retrying={isFetching}
         />
-      ) : isLoading || !data ? (
-        <Skeleton className="h-40 w-full" />
-      ) : (
-        <>
-          {/* US-2543 AC2: eight stacked cards, three of which were code
-              boxes that looked alike. Sharing is what this page is for, so
-              it opens on it; the affiliate program is a different job with
-              its own payout setup, and the boards are opt-in. */}
-          <Tabs defaultValue="share" className="space-y-6">
-            <TabsList>
-              <TabsTrigger value="share">Share</TabsTrigger>
-              <TabsTrigger value="affiliate">Affiliate</TabsTrigger>
-              {/* US-9212: cash, and a different arrangement from the credits
-                  the two tabs beside it earn. Its own tab so nobody agrees to
-                  a tax form while looking for a share link. */}
-              <TabsTrigger value="creator">Creator</TabsTrigger>
-              <TabsTrigger value="boards">Leaderboard</TabsTrigger>
-            </TabsList>
+      </div>
+    );
+  }
+  if (isLoading || !data) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-6" aria-busy="true">
+        <Skeleton className="h-10 w-72" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-56 w-full" />
+      </div>
+    );
+  }
 
-            <TabsContent value="share" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Your referral link</CardTitle>
-                <CardDescription>Code: <span className="font-mono font-semibold">{data.code}</span></CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex gap-2">
-                  {/* Read-only, but still a control someone can focus and copy
-                      from — and the CardTitle above it names the CARD, not this
-                      field. */}
-                  <Input aria-label="Your referral link" readOnly value={shareLink} className="font-mono text-sm" />
-                  <Button onClick={copy} variant="outline">
-                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  </Button>
-                </div>
-                <div className="grid grid-cols-3 gap-3 text-center">
-                  <div className="rounded-md bg-muted p-3">
-                    <div className="text-2xl font-bold tabular-nums">{data.stats.total}</div>
-                    <div className="text-xs text-muted-foreground">Referred</div>
-                  </div>
-                  <div className="rounded-md bg-muted p-3">
-                    <div className="text-2xl font-bold tabular-nums">{data.stats.pending + data.stats.qualified}</div>
-                    <div className="text-xs text-muted-foreground">In progress</div>
-                  </div>
-                  <div className="rounded-md bg-muted p-3">
-                    <div className="text-2xl font-bold tabular-nums">{data.stats.granted}</div>
-                    <div className="text-xs text-muted-foreground">Rewarded</div>
-                  </div>
-                </div>
+  const rules = data.rules;
+  const waiting = data.stats.waiting ?? data.stats.pending + data.stats.qualified;
+  const forfeit = data.stats.forfeit ?? 0;
+  const showRedeem = !data.referred_by && data.redeem_eligible !== false;
+  const nameChanged = leaderboardName.trim() !== savedLeaderboardName;
+  const rank = data.leaderboard.rank ?? null;
 
-                {/* US-864: rewards in actual grade credits — earned (already on
-                    your balance) vs. pending (still-qualifying referrals). */}
-                <div className="grid grid-cols-2 gap-3 text-center">
-                  <div className="rounded-md border border-brand-red/30 bg-brand-red/5 p-3">
-                    <div className="text-2xl font-bold tabular-nums text-brand-red-text">
-                      {data.credits.earned}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Credits earned</div>
-                  </div>
-                  <div className="rounded-md bg-muted p-3">
-                    <div className="text-2xl font-bold tabular-nums">{data.credits.pending}</div>
-                    <div className="text-xs text-muted-foreground">Credits pending</div>
-                  </div>
+  return (
+    <div className="mx-auto max-w-2xl space-y-6">
+      {/* US-2543 AC2: sharing is what this page is for, so it opens on it; the
+          affiliate program is a different job with its own payout setup, and
+          the boards are opt-in. Each tab is its own URL (?section=). */}
+      <Tabs value={section} onValueChange={setSection} className="space-y-6">
+        <TabsList className="max-w-full justify-start overflow-x-auto">
+          <TabsTrigger value="share">Share</TabsTrigger>
+          <TabsTrigger value="affiliate">Affiliate</TabsTrigger>
+          {/* US-9212: cash, and a different arrangement from the credits the
+              two tabs beside it earn. Its own tab so nobody agrees to a tax
+              form while looking for a share link. */}
+          <TabsTrigger value="creator">Creator</TabsTrigger>
+          <TabsTrigger value="leaderboard">Leaderboard</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="share" className="space-y-6">
+          {/* How the deal works, in the live numbers. */}
+          {rules && (
+            <ol className="grid gap-3 sm:grid-cols-3">
+              {[
+                { n: 1, text: "Share your link." },
+                {
+                  n: 2,
+                  text:
+                    rules.referred_bonus > 0
+                      ? `Your friend gets ${plural(rules.referred_bonus, "free grade")} when they join.`
+                      : "Your friend joins with your link.",
+                },
+                {
+                  n: 3,
+                  text: `You get ${plural(rules.per_referral, "credit")} after their first paid grade.`,
+                },
+              ].map((step) => (
+                <li key={step.n} className="flex gap-3 rounded-md bg-muted p-3 text-sm">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-navy text-xs font-bold text-white">
+                    {step.n}
+                  </span>
+                  <span>{step.text}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+          {rules && (rules.window_days > 0 || rules.cap > 0) && (
+            <p className="text-xs text-muted-foreground">
+              {rules.window_days > 0 &&
+                `Your friend has ${rules.window_days} days to make that first paid grade. `}
+              {rules.cap > 0 &&
+                `You can earn from up to ${plural(rules.cap, "referral")}${
+                  rules.cap_remaining != null ? ` (${rules.cap_remaining} left)` : ""
+                }.`}
+            </p>
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Gift className="h-5 w-5 text-brand-red-text" /> Your referral link
+              </CardTitle>
+              <CardDescription>
+                Code: <span className="font-mono font-semibold">{data.code}</span>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input aria-label="Your referral link" readOnly value={shareLink} className="font-mono text-sm" />
+                <CopyButton value={shareLink} label="referral link" />
+              </div>
+
+              <div className="space-y-2">
+                <Button onClick={share} className="w-full">
+                  <Gift className="mr-2 h-4 w-4" /> Share your link
+                </Button>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {shareTargets.map((t) => (
+                    <Button key={t.label} variant="outline" size="sm" onClick={() => openShare(t.url)}>
+                      {t.label}
+                    </Button>
+                  ))}
                 </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="rounded-md bg-muted p-3">
+                  <div className="text-2xl font-bold tabular-nums">{data.stats.total}</div>
+                  <div className="text-xs text-muted-foreground">Referred</div>
+                </div>
+                <div className="rounded-md bg-muted p-3">
+                  <div className="text-2xl font-bold tabular-nums">{waiting}</div>
+                  <div className="text-xs text-muted-foreground">Waiting</div>
+                </div>
+                <div className="rounded-md bg-muted p-3">
+                  <div className="text-2xl font-bold tabular-nums">{data.stats.granted}</div>
+                  <div className="text-xs text-muted-foreground">Rewarded</div>
+                </div>
+              </div>
+              {forfeit > 0 && (
                 <p className="text-center text-xs text-muted-foreground">
-                  You earn {data.credits.per_referral} grade credits each time a
-                  referral qualifies — applied to your balance automatically.
+                  {plural(forfeit, "referral")} didn't qualify. The list below says why.
                 </p>
+              )}
 
-                {/* US-1071: prefilled one-tap share. */}
-                <div className="space-y-2">
-                  <Button onClick={shareNative} className="w-full">
-                    <Gift className="mr-2 h-4 w-4" /> Share your link
-                  </Button>
-                  <div className="grid grid-cols-4 gap-2">
-                    {shareTargets.map((t) => (
-                      <Button
-                        key={t.label}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openShare(t.url)}
-                      >
-                        {t.label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            {/* US-1071: milestone / tiered rewards — bonus credits for hitting
-                referral thresholds. */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Target className="h-5 w-5 text-brand-red-text" /> Milestone bonuses
-                </CardTitle>
-                <CardDescription>
-                  {data.milestones.next
-                    ? `${data.milestones.next.remaining} more referral${
-                        data.milestones.next.remaining === 1 ? "" : "s"
-                      } to unlock +${data.milestones.next.bonus} bonus credits.`
-                    : "You've earned every milestone bonus — nice work!"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {data.milestones.next && (
-                  <Progress
-                    value={Math.min(
-                      100,
-                      Math.round((data.stats.granted / data.milestones.next.threshold) * 100),
-                    )}
-                  />
-                )}
-                <div className="flex flex-wrap gap-2">
-                  {data.milestones.tiers.map((tier) => {
-                    const earned = data.milestones.earned_thresholds.includes(tier.threshold);
-                    return (
-                      <div
-                        key={tier.threshold}
-                        className={
-                          "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium " +
-                          (earned
-                            ? "border-brand-red/40 bg-brand-red/5 text-brand-red-text"
-                            : "text-muted-foreground")
-                        }
-                      >
-                        {earned && <Check className="h-3.5 w-3.5" />}
-                        {tier.threshold} referrals → +{tier.bonus}
-                      </div>
-                    );
-                  })}
-                </div>
-                {data.milestones.earned_bonus_credits > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    You've earned {data.milestones.earned_bonus_credits} bonus credits from milestones.
+              {/* Credits as work: what the balance buys, not just a number. */}
+              <div className="flex flex-col gap-3 rounded-md bg-muted p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm">
+                    <span className="text-2xl font-bold tabular-nums text-brand-red-text">
+                      {data.credits.earned}
+                    </span>{" "}
+                    credits earned = {plural(data.credits.earned, "more garment")} graded
                   </p>
-                )}
-              </CardContent>
-            </Card>
-            {data.referred_by ? (
-              <Card>
-                <CardContent className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-                  <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
-                  You were referred with code{" "}
-                  <span className="font-mono font-semibold">{data.referred_by.code}</span> — reward status:{" "}
-                  {data.referred_by.status}.
-                </CardContent>
-              </Card>
-            ) : (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Were you referred?</CardTitle>
-                  <CardDescription>Enter a friend's code to claim your bonus.</CardDescription>
-                </CardHeader>
-                <CardContent className="flex gap-2">
-                  <Input
-                    aria-label="Referral code from a friend"
-                    value={redeemCode}
-                    onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
-                    placeholder="e.g. ABCD2345"
-                    className="font-mono"
-                  />
-                  <Button onClick={redeem} disabled={!redeemCode.trim() || redeeming}>
-                    {redeeming ? "Applying…" : "Apply"}
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-            </TabsContent>
-
-            <TabsContent value="affiliate" className="space-y-6">
-            {/* US-603: affiliate / earned-link channel. Embed the badge anywhere a
-                shopper will see it (eBay listing, your site) — clicks that turn
-                into qualified signups earn the same grade credits as a referral. */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <BadgeCheck className="h-5 w-5 text-brand-red-text" /> Earned-link badge
-                </CardTitle>
-                <CardDescription>
-                  Add a “Graded by GradeThread” badge to your listings or site. It
-                  carries your referral code, so shoppers who join through it count
-                  toward your rewards.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-center rounded-md border bg-muted/40 p-4">
-                  <a
-                    href={badgeLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-full bg-brand-navy px-3 py-1.5 text-[13px] font-semibold text-white no-underline"
-                  >
-                    <Check className="h-3.5 w-3.5" /> Graded by GradeThread
-                  </a>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label htmlFor="ref-embed-code" className="text-xs font-medium text-muted-foreground">Embed code (HTML)</label>
-                  <div className="flex gap-2">
-                    <Textarea
-                      id="ref-embed-code"
-                      readOnly
-                      value={badgeEmbed}
-                      rows={3}
-                      className="font-mono text-xs"
-                    />
-                    <Button
-                      variant="outline"
-                      onClick={() => copyTo(badgeEmbed, setCopiedEmbed)}
-                    >
-                      {copiedEmbed ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label htmlFor="ref-badge-link" className="text-xs font-medium text-muted-foreground">Or just the link</label>
-                  <div className="flex gap-2">
-                    <Input id="ref-badge-link" readOnly value={badgeLink} className="font-mono text-sm" />
-                    <Button
-                      variant="outline"
-                      onClick={() => copyTo(badgeLink, setCopiedBadgeLink)}
-                    >
-                      {copiedBadgeLink ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </div>
-
-                {affiliate && (
-                  <div className="grid grid-cols-3 gap-3 text-center">
-                    <div className="rounded-md bg-muted p-3">
-                      <div className="text-2xl font-bold tabular-nums">{affiliate.clicks.total}</div>
-                      <div className="text-xs text-muted-foreground">Link clicks</div>
-                    </div>
-                    <div className="rounded-md bg-muted p-3">
-                      <div className="text-2xl font-bold tabular-nums">{affiliate.clicks.last30}</div>
-                      <div className="text-xs text-muted-foreground">Last 30 days</div>
-                    </div>
-                    <div className="rounded-md bg-muted p-3">
-                      <div className="text-2xl font-bold tabular-nums">{affiliate.conversions}</div>
-                      <div className="text-xs text-muted-foreground">Signups</div>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-            {/* US-1295: affiliate commission payouts (Stripe Connect). Only shown
-                when the program is enabled — otherwise affiliate conversions earn
-                grade credits only. */}
-            {payouts?.enabled && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Wallet className="h-5 w-5 text-brand-red-text" /> Affiliate payouts
-                  </CardTitle>
-                  <CardDescription>
-                    Earn {usd(payouts.rate)} for every shopper who joins through your
-                    earned link and qualifies. Balances pay out automatically over
-                    Stripe once they clear {usd(payouts.minimum_payout)} (after a{" "}
-                    {payouts.hold_days}-day hold).
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-3 gap-3 text-center">
-                    <div className="rounded-md bg-muted p-3">
-                      <div className="text-2xl font-bold tabular-nums">
-                        {usd(payouts.balance.accrued_payable)}
-                      </div>
-                      <div className="text-xs text-muted-foreground">Ready to pay</div>
-                    </div>
-                    <div className="rounded-md bg-muted p-3">
-                      <div className="text-2xl font-bold tabular-nums">
-                        {usd(payouts.balance.accrued_held)}
-                      </div>
-                      <div className="text-xs text-muted-foreground">On hold</div>
-                    </div>
-                    <div className="rounded-md bg-muted p-3">
-                      <div className="text-2xl font-bold tabular-nums">
-                        {usd(payouts.balance.paid)}
-                      </div>
-                      <div className="text-xs text-muted-foreground">Paid out</div>
-                    </div>
-                  </div>
-
-                  {payouts.onboarding.payouts_enabled ? (
-                    <p className="text-sm text-muted-foreground">
-                      Your Stripe payout account is connected and active.
+                  {data.credits.pending > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {data.credits.pending} more on the way from referrals still waiting.
                     </p>
-                  ) : (
-                    <div className="flex flex-col gap-2 rounded-md border border-dashed p-3 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-sm text-muted-foreground">
-                        {payouts.onboarding.connected
-                          ? "Finish setting up your Stripe payout account to receive transfers."
-                          : "Connect a Stripe account to get paid your affiliate commissions."}
-                      </p>
-                      <Button onClick={startPayoutOnboarding} disabled={connecting}>
-                        {connecting
-                          ? "Opening…"
-                          : payouts.onboarding.connected
-                            ? "Finish setup"
-                            : "Set up payouts"}
-                      </Button>
-                    </div>
                   )}
+                </div>
+                {data.credits.earned > 0 && (
+                  <Button asChild variant="outline" size="sm">
+                    <Link to="/dashboard/submissions/new">Grade now</Link>
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
-                  {payouts.tax.reaches_1099_threshold && (
-                    <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                      <span>
-                        You've been paid {usd(payouts.tax.paid_this_year)} this year —
-                        at or above the {usd(payouts.tax.threshold)} threshold, so a
-                        1099 tax form may be issued.
-                      </span>
-                    </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Your referrals</CardTitle>
+              <CardDescription>Who is waiting, who paid, and who didn't qualify.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ReferralTimeline />
+            </CardContent>
+          </Card>
+
+          {/* US-1071: milestone / tiered rewards. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Target className="h-5 w-5 text-brand-red-text" /> Milestone bonuses
+              </CardTitle>
+              <CardDescription>
+                {data.milestones.next
+                  ? `${plural(data.milestones.next.remaining, "more rewarded referral")} to unlock +${data.milestones.next.bonus} bonus credits.`
+                  : "You've earned every milestone bonus. Nice work."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {data.milestones.next && (
+                <Progress
+                  aria-label="Progress to the next milestone"
+                  aria-valuetext={`${data.stats.granted} of ${data.milestones.next.threshold} rewarded referrals`}
+                  value={Math.min(
+                    100,
+                    Math.round((data.stats.granted / data.milestones.next.threshold) * 100),
                   )}
-                </CardContent>
-              </Card>
-            )}
-            </TabsContent>
+                />
+              )}
+              <div className="flex flex-wrap gap-2">
+                {data.milestones.tiers.map((tier) => {
+                  const earned = data.milestones.earned_thresholds.includes(tier.threshold);
+                  return (
+                    <div
+                      key={tier.threshold}
+                      className={
+                        "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium " +
+                        (earned
+                          ? "border-brand-red/40 bg-brand-red/5 text-brand-red-text"
+                          : "text-muted-foreground")
+                      }
+                    >
+                      {earned && <Check className="h-3.5 w-3.5" aria-hidden />}
+                      {tier.threshold} referrals: +{tier.bonus}
+                    </div>
+                  );
+                })}
+              </div>
+              {data.milestones.earned_bonus_credits > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  You've earned {data.milestones.earned_bonus_credits} bonus credits from milestones.
+                </p>
+              )}
+            </CardContent>
+          </Card>
 
-            <TabsContent value="creator" className="space-y-6">
-              <CreatorProgramme />
-            </TabsContent>
-
-            <TabsContent value="boards" className="space-y-6">
-            {/* US-864: opt into the public top-referrers leaderboard. */}
+          {data.referred_by ? (
+            <Card>
+              <CardContent className="flex items-start gap-2 p-4 text-sm text-muted-foreground">
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-success-text" aria-hidden />
+                <span>
+                  You joined with code{" "}
+                  <span className="font-mono font-semibold">{data.referred_by.code}</span>.{" "}
+                  {REFERRED_STATUS[data.referred_by.status] ?? "Your reward is being processed."}
+                </span>
+              </CardContent>
+            </Card>
+          ) : showRedeem ? (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Trophy className="h-5 w-5 text-brand-red-text" /> Top referrers leaderboard
-                </CardTitle>
-                <CardDescription>
-                  Opt in to appear on the public{" "}
-                  <a href="/leaderboard" className="font-medium underline">
-                    leaderboard
-                  </a>
-                  . Only the display name you choose is shown — never your email.
-                </CardDescription>
+                <CardTitle className="text-base">Were you referred?</CardTitle>
+                <CardDescription>Enter a friend's code to claim your bonus.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent>
+                <form onSubmit={redeem} className="space-y-2">
+                  <div className="flex gap-2">
+                    <Input
+                      aria-label="Referral code from a friend"
+                      aria-invalid={redeemError ? true : undefined}
+                      aria-describedby={redeemError ? "redeem-error" : undefined}
+                      value={redeemCode}
+                      onChange={(e) => {
+                        setRedeemCode(e.target.value.toUpperCase());
+                        setRedeemError(null);
+                      }}
+                      placeholder="e.g. ABCD2345"
+                      maxLength={8}
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      autoComplete="off"
+                      className="font-mono"
+                    />
+                    <Button type="submit" disabled={!redeemCode.trim() || redeeming}>
+                      {redeeming ? "Applying..." : "Apply"}
+                    </Button>
+                  </div>
+                  {redeemError && (
+                    <p id="redeem-error" className="text-sm text-destructive">
+                      {redeemError}{" "}
+                      {redeemError === REDEEM_ERRORS.invalid_code && (
+                        <Link to="/dashboard/account?tab=billing" className="underline">
+                          Go to Billing
+                        </Link>
+                      )}
+                    </p>
+                  )}
+                </form>
+              </CardContent>
+            </Card>
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value="affiliate" className="space-y-6">
+          <AffiliateTab code={data.code} onOpenCreator={() => setSection("creator")} />
+        </TabsContent>
+
+        <TabsContent value="creator" className="space-y-6">
+          <CreatorProgramme onOpenAffiliate={() => setSection("affiliate")} />
+        </TabsContent>
+
+        <TabsContent value="leaderboard" className="space-y-6">
+          {/* US-864: opt into the public top-referrers leaderboard. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Trophy className="h-5 w-5 text-brand-red-text" /> Top referrers leaderboard
+              </CardTitle>
+              <CardDescription>
+                Opt in to appear on the public{" "}
+                <Link to="/leaderboard" className="font-medium underline">
+                  leaderboard
+                </Link>
+                . Only the display name you choose is shown, never your email.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form
+                className="space-y-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void saveLeaderboard(true);
+                }}
+              >
                 <div className="space-y-1.5">
-                  <label htmlFor="ref-display-name" className="text-xs font-medium text-muted-foreground">
+                  <label htmlFor="ref-display-name" className="text-sm font-medium">
                     Public display name
                   </label>
                   <Input
@@ -650,22 +590,25 @@ export function ReferralsPage() {
                     maxLength={40}
                   />
                 </div>
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm text-muted-foreground">
-                    {data.leaderboard.enabled
-                      ? "You're visible on the leaderboard."
-                      : "You're not on the leaderboard yet."}
+                    {!data.leaderboard.enabled
+                      ? "You're not on the leaderboard."
+                      : rank != null
+                        ? data.leaderboard.tied
+                          ? `You're tied for #${rank}.`
+                          : `You're #${rank}.`
+                        : data.stats.granted > 0
+                          ? "Your name isn't shown on the public board. Pick a different display name."
+                          : "You'll appear once your first referral is rewarded."}
                   </p>
                   {data.leaderboard.enabled ? (
                     <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        disabled={savingLeaderboard}
-                        onClick={() => saveLeaderboard(true)}
-                      >
-                        Save name
+                      <Button type="submit" variant="outline" disabled={savingLeaderboard || !nameChanged}>
+                        {savingLeaderboard ? "Saving..." : "Save name"}
                       </Button>
                       <Button
+                        type="button"
                         variant="ghost"
                         disabled={savingLeaderboard}
                         onClick={() => saveLeaderboard(false)}
@@ -674,30 +617,25 @@ export function ReferralsPage() {
                       </Button>
                     </div>
                   ) : (
-                    <Button
-                      disabled={savingLeaderboard || !leaderboardName.trim()}
-                      onClick={() => saveLeaderboard(true)}
-                    >
-                      {savingLeaderboard ? "Saving…" : "Join leaderboard"}
+                    <Button type="submit" disabled={savingLeaderboard || !leaderboardName.trim()}>
+                      {savingLeaderboard ? "Saving..." : "Join leaderboard"}
                     </Button>
                   )}
                 </div>
-              </CardContent>
-            </Card>
-            {/* Live top-referrers preview (public feed). */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Leaderboard</CardTitle>
-                <CardDescription>The current top referrers.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <TopReferrers limit={5} />
-              </CardContent>
-            </Card>
-            </TabsContent>
-          </Tabs>
-        </>
-      )}
+              </form>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Leaderboard</CardTitle>
+              <CardDescription>The current top referrers.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TopReferrers limit={5} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

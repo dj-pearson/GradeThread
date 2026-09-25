@@ -22,6 +22,26 @@ export function localInputToIso(local: string): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString()
 }
 
+// A <input type="date"> value ("YYYY-MM-DD") as the LAST second of that day in
+// the viewer's own time zone. new Date("YYYY-MM-DD") parses as UTC midnight,
+// which in the US is the evening BEFORE the chosen day. Returns null for a
+// value that is not a real calendar date.
+export function endOfLocalDayIso(ymd: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd)
+  if (!m) return null
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3])
+  const date = new Date(y, mo - 1, d, 23, 59, 59)
+  if (date.getFullYear() !== y || date.getMonth() !== mo - 1 || date.getDate() !== d) return null
+  return date.toISOString()
+}
+
+// A Date as the viewer's LOCAL calendar day, "YYYY-MM-DD". toISOString().slice
+// gives the UTC day, which after about 7pm in the US is already tomorrow.
+export function localYmd(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
 // One sentence for "the request never got an answer at all". It deliberately
 // names no host, port or service: the seller cannot act on which box was down,
 // and printing it hands our internal topology to anyone whose wifi drops.

@@ -27,3 +27,15 @@ Deno.test("packs: each carries a distinct Stripe price env var", () => {
   assertEquals(new Set(envs).size, envs.length);
   assertEquals(API_OVERAGE_PACKS["100"].priceEnv, "STRIPE_PRICE_API_OVERAGE_100");
 });
+
+Deno.test("checkout metadata credits the workspace OWNER and records the buyer", async () => {
+  const { apiOverageCheckoutMetadata } = await import("../lib/api-overage-packs.ts");
+  // An admin (buyer) acting in an owner's workspace: the wallet the webhook
+  // credits must be the owner's, because keys debit the owner.
+  const m = apiOverageCheckoutMetadata("owner-id", "admin-id", API_OVERAGE_PACKS["50"]);
+  assertEquals(m.user_id, "owner-id");
+  assertEquals(m.purchased_by, "admin-id");
+  assertEquals(m.product, "api_overage");
+  assertEquals(m.pack, "50");
+  assertEquals(m.credits, String(API_OVERAGE_PACKS["50"].credits));
+});

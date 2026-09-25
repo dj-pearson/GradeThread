@@ -72,6 +72,7 @@ Deno.test("planAccrual: an affiliate conversion accrues the configured rate (in 
       mode: active.mode,
       rate: active.commission_per_conversion,
       alreadyAccrued: false,
+      model: "flat",
       program: "creator",
     }),
     { action: "accrue", amount: 500 }, // $5.00 → 500¢
@@ -85,6 +86,7 @@ Deno.test("planAccrual: a fractional-dollar rate accrues exact cents", () => {
       mode: "batched",
       rate: 4.99,
       alreadyAccrued: false,
+      model: "flat",
       program: "creator",
     }),
     { action: "accrue", amount: 499 },
@@ -93,7 +95,7 @@ Deno.test("planAccrual: a fractional-dollar rate accrues exact cents", () => {
 
 Deno.test("planAccrual: a direct (non-affiliate) conversion accrues nothing", () => {
   assertEquals(
-    planAccrual({ attributionSource: "direct", mode: "batched", rate: 5, alreadyAccrued: false }),
+    planAccrual({ attributionSource: "direct", mode: "batched", rate: 5, alreadyAccrued: false, model: "flat" }),
     { action: "skip", reason: "not_affiliate" },
   );
 });
@@ -105,6 +107,7 @@ Deno.test("planAccrual: the engine being off accrues nothing", () => {
       mode: "off",
       rate: 5,
       alreadyAccrued: false,
+      model: "flat",
       program: "creator",
     }),
     { action: "skip", reason: "disabled" },
@@ -118,6 +121,7 @@ Deno.test("planAccrual: a $0 rate accrues nothing", () => {
       mode: "batched",
       rate: 0,
       alreadyAccrued: false,
+      model: "flat",
       program: "creator",
     }),
     { action: "skip", reason: "zero_rate" },
@@ -126,7 +130,7 @@ Deno.test("planAccrual: a $0 rate accrues nothing", () => {
 
 Deno.test("planAccrual: an already-accrued conversion is a no-op (idempotent)", () => {
   assertEquals(
-    planAccrual({ attributionSource: "affiliate", mode: "batched", rate: 5, alreadyAccrued: true }),
+    planAccrual({ attributionSource: "affiliate", mode: "batched", rate: 5, alreadyAccrued: true, model: "flat" }),
     { action: "skip", reason: "already_accrued" },
   );
 });
@@ -338,6 +342,7 @@ Deno.test("planAccrual: a user-programme affiliate earns no cash, and the defaul
       mode: "batched",
       rate: 5,
       alreadyAccrued: false,
+      model: "flat",
       program: "user",
     }),
     { action: "skip", reason: "not_creator" },
@@ -345,8 +350,36 @@ Deno.test("planAccrual: a user-programme affiliate earns no cash, and the defaul
   // Omitted entirely — a caller that forgets the programme accrues nothing,
   // exactly like a caller that forgets the tax gate pays nothing.
   assertEquals(
-    planAccrual({ attributionSource: "affiliate", mode: "batched", rate: 5, alreadyAccrued: false }),
+    planAccrual({ attributionSource: "affiliate", mode: "batched", rate: 5, alreadyAccrued: false, model: "flat" }),
     { action: "skip", reason: "not_creator" },
+  );
+});
+
+Deno.test("planAccrual: the flat bounty is paid only under the flat model", () => {
+  // The default model is subscription_pct, and the invoice webhook accrues
+  // that. A flat row as well would pay the creator twice for one referral.
+  assertEquals(DEFAULT_AFFILIATE_PAYOUT_CONFIG.commission_model, "subscription_pct");
+  assertEquals(
+    planAccrual({
+      attributionSource: "affiliate",
+      mode: "batched",
+      rate: 5,
+      alreadyAccrued: false,
+      program: "creator",
+      model: "subscription_pct",
+    }),
+    { action: "skip", reason: "wrong_model" },
+  );
+  assertEquals(
+    planAccrual({
+      attributionSource: "affiliate",
+      mode: "batched",
+      rate: 5,
+      alreadyAccrued: false,
+      program: "creator",
+      model: "flat",
+    }),
+    { action: "accrue", amount: 500 },
   );
 });
 

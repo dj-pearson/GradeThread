@@ -10,13 +10,15 @@
 // application; the copy says so, and the server keeps `program` at "user" until
 // an operator admits them.
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -33,7 +35,9 @@ import {
 } from "@/components/ui/select";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { CREATOR_AFFILIATE } from "@/lib/constants";
-import { BadgeCheck, ShieldCheck } from "lucide-react";
+import { US_STATES } from "@/lib/tax-profile";
+import { taxFormErrors, type TaxField } from "@/lib/referral-page";
+import { BadgeCheck, Eye, EyeOff, Lock, ShieldCheck } from "lucide-react";
 
 interface CreatorAccountRow {
   ref: string;
@@ -47,6 +51,11 @@ interface CreatorStatus {
   program: "user" | "creator";
   code: string;
   commission_pct: number;
+  // The live config. Older edges did not send these; the constants are the
+  // fallback so the copy never reads "undefined".
+  cap_usd?: number;
+  window_months?: number;
+  hold_days?: number;
   earnings: {
     clicks: number;
     signups: number;
@@ -84,21 +93,41 @@ const ENTITY_TYPES: Array<{ value: string; label: string }> = [
 const usd = (n: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
 
-export function CreatorProgramme() {
+class HttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
+function FieldError({ id, message }: { id: string; message?: string }) {
+  if (!message) return null;
+  return (
+    <p id={id} className="text-xs text-destructive">
+      {message}
+    </p>
+  );
+}
+
+export function CreatorProgramme({ onOpenAffiliate }: { onOpenAffiliate?: () => void } = {}) {
   const queryClient = useQueryClient();
   const [legalName, setLegalName] = useState("");
   const [entityType, setEntityType] = useState("individual");
   const [tin, setTin] = useState("");
+  const [showTin, setShowTin] = useState(false);
   const [addressLine1, setAddressLine1] = useState("");
   const [city, setCity] = useState("");
   const [region, setRegion] = useState("");
   const [postalCode, setPostalCode] = useState("");
+  const [certify, setCertify] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [replacing, setReplacing] = useState(false);
+  const [readTerms, setReadTerms] = useState(false);
 
-  const { data, isLoading } = useQuery<CreatorStatus>({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery<CreatorStatus>({
     queryKey: ["affiliate-creator"],
     queryFn: async () => {
       const res = await edgeFetch("/api/affiliate/creator");
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Couldn't load your creator status");
       return json as CreatorStatus;
     },
@@ -110,11 +139,12 @@ export function CreatorProgramme() {
         method: "POST",
         body: JSON.stringify({ accept: true, version: data?.terms_version }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Couldn't record that");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new HttpError(json.error || "Couldn't record that", res.status);
       return json as { pending_approval: boolean };
     },
     onSuccess: (result) => {
+      setReadTerms(false);
       void queryClient.invalidateQueries({ queryKey: ["affiliate-creator"] });
       toast.success(
         result.pending_approval
@@ -122,7 +152,15 @@ export function CreatorProgramme() {
           : "Terms accepted.",
       );
     },
-    onError: (err) => toastError(err, "Couldn't record that"),
+    onError: (err) => {
+      // 409: the terms changed under us. Reload them so the next click agrees
+      // to the text actually on the page.
+      if (err instanceof HttpError && err.status === 409) {
+        setReadTerms(false);
+        void queryClient.invalidateQueries({ queryKey: ["affiliate-creator"] });
+      }
+      toastError(err, "Couldn't record that");
+    },
   });
 
   const saveTax = useMutation({
@@ -138,9 +176,10 @@ export function CreatorProgramme() {
           region,
           postal_code: postalCode,
           country: "US",
+          certify: true,
         }),
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Couldn't save your tax details");
       return json as { last4: string };
     },
@@ -149,19 +188,71 @@ export function CreatorProgramme() {
       // screen needs it again, and a form left populated is a number sitting in
       // a tab someone walks away from.
       setTin("");
+      setShowTin(false);
+      setCertify(false);
+      setSubmitted(false);
+      setReplacing(false);
       void queryClient.invalidateQueries({ queryKey: ["affiliate-creator"] });
       toast.success("Tax details saved.");
     },
     onError: (err) => toastError(err, "Couldn't save your tax details"),
   });
 
-  if (isLoading || !data) return <Skeleton className="h-64 w-full" />;
+  if (isError) {
+    return (
+      <ErrorState
+        title="Couldn't load the creator program"
+        onRetry={() => refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
+  if (isLoading || !data) {
+    return (
+      <div className="space-y-6" aria-busy="true">
+        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
+  }
 
   const isCreator = data.program === "creator";
   const applied = Boolean(data.accepted_at);
-  const tinDigits = tin.replace(/\D/g, "");
-  const canSaveTax = legalName.trim().length > 1 && tinDigits.length === 9 &&
-    !saveTax.isPending;
+  const pct = data.commission_pct ?? CREATOR_AFFILIATE.commissionPct;
+  const capUsd = data.cap_usd ?? CREATOR_AFFILIATE.capUsd;
+  const windowMonths = data.window_months ?? CREATOR_AFFILIATE.windowMonths;
+  const holdDays = data.hold_days ?? CREATOR_AFFILIATE.holdDays;
+
+  // The SSN field exists only for someone we would actually pay: admitted, on
+  // the current terms. Everyone else sees one locked line.
+  const taxFormOpen = isCreator && data.terms_current;
+  const showTaxForm = taxFormOpen && (!data.tax_profile.certified || replacing);
+
+  const errors = taxFormErrors({ legalName, tin, addressLine1, city, region, postalCode, certify });
+  const shownErrors = submitted ? errors : {};
+  const invalid = (f: TaxField) => (shownErrors[f] ? true : undefined);
+  const describedBy = (f: TaxField) => (shownErrors[f] ? `creator-${f}-error` : undefined);
+
+  const submitTax = (e: FormEvent) => {
+    e.preventDefault();
+    setSubmitted(true);
+    if (Object.keys(errors).length > 0 || saveTax.isPending) return;
+    saveTax.mutate();
+  };
+
+  const startReplace = () => {
+    setLegalName(data.tax_profile.legal_name ?? "");
+    if (data.tax_profile.entity_type) setEntityType(data.tax_profile.entity_type);
+    setReplacing(true);
+  };
+
+  const affiliateButton = onOpenAffiliate ? (
+    <Button type="button" variant="link" className="h-auto p-0" onClick={onOpenAffiliate}>
+      Affiliate tab
+    </Button>
+  ) : (
+    "Affiliate tab"
+  );
 
   return (
     <div className="space-y-6">
@@ -172,35 +263,37 @@ export function CreatorProgramme() {
           </CardTitle>
           <CardDescription>
             Cash commission for creators who bring paying sellers to FlipDesk. This is
-            separate from the referral link above, which earns grade credits.
+            separate from your referral link on the Share tab, which earns grade credits.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <ul className="space-y-1.5 text-sm text-muted-foreground">
             <li>
               <span className="font-medium text-foreground">
-                {CREATOR_AFFILIATE.commissionPct}% of subscription revenue
+                {pct}% of subscription revenue
               </span>{" "}
-              from each account you refer, for {CREATOR_AFFILIATE.windowMonths} months,
-              up to ${CREATOR_AFFILIATE.capUsd} per account.
+              from each account you refer, for {windowMonths} months, up to{" "}
+              {usd(capUsd)} per account.
             </li>
-            <li>
-              Paid monthly by Stripe, {CREATOR_AFFILIATE.holdDays} days after each
-              invoice clears.
-            </li>
+            <li>Paid by Stripe, {holdDays} days after each invoice clears.</li>
             <li>
               Read the full terms on the{" "}
-              <a href="/partners" className="font-medium underline">
+              <a
+                href="/partners"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium underline"
+              >
                 partners page
-              </a>
-              .
+              </a>{" "}
+              (opens in a new tab).
             </li>
           </ul>
 
           {isCreator ? (
             <p className="rounded-md bg-muted p-3 text-sm">
-              You're in the creator program. Your earnings show in the payout card
-              on this page.
+              You're in the creator program. Your balance and payouts are on the{" "}
+              {affiliateButton}.
             </p>
           ) : applied ? (
             <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
@@ -210,14 +303,25 @@ export function CreatorProgramme() {
           ) : null}
 
           {(!applied || !data.terms_current) && (
-            <div className="flex flex-col gap-2 rounded-md border border-dashed p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-3 rounded-md border border-dashed p-3">
               <p className="text-sm text-muted-foreground">
                 {applied
                   ? "The terms changed since you agreed. Read them and accept the current version."
                   : "Accepting the terms applies to the program. It does not admit you to it."}
               </p>
-              <Button onClick={() => accept.mutate()} disabled={accept.isPending}>
-                {accept.isPending ? "Sending…" : "Accept and apply"}
+              <div className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  id="creator-read-terms"
+                  checked={readTerms}
+                  onCheckedChange={(v) => setReadTerms(v === true)}
+                  className="mt-0.5"
+                />
+                <label htmlFor="creator-read-terms">
+                  I have read the creator terms (version {data.terms_version}).
+                </label>
+              </div>
+              <Button onClick={() => accept.mutate()} disabled={!readTerms || accept.isPending}>
+                {accept.isPending ? "Sending..." : "Accept and apply"}
               </Button>
             </div>
           )}
@@ -281,7 +385,7 @@ export function CreatorProgramme() {
                         <td className="py-1.5 text-muted-foreground">
                           {row.window_ends_at
                             ? new Date(row.window_ends_at).toLocaleDateString()
-                            : "—"}
+                            : "Not started"}
                         </td>
                       </tr>
                     ))}
@@ -291,8 +395,8 @@ export function CreatorProgramme() {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              No commission yet. A referred account earns you {data.commission_pct}% of
-              each invoice it pays, starting from its first one.
+              No commission yet. A referred account earns you {pct}% of each invoice it
+              pays, starting from its first one.
             </p>
           )}
         </CardContent>
@@ -304,112 +408,207 @@ export function CreatorProgramme() {
             <ShieldCheck className="h-5 w-5 text-brand-red-text" /> Tax details
           </CardTitle>
           <CardDescription>
-            No cash moves until this is on file. US creators paid $600 or more in a
+            No cash moves until this is on file. US creators paid $2,000 or more in a
             year get a 1099.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {data.tax_profile.certified && (
-            <p className="rounded-md bg-muted p-3 text-sm">
-              On file for {data.tax_profile.legal_name}, tax ID ending{" "}
-              <span className="font-mono">{data.tax_profile.last4}</span>. Filling
-              the form in again replaces it.
+          {!taxFormOpen ? (
+            <p className="flex items-center gap-2 rounded-md bg-muted p-3 text-sm text-muted-foreground">
+              <Lock className="h-4 w-4 shrink-0" aria-hidden />
+              Once we admit you, we'll ask for tax details here.
             </p>
+          ) : (
+            <>
+              {data.tax_profile.certified && (
+                <div className="flex flex-col gap-2 rounded-md bg-muted p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                  <p>
+                    On file for {data.tax_profile.legal_name}, tax ID ending{" "}
+                    <span className="font-mono">{data.tax_profile.last4}</span>.
+                  </p>
+                  {!replacing && (
+                    <Button type="button" variant="outline" size="sm" onClick={startReplace}>
+                      Replace tax details
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {showTaxForm && (
+                <form onSubmit={submitTax} noValidate className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <label htmlFor="creator-legal-name" className="text-sm font-medium">
+                        Legal name
+                      </label>
+                      <Input
+                        id="creator-legal-name"
+                        value={legalName}
+                        required
+                        aria-invalid={invalid("legal_name")}
+                        aria-describedby={describedBy("legal_name")}
+                        onChange={(e) => setLegalName(e.target.value.slice(0, 200))}
+                        placeholder="As it appears on your tax return"
+                      />
+                      <FieldError id="creator-legal_name-error" message={shownErrors.legal_name} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor="creator-entity-type" className="text-sm font-medium">
+                        How you file
+                      </label>
+                      <Select value={entityType} onValueChange={setEntityType}>
+                        <SelectTrigger id="creator-entity-type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ENTITY_TYPES.map((t) => (
+                            <SelectItem key={t.value} value={t.value}>
+                              {t.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <label htmlFor="creator-tin" className="text-sm font-medium">
+                        Tax ID (SSN or EIN)
+                      </label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="creator-tin"
+                          type={showTin ? "text" : "password"}
+                          value={tin}
+                          required
+                          inputMode="numeric"
+                          autoComplete="off"
+                          data-sentry-mask
+                          className="ph-no-capture"
+                          aria-invalid={invalid("tin")}
+                          aria-describedby={[describedBy("tin"), "creator-tin-help"].filter(Boolean).join(" ")}
+                          onChange={(e) => setTin(e.target.value.slice(0, 11))}
+                          placeholder="9 digits"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          aria-pressed={showTin}
+                          onClick={() => setShowTin((v) => !v)}
+                        >
+                          {showTin ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+                          {showTin ? "Hide" : "Show"}
+                        </Button>
+                      </div>
+                      <FieldError id="creator-tin-error" message={shownErrors.tin} />
+                      <p id="creator-tin-help" className="text-xs text-muted-foreground">
+                        Encrypted before it is stored. Only the last four digits are readable
+                        afterwards, including by us.
+                      </p>
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <label htmlFor="creator-address" className="text-sm font-medium">
+                        Street address
+                      </label>
+                      <Input
+                        id="creator-address"
+                        value={addressLine1}
+                        required
+                        autoComplete="address-line1"
+                        aria-invalid={invalid("address_line1")}
+                        aria-describedby={describedBy("address_line1")}
+                        onChange={(e) => setAddressLine1(e.target.value.slice(0, 200))}
+                      />
+                      <FieldError id="creator-address_line1-error" message={shownErrors.address_line1} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor="creator-city" className="text-sm font-medium">
+                        City
+                      </label>
+                      <Input
+                        id="creator-city"
+                        value={city}
+                        required
+                        autoComplete="address-level2"
+                        aria-invalid={invalid("city")}
+                        aria-describedby={describedBy("city")}
+                        onChange={(e) => setCity(e.target.value.slice(0, 100))}
+                      />
+                      <FieldError id="creator-city-error" message={shownErrors.city} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label htmlFor="creator-region" className="text-sm font-medium">
+                          State
+                        </label>
+                        <Select value={region} onValueChange={setRegion}>
+                          <SelectTrigger
+                            id="creator-region"
+                            aria-invalid={invalid("region")}
+                            aria-describedby={describedBy("region")}
+                          >
+                            <SelectValue placeholder="State" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {US_STATES.map((st) => (
+                              <SelectItem key={st} value={st}>
+                                {st}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FieldError id="creator-region-error" message={shownErrors.region} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label htmlFor="creator-postal" className="text-sm font-medium">
+                          ZIP
+                        </label>
+                        <Input
+                          id="creator-postal"
+                          value={postalCode}
+                          required
+                          inputMode="numeric"
+                          autoComplete="postal-code"
+                          aria-invalid={invalid("postal_code")}
+                          aria-describedby={describedBy("postal_code")}
+                          onChange={(e) => setPostalCode(e.target.value.slice(0, 10))}
+                        />
+                        <FieldError id="creator-postal_code-error" message={shownErrors.postal_code} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 rounded-md border p-3">
+                    <div className="flex items-start gap-2 text-sm">
+                      <Checkbox
+                        id="creator-certify"
+                        checked={certify}
+                        onCheckedChange={(v) => setCertify(v === true)}
+                        aria-invalid={invalid("certify")}
+                        aria-describedby={describedBy("certify")}
+                        className="mt-0.5"
+                      />
+                      <label htmlFor="creator-certify">
+                        I certify that the tax ID above is correct and is mine, that I am
+                        a US person (a US citizen or US resident), and that I am not
+                        subject to backup withholding. This takes the place of a W-9.
+                      </label>
+                    </div>
+                    <FieldError id="creator-certify-error" message={shownErrors.certify} />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button type="submit" disabled={saveTax.isPending}>
+                      {saveTax.isPending ? "Saving..." : "Certify and save"}
+                    </Button>
+                    {replacing && (
+                      <Button type="button" variant="ghost" onClick={() => setReplacing(false)}>
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
+                </form>
+              )}
+            </>
           )}
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label htmlFor="creator-legal-name" className="text-xs font-medium text-muted-foreground">
-                Legal name
-              </label>
-              <Input
-                id="creator-legal-name"
-                value={legalName}
-                onChange={(e) => setLegalName(e.target.value.slice(0, 200))}
-                placeholder="As it appears on your tax return"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="creator-entity-type" className="text-xs font-medium text-muted-foreground">
-                How you file
-              </label>
-              <Select value={entityType} onValueChange={setEntityType}>
-                <SelectTrigger id="creator-entity-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ENTITY_TYPES.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>
-                      {t.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <label htmlFor="creator-tin" className="text-xs font-medium text-muted-foreground">
-                Tax ID (SSN or EIN)
-              </label>
-              <Input
-                id="creator-tin"
-                value={tin}
-                inputMode="numeric"
-                autoComplete="off"
-                onChange={(e) => setTin(e.target.value.slice(0, 11))}
-                placeholder="9 digits"
-              />
-              <p className="text-xs text-muted-foreground">
-                Encrypted before it is stored. Only the last four digits are readable
-                afterwards, including by us.
-              </p>
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <label htmlFor="creator-address" className="text-xs font-medium text-muted-foreground">
-                Street address
-              </label>
-              <Input
-                id="creator-address"
-                value={addressLine1}
-                onChange={(e) => setAddressLine1(e.target.value.slice(0, 200))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="creator-city" className="text-xs font-medium text-muted-foreground">
-                City
-              </label>
-              <Input
-                id="creator-city"
-                value={city}
-                onChange={(e) => setCity(e.target.value.slice(0, 100))}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label htmlFor="creator-region" className="text-xs font-medium text-muted-foreground">
-                  State
-                </label>
-                <Input
-                  id="creator-region"
-                  value={region}
-                  onChange={(e) => setRegion(e.target.value.slice(0, 100))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="creator-postal" className="text-xs font-medium text-muted-foreground">
-                  ZIP
-                </label>
-                <Input
-                  id="creator-postal"
-                  value={postalCode}
-                  onChange={(e) => setPostalCode(e.target.value.slice(0, 20))}
-                />
-              </div>
-            </div>
-          </div>
-
-          <Button onClick={() => saveTax.mutate()} disabled={!canSaveTax}>
-            {saveTax.isPending ? "Saving…" : "Save tax details"}
-          </Button>
         </CardContent>
       </Card>
     </div>

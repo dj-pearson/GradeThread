@@ -214,8 +214,17 @@ export function installFakePostgrest(): FakePostgrest {
     return (fake.tables[table] ?? []).filter((r) => ids.has(r.id));
   }
 
-  function shape(rows: Row[], headers: Headers, status = 200): Response {
+  function shape(rows: Row[], headers: Headers, status = 200, total?: number): Response {
     const accept = headers.get("accept") ?? "";
+    // Prefer: count=exact answers the total (before limit/offset) in
+    // Content-Range, which is where supabase-js reads `count` from.
+    if (total !== undefined && (headers.get("prefer") ?? "").includes("count=exact")) {
+      const range = rows.length > 0 ? `0-${rows.length - 1}/${total}` : `*/${total}`;
+      return new Response(JSON.stringify(rows), {
+        status,
+        headers: { "content-type": "application/json", "content-range": range },
+      });
+    }
     if (accept.includes("vnd.pgrst.object")) {
       if (rows.length === 1) return json(rows[0], status);
       return json({
@@ -280,6 +289,7 @@ export function installFakePostgrest(): FakePostgrest {
 
     if (method === "GET" || method === "HEAD") {
       let rows = matching(table, params);
+      const total = rows.length;
       const order = params.get("order");
       if (order) {
         const [col, dir] = order.split(".");
@@ -294,7 +304,7 @@ export function installFakePostgrest(): FakePostgrest {
       if (limit) rows = rows.slice(0, Number(limit));
       // PostgREST's db-max-rows: a server-side cap no query can raise.
       if (Number.isFinite(fake.maxRows)) rows = rows.slice(0, fake.maxRows);
-      return shape(rows, headers);
+      return shape(rows, headers, 200, total);
     }
 
     if (method === "POST") {
