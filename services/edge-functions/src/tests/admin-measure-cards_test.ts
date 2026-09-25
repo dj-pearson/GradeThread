@@ -14,7 +14,7 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { csvCell, requestsToCsv } = await import(
+const { csvCell, requestsToCsv, predecessorStatuses, parseBulkIds } = await import(
   "../routes/admin-measure-cards.ts"
 );
 
@@ -125,5 +125,74 @@ Deno.test("operator queue mounts ONLY under the admin-auth stack", () => {
 
 Deno.test("shipped bulk-mark stamps the profile card-version record", () => {
   assert(adminSrc.includes('measure_card_source: "mail"'));
-  assert(adminSrc.includes("measure_card_version: r.card_version"));
+  assert(adminSrc.includes("measure_card_version: version"));
+});
+
+// ── MC-04: guarded bulk transitions and unreadable addresses ─────────────────
+
+const ROW = {
+  id: "r1",
+  owner_user_id: "u1",
+  status: "requested",
+  card_version: 1,
+  plan_key: "pro",
+  ship_name: "Pat Doe",
+  address_line1: "1 Main St",
+  address_line2: null,
+  city: "Austin",
+  state: "TX",
+  postal_code: "78701",
+  country: "US",
+  tracking_number: null,
+  tracking_carrier: null,
+  requested_at: "2026-07-03T00:00:00Z",
+  exported_at: null,
+  shipped_at: null,
+};
+
+Deno.test("MC-04: a shipped row can never move back to exported", () => {
+  assertEquals(predecessorStatuses("exported"), ["requested"]);
+  assertEquals(predecessorStatuses("shipped"), ["requested", "exported"]);
+  assert(!(predecessorStatuses("exported") as string[]).includes("shipped"));
+  assert(!(predecessorStatuses("shipped") as string[]).includes("shipped"));
+});
+
+Deno.test("MC-04: the bulk UPDATE is filtered on the predecessor statuses", () => {
+  const at = adminSrc.indexOf('adminMeasureCardRoutes.post("/requests/bulk"');
+  const body = adminSrc.slice(at);
+  assert(body.includes('.in("status", predecessorStatuses(status))'));
+  assert(body.includes("skipped"));
+  // Profile stamping checks its error and batches by version.
+  assert(body.includes("stampErr"));
+  assert(!/for \(const r of rows\) \{\s*await supabaseAdmin/.test(body));
+});
+
+Deno.test("MC-04: bulk ids are validated, not sliced", () => {
+  const id = "3f1c0c64-6a64-4c38-9a1e-0a7d6f0b1d2e";
+  assertEquals(parseBulkIds([id, id]), { ok: true, ids: [id] });
+  assert(!parseBulkIds([]).ok);
+  assert(!parseBulkIds("x").ok);
+  assert(!parseBulkIds(["not-a-uuid"]).ok);
+  assert(!parseBulkIds([id, 7]).ok);
+  const tooMany = Array.from({ length: 501 }, () => crypto.randomUUID());
+  const r = parseBulkIds(tooMany);
+  assert(!r.ok && r.error.includes("500"));
+  assert(parseBulkIds(tooMany.slice(0, 500)).ok);
+  assert(!adminSrc.includes(".slice(0, 500)"));
+});
+
+Deno.test("MC-04: requestsToCsv leaves out a row whose address is unreadable", () => {
+  const csv = requestsToCsv([
+    ROW,
+    { ...ROW, id: "r2", ship_name: "", address_line1: "", city: "", postal_code: "", address_unreadable: true },
+  ]);
+  const lines = csv.trim().split("\r\n");
+  assertEquals(lines.length, 2);
+  assert(lines[1]!.startsWith('"r1"'));
+  assert(!csv.includes('"r2"'));
+});
+
+Deno.test("MC-04: the list response counts unreadable rows", () => {
+  assert(adminSrc.includes("address_unreadable: true"));
+  assert(adminSrc.includes("unreadable_count:"));
 });

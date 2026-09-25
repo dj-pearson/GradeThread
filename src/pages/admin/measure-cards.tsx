@@ -89,13 +89,19 @@ export function AdminMeasureCardsPage() {
       });
       const json = (await res.json().catch(() => ({}))) as {
         updated?: number;
+        skipped?: string[];
         error?: string;
       };
       if (!res.ok) {
         toast.error(json.error ?? "Bulk update failed.");
         return;
       }
-      toast.success(`Marked ${json.updated ?? 0} request(s) ${next}.`);
+      // MC-04: rows already past that step are skipped, not moved back.
+      const skipped = json.skipped?.length ?? 0;
+      toast.success(
+        `Marked ${json.updated ?? 0} request(s) ${next}.` +
+          (skipped > 0 ? ` Skipped ${skipped} already past that step.` : ""),
+      );
       setSelected(new Set());
       await qc.invalidateQueries({ queryKey: ["admin_measure_cards"] });
     } finally {
