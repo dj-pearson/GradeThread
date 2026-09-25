@@ -145,6 +145,35 @@ export function readEmbedBranding(url: URL): EmbedBranding {
   };
 }
 
+/** WCAG relative luminance of a #rrggbb color. */
+function relativeLuminance(hex: string): number {
+  const n = hex.replace("#", "");
+  const channel = (i: number) => {
+    const v = parseInt(n.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
+}
+
+function contrastRatio(a: number, b: number): number {
+  const [hi, lo] = a > b ? [a, b] : [b, a];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/**
+ * DEV-15: the header text color for a partner's brand color. White text was
+ * hard-coded, so a light brand color like #FFD400 failed WCAG AA. Picks white
+ * or slate-900 by whichever contrasts more. Mirrored in src/lib/brand-contrast.ts
+ * for the settings panel; embed-grade-widget.test.ts holds the two together.
+ */
+export function headerTextColor(hex: string): "#fff" | "#0f172a" {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return "#fff";
+  const bg = relativeLuminance(hex);
+  const white = contrastRatio(bg, 1);
+  const dark = contrastRatio(bg, relativeLuminance("#0f172a"));
+  return white >= dark ? "#fff" : "#0f172a";
+}
+
 /**
  * The branded grade card as an inline-styled HTML string. Pure + fully escaped so
  * it's safe to inject via innerHTML on the host page (no host CSP script hooks,
@@ -158,9 +187,10 @@ export function gradeEmbedCardHtml(
 ): string {
   const overall = Number(cert.overall_score);
   const overallColor = scoreColor(overall);
+  const onBrand = headerTextColor(branding.color);
   const header = branding.logo
     ? `<img src="${escape(branding.logo)}" alt="${escape(branding.company ?? "Partner")}" style="height:28px;width:auto;display:block">`
-    : `<span style="font-size:20px;line-height:1;color:#fff" aria-hidden="true">&#10003;</span>`;
+    : `<span style="font-size:20px;line-height:1;color:${onBrand}" aria-hidden="true">&#10003;</span>`;
 
   const factorsHtml = FACTORS.map((f) => {
     const v = Number(cert[f.key]);
@@ -171,7 +201,7 @@ export function gradeEmbedCardHtml(
         <span style="font-weight:500">${escape(f.label)}</span>
         <span style="font-variant-numeric:tabular-nums;color:${c}">${v.toFixed(1)}</span>
       </div>
-      <div style="margin-top:4px;height:6px;width:100%;overflow:hidden;border-radius:999px;background:#f1f5f9">
+      <div role="meter" aria-valuemin="0" aria-valuemax="10" aria-valuenow="${v.toFixed(1)}" aria-label="${escape(f.label)} ${v.toFixed(1)} out of 10" style="margin-top:4px;height:6px;width:100%;overflow:hidden;border-radius:999px;background:#f1f5f9">
         <div style="height:100%;border-radius:999px;width:${pct}%;background:${c}"></div>
       </div>
     </div>`;
@@ -197,10 +227,10 @@ export function gradeEmbedCardHtml(
 
   // The whole card sits in one wrapper with a max width; inline styles only so it
   // survives on a host page with no stylesheet of ours.
-  return `<div style="max-width:480px;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Inter,sans-serif;color:#0f172a;background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.05)">
+  return `<div role="region" aria-label="Condition grade ${overall.toFixed(1)} out of 10" lang="en" style="max-width:480px;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Inter,sans-serif;color:#0f172a;background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.05)">
     <div style="display:flex;align-items:center;gap:12px;padding:16px 20px;background:${branding.color}">
       ${header}
-      <div style="color:#fff">
+      <div style="color:${onBrand}">
         <p style="margin:0;font-size:14px;font-weight:600;line-height:1.2">${escape(branding.company ?? "Verified Condition Grade")}</p>
         <p style="margin:0;font-size:11px;opacity:0.8">Condition grade</p>
       </div>

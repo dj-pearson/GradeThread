@@ -26,6 +26,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useTenantKey } from "@/hooks/use-tenant-key";
+import { brandHeaderContrast } from "@/lib/brand-contrast";
 
 interface Branding {
   company_name?: string;
@@ -209,6 +210,8 @@ export function WhiteLabelPanel() {
     return showErrors || (form[f] ?? "") !== (saved[f] ?? "") ? errors[f] : undefined;
   }
 
+  const contrast = errors.brand_color ? null : brandHeaderContrast(pending.brand_color ?? "");
+
   const forbidden = isError && error instanceof BrandingLoadError && error.status === 403;
 
   return (
@@ -274,6 +277,13 @@ export function WhiteLabelPanel() {
                 </div>
                 {fieldError("brand_color") && (
                   <p id="brand-color-error" className="text-xs text-destructive">{fieldError("brand_color")}</p>
+                )}
+                {contrast && (
+                  <p className="text-xs text-muted-foreground" data-testid="brand-contrast">
+                    {contrast.ratio >= 4.5
+                      ? `The card header will use ${contrast.text === "#fff" ? "white" : "dark"} text (contrast ${contrast.ratio.toFixed(1)}:1).`
+                      : `Header text on this color reaches only ${contrast.ratio.toFixed(1)}:1 contrast, below the 4.5:1 WCAG AA minimum. Pick a darker or lighter color.`}
+                  </p>
                 )}
               </div>
               <div className="space-y-2">

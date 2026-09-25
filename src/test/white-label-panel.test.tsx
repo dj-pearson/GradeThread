@@ -114,4 +114,10 @@ describe("WhiteLabelPanel (DEV-08)", () => {
     await type("brand-logo", "http://acme.test/logo.png");
     expect(container!.textContent).toContain("Use a full https:// address.");
   });
+
+  it("DEV-15: shows the header contrast the embed will use for the typed color", async () => {
+    await render();
+    await type("brand-color", "#FFD400");
+    expect(container!.querySelector('[data-testid="brand-contrast"]')?.textContent).toContain("dark text");
+  });
 });

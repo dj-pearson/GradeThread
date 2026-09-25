@@ -13,11 +13,13 @@ import {
   aiDisclosureTitle,
   gradeEmbedCardHtml,
   gradeEmbedWidgetJs,
+  headerTextColor,
   readEmbedBranding,
   safeEmbedColor,
   safeEmbedHttpsUrl,
   type EmbedBranding,
 } from "../../functions/embed/grade/widget";
+import { brandHeaderContrast } from "@/lib/brand-contrast";
 
 const CERT = {
   id: "abcdef01-2345-6789-abcd-ef0123456789",
@@ -197,5 +199,33 @@ describe("gradeEmbedWidgetJs", () => {
     expect(js).toContain(JSON.stringify(card));
     // The only occurrence of the card content is the quoted literal.
     expect(js.split(JSON.stringify(card)).length - 1).toBe(1);
+  });
+});
+
+// DEV-15: header text that stays readable on any brand color, and semantics a
+// screen reader can use.
+describe("header contrast and score semantics (DEV-15)", () => {
+  it("a light brand color gets dark header text, a dark one keeps white", () => {
+    expect(headerTextColor("#FFD400")).toBe("#0f172a");
+    expect(headerTextColor("#0F3460")).toBe("#fff");
+    const light = gradeEmbedCardHtml(CERT, { ...PLAIN, color: "#FFD400" }, CERT_URL);
+    expect(light).toContain('<div style="color:#0f172a">');
+    const dark = gradeEmbedCardHtml(CERT, PLAIN, CERT_URL);
+    expect(dark).toContain('<div style="color:#fff">');
+  });
+
+  it("the card is a labelled region with one meter per factor", () => {
+    const html = gradeEmbedCardHtml(CERT, PLAIN, CERT_URL);
+    expect(html).toContain('role="region"');
+    expect(html).toContain('aria-label="Condition grade 8.4 out of 10"');
+    expect(html).toContain('lang="en"');
+    expect((html.match(/role="meter"/g) ?? []).length).toBe(5);
+    expect(html).toContain('aria-valuenow="8.5"');
+  });
+
+  it("the panel's contrast check agrees with the widget on every color tried", () => {
+    for (const c of ["#FFD400", "#0F3460", "#E94560", "#777777", "#FFFFFF", "#000000", "#3B82F6", "#22C55E"]) {
+      expect(brandHeaderContrast(c)!.text, c).toBe(headerTextColor(c));
+    }
   });
 });
