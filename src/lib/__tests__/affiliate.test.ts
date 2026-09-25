@@ -4,7 +4,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 vi.mock("@/lib/edge-api", () => ({ edgeApiUrl: () => "https://functions.example.test" }));
-const edgeFetch = vi.fn(async (..._args: unknown[]) => new Response("{}", { status: 200 }));
+const edgeFetch = vi.fn(async (...args: unknown[]) => {
+  void args;
+  return new Response("{}", { status: 200 });
+});
 vi.mock("@/lib/edge-fetch", () => ({ edgeFetch: (...a: unknown[]) => edgeFetch(...a) }));
 
 import {
@@ -74,5 +77,30 @@ describe("captureAffiliateRef", () => {
     await redeemStoredAffiliateRef();
     const opts = edgeFetch.mock.calls[0]![1] as { json: Record<string, unknown> };
     expect(opts.json).toEqual({ code: "ABCD2345", source: "affiliate", click_id: "click-1" });
+  });
+});
+
+describe("referralLink", () => {
+  it("is one canonical signup link on the real site, tagged by channel", async () => {
+    const { referralLink } = await import("@/lib/affiliate");
+    for (const ch of ["copy", "x", "facebook", "whatsapp", "email", "badge"] as const) {
+      const link = referralLink("ABCD2345", ch);
+      expect(link.startsWith("https://gradethread.com/signup?ref=ABCD2345")).toBe(true);
+      expect(new URL(link).searchParams.get("utm_source")).toBe(ch);
+    }
+  });
+});
+
+describe("proof-of-grade copy", () => {
+  it("marketplace lines carry no link and the site badge is plain ASCII", async () => {
+    const { EBAY_PROOF_LINE, MARKETPLACE_PROOF_LINE } = await import("@/lib/proof-of-grade");
+    const { affiliateBadgeEmbed } = await import("@/lib/affiliate");
+    for (const line of [EBAY_PROOF_LINE, MARKETPLACE_PROOF_LINE]) {
+      expect(line).not.toMatch(/http|<a|gradethread\.com/i);
+    }
+    const badge = affiliateBadgeEmbed("ABCD2345");
+    expect(badge).toMatch(/^[\x20-\x7E\n]*$/);
+    expect(badge).toContain("&#10003;");
+    expect(badge).toContain('href="https://gradethread.com/signup?ref=ABCD2345&amp;utm_source=badge"');
   });
 });

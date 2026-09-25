@@ -11,6 +11,8 @@
 
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { SITE_URL } from "@/lib/seo/site";
+import { siteBadgeHtml } from "@/lib/proof-of-grade";
 
 const STORAGE_KEY = "gt_affiliate_ref";
 // Last-touch attribution window. A ?ref= older than this is ignored at redeem
@@ -276,26 +278,23 @@ export async function redeemStoredAffiliateRef(): Promise<boolean> {
 }
 
 /**
- * The shareable earned link for a code, e.g.
- *   https://gradethread.com/?ref=ABCD2345&utm_source=badge
+ * The one canonical referral link for a code, tagged with the channel it was
+ * shared on, e.g. https://gradethread.com/signup?ref=ABCD2345&utm_source=x
+ *
+ * Built on SITE_URL, not window.location.origin, so a link copied on a
+ * preview deploy or localhost still sends friends to the real site. Every
+ * copy box, share button and badge on the referral page uses this.
  */
-export function affiliateLink(code: string, source: "badge" | "link" = "link"): string {
-  const origin = typeof window !== "undefined" ? window.location.origin : "https://gradethread.com";
-  return `${origin}/?ref=${encodeURIComponent(code)}&utm_source=${source}`;
+export function referralLink(code: string, channel: AffiliateClickSource): string {
+  return `${SITE_URL}/signup?ref=${encodeURIComponent(code)}&utm_source=${channel}`;
 }
 
 /**
- * Copy-paste HTML for the "Graded by GradeThread" earned-link badge. Self-
- * contained inline-styled anchor — works in marketplace/site listings.
+ * Copy-paste HTML for the "Graded by GradeThread" badge, for the seller's OWN
+ * site or blog. Never for a marketplace listing: eBay hides a listing whose
+ * description links off eBay, and FlipDesk strips exactly this link on publish.
+ * The marketplace-safe lines live in proof-of-grade.ts.
  */
 export function affiliateBadgeEmbed(code: string): string {
-  const href = affiliateLink(code, "badge");
-  return [
-    `<a href="${href}" target="_blank" rel="noopener"`,
-    `   style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;`,
-    `          border-radius:9999px;background:#0F3460;color:#fff;font:600 13px/1 Inter,Arial,sans-serif;`,
-    `          text-decoration:none;">`,
-    `  ✓ Graded by GradeThread`,
-    `</a>`,
-  ].join("\n");
+  return siteBadgeHtml(referralLink(code, "badge"));
 }

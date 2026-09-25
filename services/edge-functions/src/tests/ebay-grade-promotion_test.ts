@@ -164,3 +164,16 @@ Deno.test("US-1503: measurement fold never clobbers an already-set aspect", () =
   );
   assertEquals(out["Chest Size"], undefined);
 });
+
+// The Referrals page's marketplace-safe proof lines (src/lib/proof-of-grade.ts)
+// must already be what publish would leave alone: no link for stripCertLinks to
+// remove, so what a seller pastes is what the listing shows.
+Deno.test("stripCertLinks leaves the Referrals page's marketplace proof lines unchanged", async () => {
+  const { EBAY_PROOF_LINE, MARKETPLACE_PROOF_LINE } = await import(
+    "../../../../src/lib/proof-of-grade.ts"
+  );
+  for (const line of [EBAY_PROOF_LINE, MARKETPLACE_PROOF_LINE]) {
+    assertEquals(stripCertLinks(line), line);
+    assertEquals(/https?:|<a\b/i.test(line), false);
+  }
+});
