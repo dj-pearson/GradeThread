@@ -211,10 +211,14 @@ export function DropDayDialog({
 
   /** SD-2: which of this day's drops a shift would push into the past. */
   function shiftPlan(by: DropShift) {
+    // A drop mid-publish is left alone, as it is by the row buttons.
     const future = drops.filter(
-      (d) => assertFutureDrop(shiftInZone(d.scheduled_publish_at, timeZone, by), now).ok,
+      (d) =>
+        d.health !== "publishing" &&
+        assertFutureDrop(shiftInZone(d.scheduled_publish_at, timeZone, by), now).ok,
     );
-    return { future, past: drops.length - future.length };
+    const publishing = drops.filter((d) => d.health === "publishing").length;
+    return { future, past: drops.length - publishing - future.length };
   }
 
   async function shiftAll(by: DropShift) {
@@ -237,8 +241,11 @@ export function DropDayDialog({
           "No drops moved. They already went live, or you cannot edit them.",
         );
       } else if (missed > 0) {
+        // SD-11: a partial shift still moved rows, so it still gets an Undo
+        // for exactly those.
         toast.warning(
           `Shifted ${r.moved} of ${targets.length}. ${missed} already went live or could not be edited.`,
+          { action: undoShiftAction(targets, r.movedIds, by) },
         );
       } else {
         toast.success(`${r.moved} drop${r.moved === 1 ? "" : "s"} shifted.`, {
@@ -267,7 +274,10 @@ export function DropDayDialog({
     (reschedule.isPending && reschedule.variables?.id) ||
     (cancel.isPending && cancel.variables?.id) ||
     null;
-  const rowLocked = (id: string) => !canEdit || shift.isPending || pendingId === id;
+  // A drop the cron is publishing right now cannot be stopped from here: a
+  // new time would be written and "moved" toasted while it went live anyway.
+  const rowLocked = (d: DayDrop) =>
+    !canEdit || shift.isPending || pendingId === d.id || d.health === "publishing";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -327,7 +337,7 @@ export function DropDayDialog({
 
         {drops.length > 1 && (
           <DropSpreadPanel
-            drops={drops}
+            drops={drops.filter((d) => d.health !== "publishing")}
             timeZone={timeZone}
             disabled={locked}
             suggestedStart={suggestedStart}
@@ -406,7 +416,7 @@ export function DropDayDialog({
                     className="h-8 w-auto text-xs"
                     aria-label={`New date and time for ${d.title}`}
                   />
-                  <Button type="submit" size="sm" disabled={rowLocked(d.id)}>
+                  <Button type="submit" size="sm" disabled={rowLocked(d)}>
                     {pendingId === d.id ? (
                       <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                     ) : null}
@@ -433,7 +443,7 @@ export function DropDayDialog({
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={rowLocked(d.id)}
+                    disabled={rowLocked(d)}
                     aria-label={`Reschedule ${d.title}`}
                     onClick={() => {
                       setEditing(d.id);
@@ -447,7 +457,7 @@ export function DropDayDialog({
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={rowLocked(d.id)}
+                    disabled={rowLocked(d)}
                     aria-label={`Unschedule ${d.title}`}
                     onClick={() => void unschedule(d)}
                   >

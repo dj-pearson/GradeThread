@@ -372,3 +372,29 @@ describe("spread a day's drops over time slots (SD-14)", () => {
     expect(document.body.textContent).toContain("That time has passed. Pick a later time.");
   });
 });
+
+describe("review fixes", () => {
+  it("a partial shift still offers Undo, for only the rows that moved", async () => {
+    state.shift = vi.fn(async () => ({ moved: 1, unchanged: 1, failed: 0, movedIds: ["a"] }));
+    await render([drop("a", 48 * 3_600_000), drop("b", 50 * 3_600_000)]);
+    await click(button("+1 hour"));
+    const call = toastSpy.warning.mock.calls[0]! as [string, { action: { onClick: () => void } }];
+    expect(call[0]).toContain("Shifted 1 of 2");
+    await act(async () => call[1].action.onClick());
+    const undo = state.shift.mock.calls[1]![0] as { drops: { id: string }[] };
+    expect(undo.drops.map((x) => x.id)).toEqual(["a"]);
+  });
+
+  it("a drop the cron is publishing cannot be rescheduled, unscheduled or shifted", async () => {
+    await render([
+      drop("a", -60_000, { health: "publishing" }),
+      drop("b", 5 * 3_600_000),
+    ]);
+    expect(button("Reschedule Drop a").disabled).toBe(true);
+    expect(button("Unschedule Drop a").disabled).toBe(true);
+    expect(button("Reschedule Drop b").disabled).toBe(false);
+    await click(button("+1 day"));
+    const arg = state.shift.mock.calls[0]![0] as { drops: { id: string }[] };
+    expect(arg.drops.map((d) => d.id)).toEqual(["b"]);
+  });
+});
