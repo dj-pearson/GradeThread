@@ -12,6 +12,8 @@ import {
   PUBLISH_CLAIM_STALE_MS,
   shiftInZone,
   zonedInputToIsoDetailed,
+  getFormatter,
+  formatTimeInZone,
 } from "./scheduling";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -229,5 +231,17 @@ describe("DST gaps, overlaps and impossible dates (SD-7)", () => {
     const preset = { id: "x", label: "Sunday 2:30 AM", weekday: 0, hour: 2, minute: 30 };
     const next = nextPresetUtc(preset, "America/Chicago", new Date("2026-03-05T12:00:00Z"));
     expect(isoToZonedInput(next.toISOString(), "America/Chicago")).toBe("2026-03-08T03:30");
+  });
+});
+
+describe("getFormatter (SD-13)", () => {
+  it("returns the same instance for repeated (kind, zone) calls", () => {
+    expect(getFormatter("time", "America/Chicago")).toBe(getFormatter("time", "America/Chicago"));
+    expect(getFormatter("time", "America/Chicago")).not.toBe(getFormatter("time", "UTC"));
+    expect(getFormatter("date", "UTC")).not.toBe(getFormatter("time", "UTC"));
+  });
+  it("formats a clock time in the zone", () => {
+    expect(formatTimeInZone("2026-06-15T00:00:00.000Z", "America/Chicago")).toBe("7:00 PM");
+    expect(formatTimeInZone("junk", "UTC")).toBe("-");
   });
 });

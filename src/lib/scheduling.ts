@@ -58,21 +58,69 @@ export const COMMON_TIMEZONES: { id: string; label: string }[] = [
   { id: "UTC", label: "UTC" },
 ];
 
+// SD-13: one Intl.DateTimeFormat per (kind, zone). Building one is far from
+// free, and the calendar used to build several per chip on every render.
+export type FormatterKind = "offset" | "date" | "input" | "friendly" | "time";
+
+const FORMATTER_OPTIONS: Record<FormatterKind, { locale: string; options: Intl.DateTimeFormatOptions }> = {
+  offset: {
+    locale: "en-US",
+    options: {
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    },
+  },
+  // en-CA formats as YYYY-MM-DD, which is trivial to split.
+  date: { locale: "en-CA", options: { year: "numeric", month: "2-digit", day: "2-digit" } },
+  input: {
+    locale: "en-CA",
+    options: {
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    },
+  },
+  friendly: {
+    locale: "en-US",
+    options: {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    },
+  },
+  time: { locale: "en-US", options: { hour: "numeric", minute: "2-digit" } },
+};
+
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+/** The shared formatter for `kind` in `timeZone`, built once. */
+export function getFormatter(kind: FormatterKind, timeZone: string): Intl.DateTimeFormat {
+  const key = `${kind}|${timeZone}`;
+  let f = formatterCache.get(key);
+  if (!f) {
+    const { locale, options } = FORMATTER_OPTIONS[kind];
+    f = new Intl.DateTimeFormat(locale, { ...options, timeZone });
+    formatterCache.set(key, f);
+  }
+  return f;
+}
+
 // The offset (zone − UTC) in milliseconds for a given instant in a given zone.
 // Works by formatting the instant *as* the target zone and reading the wall
 // clock back as if it were UTC — the difference is the offset.
 function zoneOffsetMs(instant: Date, timeZone: string): number {
-  const dtf = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  const parts = dtf.formatToParts(instant);
+  const parts = getFormatter("offset", timeZone).formatToParts(instant);
   const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
   const asUtc = Date.UTC(
     get("year"),
@@ -141,15 +189,7 @@ export function zonedWallTimeToUtc(
 // The calendar date (year/month/day, month 1-based) that `instant` falls on in
 // `timeZone`.
 export function zoneCalendarDate(instant: Date, timeZone: string): { year: number; month: number; day: number } {
-  // en-CA formats as YYYY-MM-DD, which is trivial to split.
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
-    .format(instant)
-    .split("-");
+  const parts = getFormatter("date", timeZone).format(instant).split("-");
   return { year: Number(parts[0]), month: Number(parts[1]), day: Number(parts[2]) };
 }
 
@@ -184,15 +224,14 @@ export function nextPresetUtc(preset: DropPreset, timeZone: string, from: Date =
 export function formatInZone(iso: string, timeZone: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  }).format(d);
+  return getFormatter("friendly", timeZone).format(d);
+}
+
+/** Just the clock time in a zone, e.g. "7:00 PM"; "-" for junk. */
+export function formatTimeInZone(iso: string, timeZone: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+  return getFormatter("time", timeZone).format(d);
 }
 
 /**
@@ -204,15 +243,7 @@ export function isoToZonedInput(iso: string | null | undefined, timeZone: string
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).formatToParts(d);
+  const parts = getFormatter("input", timeZone).formatToParts(d);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }

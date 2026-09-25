@@ -27,6 +27,7 @@ import {
   dropNeedsAttention,
   MIN_DROP_LEAD_MS,
   formatInZone,
+  formatTimeInZone,
   shiftInZone,
   zoneCalendarDate,
   zonedInputToIsoDetailed,
@@ -69,14 +70,6 @@ function formatTypedTime(local: string): string {
   if (!m) return local;
   const h = Number(m[1]);
   return `${h % 12 === 0 ? 12 : h % 12}:${m[2]} ${h < 12 ? "AM" : "PM"}`;
-}
-
-function formatTimeIn(iso: string, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(iso));
 }
 
 export function DropDayDialog({
@@ -130,7 +123,7 @@ export function DropDayDialog({
       if (parsed.adjusted === "gap") {
         // SD-7: the clocks skip this hour; say where the drop really went.
         toast.info(
-          `${formatTypedTime(draftAt)} does not exist on this day in ${timeZone}; set to ${formatTimeIn(iso, timeZone)}.`,
+          `${formatTypedTime(draftAt)} does not exist on this day in ${timeZone}; set to ${formatTimeInZone(iso, timeZone)}.`,
         );
       } else {
         const from = zoneCalendarDate(new Date(drop.scheduled_publish_at), timeZone);
@@ -341,11 +334,7 @@ export function DropDayDialog({
                     <span className="truncate">{d.title}</span>
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {new Intl.DateTimeFormat("en-US", {
-                      timeZone,
-                      hour: "numeric",
-                      minute: "2-digit",
-                    }).format(new Date(d.scheduled_publish_at))}
+                    {formatTimeInZone(d.scheduled_publish_at, timeZone)}
                     {d.listing_price != null && ` · $${d.listing_price.toFixed(2)}`}
                   </span>
                   {d.healthNote && (

@@ -86,6 +86,7 @@ let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
 beforeEach(() => {
+  localStorage.clear();
   state.shift = realShift();
   state.rows = [];
   state.isFetching = false;
@@ -316,5 +317,54 @@ describe("the keyboard grid (SD-12)", () => {
     )!;
     await act(async () => btn.click());
     expect(document.activeElement?.getAttribute("aria-current")).toBe("date");
+  });
+});
+
+describe("the agenda below sm (SD-13)", () => {
+  function mockWidth(wide: boolean) {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes("min-width: 640px") ? wide : false,
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }),
+    });
+  }
+  afterEach(() => {
+    delete (window as { matchMedia?: unknown }).matchMedia;
+  });
+
+  it("a 375px viewport gets the agenda and no 7-column grid", async () => {
+    mockWidth(false);
+    const drop = row("a", 3 * 86_400_000);
+    state.rows = [drop];
+    await render();
+    expect(document.querySelector('[role="grid"]')).toBeNull();
+    const agenda = document.querySelector('[data-testid="drops-agenda"]');
+    expect(agenda).not.toBeNull();
+    // The month shown may not hold the drop (month end); step until it does.
+    for (let i = 0; i < 2 && !agenda?.textContent?.includes("Drop a"); i++) {
+      const next = document.querySelector<HTMLButtonElement>('button[aria-label="Next month"]')!;
+      await act(async () => next.click());
+    }
+    expect(document.querySelector('[data-testid="drops-agenda"]')?.textContent).toContain("Drop a");
+    // No Month/Agenda toggle on a phone: it is always the agenda.
+    expect(document.querySelector('[aria-label="Layout"]')).toBeNull();
+  });
+
+  it("a wide screen remembers the Agenda choice", async () => {
+    mockWidth(true);
+    state.rows = [row("a", 3 * 86_400_000)];
+    await render();
+    expect(document.querySelector('[role="grid"]')).not.toBeNull();
+    const agendaBtn = Array.from(document.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Agenda",
+    )!;
+    await act(async () => agendaBtn.click());
+    expect(document.querySelector('[role="grid"]')).toBeNull();
+    expect(localStorage.getItem("gt.scheduled-drops.layout")).toBe("agenda");
   });
 });
