@@ -298,3 +298,56 @@ describe("H7: search states follow the active query", () => {
     expect(text()).not.toContain("Couldn't load help");
   });
 });
+
+describe("H9: ranked search, editor-ordered browse", () => {
+  const titles = () => Array.from(container.querySelectorAll("li a")).map((a) => a.textContent);
+
+  it("search hits render in server (rank) order, not regrouped by category", async () => {
+    handler = (path) => {
+      if (path.startsWith("/api/help/search")) {
+        return res({
+          query: "fees",
+          hits: [
+            { slug: "b", title: "B hit", summary: "", category_key: "zeta", visibility: "public", rank: 0.9 },
+            { slug: "a", title: "A hit", summary: "", category_key: "alpha", visibility: "public", rank: 0.1 },
+          ],
+          viewer: "member",
+        });
+      }
+      return defaultIndex();
+    };
+    render("/dashboard/help?q=fees");
+    await settle(20);
+    expect(titles()).toEqual(["B hit", "A hit"]);
+    expect(text()).toContain('2 results for "fees"');
+  });
+
+  it("browse puts category cards in the editor's sort_order", async () => {
+    handler = (path) =>
+      path === "/api/help"
+        ? res({
+            categories: [
+              { ...CATEGORIES[0], key: "z", title: "Zebra", sort_order: 1 },
+              { ...CATEGORIES[1], key: "a", title: "Apple", sort_order: 2 },
+            ],
+            articles: [listItem("in-a", "a"), listItem("in-z", "z")],
+            viewer: "member",
+          })
+        : res({});
+    render("/dashboard/help");
+    await settle(20);
+    const headings = Array.from(container.querySelectorAll("h2")).map((h2) => h2.textContent);
+    expect(headings.slice(0, 2)).toEqual(["Zebra", "Apple"]);
+  });
+
+  it("the article h1 is just the title; the visibility badge sits outside it", async () => {
+    handler = (path) =>
+      path === "/api/help"
+        ? defaultIndex()
+        : res({ article: articleView("ops", { visibility: "internal" }), category: CATEGORIES[0], viewer: "admin" });
+    render("/dashboard/help/ops");
+    await settle(20);
+    expect(container.querySelector("h1")?.textContent).toBe("Title ops");
+    expect(text()).toContain("Internal");
+  });
+});

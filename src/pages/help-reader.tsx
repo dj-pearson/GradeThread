@@ -57,7 +57,9 @@ const VISIBILITY_VARIANT: Record<
 > = {
   public: "secondary",
   members: "outline",
-  internal: "destructive",
+  // Outline plus the Lock icon, not destructive red: "internal" is a label for
+  // who can read it, not a warning about the article.
+  internal: "outline",
 };
 
 function VisibilityBadge({ visibility }: { visibility: HelpVisibility }) {
@@ -66,10 +68,36 @@ function VisibilityBadge({ visibility }: { visibility: HelpVisibility }) {
   if (visibility === "public") return null;
   const Icon = VISIBILITY_ICON[visibility];
   return (
-    <Badge variant={VISIBILITY_VARIANT[visibility]} className="ml-2 align-middle">
+    <Badge variant={VISIBILITY_VARIANT[visibility]}>
       <Icon className="mr-1 h-3 w-3" />
       {HELP_VISIBILITY_LABELS[visibility]}
     </Badge>
+  );
+}
+
+interface HelpRow {
+  slug: string;
+  title: string;
+  summary: string;
+  category_key: string;
+  visibility: HelpVisibility;
+}
+
+function HelpArticleRow({ row, categoryLabel }: { row: HelpRow; categoryLabel?: string }) {
+  const showMeta = Boolean(categoryLabel) || row.visibility !== "public";
+  return (
+    <li>
+      <Link to={`/dashboard/help/${row.slug}`} className="font-medium hover:underline">
+        {row.title}
+      </Link>
+      {showMeta && (
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          {categoryLabel && <span>{categoryLabel}</span>}
+          <VisibilityBadge visibility={row.visibility} />
+        </div>
+      )}
+      {row.summary && <p className="text-sm text-muted-foreground">{row.summary}</p>}
+    </li>
   );
 }
 
@@ -145,17 +173,23 @@ function HelpReaderIndexPage() {
     [searching, search.data, data, categoryFilter],
   );
 
+  // Browse only. Categories go in the order the editor set (data.categories is
+  // sorted by sort_order on the server, and the Select lists them the same
+  // way); articles keep the server's order inside a bucket. Search does not
+  // group at all: help_search returns hits by rank, and regrouping them put the
+  // best hit wherever its category happened to sort.
   const grouped = useMemo(() => {
-    const buckets = new Map<string, typeof rows>();
+    if (searching) return [];
+    const order = new Map((data?.categories ?? []).map((c, i) => [c.key, i]));
+    const buckets = new Map<string, HelpRow[]>();
     for (const r of rows) {
       const list = buckets.get(r.category_key) ?? [];
       list.push(r);
       buckets.set(r.category_key, list);
     }
-    return [...buckets.entries()].sort((a, b) =>
-      categoryTitle(a[0]).localeCompare(categoryTitle(b[0])),
-    );
-  }, [rows, categoryTitle]);
+    const rank = (key: string) => order.get(key) ?? Number.MAX_SAFE_INTEGER;
+    return [...buckets.entries()].sort((a, b) => rank(a[0]) - rank(b[0]));
+  }, [searching, rows, data]);
 
   const navigate = useNavigate();
   const user = useAuthStore((st) => st.user);
@@ -276,24 +310,28 @@ function HelpReaderIndexPage() {
         className={stale ? "space-y-4 opacity-60 transition-opacity" : "space-y-4"}
         aria-busy={stale || undefined}
       >
+        {searching && rows.length > 0 && !active.isError && (
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-sm text-muted-foreground" role="status">
+                {rows.length} {rows.length === 1 ? "result" : "results"} for "{query.trim()}"
+              </p>
+              <ul className="mt-3 space-y-3">
+                {rows.map((a) => (
+                  <HelpArticleRow key={a.slug} row={a} categoryLabel={categoryTitle(a.category_key)} />
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
         {grouped.map(([key, items]) => (
           <Card key={key}>
             <CardContent className="pt-6">
               <h2 className="text-base font-semibold">{categoryTitle(key)}</h2>
               <ul className="mt-3 space-y-3">
                 {items.map((a) => (
-                  <li key={a.slug}>
-                    <Link
-                      to={`/dashboard/help/${a.slug}`}
-                      className="font-medium hover:underline"
-                    >
-                      {a.title}
-                    </Link>
-                    <VisibilityBadge visibility={a.visibility} />
-                    {a.summary && (
-                      <p className="text-sm text-muted-foreground">{a.summary}</p>
-                    )}
-                  </li>
+                  <HelpArticleRow key={a.slug} row={a} />
                 ))}
               </ul>
             </CardContent>
@@ -379,8 +417,12 @@ function HelpReaderArticle({ slug }: { slug: string }) {
         <article>
           <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold tracking-tight outline-none">
             {article.title}
-            <VisibilityBadge visibility={article.visibility} />
           </h1>
+          {article.visibility !== "public" && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <VisibilityBadge visibility={article.visibility} />
+            </div>
+          )}
           {article.summary && (
             <p className="mt-2 max-w-[70ch] text-muted-foreground">{article.summary}</p>
           )}
