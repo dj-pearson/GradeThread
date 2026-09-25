@@ -8,7 +8,6 @@ import { Progress } from "@/components/ui/progress";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { downloadBlob } from "@/lib/download";
-import { buildAccountExport } from "@/lib/account-export";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { toastError } from "@/lib/toast-error";
 import { readStored, writeStored } from "@/lib/safe-storage";
@@ -50,6 +49,9 @@ export function DataSettingsTab() {
     // export is running, and it is atomic with claiming the slot.
     if (!store.begin(user.id)) return;
     try {
+      // Loaded on click: the export builder and its zip writer are only
+      // needed by the few people who press this button.
+      const { buildAccountExport } = await import("@/lib/account-export");
       const blob = await buildAccountExport((stage, pct) => {
         store.progress(user.id, stage, pct);
       });

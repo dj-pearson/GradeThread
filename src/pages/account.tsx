@@ -4,12 +4,54 @@ import { useWorkspace } from "@/hooks/use-workspace";
 import { PageHostContext } from "@/hooks/use-page-host";
 import { PageHeader } from "@/components/ui/page-header";
 import type { WorkspaceCapability } from "@/lib/workspace-permissions";
-import { SettingsPage } from "@/pages/settings";
+import { Suspense, type ReactNode } from "react";
+import { lazy } from "@/routes/lazy";
 import { ACCOUNT_HUB_TAB_VALUES } from "@/lib/settings-tabs";
-import { BillingPage } from "@/pages/billing";
-import { TeamPage } from "@/pages/team";
-import { ApiKeysPage } from "@/pages/api-keys";
-import { ReferralsPage } from "@/pages/referrals";
+
+// Each tab's page is its own chunk, so opening Settings does not download
+// Billing, Team, API keys and Referrals. `lazy` from routes/lazy carries the
+// stale-chunk reload recovery. The loaders are kept so a hover or focus on a
+// tab can start its download before the click.
+const loaders = {
+  settings: () => import("@/pages/settings").then((m) => ({ default: m.SettingsPage })),
+  billing: () => import("@/pages/billing").then((m) => ({ default: m.BillingPage })),
+  team: () => import("@/pages/team").then((m) => ({ default: m.TeamPage })),
+  "api-keys": () => import("@/pages/api-keys").then((m) => ({ default: m.ApiKeysPage })),
+  referrals: () => import("@/pages/referrals").then((m) => ({ default: m.ReferralsPage })),
+} as const;
+const SettingsPage = lazy(loaders.settings);
+const BillingPage = lazy(loaders.billing);
+const TeamPage = lazy(loaders.team);
+const ApiKeysPage = lazy(loaders["api-keys"]);
+const ReferralsPage = lazy(loaders.referrals);
+
+function prefetchTab(tab: keyof typeof loaders) {
+  // Fire and forget: the module cache makes the later lazy() load instant.
+  void loaders[tab]().catch(() => {});
+}
+
+function TabLoader({ children }: { children: ReactNode }) {
+  return (
+    <Suspense
+      fallback={
+        <div
+          className="flex min-h-[30vh] items-center justify-center"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <span className="sr-only">Loading…</span>
+          <div
+            className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"
+            aria-hidden="true"
+          />
+        </div>
+      }
+    >
+      {children}
+    </Suspense>
+  );
+}
 
 // Unified Account hub (US-741). One destination with tabs, composed from the
 // existing standalone pages rather than rewriting them — radix Tabs unmounts
@@ -92,29 +134,44 @@ export function AccountPage({
         <Tabs value={tab} onValueChange={onTab} className="space-y-6">
           <TabsList className="flex-wrap">
             {visible.map((t) => (
-              <TabsTrigger key={t.value} value={t.value}>
+              <TabsTrigger
+                key={t.value}
+                value={t.value}
+                onPointerEnter={() => prefetchTab(t.value)}
+                onFocus={() => prefetchTab(t.value)}
+              >
                 {t.label}
               </TabsTrigger>
             ))}
           </TabsList>
           <TabsContent value="settings">
-            <SettingsPage />
+            <TabLoader>
+              <SettingsPage />
+            </TabLoader>
           </TabsContent>
           {allowed.has("billing") && (
             <TabsContent value="billing">
+              <TabLoader>
               <BillingPage />
+            </TabLoader>
             </TabsContent>
           )}
           <TabsContent value="team">
-            <TeamPage />
+            <TabLoader>
+              <TeamPage />
+            </TabLoader>
           </TabsContent>
           {allowed.has("api-keys") && (
             <TabsContent value="api-keys">
+              <TabLoader>
               <ApiKeysPage />
+            </TabLoader>
             </TabsContent>
           )}
           <TabsContent value="referrals">
-            <ReferralsPage />
+            <TabLoader>
+              <ReferralsPage />
+            </TabLoader>
           </TabsContent>
         </Tabs>
       </PageHostContext.Provider>
