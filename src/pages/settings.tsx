@@ -66,9 +66,12 @@ export function SettingsPage() {
             above these. Rendering both as identical pill strips reads as two
             stacked tab bars, so switch these to an underline sub-nav that's
             clearly secondary to (not a sibling of) the hub tabs. */}
+        {/* One row that scrolls sideways on a phone. It used to flex-wrap,
+            but the list's h-9 variant wins over h-auto, so wrapped rows
+            spilled out of the 36px box and the border cut through them. */}
         <TabsList
           className={cn(
-            "h-auto w-full flex-wrap justify-start",
+            "w-full max-w-full justify-start overflow-x-auto",
             embedded &&
               "gap-1 rounded-none border-b bg-transparent p-0",
           )}
@@ -78,6 +81,7 @@ export function SettingsPage() {
               key={t.value}
               value={t.value}
               className={cn(
+                "shrink-0",
                 embedded &&
                   "rounded-none border-b-2 border-transparent bg-transparent px-3 pb-2 shadow-none data-[state=active]:border-brand-navy data-[state=active]:bg-transparent data-[state=active]:shadow-none",
               )}

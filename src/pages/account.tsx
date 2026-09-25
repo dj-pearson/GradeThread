@@ -132,13 +132,15 @@ export function AccountPage({
       />
       <PageHostContext.Provider value={{ embedded: true }}>
         <Tabs value={tab} onValueChange={onTab} className="space-y-6">
-          <TabsList className="flex-wrap">
+          {/* One scrolling row, not flex-wrap: see the note in settings.tsx. */}
+          <TabsList className="max-w-full justify-start overflow-x-auto">
             {visible.map((t) => (
               <TabsTrigger
                 key={t.value}
                 value={t.value}
                 onPointerEnter={() => prefetchTab(t.value)}
                 onFocus={() => prefetchTab(t.value)}
+                className="shrink-0"
               >
                 {t.label}
               </TabsTrigger>
