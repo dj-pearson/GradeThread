@@ -40,6 +40,8 @@ const stripComments = (s: string) =>
 
 const WEB_LIB = "src/lib/flipdesk-templates.ts";
 const PAGE = "src/pages/flipdesk/templates.tsx";
+// The editor moved out of the page into its own dialog component.
+const EDITOR = "src/components/flipdesk/template-editor-dialog.tsx";
 const PICKER = "src/components/flipdesk/saved-template-picker.tsx";
 const EDGE_LIB = "services/edge-functions/src/lib/listing-template.ts";
 const EDGE_ROUTE = "services/edge-functions/src/routes/flipdesk-templates.ts";
@@ -162,11 +164,16 @@ describe("three clients, one row shape (US-2877 AC1)", () => {
 
 describe("the page can create, edit and delete (US-2877 AC1)", () => {
   const page = stripComments(read(PAGE));
+  const editor = stripComments(read(EDITOR));
 
   it("all four verbs are wired", () => {
-    for (const fn of ["listTemplates", "createTemplate", "updateTemplate", "deleteTemplate"]) {
+    for (const fn of ["listTemplates", "deleteTemplate"]) {
       expect(page, `the page never calls ${fn}`).toContain(fn);
     }
+    for (const fn of ["createTemplate", "updateTemplate"]) {
+      expect(editor, `the editor never calls ${fn}`).toContain(fn);
+    }
+    expect(page, "the page never renders the editor").toMatch(/<TemplateEditorDialog\b/);
   });
 
   it("the edge route still offers all four", () => {
@@ -201,15 +208,15 @@ describe("the page can create, edit and delete (US-2877 AC1)", () => {
       ["payment policy", "Payment policy ID"],
       ["item specifics", "Add a detail"],
     ] as const) {
-      expect(page, `the editor has no ${label} field`).toContain(marker);
+      expect(editor, `the editor has no ${label} field`).toContain(marker);
     }
   });
 
   it("the condition list is the shared one", () => {
     // A hand-typed second list of eBay conditions is how a template ends up
     // holding a value eBay rejects at publish.
-    expect(page).toContain('import { EBAY_CONDITION_OPTIONS } from "@/lib/constants"');
-    expect(page).toMatch(/EBAY_CONDITION_OPTIONS\.map\(/);
+    expect(editor).toContain('import { EBAY_CONDITION_OPTIONS } from "@/lib/constants"');
+    expect(editor).toMatch(/EBAY_CONDITION_OPTIONS\.map\(/);
   });
 });
 
@@ -279,7 +286,7 @@ describe("both clients offer the same set, applied the same way (US-2877 AC3, AC
     // passed with the picker switched to a private key, because the import
     // line still said the word -- which is the ordinary way this kind of check
     // goes quiet.
-    for (const f of [PAGE, PICKER, "src/pages/flipdesk/autolister-bulk-edit.tsx"]) {
+    for (const f of [PAGE, EDITOR, PICKER, "src/pages/flipdesk/autolister-bulk-edit.tsx"]) {
       expect(stripComments(read(f)), `${f} does not use the shared key`).toMatch(
         /queryKey: TEMPLATES_QUERY_KEY/,
       );
