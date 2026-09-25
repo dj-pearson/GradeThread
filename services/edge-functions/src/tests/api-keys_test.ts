@@ -158,3 +158,45 @@ Deno.test("usage: a member is refused", async () => {
     db.restore();
   }
 });
+
+Deno.test("branding: an empty PUT over stored branding is refused and the row is unchanged", async () => {
+  const db = install((op) => {
+    if (op.table === "users" && op.op === "select") {
+      return { data: { ...superAdminUser, partner_branding: { brand_color: "#0F3460" } } };
+    }
+    return { data: null };
+  });
+  try {
+    const res = await app("owner").request("/branding", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    assertEquals(res.status, 400);
+    assertEquals(db.ops.filter((o) => o.op === "update").length, 0, "the stored branding was overwritten");
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("branding: clear:true is the one way to empty stored branding", async () => {
+  const db = install((op) => {
+    if (op.table === "users" && op.op === "select") {
+      return { data: { ...superAdminUser, partner_branding: { brand_color: "#0F3460" } } };
+    }
+    return { data: null };
+  });
+  try {
+    const res = await app("owner").request("/branding", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clear: true }),
+    });
+    assertEquals(res.status, 200);
+    const update = db.ops.find((o) => o.op === "update")!;
+    assertEquals(update.values, { partner_branding: {} });
+    assert(update.filters.some(([, col, v]) => col === "id" && v === OWNER));
+  } finally {
+    db.restore();
+  }
+});

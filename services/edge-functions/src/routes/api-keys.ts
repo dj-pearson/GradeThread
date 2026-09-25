@@ -232,6 +232,28 @@ apiKeyRoutes.put("/branding", async (c) => {
     return c.json({ error: branding.error }, 400);
   }
 
+  // DEV-08: an empty body over stored branding is how a failed GET wiped it:
+  // the page rendered an empty form and Save sent nothing. Clearing is only
+  // honored when the body says so with clear: true.
+  if (Object.keys(branding).length === 0 && (body as { clear?: unknown }).clear !== true) {
+    const { data: current, error: readError } = await supabaseAdmin
+      .from("users")
+      .select("partner_branding")
+      .eq("id", userId)
+      .single();
+    if (readError) {
+      console.error("Failed to read partner branding before save:", readError);
+      return c.json({ error: "Failed to save branding" }, 500);
+    }
+    const stored = (current?.partner_branding ?? {}) as Record<string, unknown>;
+    if (Object.keys(stored).length > 0) {
+      return c.json(
+        { error: "That would clear your saved branding. Send clear: true to remove it." },
+        400,
+      );
+    }
+  }
+
   const { error } = await supabaseAdmin
     .from("users")
     .update({ partner_branding: branding })
