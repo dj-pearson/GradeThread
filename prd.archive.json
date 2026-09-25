@@ -49562,6 +49562,18 @@
       ],
       "priority": 22,
       "notes": "Done 2026-09-23. buildTemplateListingPatch takes the listing's current item_specifics_override and merges via the new mergeTemplateSpecifics (draft keeps every aspect the template does not name; template wins case-insensitively on the ones it does). applyTemplate in routes/flipdesk-autolister.ts now reads the listing first (scoped id + user_id), and when specifics or category changed, fetches the leaf's aspects: on a category change it runs reconcileGeneratedAspects against the template's leaf and writes aspect_review; in both cases it recomputes aspect_coverage with buildAspectCoverage. The recount is best-effort and logs on failure; the merge still lands. The update is now also scoped by user_id. Tests: 2 new cases in listing-template_test.ts (12 generated + 2 template -> 13, Department replaced; legacy string map coerced); sabotaging the keep-unnamed branch reddens both. The recount/reconcile branch in the route is covered by deno check only, not a DB test. deno check + lint clean on all three files."
+    },
+    {
+      "id": "US-3511",
+      "passes": true,
+      "title": "Pin the Supabase CLI version in CI so setup stops failing on GitHub's rate limit",
+      "description": "As a developer, I want CI to install a fixed Supabase CLI version, so that jobs stop failing in setup with 'Failed to resolve latest Supabase CLI release: rate limit exceeded'.",
+      "acceptanceCriteria": [
+        "Every supabase/setup-cli@v1 step in .github/workflows (db-migrations.yml, money-cert-integration.yml, tenant-isolation.yml) sets version to one pinned release instead of latest.",
+        "A vitest guard fails if any workflow uses supabase/setup-cli with version latest or no version.",
+        "The pinned version is recorded in one place and the guard names it."
+      ],
+      "notes": "Done 2026-09-25. All three supabase/setup-cli steps (db-migrations.yml, money-cert-integration.yml, tenant-isolation.yml) pin version 2.117.0, the release every green run used before 2.118.0 shipped (npm dist-tags checked; GitHub asset v2.117.0/supabase_linux_amd64.tar.gz answers 200). Guard: src/test/ci-supabase-cli-pinned.test.ts holds SUPABASE_CLI_VERSION in one place and fails on latest or a missing version; sabotaged by setting tenant-isolation.yml back to latest (1 failed), restored (2 passed)."
     }
   ]
 }

@@ -5137,17 +5137,6 @@
         "ExtensionQueueService offers no lifecycle actions for depop and never pushes an unselectable channel; test_ebayAndShopifyOfferNothingHere and test_anUnselectableChannelIsNeverPushed pass.",
         "iOS CI 'Build + test' is green on main after the fix."
       ]
-    },
-    {
-      "id": "US-3511",
-      "passes": false,
-      "title": "Pin the Supabase CLI version in CI so setup stops failing on GitHub's rate limit",
-      "description": "As a developer, I want CI to install a fixed Supabase CLI version, so that jobs stop failing in setup with 'Failed to resolve latest Supabase CLI release: rate limit exceeded'.",
-      "acceptanceCriteria": [
-        "Every supabase/setup-cli@v1 step in .github/workflows (db-migrations.yml, money-cert-integration.yml, tenant-isolation.yml) sets version to one pinned release instead of latest.",
-        "A vitest guard fails if any workflow uses supabase/setup-cli with version latest or no version.",
-        "The pinned version is recorded in one place and the guard names it."
-      ]
     }
   ]
 }
