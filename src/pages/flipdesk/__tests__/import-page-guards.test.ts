@@ -31,3 +31,22 @@ describe("import page: permission (IMP-09)", () => {
     expect(src).toContain("Importing and undoing need inventory access in this workspace.");
   });
 });
+
+describe("import page: a poll that can never succeed (IMP-02)", () => {
+  it("drops the run and its ?run= param, so the source picker is not left disabled", () => {
+    const src = read(PAGE);
+    const stop = src.slice(src.indexOf('decision.kind === "stop"'));
+    const branch = stop.slice(0, stop.indexOf("return;"));
+    expect(branch).toMatch(/setRun\(null\)/);
+    expect(branch).toMatch(/next\.delete\("run"\)/);
+    // The message renders outside the progress card, which unmounts with the run.
+    expect(src).toMatch(/\{pollError && \(\s*<p role="alert"/);
+  });
+
+  it("shows an undo's counts only under the run that was undone", () => {
+    const src = read(PAGE);
+    expect(src).toMatch(/setLastUndo\(\{ \.\.\.json, runId: target\.id \}\)/);
+    expect(src).toMatch(/lastUndo\?\.runId === run\.id/);
+    expect(src).toMatch(/\{canUndoRun\(run\) && \(/);
+  });
+});

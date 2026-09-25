@@ -364,7 +364,17 @@ export async function processClosetImportRun(runId: string): Promise<void> {
               .update(listingPatch)
               .eq("id", existing.id)
               .eq("user_id", ownerId);
-            if (lErr) throw new Error(lErr.message);
+            if (lErr) {
+              // IMP-03: the item half already landed and no effect row records
+              // it yet, so Undo could never put it back. Revert it first.
+              if (Object.keys(itemPatch).length > 0) {
+                const revert: Record<string, unknown> = {};
+                for (const key of Object.keys(itemPatch)) revert[key] = previous[key];
+                await supabaseAdmin.from("inventory_items").update(revert).eq("id", itemId)
+                  .eq("user_id", ownerId);
+              }
+              throw new Error(lErr.message);
+            }
           }
 
           // IMP-03: record the fill BEFORE the slow photo copy, and check it.

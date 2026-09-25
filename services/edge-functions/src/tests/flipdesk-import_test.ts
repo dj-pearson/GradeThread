@@ -317,6 +317,43 @@ Deno.test("closet: a failed effect insert rolls back the listing and the item", 
   assertEquals(run.failed_count, 1);
 });
 
+Deno.test("closet: a failed listing refresh puts the item fill back", async () => {
+  const LISTING = "44444444-4444-4444-8444-444444444444";
+  const row = { ...closetRow(1), brand: "Patagonia", price: 35 };
+  db.reset({
+    flipdesk_import_runs: [runRow([row], { origin: "poshmark" })],
+    inventory_items: [{
+      id: ITEM,
+      user_id: OWNER,
+      title: "Closet 1",
+      description: null,
+      brand: null,
+      size: null,
+      condition_notes: null,
+    }],
+    listings: [{
+      id: LISTING,
+      user_id: OWNER,
+      inventory_item_id: ITEM,
+      platform: "poshmark",
+      platform_listing_id: "pm1",
+      listing_price: 20,
+      listing_url: row.listing_url,
+      listing_title: "Closet 1",
+      listing_description: null,
+      is_active: true,
+    }],
+  });
+  db.failNext("listings", "PATCH");
+  await processClosetImportRun(RUN);
+  const item = db.tables.inventory_items!.find((r) => r.id === ITEM)!;
+  // The brand fill landed, then the listing write failed. With no effect row
+  // Undo could never reach it, so the worker must have reverted it.
+  assertEquals(item.brand, null);
+  assertEquals((db.tables.flipdesk_import_effects ?? []).length, 0);
+  assertEquals(theRun().failed_count, 1);
+});
+
 Deno.test("closet: a resumed run keeps the counts from its earlier attempt", async () => {
   db.reset({
     flipdesk_import_runs: [runRow([closetRow(1), closetRow(2)], { origin: "poshmark", attempts: 1 })],

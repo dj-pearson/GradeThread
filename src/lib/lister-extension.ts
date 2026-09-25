@@ -1109,23 +1109,6 @@ export function sendClosetImport(
 }
 
 /**
- * US-3263: the sentence for a closet import the free bound TRIMMED.
- *
- * Not a failure -- the import ran and rows landed -- but a partial import that
- * reads as a whole one is worse than a refusal, because the seller walks away
- * believing FlipDesk saw a closet it never saw.
- *
- * Two bounds can produce this and they need different sentences. The flat
- * per-read bound is a property of the free plan and "we take 25 at a time" is
- * the whole truth about it. The active-listing cap is a property of THIS
- * account right now, and saying "the free plan imports 4 at a time" to somebody
- * trimmed to 4 because they already hold 21 live listings would be a true
- * sentence about the wrong rule -- and the next read, after they end a listing,
- * would quote a different number with no explanation.
- *
- * Returns null when nothing was left behind, so the caller can skip the toast.
- */
-/**
  * IMP-14: why the extension cannot run a read right now, from what it reported
  * on the ping, or null when it can. An older build that does not report its
  * token state reads as unknown, not as fine, so only a definite answer blocks.
@@ -1171,6 +1154,23 @@ export function closetImportCoverageNotice(
     `to bring in the rest.`;
 }
 
+/**
+ * US-3263: the sentence for a closet import the free bound TRIMMED.
+ *
+ * Not a failure -- the import ran and rows landed -- but a partial import that
+ * reads as a whole one is worse than a refusal, because the seller walks away
+ * believing FlipDesk saw a closet it never saw.
+ *
+ * Two bounds can produce this and they need different sentences. The flat
+ * per-read bound is a property of the free plan and "we take 25 at a time" is
+ * the whole truth about it. The active-listing cap is a property of THIS
+ * account right now, and saying "the free plan imports 4 at a time" to somebody
+ * trimmed to 4 because they already hold 21 live listings would be a true
+ * sentence about the wrong rule -- and the next read, after they end a listing,
+ * would quote a different number with no explanation.
+ *
+ * Returns null when nothing was left behind, so the caller can skip the toast.
+ */
 export function closetImportCapNotice(
   result: {
     free_capped?: boolean;

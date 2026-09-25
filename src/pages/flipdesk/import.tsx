@@ -64,6 +64,7 @@ import { escapeCsvCell } from "@/lib/items-csv";
 import { csvBlob, downloadBlob } from "@/lib/download";
 import {
   IMPORT_RUNS_KEY,
+  canUndoRun,
   isOpenRun,
   useImportRuns,
   type ImportRun,
@@ -198,6 +199,12 @@ export function FlipdeskImportPage() {
   // the tab and it picks back up" true.
   const [run, setRun] = useState<ImportRun | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  // setSearchParams changes identity with the URL; the poll effect reads it
+  // through a ref so writing ?run= does not restart polling.
+  const setSearchParamsRef = useRef(setSearchParams);
+  useEffect(() => {
+    setSearchParamsRef.current = setSearchParams;
+  }, [setSearchParams]);
   const queryClient = useQueryClient();
   const recentRuns = useImportRuns({ refetchWhileOpen: true });
   const seededRef = useRef(false);
@@ -205,7 +212,9 @@ export function FlipdeskImportPage() {
   // a run resumed already finished just shows its results.
   const watchedOpenRef = useRef<string | null>(null);
   const [undoingId, setUndoingId] = useState<string | null>(null);
-  const [lastUndo, setLastUndo] = useState<UndoResult | null>(null);
+  // Keyed by run: an Undo pressed in Recent imports must not print its counts
+  // under a different run's results card.
+  const [lastUndo, setLastUndo] = useState<(UndoResult & { runId: string }) | null>(null);
   // IMP-15: the file a run was started from, so its failed rows can be handed
   // back. Only the run this page started from a file has one.
   const runSourceRef = useRef<{ runId: string; headers: string[]; rows: string[][]; name: string } | null>(null);
@@ -489,8 +498,21 @@ export function FlipdeskImportPage() {
         if (cancelled) return;
         const decision = decidePoll(res.status, res.headers.get("Retry-After"), normal);
         if (decision.kind === "stop") {
+          // The run can never be read again, so drop it and its ?run= param.
+          // Leaving it 'pending' kept runOpen true and the source picker
+          // disabled for good, with a spinner that never ends.
           setPollError(decision.message);
           setImporting(false);
+          watchedOpenRef.current = null;
+          setRun(null);
+          setSearchParamsRef.current(
+            (prev) => {
+              const next = new URLSearchParams(prev);
+              next.delete("run");
+              return next;
+            },
+            { replace: true },
+          );
           return;
         }
         if (decision.kind === "retry") {
@@ -577,7 +599,7 @@ export function FlipdeskImportPage() {
       if (run?.id === target.id) {
         setRun({ ...run, status: "undone", undone_at: new Date().toISOString() });
       }
-      setLastUndo(json);
+      setLastUndo({ ...json, runId: target.id });
       const kept = (json.kept_published ?? 0) + (json.kept_edited ?? 0) + (json.kept_modified ?? 0);
       toast.success(
         `Undone: ${json.deleted_items ?? 0} deleted, ${json.restored_items ?? 0} restored.`,
@@ -725,13 +747,16 @@ export function FlipdeskImportPage() {
               page; the import keeps going and you can undo the whole thing
               afterwards.
             </p>
-            {pollError && (
-              <p role="alert" className="mt-2 text-sm text-destructive">
-                {pollError}
-              </p>
-            )}
           </CardContent>
         </Card>
+      )}
+
+      {/* IMP-02: polling stopped for good (403/404). Outside the progress card,
+          because the run is dropped when this is set. */}
+      {pollError && (
+        <p role="alert" className="text-sm text-destructive">
+          {pollError}
+        </p>
       )}
 
       {/* Results */}
@@ -788,21 +813,22 @@ export function FlipdeskImportPage() {
                 </Button>
               )}
               {/* US-2518: a wrong column mapping used to be permanent. */}
-              {run.status !== "undone" &&
-                run.inserted_count + run.updated_count > 0 && (
-                  <Button
-                    variant="outline"
-                    onClick={() => void handleUndo(run)}
-                    disabled={undoingId !== null || !canImport}
-                  >
-                    {undoingId === run.id ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Undo2 className="mr-2 h-4 w-4" />
-                    )}
-                    Undo this import
-                  </Button>
-                )}
+              {/* Same rule as Recent imports, so the two never disagree
+                  (an undo in progress has undone_at set before status). */}
+              {canUndoRun(run) && (
+                <Button
+                  variant="outline"
+                  onClick={() => void handleUndo(run)}
+                  disabled={undoingId !== null || !canImport}
+                >
+                  {undoingId === run.id ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Undo2 className="mr-2 h-4 w-4" />
+                  )}
+                  Undo this import
+                </Button>
+              )}
             </div>
             {run.status !== "undone" && (
               <p className="text-xs text-muted-foreground">
@@ -811,7 +837,7 @@ export function FlipdeskImportPage() {
                 edited is left alone.
               </p>
             )}
-            {run.status === "undone" && lastUndo && (
+            {run.status === "undone" && lastUndo?.runId === run.id && (
               <p role="status" className="text-sm text-muted-foreground">
                 {lastUndo.deleted_items ?? 0} deleted, {lastUndo.restored_items ?? 0} restored
                 {(lastUndo.kept_published ?? 0) > 0 &&
