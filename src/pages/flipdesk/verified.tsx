@@ -45,8 +45,11 @@ import {
   validateHandle,
   profileUrl,
   profileLinkEmbedHtml,
+  profileQrFilename,
+  profileShareUrl,
   verifiedSellerBadgeEmbedText,
 } from "@/lib/verified";
+import { QRCodeCanvas } from "qrcode.react";
 import { SITE_URL } from "@/lib/seo/site";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -542,6 +545,7 @@ export function FlipdeskVerifiedPage() {
                 <ExternalLink className="h-4 w-4" />
                 View public profile
               </a>
+              {savedHandle && <ProfileQrBlock handle={savedHandle} />}
             </div>
           )}
         </CardContent>
@@ -747,6 +751,66 @@ function BadgePerformanceCard() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// V14: a printable, tracked link for packing slips, pop-ups and live sales.
+// Scans arrive with ?s=qr, which is already a funnel source, so they show up in
+// Badge performance as "QR code scans".
+function ProfileQrBlock({ handle }: { handle: string }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const value = profileShareUrl(handle, "qr");
+  const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+
+  function download() {
+    const canvas = wrapRef.current?.querySelector("canvas");
+    let url: string | undefined;
+    try {
+      url = canvas?.toDataURL("image/png");
+    } catch {
+      url = undefined;
+    }
+    if (!url) {
+      toast.error("Couldn't make the image. Try again.");
+      return;
+    }
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = profileQrFilename(handle);
+    a.click();
+  }
+
+  async function share() {
+    try {
+      await navigator.share({ title: "My GradeThread Verified profile", url: value });
+    } catch {
+      // The seller closed the share sheet; nothing to report.
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-4 pt-2">
+      <div ref={wrapRef} className="rounded-md bg-white p-2">
+        <QRCodeCanvas value={value} size={128} marginSize={1} aria-label="QR code for your profile" />
+      </div>
+      <div className="space-y-2">
+        <p className="text-sm font-medium">QR code</p>
+        <p className="max-w-xs text-sm text-muted-foreground">
+          Print it on packing slips or show it at a pop-up. Scans are counted in
+          Badge performance.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={download}>
+            Download PNG
+          </Button>
+          {canShare && (
+            <Button type="button" variant="outline" size="sm" onClick={share}>
+              Share
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -273,6 +273,11 @@ export function verifiedSellerBadgeEmbedText(handle: string): string {
   return `✓ GradeThread Verified Seller. See my grades: ${profileShareUrl(handle, "embed")}`;
 }
 
+/** The file name for a downloaded profile QR code (V14). */
+export function profileQrFilename(handle: string): string {
+  return `gradethread-verified-${handle}.png`;
+}
+
 /** Profile URL carrying a share-source param (mirrors certificateShareUrl). */
 export function profileShareUrl(handle: string, source: string): string {
   return `${profileUrl(handle)}?s=${source}`;

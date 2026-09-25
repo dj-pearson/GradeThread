@@ -79,6 +79,10 @@ vi.mock("@/hooks/use-navigation-guard", () => ({
   useNavigationGuard: () => ({ blocked: false, confirmLeave: () => {}, cancelLeave: () => {} }),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+// jsdom has no canvas, so the QR renders as a plain canvas carrying its value.
+vi.mock("qrcode.react", () => ({
+  QRCodeCanvas: ({ value }: { value: string }) => <canvas data-qr-value={value} />,
+}));
 
 const { FlipdeskVerifiedPage } = await import("@/pages/flipdesk/verified");
 const { toast } = await import("sonner");
@@ -501,5 +505,40 @@ describe("readiness strip (V13)", () => {
     const c = render();
     const link = Array.from(c.querySelectorAll("a")).find((a) => a.textContent === "Grade your first item");
     expect(link?.getAttribute("href")).toBe("/dashboard/submissions/new");
+  });
+});
+
+describe("profile QR code (V14)", () => {
+  it("encodes the tracked profile link and downloads a named PNG", async () => {
+    const { profileShareUrl } = await import("@/lib/verified");
+    setProfile(profile({ enabled: true }));
+    const c = render();
+    const qr = c.querySelector("canvas[data-qr-value]");
+    expect(qr?.getAttribute("data-qr-value")).toBe(profileShareUrl("alpha", "qr"));
+    expect(qr?.getAttribute("data-qr-value")).toContain("?s=qr");
+
+    const toDataURL = vi
+      .spyOn(HTMLCanvasElement.prototype, "toDataURL")
+      .mockReturnValue("data:image/png;base64,AAAA");
+    let downloaded = "";
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      downloaded = this.download;
+    });
+    try {
+      act(() => byText("button", "Download PNG")!.click());
+      expect(downloaded).toBe("gradethread-verified-alpha.png");
+    } finally {
+      toDataURL.mockRestore();
+      click.mockRestore();
+    }
+  });
+
+  it("is absent while the profile is not live", () => {
+    setProfile(profile({ enabled: false }));
+    const c = render();
+    expect(c.querySelector("canvas[data-qr-value]")).toBeNull();
+    expect(byText("button", "Download PNG")).toBeUndefined();
   });
 });
