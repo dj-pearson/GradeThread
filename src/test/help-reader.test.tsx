@@ -8,7 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { settle } from "./helpers/mount";
+import { buttonByText, settle } from "./helpers/mount";
 
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), track: vi.fn() }));
 
@@ -105,7 +105,9 @@ afterEach(() => {
 function render(url: string) {
   container = document.createElement("div");
   document.body.appendChild(container);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  // Default gcTime on purpose: an article already in the cache is exactly when
+  // a stale tree position shows, because the switch is synchronous.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   router = createMemoryRouter(
     [
       { path: "/dashboard/help", element: h(HelpReaderPage) },
@@ -119,6 +121,22 @@ function render(url: string) {
     root.render(h(QueryClientProvider, { client }, h(RouterProvider, { router })));
   });
   return { client };
+}
+
+async function go(to: string | number) {
+  await act(async () => {
+    if (typeof to === "number") await router.navigate(to);
+    else await router.navigate(to);
+  });
+  await settle();
+}
+
+async function click(el: Element | undefined | null) {
+  expect(el).toBeTruthy();
+  await act(async () => {
+    (el as HTMLElement).dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+  await settle();
 }
 
 const text = () => container.textContent ?? "";
@@ -142,5 +160,30 @@ describe("H4: not-found is decided by status, not by message text", () => {
     await settle(20);
     expect(text()).toContain("Couldn't load this article");
     expect(text()).not.toContain("We couldn't find that article");
+  });
+});
+
+describe("H5: each article gets its own reader", () => {
+  it("a vote on article A does not hide the vote buttons on article B", async () => {
+    render("/dashboard/help/drafts");
+    await settle(20);
+    await go("/dashboard/help/refunds");
+    await settle(20);
+    await click(buttonByText(container, "Yes"));
+    expect(buttonByText(container, "Yes")).toBeUndefined();
+    await go("/dashboard/help/drafts");
+    await settle(20);
+    expect(text()).toContain("Body of drafts");
+    expect(buttonByText(container, "Yes")).toBeTruthy();
+    expect(buttonByText(container, "No")).toBeTruthy();
+  });
+
+  it("focuses the new article's title when it opens", async () => {
+    render("/dashboard/help/refunds");
+    await settle(20);
+    await go("/dashboard/help/drafts");
+    await settle(20);
+    expect(document.activeElement?.tagName).toBe("H1");
+    expect(document.activeElement?.textContent).toContain("Title drafts");
   });
 });

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams, useSearchParams , useNavigate } from "react-router";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useParams, useSearchParams, useNavigate } from "react-router";
 import { BookOpen, LifeBuoy, Lock, Search, Users , Compass } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { Badge } from "@/components/ui/badge";
@@ -74,7 +74,10 @@ function VisibilityBadge({ visibility }: { visibility: HelpVisibility }) {
 
 export function HelpReaderPage() {
   const { slug } = useParams<{ slug?: string }>();
-  return slug ? <HelpReaderArticle slug={slug} /> : <HelpReaderIndexPage />;
+  // Keyed by slug so moving from one article to another mounts a fresh reader:
+  // without it the vote, the counted-read ref and the scroll position of
+  // article A carried straight over to article B.
+  return slug ? <HelpReaderArticle key={slug} slug={slug} /> : <HelpReaderIndexPage />;
 }
 
 // ── the index ─────────────────────────────────────────────
@@ -290,6 +293,24 @@ function HelpReaderArticle({ slug }: { slug: string }) {
 
   const basis = article?.reviewed_at ?? article?.published_at ?? null;
 
+  // A new article opens at its top with focus on its title, so a keyboard or
+  // screen-reader user lands on what they just opened. A #hash wins: a link to
+  // a section should arrive at that section.
+  const location = useLocation();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const articleSlug = article?.slug;
+  useLayoutEffect(() => {
+    if (!articleSlug) return;
+    const id = location.hash ? decodeURIComponent(location.hash.slice(1)) : "";
+    const target = id ? document.getElementById(id) : null;
+    if (target) {
+      target.scrollIntoView();
+      return;
+    }
+    window.scrollTo(0, 0);
+    headingRef.current?.focus({ preventScroll: true });
+  }, [articleSlug, location.hash]);
+
   // US-2592: count the read once per article per mount. The ref is what stops a
   // TanStack cache hit on a back-navigation from counting the same read again —
   // without it the number measures navigation rather than reading.
@@ -337,7 +358,7 @@ function HelpReaderArticle({ slug }: { slug: string }) {
 
       {article && (
         <article>
-          <h1 className="text-2xl font-bold tracking-tight">
+          <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold tracking-tight outline-none">
             {article.title}
             <VisibilityBadge visibility={article.visibility} />
           </h1>
