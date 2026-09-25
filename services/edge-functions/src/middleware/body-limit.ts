@@ -7,8 +7,9 @@ import { createMiddleware } from "hono/factory";
 // its length still can't beat the cap because the per-route handlers read the
 // body through size-aware paths and the platform caps the socket.
 //
-// Two tiers, chosen per request path:
+// Three tiers, chosen per request path:
 //   - UPLOAD paths (multipart image uploads + base64 grade payloads): 15 MB
+//   - IMPORT: POST /api/flipdesk/import/runs only (up to 5,000 rows): 8 MB
 //   - everything else (JSON-only control-plane endpoints): 256 KB
 //
 // Applied once on /api/* in main.ts; /health and the static OPTIONS handler
@@ -16,6 +17,12 @@ import { createMiddleware } from "hono/factory";
 
 export const UPLOAD_MAX_BYTES = 15 * 1024 * 1024; // 15 MB
 export const JSON_MAX_BYTES = 256 * 1024; // 256 KB
+// IMP-07: an inventory import posts every mapped row in one JSON body. At
+// 400-1,500 bytes a row, MAX_IMPORT_ROWS (5,000) needs several MB, and the
+// 256 KB tier 413'd anything past a few hundred rows with descriptions. The
+// tier is exact (one path, POST only) so no sibling route inherits it.
+export const IMPORT_MAX_BYTES = 8 * 1024 * 1024; // 8 MB
+const IMPORT_RUNS_PATH = "/api/flipdesk/import/runs";
 
 // Path prefixes that legitimately carry image bytes (multipart files or
 // base64-in-JSON). Matched as exact path or `${prefix}/...`.
@@ -54,8 +61,10 @@ function isUploadPath(path: string): boolean {
   return UPLOAD_PATTERNS.some((re) => re.test(path));
 }
 
-export function capForPath(path: string): number {
-  return isUploadPath(path) ? UPLOAD_MAX_BYTES : JSON_MAX_BYTES;
+export function capForPath(path: string, method = "POST"): number {
+  if (isUploadPath(path)) return UPLOAD_MAX_BYTES;
+  if (path === IMPORT_RUNS_PATH && method === "POST") return IMPORT_MAX_BYTES;
+  return JSON_MAX_BYTES;
 }
 
 export const bodyLimit = createMiddleware(async (c, next) => {
@@ -66,7 +75,7 @@ export const bodyLimit = createMiddleware(async (c, next) => {
     return;
   }
 
-  const cap = capForPath(c.req.path);
+  const cap = capForPath(c.req.path, method);
 
   // Fast path: an honest Content-Length over the cap is rejected up front with
   // a clean 413 before the body is touched.

@@ -105,6 +105,10 @@ type ImportRun = {
   undone_at?: string | null;
 };
 
+// IMP-07: shown when the server refuses a file for its size or row count.
+const TOO_BIG_MESSAGE =
+  "This file is too big for one import. Split it into files of 5,000 rows or fewer.";
+
 // The header row of the downloadable template. Header text matches what
 // guessField() recognises, so a seller who starts here gets every column mapped
 // without touching a dropdown.
@@ -387,6 +391,11 @@ export function FlipdeskImportPage() {
         total_rows?: number;
         error?: string;
       };
+      // IMP-07: a body over the import tier, or a file over the row cap, gets
+      // one sentence that says what to do rather than a status code.
+      if (res.status === 413 || (res.status === 400 && /capped at/i.test(json.error ?? ""))) {
+        throw new Error(TOO_BIG_MESSAGE);
+      }
       if (!res.ok || !json.run_id) {
         throw new Error(json.error || "Could not start the import.");
       }
