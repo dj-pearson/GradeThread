@@ -13,7 +13,7 @@ code_refs:
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay-publish.ts
   - services/edge-functions/src/routes/flipdesk-ebay-sync.ts
-reviewed: 2026-09-23
+reviewed: 2026-09-25
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
@@ -241,6 +241,9 @@ typed edit. **The set of listings columns bypassing the shared builder is
 unchanged: still just the `titleSyncPatchFor()` ones.** Stated because this note
 exists to track who writes the row, and a new AI write path is exactly what a
 reader should check — the answer here is that it writes the form, not the row.
+The copy panel now passes `applicableFields={["title", "description"]}`
+(2026-09-25), so it only offers and logs those two fields, which is exactly what
+`applyAiCopy` writes. Still form state, still no new listings-row writer.
 
 > [!note] This obsoleted a fix rather than losing it (2026-08-01)
 > A "smart merge" once lived in `item-canvas.tsx`, propagating canvas edits into
