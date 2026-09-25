@@ -508,6 +508,7 @@ export function TemplateEditorDialog({
               <>
                 <Input
                   id="tpl-cat"
+                  aria-label="eBay category ID"
                   inputMode="numeric"
                   value={editor.ebayCategoryId}
                   placeholder="Optional. e.g. 57990"

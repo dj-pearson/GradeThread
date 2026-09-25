@@ -1,5 +1,6 @@
 // US-674 — listing template validation/normalization + the AutoLister overlay
 // patch. listing-template.ts is pure (no DB/network), so it's imported directly.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   buildTemplateListingPatch,
