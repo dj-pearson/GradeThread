@@ -23,6 +23,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { EbayCategorySearch } from "@/components/flipdesk/ebay-category-search";
+import { PolicySelectRow } from "@/components/flipdesk/composer/policies-card";
+import {
+  useEbayCategoryAspects,
+  useEbayCategoryConditions,
+  useEbayConnection,
+  useEbayPolicies,
+} from "@/hooks/use-ebay";
 import { toastError } from "@/lib/toast-error";
 import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
 import {
@@ -118,6 +126,10 @@ function toInput(s: EditorState): TemplateInput {
     item_specifics,
     sort_order: s.sortOrder,
   };
+}
+
+function staticConditionLabel(value: string): string {
+  return EBAY_CONDITION_OPTIONS.find((o) => o.value === value)?.label ?? value;
 }
 
 /** A stable fingerprint of what Save would send, for the dirty check. */
@@ -229,6 +241,50 @@ export function TemplateEditorDialog({
     return () => form.removeEventListener("keydown", onKey);
   }, [form]);
 
+  // eBay-backed pickers. Everything degrades to typed ids when eBay is not
+  // connected, so a seller can still build a template before connecting.
+  const connectionQuery = useEbayConnection();
+  const connected = !!connectionQuery.data;
+  const policiesQuery = useEbayPolicies(connected);
+
+  const [categoryQuery, setCategoryQuery] = useState("");
+  const [categoryPath, setCategoryPath] = useState<string | null>(null);
+  const [changingCategory, setChangingCategory] = useState(false);
+  const [enterCategoryId, setEnterCategoryId] = useState(false);
+  const setCategory = (id: string, path: string | null) => {
+    setCategoryPath(path);
+    setEditor((s) => ({ ...s, ebayCategoryId: id }));
+  };
+  const categoryView: "chosen" | "search" | "id" =
+    !connected || enterCategoryId
+      ? "id"
+      : editor.ebayCategoryId && !changingCategory
+        ? "chosen"
+        : "search";
+  const categoryInputId = categoryView === "search" ? "tpl-cat-search" : "tpl-cat";
+  // A stored id has no path on the row; the aspects lookup names it.
+  const aspectsQuery = useEbayCategoryAspects(
+    connected && editor.ebayCategoryId && !categoryPath ? editor.ebayCategoryId : null,
+  );
+  const categoryName = editor.ebayCategoryId
+    ? categoryPath ?? aspectsQuery.data?.categoryName ?? null
+    : null;
+  const categoryLabel = categoryName ?? `Category ${editor.ebayCategoryId}`;
+
+  // Only the conditions eBay accepts in the chosen leaf, when it restricts them.
+  const conditionsQuery = useEbayCategoryConditions(
+    editor.ebayCategoryId || null,
+    connected,
+  );
+  const restricted = conditionsQuery.data?.restricted === true;
+  const conditionOptions: ReadonlyArray<{ value: string; label: string }> = restricted
+    ? conditionsQuery.data!.options
+    : EBAY_CONDITION_OPTIONS;
+  const conditionRejected =
+    restricted &&
+    editor.ebayCondition !== "" &&
+    !conditionOptions.some((o) => o.value === editor.ebayCondition);
+
   // The name error waits until the field was left or a save was tried, so a
   // fresh "New template" does not open on a red sentence.
   const [nameTouched, setNameTouched] = useState(false);
@@ -330,44 +386,132 @@ export function TemplateEditorDialog({
             </p>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="tpl-condition">Default condition</Label>
-              <Select
-                value={editor.ebayCondition || NO_CONDITION}
-                onValueChange={(v) =>
-                  setEditor((s) => ({
-                    ...s,
-                    ebayCondition: v === NO_CONDITION ? "" : v,
-                  }))
-                }
-              >
-                <SelectTrigger id="tpl-condition">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_CONDITION}>No default</SelectItem>
-                  {EBAY_CONDITION_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tpl-cat">eBay category ID</Label>
-              <Input
-                id="tpl-cat"
-                inputMode="numeric"
-                value={editor.ebayCategoryId}
-                placeholder="Optional"
-                onChange={(e) => {
-                  const ebayCategoryId = e.target.value;
-                  setEditor((s) => ({ ...s, ebayCategoryId }));
-                }}
-              />
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor={categoryInputId}>eBay category</Label>
+            {categoryView === "chosen" ? (
+              <div className="flex items-center gap-2 rounded-md border p-2 text-sm">
+                <span className="min-w-0 flex-1 truncate">{categoryLabel}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setChangingCategory(true)}
+                >
+                  Change
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Clear category"
+                  onClick={() => {
+                    setCategory("", null);
+                    setChangingCategory(false);
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : categoryView === "search" ? (
+              <>
+                <EbayCategorySearch
+                  inputId="tpl-cat-search"
+                  query={categoryQuery}
+                  onQueryChange={setCategoryQuery}
+                  onPick={(sug) => {
+                    setCategory(sug.categoryId, sug.categoryTreePath);
+                    setChangingCategory(false);
+                    setCategoryQuery("");
+                  }}
+                />
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0"
+                    onClick={() => setEnterCategoryId(true)}
+                  >
+                    Enter an ID instead
+                  </Button>
+                  {editor.ebayCategoryId && (
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0"
+                      onClick={() => setChangingCategory(false)}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <Input
+                  id="tpl-cat"
+                  inputMode="numeric"
+                  value={editor.ebayCategoryId}
+                  placeholder="Optional. e.g. 57990"
+                  onChange={(e) => {
+                    // eBay category ids are digits; the server refuses anything else.
+                    const id = e.target.value.replace(/\D/g, "");
+                    setCategory(id, null);
+                  }}
+                />
+                {connected && (
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0"
+                    onClick={() => {
+                      setEnterCategoryId(false);
+                      setChangingCategory(true);
+                    }}
+                  >
+                    Search categories instead
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="tpl-condition">Default condition</Label>
+            <Select
+              value={editor.ebayCondition || NO_CONDITION}
+              onValueChange={(v) =>
+                setEditor((s) => ({
+                  ...s,
+                  ebayCondition: v === NO_CONDITION ? "" : v,
+                }))
+              }
+            >
+              <SelectTrigger id="tpl-condition" aria-invalid={conditionRejected || undefined}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_CONDITION}>No default</SelectItem>
+                {conditionOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+                {conditionRejected && (
+                  <SelectItem value={editor.ebayCondition}>
+                    {staticConditionLabel(editor.ebayCondition)}
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+            {conditionRejected && (
+              <p className="text-sm text-destructive">
+                eBay does not accept this condition in {categoryName ?? "this category"}.
+                Pick one from the list.
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -392,35 +536,80 @@ export function TemplateEditorDialog({
                 eBay. AutoLister puts them on every draft it writes.
               </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Input
-                aria-label="Shipping policy ID"
-                value={editor.shippingPolicyId}
-                placeholder="Shipping policy ID"
-                onChange={(e) => {
-                  const shippingPolicyId = e.target.value;
-                  setEditor((s) => ({ ...s, shippingPolicyId }));
-                }}
-              />
-              <Input
-                aria-label="Return policy ID"
-                value={editor.returnPolicyId}
-                placeholder="Return policy ID"
-                onChange={(e) => {
-                  const returnPolicyId = e.target.value;
-                  setEditor((s) => ({ ...s, returnPolicyId }));
-                }}
-              />
-              <Input
-                aria-label="Payment policy ID"
-                value={editor.paymentPolicyId}
-                placeholder="Payment policy ID"
-                onChange={(e) => {
-                  const paymentPolicyId = e.target.value;
-                  setEditor((s) => ({ ...s, paymentPolicyId }));
-                }}
-              />
-            </div>
+            {connected && !policiesQuery.isError ? (
+              <div className="grid gap-3 sm:grid-cols-3">
+                <PolicySelectRow
+                  id="tpl-policy-shipping"
+                  label="Shipping"
+                  type="fulfillment"
+                  value={editor.shippingPolicyId || null}
+                  onChange={(v) => setEditor((s) => ({ ...s, shippingPolicyId: v ?? "" }))}
+                  policies={policiesQuery.data?.policies}
+                  defaultLabel="Account default"
+                  markDefault
+                />
+                <PolicySelectRow
+                  id="tpl-policy-payment"
+                  label="Payment"
+                  type="payment"
+                  value={editor.paymentPolicyId || null}
+                  onChange={(v) => setEditor((s) => ({ ...s, paymentPolicyId: v ?? "" }))}
+                  policies={policiesQuery.data?.policies}
+                  defaultLabel="Account default"
+                  markDefault
+                />
+                <PolicySelectRow
+                  id="tpl-policy-return"
+                  label="Returns"
+                  type="return"
+                  value={editor.returnPolicyId || null}
+                  onChange={(v) => setEditor((s) => ({ ...s, returnPolicyId: v ?? "" }))}
+                  policies={policiesQuery.data?.policies}
+                  defaultLabel="Account default"
+                  markDefault
+                />
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  {connected
+                    ? "Your eBay policies did not load, so type their IDs instead."
+                    : "Connect eBay to pick policies by name. Until then you can type their IDs."}
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Input
+                    aria-label="Shipping policy ID"
+                    inputMode="numeric"
+                    value={editor.shippingPolicyId}
+                    placeholder="Shipping policy ID"
+                    onChange={(e) => {
+                      const shippingPolicyId = e.target.value;
+                      setEditor((s) => ({ ...s, shippingPolicyId }));
+                    }}
+                  />
+                  <Input
+                    aria-label="Return policy ID"
+                    inputMode="numeric"
+                    value={editor.returnPolicyId}
+                    placeholder="Return policy ID"
+                    onChange={(e) => {
+                      const returnPolicyId = e.target.value;
+                      setEditor((s) => ({ ...s, returnPolicyId }));
+                    }}
+                  />
+                  <Input
+                    aria-label="Payment policy ID"
+                    inputMode="numeric"
+                    value={editor.paymentPolicyId}
+                    placeholder="Payment policy ID"
+                    onChange={(e) => {
+                      const paymentPolicyId = e.target.value;
+                      setEditor((s) => ({ ...s, paymentPolicyId }));
+                    }}
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           <div className="space-y-3">

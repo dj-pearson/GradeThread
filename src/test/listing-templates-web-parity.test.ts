@@ -216,7 +216,10 @@ describe("the page can create, edit and delete (US-2877 AC1)", () => {
     // A hand-typed second list of eBay conditions is how a template ends up
     // holding a value eBay rejects at publish.
     expect(editor).toContain('import { EBAY_CONDITION_OPTIONS } from "@/lib/constants"');
-    expect(editor).toMatch(/EBAY_CONDITION_OPTIONS\.map\(/);
+    // Used as the fallback list, not merely imported. When eBay restricts the
+    // chosen category, the editor narrows to eBay's own options instead.
+    expect((editor.match(/EBAY_CONDITION_OPTIONS/g) ?? []).length).toBeGreaterThan(1);
+    expect(editor).toContain("useEbayCategoryConditions");
   });
 });
 

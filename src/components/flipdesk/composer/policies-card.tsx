@@ -13,6 +13,75 @@ export interface PoliciesCardProps {
   returnPolicyId: string | null;
   setReturnPolicyId: (id: string | null) => void;
 }
+type PolicyRow = EbayPolicies["policies"][number];
+
+export interface PolicySelectRowProps {
+  id: string;
+  label: string;
+  type: PolicyRow["policy_type"];
+  /** The chosen policy id, or null for the account default. */
+  value: string | null;
+  onChange: (id: string | null) => void;
+  /** The seller's policies, or undefined while they have not loaded. */
+  policies: readonly PolicyRow[] | undefined;
+  /** The empty option's text. */
+  defaultLabel: string;
+  /** Mark the policy eBay treats as the account default with "(eBay default)". */
+  markDefault?: boolean;
+}
+
+/**
+ * One business-policy Select: the account-default option plus the seller's
+ * policies of one type. Shared by the composer's PoliciesCard and the listing
+ * template editor. A stored id that is not among the loaded policies stays
+ * selectable as "Policy not found on eBay", so reopening a row never silently
+ * swaps it for the default.
+ */
+export function PolicySelectRow({
+  id,
+  label,
+  type,
+  value,
+  onChange,
+  policies,
+  defaultLabel,
+  markDefault = false,
+}: PolicySelectRowProps) {
+  const options = (policies ?? []).filter((p) => p.policy_type === type);
+  // Only once the list is in: before that every stored id would read as gone.
+  const missing =
+    policies !== undefined && value !== null && !options.some((p) => p.policy_id === value);
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Select
+        value={value ?? "__default"}
+        onValueChange={(v) => onChange(v === "__default" ? null : v)}
+      >
+        <SelectTrigger id={id} aria-invalid={missing || undefined}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__default">{defaultLabel}</SelectItem>
+          {options.map((p) => (
+            <SelectItem key={p.policy_id} value={p.policy_id}>
+              {markDefault && p.is_default ? `${p.policy_name} (eBay default)` : p.policy_name}
+            </SelectItem>
+          ))}
+          {missing && (
+            <SelectItem value={value}>Policy not found on eBay (id {value})</SelectItem>
+          )}
+        </SelectContent>
+      </Select>
+      {missing && (
+        <p className="text-xs text-destructive">
+          This policy is not on your eBay account any more. Pick another one.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // US-2251: per-listing eBay business policies. Bulk-edit could set these and
 // publish has always honoured them, but the single-item composer couldn't — so
 // shipping and returns for one item meant a detour through bulk edit or Seller
@@ -62,33 +131,17 @@ export function PoliciesCard({
             },
           ]
         ).map((row) => {
-          const options = (ebayPolicies?.policies ?? []).filter(
-            (p) => p.policy_type === row.type,
-          );
           return (
-            <div key={row.id} className="space-y-1.5">
-              <Label htmlFor={row.id}>{row.label}</Label>
-              <Select
-                value={row.value ?? "__default"}
-                onValueChange={(v) =>
-                  row.set(v === "__default" ? null : v)
-                }
-              >
-                <SelectTrigger id={row.id}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__default">
-                    Use account default
-                  </SelectItem>
-                  {options.map((p) => (
-                    <SelectItem key={p.policy_id} value={p.policy_id}>
-                      {p.policy_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <PolicySelectRow
+              key={row.id}
+              id={row.id}
+              label={row.label}
+              type={row.type}
+              value={row.value}
+              onChange={row.set}
+              policies={ebayPolicies?.policies}
+              defaultLabel="Use account default"
+            />
           );
         })}
         {(ebayPolicies?.policies ?? []).length === 0 && (

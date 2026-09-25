@@ -1,6 +1,6 @@
 import { isClosedAspect } from "@/lib/aspect-normalize";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Search, X, Check, AlertCircle, Sparkles } from "lucide-react";
+import { Loader2, X, Check, AlertCircle, Sparkles } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -15,11 +15,11 @@ import { toast } from "sonner";
 import {
   useAiExtractAspects,
   useEbayCategoryAspects,
-  useEbayCategorySuggest,
   type EbayAspect,
   type EbayCategorySuggestion,
 } from "@/hooks/use-ebay";
 import { cn } from "@/lib/utils";
+import { EbayCategorySearch } from "@/components/flipdesk/ebay-category-search";
 import type { ListingCategoryCandidate } from "@/types/database";
 import {
   remapAspectsForCategory,
@@ -236,16 +236,6 @@ export function CategoryCandidateList({
   );
 }
 
-// 250ms debounce — eBay's Taxonomy quota is generous but not free.
-function useDebounced<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return debounced;
-}
-
 export function EbayCategoryPicker({
   itemId,
   initialCategoryId,
@@ -266,7 +256,6 @@ export function EbayCategoryPicker({
   categoryCandidates,
 }: Props) {
   const [query, setQuery] = useState(seedQuery ?? "");
-  const debounced = useDebounced(query.trim(), 250);
 
   const [categoryId, setCategoryId] = useState<string | null>(
     initialCategoryId
@@ -318,7 +307,6 @@ export function EbayCategoryPicker({
   const isNeedsReview = (name: string): boolean =>
     needsReviewSet.has(name.toLowerCase().replace(/[^a-z0-9]/g, ""));
 
-  const suggestQuery = useEbayCategorySuggest(debounced);
   const aspectsQuery = useEbayCategoryAspects(categoryId);
   const aiExtract = useAiExtractAspects();
 
@@ -864,47 +852,12 @@ export function EbayCategoryPicker({
                 </Button>
               )}
             </div>
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="category-search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="e.g. men's blazer, women's silk blouse"
-                className="pl-8"
-              />
-              {suggestQuery.isFetching && (
-                <Loader2 className="absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
-              )}
-            </div>
-            {debounced.length >= 2 && suggestQuery.data && (
-              <div className="max-h-64 overflow-y-auto rounded-md border">
-                {suggestQuery.data.length === 0 ? (
-                  <div className="p-3 text-xs text-muted-foreground">
-                    No matches. Try a different keyword.
-                  </div>
-                ) : (
-                  suggestQuery.data.map((s) => (
-                    <button
-                      key={s.categoryId}
-                      type="button"
-                      onClick={() => pickCategory(s)}
-                      className="block w-full border-b px-3 py-2 text-left text-xs hover:bg-muted/50 last:border-b-0"
-                    >
-                      <div className="font-medium">{s.categoryName}</div>
-                      <div className="text-muted-foreground">
-                        {s.categoryTreePath}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-            {suggestQuery.isError && (
-              <p className="text-xs text-destructive">
-                {(suggestQuery.error as Error).message}
-              </p>
-            )}
+            <EbayCategorySearch
+              inputId="category-search"
+              query={query}
+              onQueryChange={setQuery}
+              onPick={pickCategory}
+            />
           </div>
         )}
 
