@@ -55,6 +55,7 @@ import {
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useFetchGoogleSheet } from "@/hooks/use-sheet-import";
 import { parseSheet } from "@/lib/csv";
+import { decidePoll, nextPollDelay } from "@/lib/import-poll";
 import {
   IMPORT_FIELDS,
   IMPORT_FIELD_LABELS,
@@ -226,7 +227,8 @@ export function FlipdeskImportPage() {
   // surface now — a browser refresh mid-import picks it back up.
   const [run, setRun] = useState<ImportRun | null>(null);
   const [undoing, setUndoing] = useState(false);
-  const pollRef = useRef<number | null>(null);
+  // IMP-02: set when polling stops because the run can no longer be read.
+  const [pollError, setPollError] = useState<string | null>(null);
   // US-9201: the extension's install time, handed over with the run so the
   // completion event can carry install-to-first-imported-item. A duration
   // only; the timestamp itself is never sent.
@@ -374,6 +376,7 @@ export function FlipdeskImportPage() {
 
     setImporting(true);
     setRun(null);
+    setPollError(null);
     try {
       const res = await edgeFetch("/api/flipdesk/import/runs", {
         method: "POST",
@@ -409,6 +412,7 @@ export function FlipdeskImportPage() {
   function handleClosetStarted(start: ClosetImportStart) {
     closetInstalledAtRef.current = start.installedAt;
     setImporting(true);
+    setPollError(null);
     setRun({
       id: start.runId,
       status: "pending",
@@ -463,25 +467,49 @@ export function FlipdeskImportPage() {
   // Poll the run until it terminalizes. The run is the source of truth, so a
   // refresh, a flaky connection or a closed laptop lid changes nothing about
   // whether the import finishes.
+  //
+  // IMP-02: every 2s for the first 10s, then every 5s; paused while the tab is
+  // hidden; a 429 waits for Retry-After; a 403 or 404 stops and says why.
   useEffect(() => {
     const id = run?.id;
     const open = run?.status === "pending" || run?.status === "running";
-    if (!id || !open) {
-      if (pollRef.current !== null) {
-        window.clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-      return;
-    }
+    if (!id || !open) return;
     let cancelled = false;
+    let timer: number | null = null;
+    const startedAt = Date.now();
+    const schedule = (delayMs: number) => {
+      if (cancelled) return;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => void tick(), delayMs);
+    };
     const tick = async () => {
+      timer = null;
+      if (cancelled) return;
+      // A hidden tab stops asking; visibilitychange below picks it back up.
+      if (document.hidden) return;
+      const normal = nextPollDelay(Date.now() - startedAt);
       try {
         const res = await edgeFetch(`/api/flipdesk/import/runs/${id}`, {
           silentGate: true,
         });
-        if (!res.ok) return;
+        if (cancelled) return;
+        const decision = decidePoll(res.status, res.headers.get("Retry-After"), normal);
+        if (decision.kind === "stop") {
+          setPollError(decision.message);
+          setImporting(false);
+          return;
+        }
+        if (decision.kind === "retry") {
+          schedule(decision.delayMs);
+          return;
+        }
         const json = (await res.json()) as { run?: ImportRun };
-        if (cancelled || !json.run) return;
+        if (cancelled) return;
+        if (!json.run) {
+          schedule(normal);
+          return;
+        }
+        setPollError(null);
         setRun(json.run);
         if (json.run.status !== "pending" && json.run.status !== "running") {
           setImporting(false);
@@ -500,19 +528,23 @@ export function FlipdeskImportPage() {
               }.`,
             );
           }
+          return;
         }
+        schedule(normal);
       } catch {
         // A failed poll is not a failed import — the run keeps going.
+        schedule(normal);
       }
     };
+    const onVisible = () => {
+      if (!document.hidden && timer === null) void tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     void tick();
-    pollRef.current = window.setInterval(() => void tick(), 2000);
     return () => {
       cancelled = true;
-      if (pollRef.current !== null) {
-        window.clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
+      document.removeEventListener("visibilitychange", onVisible);
+      if (timer !== null) window.clearTimeout(timer);
     };
   }, [run?.id, run?.status, recordClosetCompletion]);
 
@@ -904,6 +936,11 @@ A1	GT-0001	Lululemon Align Pant	..."
               page; the import keeps going and you can undo the whole thing
               afterwards.
             </p>
+            {pollError && (
+              <p role="alert" className="mt-2 text-sm text-destructive">
+                {pollError}
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

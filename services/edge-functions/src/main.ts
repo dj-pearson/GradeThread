@@ -1238,7 +1238,18 @@ app.use("/api/flipdesk/sync", rateLimiter(60, 60_000, "flipdesk-sync"));
 app.use("/api/flipdesk/sync/*", rateLimiter(60, 60_000, "flipdesk-sync"));
 app.use("/api/flipdesk/reconciliation/*", rateLimiter(30, 60_000, "flipdesk-recon"));
 app.use("/api/flipdesk/sheets/*", rateLimiter(30, 60_000, "flipdesk-sheets"));
-app.use("/api/flipdesk/import/*", rateLimiter(30, 60_000, "flipdesk-import"));
+// IMP-02: the Import page polls GET /runs/:id every few seconds while a run is
+// open. On the shared 30/min bucket that poll alone hit 429, froze progress and
+// made an Undo in the same minute fail. Reads get their own budget; writes keep
+// the 30/min one.
+app.use(
+  "/api/flipdesk/import/*",
+  rateLimiter(30, 60_000, "flipdesk-import", undefined, { methods: ["POST", "PUT", "PATCH", "DELETE"] }),
+);
+app.use(
+  "/api/flipdesk/import/*",
+  rateLimiter(120, 60_000, "flipdesk-import-poll", undefined, { methods: ["GET"] }),
+);
 // US-9201: one closet read per press; 30/min bounds a stuck extension.
 app.use("/api/flipdesk/closet-import", rateLimiter(30, 60_000, "flipdesk-closet-import"));
 app.use("/api/flipdesk/closet-import/*", rateLimiter(30, 60_000, "flipdesk-closet-import"));
