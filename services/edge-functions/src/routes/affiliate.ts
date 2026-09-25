@@ -233,8 +233,9 @@ affiliateRoutes.post("/connect", async (c) => {
 
     const link = await stripe.accountLinks.create({
       account: accountId,
-      refresh_url: `${siteUrl()}/dashboard/referrals?connect=refresh`,
-      return_url: `${siteUrl()}/dashboard/referrals?connect=done`,
+      // section=affiliate lands the creator back on the tab they left from.
+      refresh_url: `${siteUrl()}/dashboard/referrals?section=affiliate&connect=refresh`,
+      return_url: `${siteUrl()}/dashboard/referrals?section=affiliate&connect=done`,
       type: "account_onboarding",
     });
 

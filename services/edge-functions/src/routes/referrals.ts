@@ -2,6 +2,7 @@
 //
 //   GET  /api/referrals/me        provision (lazily) + return the caller's code,
 //                                 referral stats, and whether they were referred
+//   GET  /api/referrals/me/events the caller's referrals, one masked row each
 //   POST /api/referrals/redeem    attribute the caller as referred by a code
 //
 // Authed (mounted with authMiddleware in main.ts). Service-role client, but
@@ -11,13 +12,16 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
+  classifyReferralRow,
   classifyReferralRows,
   nextMilestone,
   REFERRAL_MILESTONES,
   redeemRefusal,
   type RedeemRefusal,
   type ReferralLedgerRow,
+  referrerRank,
 } from "../lib/referral-rewards.ts";
+import { loadReferralBoardInputs } from "../lib/referral-board.ts";
 import {
   applyReferredSignupIncentive,
   getReferralRewardConfig,
@@ -162,6 +166,18 @@ referralRoutes.get("/me", async (c) => {
 
   const cap = rewardConfig.per_referrer_cap;
 
+  // Where the caller sits on the public board, ranked by the exact function
+  // the board uses. Only computed for someone who can be on it at all.
+  let boardRank: { rank: number; tied: boolean } | null = null;
+  if (pref?.referral_leaderboard_enabled && grantedCount > 0) {
+    try {
+      const board = await loadReferralBoardInputs();
+      boardRank = referrerRank(board.eligible, board.totals, userId);
+    } catch (err) {
+      console.error("[referrals] leaderboard rank read failed:", err instanceof Error ? err.message : err);
+    }
+  }
+
   return c.json({
     code,
     stats: {
@@ -201,10 +217,57 @@ referralRoutes.get("/me", async (c) => {
     leaderboard: {
       enabled: pref?.referral_leaderboard_enabled ?? false,
       display_name: pref?.referral_display_name ?? null,
+      // null until the caller is actually listed: opted in, with a rewarded
+      // referral, under an alias the board publishes.
+      rank: boardRank?.rank ?? null,
+      tied: boardRank?.tied ?? false,
     },
     referred_by: referredRow ? { status: referredRow.reward_status, code: referredRow.code } : null,
     redeem_eligible: redeemEligible,
   });
+});
+
+// GET /me/events — the caller's own referrals, one row each, so a seller can
+// see who is stuck, who paid and who can no longer pay. Scoped to the caller as
+// referrer (US-268). The friend is never named: rows are "Seller #N" in the
+// order they joined. Statuses come from the same classifier as /me's tiles, so
+// the list and the tiles always add up.
+const EVENTS_LIMIT = 100;
+
+referralRoutes.get("/me/events", async (c) => {
+  const userId = c.get("userId");
+  if (!userId) return c.json({ error: "Sign-in required" }, 401);
+
+  const [{ data, error }, rewardConfig] = await Promise.all([
+    supabaseAdmin
+      .from("referral_events")
+      .select("reward_status, referrer_reward_credits, created_at, qualified_at")
+      .eq("referrer_user_id", userId)
+      .order("created_at", { ascending: true })
+      .limit(EVENTS_LIMIT),
+    getReferralRewardConfig(),
+  ]);
+  if (error) {
+    console.error("[referrals] events read failed:", error.message);
+    return c.json({ error: "Couldn't load your referrals." }, 500);
+  }
+
+  const rows = (data ?? []) as ReferralLedgerRow[];
+  const grantedCount = rows.filter((r) => r.reward_status === "granted").length;
+  const nowMs = Date.now();
+  const events = rows.map((row, i) => {
+    const k = classifyReferralRow(row, rewardConfig, grantedCount, nowMs);
+    return {
+      label: `Seller #${i + 1}`,
+      joined_at: row.created_at,
+      status: k.status,
+      reason: k.reason,
+      credits: k.credits,
+      qualify_by: k.status === "waiting" ? k.qualify_by : null,
+    };
+  });
+
+  return c.json({ events, truncated: rows.length >= EVENTS_LIMIT });
 });
 
 // US-1071: redeem a named campaign / promo code for bonus grade credits. Unlike

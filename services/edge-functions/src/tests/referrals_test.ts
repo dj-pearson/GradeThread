@@ -293,3 +293,75 @@ Deno.test("grantReferralReward: a 0-credit side is skipped, the other side still
     db.restore();
   }
 });
+
+// ── GET /me/events ──────────────────────────────────────────────────────────
+
+Deno.test("GET /me/events: only the caller's referrals, masked, and they add up to /me", async () => {
+  const db = installFakePostgrest();
+  const OTHER = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  try {
+    db.reset(seed({
+      system_settings: [{
+        id: "s1",
+        key: "referral.reward_config",
+        value: { per_referrer_cap: 1, qualification_window_days: 30 },
+      }],
+      referral_events: [
+        { id: "e1", referrer_user_id: OWNER, referred_user_id: NEWBIE, reward_status: "granted", referrer_reward_credits: 5, created_at: iso(20 * DAY), qualified_at: iso(19 * DAY) },
+        { id: "e2", referrer_user_id: OWNER, referred_user_id: "x1", reward_status: "qualified", referrer_reward_credits: null, created_at: iso(10 * DAY), qualified_at: iso(9 * DAY) },
+        { id: "e3", referrer_user_id: OWNER, referred_user_id: "x2", reward_status: "pending", referrer_reward_credits: null, created_at: iso(2 * DAY), qualified_at: null },
+        { id: "e4", referrer_user_id: OWNER, referred_user_id: "x3", reward_status: "pending", referrer_reward_credits: null, created_at: iso(45 * DAY), qualified_at: null },
+        // Somebody else's referral: must never show up in OWNER's list.
+        { id: "e5", referrer_user_id: OTHER, referred_user_id: "x4", reward_status: "granted", referrer_reward_credits: 5, created_at: iso(3 * DAY), qualified_at: iso(DAY) },
+      ],
+      referral_milestone_grants: [],
+    }));
+    const events = (await (await app(OWNER).request("/me/events")).json()).events as Array<
+      { label: string; status: string; reason: string | null; credits: number; qualify_by: string | null }
+    >;
+    assertEquals(events.length, 4);
+    assertEquals(events.map((e) => e.label), ["Seller #1", "Seller #2", "Seller #3", "Seller #4"]);
+    assertEquals(JSON.stringify(events).includes("x1"), false);
+
+    const me = await (await app(OWNER).request("/me")).json();
+    const count = (s: string) => events.filter((e) => e.status === s).length;
+    assertEquals(count("rewarded"), me.stats.granted);
+    assertEquals(count("waiting"), me.stats.waiting);
+    assertEquals(count("forfeit"), me.stats.forfeit);
+    assertEquals(events.reduce((a, e) => a + e.credits, 0), me.credits.earned);
+    const reasons = events.filter((e) => e.status === "forfeit").map((e) => e.reason).sort();
+    assertEquals(reasons, ["expired", "over_cap"]);
+
+    const other = (await (await app(OTHER).request("/me/events")).json()).events;
+    assertEquals(other.length, 1);
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("GET /me: leaderboard rank is null with no rewarded referral, and the board's rank after one", async () => {
+  const db = installFakePostgrest();
+  try {
+    const base = seed();
+    base.users[0] = { ...base.users[0], referral_leaderboard_enabled: true, referral_display_name: "ThriftKing" };
+    db.reset(base);
+    let me = await (await app(OWNER).request("/me")).json();
+    assertEquals(me.leaderboard.rank, null);
+
+    base.referral_events = [{
+      id: "e1",
+      referrer_user_id: OWNER,
+      referred_user_id: NEWBIE,
+      reward_status: "granted",
+      referrer_reward_credits: 5,
+      created_at: iso(3 * DAY),
+      qualified_at: iso(2 * DAY),
+    }];
+    db.reset(base);
+    me = await (await app(OWNER).request("/me")).json();
+    assertEquals(me.leaderboard.rank, 1);
+    assertEquals(me.leaderboard.tied, false);
+  } finally {
+    db.restore();
+  }
+});

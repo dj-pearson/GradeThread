@@ -10522,6 +10522,39 @@ Deno.test({
 });
 
 Deno.test({
+  // GET /api/referrals/me/events lists the caller's referrals as referrer. It
+  // takes no id at all, so the property is that nothing in the query string can
+  // point it at another account, and that it never names a referred user.
+  name: "referrals: /me/events ignores a user id in the query and names nobody",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const victim = Deno.env.get("TEST_WORKSPACE_OWNER_ID") ?? crypto.randomUUID();
+    const own = await fetch(`${BASE}/api/referrals/me/events`, { headers: authHeaders(B_JWT!) });
+    if (own.status !== 200) {
+      await own.body?.cancel();
+      assertDenied(own.status, "/api/referrals/me/events");
+      return;
+    }
+    const ownBody = await own.json();
+    for (const param of ["user_id", "referrer_user_id", "userId"]) {
+      const res = await fetch(`${BASE}/api/referrals/me/events?${param}=${victim}`, {
+        headers: authHeaders(B_JWT!),
+      });
+      assertEquals(res.status, 200);
+      const body = await res.json();
+      assertEquals(
+        body.events.length,
+        ownBody.events.length,
+        `?${param}= changed whose referrals /me/events returned`,
+      );
+      const text = JSON.stringify(body);
+      assert(!text.includes(victim), "/me/events echoed a user id");
+      assert(!/referred_user_id|referrer_user_id|email/.test(text), "/me/events exposed an identity field");
+    }
+  },
+});
+
+Deno.test({
   // Cash onboarding is for admitted creators only. The fixture has no operator,
   // so B is never admitted: /connect must refuse before creating a Stripe
   // account, and a user_id in the body cannot borrow someone else's standing.
