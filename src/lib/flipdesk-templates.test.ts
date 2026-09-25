@@ -5,7 +5,9 @@ vi.mock("@/lib/edge-fetch", () => ({ edgeFetch: (...a: unknown[]) => edgeFetch(.
 
 import {
   TemplateApiError,
+  addStarterTemplates,
   createTemplate,
+  nextSortOrder,
   saveErrorNextStep,
 } from "@/lib/flipdesk-templates";
 
@@ -48,5 +50,41 @@ describe("a failed save carries the edge's code", () => {
     expect((err as TemplateApiError).status).toBe(500);
     expect((err as TemplateApiError).code).toBeNull();
     expect(saveErrorNextStep(err)).toBeUndefined();
+  });
+});
+
+describe("addStarterTemplates", () => {
+  const starters = ["a", "b", "c"].map((id) => ({
+    id,
+    body: `body ${id}`,
+    ebayCondition: "PRE_OWNED_EXCELLENT",
+    conditionDescription: `note ${id}`,
+  }));
+  const picks = starters.map((s) => ({ sample: { id: s.id }, name: s.id.toUpperCase() }));
+
+  it("keeps going after a failure and reports each pick", async () => {
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error("A template with that name already exists"))
+      .mockResolvedValueOnce({});
+    const progress: Array<[number, number]> = [];
+    const r = await addStarterTemplates(picks, starters, 7, (d, t) => progress.push([d, t]), create);
+    expect(create).toHaveBeenCalledTimes(3);
+    expect(r).toEqual({
+      total: 3,
+      added: ["a", "c"],
+      failed: [{ id: "b", name: "B", message: "A template with that name already exists" }],
+    });
+    // Distinct orders for the rows that saved, starting where it was told.
+    expect(create.mock.calls.map((c) => (c[0] as { sort_order: number }).sort_order)).toEqual([7, 8, 8]);
+    expect(progress[progress.length - 1]).toEqual([3, 3]);
+  });
+});
+
+describe("nextSortOrder", () => {
+  it("is one past the highest, and 0 for an empty list", () => {
+    expect(nextSortOrder([])).toBe(0);
+    expect(nextSortOrder([{ sort_order: 3 }, { sort_order: 9 }, { sort_order: 1 }])).toBe(10);
   });
 });

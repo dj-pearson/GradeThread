@@ -287,3 +287,79 @@ export function templateSummary(t: ListingTemplate): string {
   if (parts.length === 0) return "Empty. Nothing in it to apply yet.";
   return `Sets ${parts.join(", ")}.`;
 }
+
+/** The next free sort_order: one past the highest, so new rows sort last. */
+export function nextSortOrder(templates: readonly Pick<ListingTemplate, "sort_order">[]): number {
+  const max = templates.reduce((m, t) => Math.max(m, t.sort_order), -1);
+  return Math.min(SORT_ORDER_MAX, max + 1);
+}
+
+/** The starter fields `addStarterTemplates` saves. */
+export interface StarterTemplateSource {
+  id: string;
+  body: string;
+  ebayCondition: string;
+  conditionDescription: string;
+}
+
+/** How a batch of sample adds went: every pick is either added or failed. */
+export interface SampleAddResult {
+  total: number;
+  /** Sample ids that saved. */
+  added: string[];
+  failed: Array<{ id: string; name: string; message: string }>;
+}
+
+/**
+ * Save each picked starter as the seller's own row, one at a time.
+ *
+ * Sequential because each row needs its own sort_order. It never stops half
+ * way: a pick that fails is recorded and the next one is still tried, so the
+ * seller is told exactly which ones did not save rather than getting one error
+ * for a batch that nonetheless wrote rows.
+ */
+export async function addStarterTemplates(
+  picks: ReadonlyArray<{ sample: { id: string }; name: string }>,
+  starters: readonly StarterTemplateSource[],
+  startOrder: number,
+  onProgress?: (done: number, total: number) => void,
+  create: (input: TemplateInput) => Promise<ListingTemplate> = createTemplate,
+): Promise<SampleAddResult> {
+  const result: SampleAddResult = { total: picks.length, added: [], failed: [] };
+  let order = startOrder;
+  let done = 0;
+  for (const { sample, name } of picks) {
+    onProgress?.(done, picks.length);
+    const starter = starters.find((t) => t.id === sample.id);
+    if (!starter) {
+      result.failed.push({ id: sample.id, name, message: "That sample no longer exists." });
+    } else {
+      try {
+        await create({
+          name,
+          description_template: starter.body,
+          ebay_condition: starter.ebayCondition,
+          condition_description: starter.conditionDescription,
+          // No item specifics and no policy ids: those are the seller's own
+          // eBay account values, and no starter can guess them. Nor is_default
+          // -- picking a favourite stays their call.
+          item_specifics: {},
+          is_default: false,
+          sort_order: order,
+        });
+        order += 1;
+        result.added.push(sample.id);
+      } catch (err) {
+        result.failed.push({
+          id: sample.id,
+          name,
+          message: err instanceof Error ? err.message : "It did not save.",
+        });
+      }
+    }
+    done += 1;
+  }
+  onProgress?.(done, picks.length);
+  return result;
+}
+

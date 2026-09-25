@@ -11,7 +11,10 @@ import { SamplePickerBody } from "@/components/flipdesk/sample-picker";
 import { STARTER_SNIPPETS } from "@/lib/starter-snippets";
 import { SNIPPET_NAME_MAX } from "@/lib/flipdesk-snippets";
 
-function paint(taken: string[] = []) {
+function paint(
+  taken: string[] = [],
+  extra: Partial<Parameters<typeof SamplePickerBody>[0]> = {},
+) {
   return renderToStaticMarkup(
     <SamplePickerBody
       onOpenChange={() => {}}
@@ -21,6 +24,7 @@ function paint(taken: string[] = []) {
       noun="snippet"
       adding={false}
       onAdd={() => {}}
+      {...extra}
     />,
   );
 }
@@ -38,5 +42,22 @@ describe("SamplePickerBody", () => {
 
   it("offers the plural, unticked confirm label before anything is checked", () => {
     expect(paint()).toContain("Add snippets");
+  });
+
+  it("says how a partial add went, naming what did not save", () => {
+    const html = paint([], {
+      result: {
+        total: 3,
+        added: ["a", "c"],
+        failed: [{ id: "b", name: "Returns", message: "It did not save." }],
+      },
+    });
+    expect(html).toContain("Added 2 of 3.");
+    expect(html).toContain("Returns did not save: It did not save.");
+  });
+
+  it("shows progress while adding", () => {
+    const html = paint([], { adding: true, progress: { done: 1, total: 4 } });
+    expect(html).toContain("Adding 2 of 4...");
   });
 });

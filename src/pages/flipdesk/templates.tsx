@@ -38,8 +38,11 @@ import {
   type TemplateInput,
   createTemplate,
   deleteTemplate,
+  addStarterTemplates,
   listTemplates,
   nameProblem,
+  nextSortOrder,
+  type SampleAddResult,
   saveErrorNextStep,
   TemplateApiError,
   templateSummary,
@@ -146,8 +149,10 @@ export function TemplatesPage() {
         ? updateTemplate(state.existing.id, input)
         : createTemplate(input);
     },
-    onSuccess: (saved, state) => {
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: TEMPLATES_QUERY_KEY });
+    },
+    onSuccess: (saved, state) => {
       setEditor(null);
       toast.success(
         state.existing ? `Saved "${saved.name}".` : `Created "${saved.name}".`,
@@ -168,52 +173,49 @@ export function TemplatesPage() {
   //
   // Sequential, and for the same reason as the snippets picker: `createTemplate`
   // needs a distinct `sort_order` per row, and a Promise.all would hand all four
-  // the same one. A partial batch is a real outcome -- the count is reported, so
-  // "added 2 of 4" does not read as a total failure that nonetheless wrote two
-  // rows.
+  // the same one. A partial batch is a real outcome: every pick is tried, the
+  // dialog stays open with the saved ones unticked, and a line says which did
+  // not save and why.
+  const [sampleResult, setSampleResult] = useState<SampleAddResult | null>(null);
+  const [sampleProgress, setSampleProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const addSamples = useMutation({
-    mutationFn: async (
-      picks: Array<{ sample: { id: string }; name: string }>,
-    ) => {
-      let order = templates.reduce((max, t) => Math.max(max, t.sort_order), -1) + 1;
-      let added = 0;
-      for (const { sample, name } of picks) {
-        const starter = STARTER_TEMPLATES.find((t) => t.id === sample.id);
-        if (!starter) continue;
-        await createTemplate({
-          name,
-          description_template: starter.body,
-          ebay_condition: starter.ebayCondition,
-          condition_description: starter.conditionDescription,
-          // No item specifics and no policy ids: those are the seller's own
-          // eBay account values, and no starter can guess them. Nor is_default
-          // -- picking a favourite stays their call.
-          item_specifics: {},
-          is_default: false,
-          sort_order: order,
-        });
-        order += 1;
-        added += 1;
-      }
-      return added;
-    },
-    onSuccess: (added) => {
+    mutationFn: (picks: Array<{ sample: { id: string }; name: string }>) =>
+      addStarterTemplates(picks, STARTER_TEMPLATES, nextSortOrder(templates), (done, total) =>
+        setSampleProgress({ done, total }),
+      ),
+    onSettled: () => {
+      setSampleProgress(null);
+      // Always, not only on success: a partial batch wrote rows, and a stale
+      // list would hide them and feed the picker a stale `taken` list.
       void queryClient.invalidateQueries({ queryKey: TEMPLATES_QUERY_KEY });
+    },
+    onSuccess: (r) => {
+      if (r.failed.length > 0) {
+        setSampleResult(r);
+        return;
+      }
+      setSampleResult(null);
       setSamplesOpen(false);
+      const added = r.added.length;
       toast.success(
         `Added ${added} template${added === 1 ? "" : "s"}. Edit any of them to make it yours.`,
       );
     },
     onError: (err) =>
       toastError(err, "Those samples were not added.", {
-        nextStep: "Check the list — some of them may have saved before it stopped.",
+        nextStep: "Check the list. Some of them may have saved before it stopped.",
       }),
   });
 
   const remove = useMutation({
     mutationFn: (t: ListingTemplate) => deleteTemplate(t.id),
-    onSuccess: (_v, t) => {
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: TEMPLATES_QUERY_KEY });
+    },
+    onSuccess: (_v, t) => {
       toast.success(`Deleted "${t.name}".`);
     },
     onError: (err) => toastError(err, "That template was not deleted."),
@@ -241,7 +243,13 @@ export function TemplatesPage() {
         icon={FileText}
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setSamplesOpen(true)}>
+            <Button
+              variant="outline"
+              onClick={() => setSamplesOpen(true)}
+              // The picker renames against the loaded list; opened before it
+              // loads, it would rename nothing and every clash would 409.
+              disabled={!templatesQuery.isSuccess}
+            >
               <Sparkles className="mr-1.5 h-4 w-4" />
               Browse samples
             </Button>
@@ -253,7 +261,9 @@ export function TemplatesPage() {
         }
       />
 
-      {templatesQuery.isError ? (
+      {/* A failed background refetch keeps its data in TanStack v5 but still
+          reports isError, so ErrorState is only for a list that never loaded. */}
+      {templatesQuery.isError && templatesQuery.data === undefined ? (
         <ErrorState
           title="Couldn't load your templates"
           onRetry={() => void templatesQuery.refetch()}
@@ -285,6 +295,20 @@ export function TemplatesPage() {
         />
       ) : (
         <div className="space-y-3">
+          {templatesQuery.isError && (
+            <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+              Could not refresh.
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto p-0"
+                onClick={() => void templatesQuery.refetch()}
+                disabled={templatesQuery.isFetching}
+              >
+                Retry
+              </Button>
+            </p>
+          )}
           {templates.map((t) => (
             <Card key={t.id}>
               <CardContent className="flex flex-wrap items-center gap-3 p-4">
@@ -558,7 +582,11 @@ export function TemplatesPage() {
 
       <SamplePicker
         open={samplesOpen}
-        onOpenChange={(o) => !o && !addSamples.isPending && setSamplesOpen(false)}
+        onOpenChange={(o) => {
+          if (o || addSamples.isPending) return;
+          setSamplesOpen(false);
+          setSampleResult(null);
+        }}
         title="Start from a sample"
         description="Four presets built the way resellers actually sort their inventory. Add the ones that fit, then edit them until the wording is yours."
         samples={STARTER_TEMPLATES}
@@ -566,6 +594,8 @@ export function TemplatesPage() {
         nameMax={TEMPLATE_NAME_MAX}
         noun="template"
         adding={addSamples.isPending}
+        progress={sampleProgress}
+        result={sampleResult}
         onAdd={(picks) => addSamples.mutate(picks)}
       />
     </div>

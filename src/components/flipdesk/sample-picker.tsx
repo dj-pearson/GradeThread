@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -41,6 +41,18 @@ export interface SamplePickerProps {
   adding: boolean;
   /** Called with the picked samples and the name each one should be saved as. */
   onAdd: (picks: Array<{ sample: StarterPreset; name: string }>) => void;
+  /**
+   * How the last add went, when some picks did not save. The saved ones are
+   * unticked and a line says which failed and why, so a retry sends only the
+   * rest.
+   */
+  result?: {
+    total: number;
+    added: readonly string[];
+    failed: ReadonlyArray<{ id: string; name: string; message: string }>;
+  } | null;
+  /** Progress while adding: how many picks are done out of how many. */
+  progress?: { done: number; total: number } | null;
 }
 
 /**
@@ -63,8 +75,16 @@ export function SamplePickerBody({
   noun,
   adding,
   onAdd,
+  result = null,
+  progress = null,
 }: Omit<SamplePickerProps, "open" | "title" | "description">) {
   const [checked, setChecked] = useState<string[]>([]);
+
+  // Untick what saved, so the seller's retry only sends the failures.
+  useEffect(() => {
+    if (!result || result.added.length === 0) return;
+    setChecked((prev) => prev.filter((id) => !result.added.includes(id)));
+  }, [result]);
 
   const picked = samples.filter((s) => checked.includes(s.id));
   const names = uniqueNames(
@@ -125,6 +145,13 @@ export function SamplePickerBody({
         })}
       </ul>
 
+      {result && result.failed.length > 0 && (
+        <p role="alert" className="text-sm text-destructive">
+          Added {result.added.length} of {result.total}.{" "}
+          {result.failed.map((f) => `${f.name} did not save: ${f.message}`).join(" ")}
+        </p>
+      )}
+
       <DialogFooter>
         <Button
           variant="outline"
@@ -145,7 +172,9 @@ export function SamplePickerBody({
           }
         >
           {adding
-            ? "Adding…"
+            ? progress
+              ? `Adding ${Math.min(progress.done + 1, progress.total)} of ${progress.total}...`
+              : "Adding..."
             : picked.length === 0
               ? `Add ${noun}s`
               : `Add ${picked.length} ${noun}${picked.length === 1 ? "" : "s"}`}
