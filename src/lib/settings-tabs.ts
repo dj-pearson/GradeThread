@@ -44,3 +44,53 @@ export const ACCOUNT_HUB_TAB_VALUES = [
 export function settingsTabHref(tab: SettingsTab): string {
   return `/dashboard/account?tab=${tab}`;
 }
+
+// Words a seller might type to reach each section from the command palette.
+// Lowercase; matched as substrings of the query and the query of them.
+const SETTINGS_TAB_KEYWORDS: Record<SettingsTab, readonly string[]> = {
+  profile: [
+    "name", "photo", "avatar", "business", "ship from", "ship-from",
+    "address", "phone", "shipping address",
+  ],
+  security: ["2fa", "two-factor", "mfa", "password", "sign out", "sessions"],
+  notifications: [
+    "notifications", "email", "push", "unsubscribe", "marketing", "newsletter",
+    "quiet hours", "usage alerts",
+  ],
+  ai: ["ai limit", "ai cap", "ai actions", "ai allowance", "enrichment"],
+  flipdesk: ["listing defaults", "promoted listings", "flipdesk defaults"],
+  data: ["export", "download my data", "gdpr", "ccpa", "data request"],
+  storage: ["archive photos", "storage", "photo archive"],
+  danger: ["delete account", "close account", "erase"],
+};
+
+export interface SettingsPaletteAction {
+  id: string;
+  label: string;
+  href: string;
+  tab: SettingsTab;
+  keywords: readonly string[];
+}
+
+/** One palette entry per Settings section: "Settings: <label>". */
+export function settingsPaletteActions(): SettingsPaletteAction[] {
+  return SETTINGS_TABS.map((t) => ({
+    id: `settings-${t.value}`,
+    label: `Settings: ${t.label}`,
+    href: settingsTabHref(t.value),
+    tab: t.value,
+    keywords: SETTINGS_TAB_KEYWORDS[t.value],
+  }));
+}
+
+/** Palette matching: the label or any keyword contains the query. */
+export function paletteMatches(
+  label: string,
+  keywords: readonly string[] | undefined,
+  query: string,
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (label.toLowerCase().includes(q)) return true;
+  if (!q || !keywords) return false;
+  return keywords.some((k) => k.includes(q));
+}

@@ -47,6 +47,7 @@ import {
   PaletteShell,
   type PaletteSection,
 } from "@/components/palette/palette-shell";
+import { paletteMatches, settingsPaletteActions } from "@/lib/settings-tabs";
 
 
 // Just the columns the palette renders — kept narrow so the search query
@@ -69,6 +70,10 @@ type ActionEntry = {
   requires?: WorkspaceCapability;
   // Platform-admin-only action — hidden for non-admins (US-1074).
   adminOnly?: boolean;
+  // Extra words that find this action ("2fa" finds Settings: Security).
+  keywords?: readonly string[];
+  // Only listed once something is typed, so the empty palette stays short.
+  searchOnly?: boolean;
 };
 
 type Entry =
@@ -426,6 +431,19 @@ export function CommandPalette() {
         icon: <Scale className="h-4 w-4" />,
         run: () => go("/dashboard/flipdesk/money?view=reconcile"),
       },
+      // One entry per Settings section, reachable by what it holds ("ship
+      // from", "2fa", "ai limit") rather than only by the Settings root.
+      ...settingsPaletteActions().map(
+        (a): ActionEntry => ({
+          kind: "action",
+          id: a.id,
+          label: a.label,
+          icon: <Settings className="h-4 w-4" />,
+          run: () => go(a.href),
+          keywords: a.keywords,
+          searchOnly: true,
+        }),
+      ),
       // Platform-admin quick actions — filtered out for non-admins below.
       {
         kind: "action",
@@ -479,8 +497,8 @@ export function CommandPalette() {
   const sections: Section[] = useMemo(() => {
     const q = query.trim().toLowerCase();
 
-    const matchAction = availableActions.filter((a) =>
-      a.label.toLowerCase().includes(q),
+    const matchAction = availableActions.filter(
+      (a) => (!a.searchOnly || q) && paletteMatches(a.label, a.keywords, q),
     );
 
     const matchItems: Entry[] = items
