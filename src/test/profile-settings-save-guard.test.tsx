@@ -61,10 +61,23 @@ const q = (id: string) => m!.container.querySelector<HTMLInputElement>(`#${id}`)
 
 describe("Profile save guard", () => {
   it("with profile null, Save is disabled and a retry notice shows", () => {
-    profile = null;
-    m = mount(<ProfileSettingsTab />);
-    expect(m.container.textContent).toContain("Couldn't load your profile");
-    expect(buttonByText(m.container, /save profile/i).disabled).toBe(true);
+    vi.useFakeTimers();
+    try {
+      profile = null;
+      m = mount(<ProfileSettingsTab />);
+      // Loading first: right after sign-in a null profile is still loading,
+      // and a red "Couldn't load" there was a false alarm.
+      expect(m.container.textContent).toContain("Loading your profile");
+      expect(m.container.textContent).not.toContain("Couldn't load your profile");
+      expect(buttonByText(m.container, /save profile/i).disabled).toBe(true);
+      act(() => {
+        vi.advanceTimersByTime(4000);
+      });
+      expect(m.container.textContent).toContain("Couldn't load your profile");
+      expect(buttonByText(m.container, /save profile/i).disabled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("seeds the name when the profile arrives late, and only sends full_name", async () => {

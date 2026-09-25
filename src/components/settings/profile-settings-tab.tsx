@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/use-auth";
 import { useReportSettingsDirty } from "@/hooks/use-settings-dirty";
+import { useMissingTooLong } from "@/hooks/use-missing-too-long";
 import { supabase } from "@/lib/supabase";
 import type { UserUpdate } from "@/types/database";
 import {
@@ -84,6 +85,7 @@ async function removeAvatarObject(path: string): Promise<void> {
 // business + ship-from profile. Split out of settings.tsx (web-growth action 6).
 export function ProfileSettingsTab() {
   const { user, profile, refreshProfile } = useAuth();
+  const profileFailed = useMissingTooLong(!profile);
 
   // Seeded from the profile rather than captured once: the profile can arrive
   // after this tab mounts, and a useState initialiser would keep the pre-load
@@ -363,7 +365,13 @@ export function ProfileSettingsTab() {
           <CardDescription>Update your personal information.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {!profile && (
+          {!profile && !profileFailed && (
+            <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              Loading your profile…
+            </p>
+          )}
+          {profileFailed && (
             <div
               role="alert"
               className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"

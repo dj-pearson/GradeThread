@@ -69,10 +69,20 @@ const sw = (label: string) =>
 
 describe("NotificationsSettingsTab", () => {
   it("renders no switches while the profile is missing", () => {
-    profile = null;
-    m = mount(<NotificationsSettingsTab />);
-    expect(m.container.querySelectorAll('[role="switch"]').length).toBe(0);
-    expect(m.container.textContent).toContain("Couldn't load your notification settings");
+    vi.useFakeTimers();
+    try {
+      profile = null;
+      m = mount(<NotificationsSettingsTab />);
+      expect(m.container.querySelectorAll('[role="switch"]').length).toBe(0);
+      expect(m.container.textContent).toContain("Loading your notification settings");
+      act(() => {
+        vi.advanceTimersByTime(4000);
+      });
+      expect(m.container.querySelectorAll('[role="switch"]').length).toBe(0);
+      expect(m.container.textContent).toContain("Couldn't load your notification settings");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("labels each switch with its category and channel", () => {

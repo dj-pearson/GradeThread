@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
+import { useMissingTooLong } from "@/hooks/use-missing-too-long";
 import { supabase } from "@/lib/supabase";
 import type {
   NotificationPreferences,
@@ -33,6 +34,7 @@ const CHANNEL_LABELS: Record<string, string> = {
 // action 6).
 export function NotificationsSettingsTab() {
   const { user, profile, refreshProfile } = useAuth();
+  const profileFailed = useMissingTooLong(!profile);
 
   // What the server last said. Starts from the profile in the store, then
   // tracks the row read back on each save. Nothing is edited locally and saved
@@ -165,7 +167,12 @@ export function NotificationsSettingsTab() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!profile ? (
+          {!profile && !profileFailed ? (
+            <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              Loading your notification settings…
+            </p>
+          ) : !profile ? (
             <div
               role="alert"
               className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
