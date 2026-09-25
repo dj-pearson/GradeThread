@@ -8,10 +8,18 @@ code_refs:
   - src/lib/analytics.ts
   - src/lib/buyer-analytics.ts
   - src/lib/__tests__/analytics-events.test.ts
-reviewed: 2026-09-24
+reviewed: 2026-09-25
 tags: [analytics, posthog, measurement, naming]
 summary: Every product event name is declared in src/lib/analytics-events.ts and enforced by tsc; two naming conventions are live and neither may be renamed.
 ---
+
+> **Re-reviewed 2026-09-25.** Drift flagged `analytics-events.ts` for one added
+> snake_case key, `closet_import_failed` (IMP-14), in the closet-import block
+> beside its siblings and declared rather than passed as a string. It carries
+> `platform`, the extension's reason CODE (never its text) and `timed_out`, and
+> it is emitted by `closet-import-card.tsx`, so the declared-but-unemitted guard
+> is satisfied. Addition only, no rename. Still accurate.
+
 
 > **Re-reviewed 2026-09-24.** Drift flagged `analytics-events.ts` for two added
 > dotted keys, `snap.completed` and `snap.failed` (SNAP-07, the free

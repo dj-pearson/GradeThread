@@ -11,10 +11,21 @@ code_refs:
   - services/edge-functions/src/lib/closet-import.ts
   - services/edge-functions/src/lib/closet-import-run.ts
   - services/edge-functions/src/tests/import-sources-note_test.ts
-reviewed: 2026-09-22
+reviewed: 2026-09-25
 tags: [flipdesk, import, photos, oauth, storage, contract]
 summary: Every shipped import source with its route, its auth model, what it can and cannot carry and which bucket it writes to; which paths converge on the shared photo core and which deliberately do not; and what blocks Depop, Etsy and Google Drive.
 ---
+
+> **Re-reviewed 2026-09-25.** Drift flagged `closet-import-run.ts` for IMP-03
+> and IMP-04. The worker now writes its `inserted` effect row before
+> `copyClosetPhotos` and rolls the listing and item back if that write fails,
+> seeds its counters from existing effect rows on resume, heartbeats at least
+> every 30s (between photos too, through a `heartbeat` dep on
+> `copyClosetPhotos`), and fences run-row writes on `attempts` and `status`.
+> None of that changes what this note states: the photo loop is still its own
+> download, validate, strip, upload sequence writing the final `item_photos`
+> row, through `safeFetch` and the marketplace host allowlist. Still accurate.
+
 
 # Import sources
 

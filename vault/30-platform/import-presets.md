@@ -8,10 +8,21 @@ code_refs:
   - src/lib/import-presets.ts
   - src/lib/__tests__/import-presets.test.ts
   - src/pages/flipdesk/import.tsx
-reviewed: 2026-09-11
+reviewed: 2026-09-25
 tags: [flipdesk, import, crosslisting, contract]
 summary: The header-to-field mapping FlipDesk applies to a Vendoo, List Perfectly, Shopify, eBay or Etsy CSV export, which real export each was verified against (none yet), why three other tools have no preset, and the rule that a format change is one line here and one in import-presets.ts in the same commit.
 ---
+
+> **Re-reviewed 2026-09-25.** Drift flagged `import.tsx` for the IMP-01..15
+> import pass. What touches this note: the mapping step moved into
+> `src/components/flipdesk/import-preview.tsx` (`ImportMappingStep`), and the
+> preset select, "Plain spreadsheet" and the unverified-preset sentence moved
+> with it unchanged. Detection still wins over the signup answer, which is
+> still `detected ?? fallback` in `detectFromText`. `guessField` in
+> `import-mapping.ts` is now built from a synonym list per field (IMP-11) and is
+> still the fallback for any header a preset does not name. No preset table,
+> signature header or detection rule moved; `import-presets.test.ts` passes.
+
 
 > **Re-reviewed 2026-09-11.** Drift flagged `import.tsx` for US-3154, which
 > changed the CLOSET-IMPORT analytics gate from a hard-coded poshmark-or-mercari

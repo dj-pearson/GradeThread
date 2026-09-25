@@ -8,10 +8,15 @@ code_refs:
   - services/edge-functions/src/lib/help-analytics.ts
   - functions/_shared/help-analytics.ts
   - src/lib/analytics-events.ts
-reviewed: 2026-09-24
+reviewed: 2026-09-25
 tags: [help-center, analytics, seo, contract]
 summary: PostHog cannot see the public help pages because they are server-rendered, so views are counted in Postgres for the public surface and in PostHog for the app, and adding the two together produces a wrong number rather than a bigger one.
 ---
+
+> **Re-reviewed 2026-09-25.** Drift flagged `analytics-events.ts` for
+> `closet_import_failed` (IMP-14), a closet-import event. Nothing this note
+> measures moved. Still accurate.
+
 
 > **Re-reviewed 2026-09-24.** Drift flagged `analytics-events.ts` for
 > `snap.completed` and `snap.failed` (SNAP-07). Neither is a help-centre event
