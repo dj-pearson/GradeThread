@@ -138,8 +138,9 @@ export function zonedWallTimeToUtc(
   return zonedWallTimeToUtcDetailed(year, month, day, hour, minute, timeZone).date;
 }
 
-// The calendar date (year/month/day) that `instant` falls on in `timeZone`.
-function zoneCalendarDate(instant: Date, timeZone: string): { year: number; month: number; day: number } {
+// The calendar date (year/month/day, month 1-based) that `instant` falls on in
+// `timeZone`.
+export function zoneCalendarDate(instant: Date, timeZone: string): { year: number; month: number; day: number } {
   // en-CA formats as YYYY-MM-DD, which is trivial to split.
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,

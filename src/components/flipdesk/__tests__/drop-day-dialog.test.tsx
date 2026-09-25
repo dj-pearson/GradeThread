@@ -227,3 +227,26 @@ describe("a time the clocks skip (SD-7)", () => {
     );
   });
 });
+
+describe("a reschedule that leaves the day (SD-10)", () => {
+  it("toasts the new time with a Go to day action", async () => {
+    const onDayChange = vi.fn();
+    await render([drop("a", 3_600_000)], { onDayChange });
+    await click(button("Reschedule Drop a"));
+    const input = document.body.querySelector<HTMLInputElement>('input[type="datetime-local"]')!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, "2030-06-14T19:00");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(button("Save"));
+    const [message, opts] = toastSpy.success.mock.calls[0]! as [
+      string,
+      { action: { label: string; onClick: () => void } },
+    ];
+    expect(message).toContain("Jun 14");
+    expect(opts.action.label).toBe("Go to day");
+    opts.action.onClick();
+    expect(onDayChange).toHaveBeenCalledWith(2030, 6, 14);
+  });
+});

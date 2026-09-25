@@ -186,8 +186,11 @@ export function FlipdeskScheduledDropsPage() {
 
   // ── US-2522: the parts that make this a calendar you can act on ──────────
 
-  // Which day's drops are open in the dialog.
+  // Which day's drops the dialog shows, and whether it is open. SD-10: kept
+  // apart so closing does not blank the day mid exit-animation ("September
+  // null"); the day stays put until the next open.
   const [openDayNum, setOpenDayNum] = useState<number | null>(null);
+  const [dayOpen, setDayOpen] = useState(false);
   // The roving tabstop. One cell in the grid is focusable at a time; the arrow
   // keys move it, which is what makes a 35-cell grid traversable without 35
   // tab presses.
@@ -203,6 +206,15 @@ export function FlipdeskScheduledDropsPage() {
   function openDay(day: number) {
     setFocusedDay(day);
     setOpenDayNum(day);
+    setDayOpen(true);
+  }
+
+  // SD-10: after a whole-day shift, or on "Go to day", follow the drops to
+  // their new day instead of showing an emptied one. `m` is 1-based.
+  function goToDay(y: number, m: number, d: number) {
+    setView({ y, m: m - 1 });
+    setOpenDayNum(d);
+    setFocusedDay(d);
   }
 
   function onGridKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
@@ -596,11 +608,14 @@ export function FlipdeskScheduledDropsPage() {
       {/* US-2522: reschedule, unschedule and shift a whole day, without
           opening a single draft. */}
       <DropDayDialog
-        open={openDayNum != null}
-        onOpenChange={(o) => !o && setOpenDayNum(null)}
-        dayLabel={`${MONTH_NAMES[view.m]} ${openDayNum}, ${view.y}`}
+        open={dayOpen && openDayNum != null}
+        onOpenChange={setDayOpen}
+        dayLabel={
+          openDayNum == null ? "" : `${MONTH_NAMES[view.m]} ${openDayNum}, ${view.y}`
+        }
         drops={openDayDrops}
         timeZone={timeZone}
+        onDayChange={goToDay}
       />
     </div>
   );

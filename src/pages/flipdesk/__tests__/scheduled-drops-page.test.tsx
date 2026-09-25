@@ -10,6 +10,7 @@ import type { ScheduledDropRow } from "@/hooks/use-scheduled-drops";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const state = {
+  shift: vi.fn(),
   rows: [] as ScheduledDropRow[],
   isFetching: false,
   listingsReads: 0,
@@ -43,7 +44,7 @@ vi.mock("@/hooks/use-scheduled-drops", async (orig) => ({
   }),
   useRescheduleDrop: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCancelDrop: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useShiftDrops: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useShiftDrops: () => ({ mutateAsync: state.shift, isPending: false }),
 }));
 
 vi.mock("@/components/ui/confirm-dialog", () => ({
@@ -62,11 +63,30 @@ vi.mock("@/stores/auth-store", () => ({
 vi.mock("@/components/help/page-help", () => ({ PageHelp: () => null }));
 
 const { FlipdeskScheduledDropsPage } = await import("@/pages/flipdesk/scheduled-drops");
+const { detectTimezone, shiftInZone, zoneCalendarDate } = await import("@/lib/scheduling");
+type DropShift = import("@/lib/scheduling").DropShift;
+
+// The stubbed shift moves the rows the way the real one would, so the page
+// re-reads them on its next render.
+function realShift() {
+  return vi.fn(
+    async ({ drops, shift, timeZone }: { drops: { id: string }[]; shift: DropShift; timeZone: string }) => {
+      const ids = new Set(drops.map((d) => d.id));
+      state.rows = state.rows.map((r) =>
+        ids.has(r.id)
+          ? { ...r, scheduled_publish_at: shiftInZone(r.scheduled_publish_at, timeZone, shift) }
+          : r,
+      );
+      return { moved: ids.size, unchanged: 0, failed: 0, movedIds: [...ids] };
+    },
+  );
+}
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
 beforeEach(() => {
+  state.shift = realShift();
   state.rows = [];
   state.isFetching = false;
   state.listingsReads = 0;
@@ -178,5 +198,66 @@ describe("one read, no title waterfall (SD-8)", () => {
     await render();
     expect(document.querySelector('[role="grid"]')).not.toBeNull();
     expect(document.querySelector(".animate-spin.border-t-transparent")).toBeNull();
+  });
+});
+
+/** Show the month holding `iso` and open its day's dialog. */
+async function openDayOf(iso: string) {
+  const zone = detectTimezone();
+  const { year, month, day } = zoneCalendarDate(new Date(iso), zone);
+  for (let i = 0; i < 24; i++) {
+    const label = document.querySelector('[role="grid"]')?.getAttribute("aria-label") ?? "";
+    const monthName = new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" }).format(
+      new Date(Date.UTC(year, month - 1, 1)),
+    );
+    if (label.endsWith(`${monthName} ${year}`)) break;
+    const next = document.querySelector<HTMLButtonElement>('button[aria-label="Next month"]')!;
+    await act(async () => next.click());
+  }
+  const cell = document.querySelector<HTMLElement>(`[role="gridcell"][data-day="${day}"]`)!;
+  await act(async () => cell.click());
+}
+
+function dialogTitle(): string {
+  return document.querySelector('[role="dialog"] h2')?.textContent ?? "";
+}
+
+describe("the day dialog follows its drops (SD-10)", () => {
+  it("closing never renders a null day in the title", async () => {
+    const at = 3 * 86_400_000;
+    state.rows = [row("a", at)];
+    await render();
+    await openDayOf(state.rows[0]!.scheduled_publish_at);
+    expect(dialogTitle()).not.toBe("");
+    const done = Array.from(document.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Done",
+    )!;
+    await act(async () => done.click());
+    expect(document.body.textContent).not.toContain("null");
+  });
+
+  it("a +1 day shift retitles the dialog to the next day and lists the moved drops", async () => {
+    const base = Date.now() + 3 * 86_400_000;
+    state.rows = [row("a", base - Date.now()), row("b", base - Date.now() + 60_000)];
+    await render();
+    await openDayOf(state.rows[0]!.scheduled_publish_at);
+    const before = dialogTitle();
+    const plus = Array.from(document.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "+1 day",
+    )!;
+    await act(async () => plus.click());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    const zone = detectTimezone();
+    const to = zoneCalendarDate(new Date(state.rows[0]!.scheduled_publish_at), zone);
+    const monthName = new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" }).format(
+      new Date(Date.UTC(to.year, to.month - 1, 1)),
+    );
+    expect(dialogTitle()).not.toBe(before);
+    expect(dialogTitle()).toBe(`${monthName} ${to.day}, ${to.year}`);
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("Drop a");
+    expect(dialog.textContent).toContain("Drop b");
   });
 });

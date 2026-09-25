@@ -26,7 +26,9 @@ import {
   isoToZonedInput,
   dropNeedsAttention,
   MIN_DROP_LEAD_MS,
+  formatInZone,
   shiftInZone,
+  zoneCalendarDate,
   zonedInputToIsoDetailed,
   type DropHealth,
   type DropShift,
@@ -83,12 +85,15 @@ export function DropDayDialog({
   dayLabel,
   drops,
   timeZone,
+  onDayChange,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   dayLabel: string;
   drops: DayDrop[];
   timeZone: string;
+  /** SD-10: show another day (month 1-based), after a day shift or on request. */
+  onDayChange?: (year: number, month: number, day: number) => void;
 }) {
   const reschedule = useRescheduleDrop();
   const cancel = useCancelDrop();
@@ -128,7 +133,21 @@ export function DropDayDialog({
           `${formatTypedTime(draftAt)} does not exist on this day in ${timeZone}; set to ${formatTimeIn(iso, timeZone)}.`,
         );
       } else {
-        toast.success(`${drop.title} moved.`);
+        const from = zoneCalendarDate(new Date(drop.scheduled_publish_at), timeZone);
+        const to = zoneCalendarDate(new Date(iso), timeZone);
+        const sameDay =
+          from.year === to.year && from.month === to.month && from.day === to.day;
+        if (sameDay || !onDayChange) {
+          toast.success(`${drop.title} moved.`);
+        } else {
+          // SD-10: the drop left this day; say where it went and offer to follow.
+          toast.success(`${drop.title} moved to ${formatInZone(iso, timeZone)}.`, {
+            action: {
+              label: "Go to day",
+              onClick: () => onDayChange(to.year, to.month, to.day),
+            },
+          });
+        }
       }
     } catch (err) {
       toastError(err, "Could not reschedule.");
@@ -168,6 +187,15 @@ export function DropDayDialog({
         );
       } else {
         toast.success(`${r.moved} drop${r.moved === 1 ? "" : "s"} shifted.`);
+      }
+      // SD-10: a whole-day shift empties this day, so follow the drops.
+      const first = targets.find((t) => r.movedIds.includes(t.id));
+      if (by.days && first && onDayChange) {
+        const to = zoneCalendarDate(
+          new Date(shiftInZone(first.scheduled_publish_at, timeZone, by)),
+          timeZone,
+        );
+        onDayChange(to.year, to.month, to.day);
       }
     } catch (err) {
       toastError(err, "Could not shift the day.");
