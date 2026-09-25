@@ -356,6 +356,14 @@ export function FlipdeskMeasureCardPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          {reason === "viewer" ? (
+            // blockViewerWrites answers any POST from a viewer with a 403, so
+            // offering the button would only produce an error toast.
+            <p className="text-sm text-muted-foreground">
+              Only teammates who can edit can run the card test.
+            </p>
+          ) : (
+          <>
           <input
             ref={testInput}
             id="mc-test-photo"
@@ -382,8 +390,13 @@ export function FlipdeskMeasureCardPage() {
             )}
             Test my card
           </Button>
+          </>
+          )}
+          {/* The live region stays mounted so the result is announced when it
+              arrives; a role=status node inserted WITH its text often is not. */}
+          <div role="status" aria-live="polite">
           {testResult ? (
-            <div className="space-y-1.5 text-sm" role="status" data-testid="mc-test-result">
+            <div className="space-y-1.5 text-sm" data-testid="mc-test-result">
               {testResult.ok ? (
                 <Badge variant="outline" className="gap-1">
                   <Check aria-hidden="true" className="h-3 w-3 text-emerald-600" />
@@ -406,6 +419,7 @@ export function FlipdeskMeasureCardPage() {
               <p className="text-muted-foreground">{testResult.scale_note}</p>
             </div>
           ) : null}
+          </div>
         </CardContent>
       </Card>
 
@@ -718,10 +732,21 @@ export function FlipdeskMeasureCardPage() {
                   required
                 />
               </div>
-              <div className="flex items-end">
+              <div className="flex items-end gap-2">
                 <Button type="submit" variant="outline">
                   Review address
                 </Button>
+                {/* MC-09: a replacement form needs a way back to the shipped
+                    card's status without reloading the page. */}
+                {replacing ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setReplacing(false)}
+                  >
+                    Cancel
+                  </Button>
+                ) : null}
               </div>
             </form>
             )

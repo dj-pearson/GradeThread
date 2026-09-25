@@ -285,3 +285,32 @@ describe("Test my card (MC-12)", () => {
     expect(src).not.toMatch(/localStorage/);
   });
 });
+
+describe("review fixes", () => {
+  it("the card-test result sits in a live region that is mounted before it", () => {
+    const src = read(PAGE);
+    const region = src.indexOf('<div role="status" aria-live="polite">');
+    expect(region).toBeGreaterThan(-1);
+    expect(src.indexOf('data-testid="mc-test-result"')).toBeGreaterThan(region);
+  });
+
+  it("a viewer is not offered a card test the server would 403", () => {
+    const src = read(PAGE);
+    expect(src).toContain("Only teammates who can edit can run the card test.");
+  });
+
+  it("MC-04: unreadable rows cannot be selected for a bulk move", () => {
+    const src = read("src/pages/admin/measure-cards.tsx");
+    expect(src).toContain("disabled={r.address_unreadable}");
+    expect(src).toMatch(/selectable\.map\(\(r\) => r\.id\)/);
+  });
+
+  it("seller-facing card-request errors carry no em dash", () => {
+    const route = read(ROUTE);
+    for (const lead of ["We can't post a card", "Mailed MeasureCards are"]) {
+      const at = route.indexOf(lead);
+      expect(at).toBeGreaterThan(-1);
+      expect(route.slice(at, route.indexOf("\n", at + 120))).not.toContain("—");
+    }
+  });
+});

@@ -934,7 +934,7 @@ export function validateMailAddress(
   if (!(MAIL_COUNTRIES as readonly string[]).includes(country)) {
     return {
       ok: false,
-      error: "We can't post a card to that country yet — the print-at-home PDF " +
+      error: "We can't post a card to that country yet. The print-at-home PDF " +
         "works with the same pipeline.",
     };
   }
@@ -999,7 +999,7 @@ flipdeskMeasureRoutes.post("/card-request", async (c) => {
     return c.json(
       {
         error:
-          "Mailed MeasureCards are a paid-plan perk — download the free print-at-home PDF, or upgrade to have one mailed.",
+          "Mailed MeasureCards are a paid-plan perk. Download the free print-at-home PDF, or upgrade to have one mailed.",
       },
       403,
     );
