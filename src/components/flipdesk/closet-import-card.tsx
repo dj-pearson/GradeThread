@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Chrome, Loader2, Shirt } from "lucide-react";
+import { Link } from "react-router";
+import { Download, Loader2, Shirt } from "lucide-react";
 import { toast } from "sonner";
 import {
   Card,
@@ -9,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useExtensionSetup } from "@/hooks/use-extension-setup";
 import {
   CLOSET_IMPORT_PLATFORMS,
@@ -18,7 +20,9 @@ import {
 } from "@/lib/marketplace-disclosure";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import {
+  closetImportBlocker,
   closetImportCapNotice,
+  closetImportCoverageNotice,
   closetImportFailureText,
   extensionStoreUrl,
   sendClosetImport,
@@ -73,6 +77,12 @@ export interface ClosetImportStart {
 interface Props {
   disabled?: boolean;
   onStarted: (start: ClosetImportStart) => void;
+  /**
+   * IMP-14: the extension did not answer in time. The read may still be
+   * starting, so the page looks for the run instead of the seller pressing
+   * again and starting a second one.
+   */
+  onStillReading?: () => void;
 }
 
 /** The 80% warning the gate emits: CAP_80;kind=activeListings;used=N;limit=M */
@@ -82,9 +92,10 @@ function describePlanWarning(header: string): string | null {
   return `You are at ${m[1]} of ${m[2]} live listings on your plan after this import.`;
 }
 
-export function ClosetImportCard({ disabled, onStarted }: Props) {
+export function ClosetImportCard({ disabled, onStarted, onStillReading }: Props) {
   const { data: setup } = useExtensionSetup();
   const [busy, setBusy] = useState<ClosetImportPlatform | null>(null);
+  const [factsFor, setFactsFor] = useState<ClosetImportPlatform>(CLOSET_IMPORT_PLATFORMS[0]);
 
   // Still loading the ping: render nothing rather than flash an install prompt
   // at somebody who already has it.
@@ -117,13 +128,15 @@ export function ClosetImportCard({ disabled, onStarted }: Props) {
             }}
             disabled={!url}
           >
-            <Chrome className="mr-2 h-4 w-4" />
+            <Download className="mr-2 h-4 w-4" />
             {url ? "Get the extension" : "Extension not available yet"}
           </Button>
         </CardContent>
       </Card>
     );
   }
+
+  const blocker = closetImportBlocker(setup);
 
   async function run(platform: ClosetImportPlatform) {
     setBusy(platform);
@@ -154,9 +167,24 @@ export function ClosetImportCard({ disabled, onStarted }: Props) {
         if (capNotice) toast.warning(capNotice, { duration: 12_000 });
         const warn = result.plan_warning ? describePlanWarning(result.plan_warning) : null;
         if (warn) toast.warning(warn, { duration: 12_000 });
+        // IMP-14: a read that stopped short must not look like the whole closet.
+        const coverage = closetImportCoverageNotice(res.coverage, platform);
+        if (coverage) toast.warning(coverage, { duration: 12_000 });
+        return;
+      }
+      // IMP-14: no answer in time is not "nothing was read". The extension may
+      // be starting the run right now, and pressing again would start another.
+      if (res.timedOut) {
+        track("closet_import_failed", { platform, reason: "timeout", timed_out: true });
+        toast.info(
+          `Still reading your ${MARKETPLACE_LABELS[platform]} closet. It will show up under Recent imports when it finishes.`,
+          { duration: 12_000 },
+        );
+        onStillReading?.();
         return;
       }
       if (result?.error === "CAP_REACHED") {
+        track("closet_import_failed", { platform, reason: "cap_reached", timed_out: false });
         toast.error(
           `You are at ${result.used ?? "?"} of ${result.limit ?? "?"} live listings on your plan. ` +
             "Upgrade, or end some listings, to import more.",
@@ -167,6 +195,11 @@ export function ClosetImportCard({ disabled, onStarted }: Props) {
       // Our own sentence for the extension's reason code, never the wire text
       // (US-2869 AC4). The extension carries the same sentences, but the web
       // must not print whatever arrived.
+      track("closet_import_failed", {
+        platform,
+        reason: res.reason ?? "unknown",
+        timed_out: false,
+      });
       toast.error(closetImportFailureText(res.reason ?? null, platform), {
         duration: 10_000,
       });
@@ -193,33 +226,71 @@ export function ClosetImportCard({ disabled, onStarted }: Props) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {CLOSET_IMPORT_PLATFORMS.map((platform) => {
-          const disclosure = closetImportDisclosureFor(platform);
-          return (
-            <div key={platform} className="rounded-md border p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="text-sm font-medium">{disclosure.title}</div>
-                <Button
-                  size="sm"
-                  disabled={disabled || busy !== null}
-                  onClick={() => void run(platform)}
-                >
-                  {busy === platform ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Chrome className="mr-2 h-4 w-4" />
-                  )}
-                  Import from {MARKETPLACE_LABELS[platform]}
-                </Button>
-              </div>
-              <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-                {disclosure.facts.map((fact) => (
-                  <li key={fact}>{fact}</li>
-                ))}
-              </ul>
-            </div>
-          );
-        })}
+        {blocker && (
+          <div role="status" className="flex flex-wrap items-center gap-3 text-sm">
+            <span>{blocker.text}</span>
+            {blocker.kind === "reconnect" ? (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/dashboard/flipdesk/marketplaces">Reconnect the extension</Link>
+              </Button>
+            ) : null}
+          </div>
+        )}
+        <details className="text-sm">
+          <summary className="cursor-pointer text-muted-foreground">
+            What the extension reads, and what it leaves alone
+          </summary>
+          <Tabs
+            value={factsFor}
+            onValueChange={(v) => setFactsFor(v as ClosetImportPlatform)}
+            className="mt-2"
+          >
+            <TabsList>
+              {CLOSET_IMPORT_PLATFORMS.map((p) => (
+                <TabsTrigger key={p} value={p}>
+                  {MARKETPLACE_LABELS[p]}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {CLOSET_IMPORT_PLATFORMS.map((p) => {
+              const disclosure = closetImportDisclosureFor(p);
+              return (
+                <TabsContent key={p} value={p}>
+                  <p className="font-medium">{disclosure.title}</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                    {disclosure.facts.map((fact) => (
+                      <li key={fact}>{fact}</li>
+                    ))}
+                  </ul>
+                </TabsContent>
+              );
+            })}
+          </Tabs>
+        </details>
+        {/* IMP-14: one row of buttons, after one disclosure of the
+            per-platform facts, instead of four bordered boxes of
+            near-identical text. The facts still come before the press. */}
+        <div className="flex flex-wrap gap-2">
+          {CLOSET_IMPORT_PLATFORMS.map((platform) => (
+            <Button
+              key={platform}
+              size="sm"
+              variant={busy === platform ? "default" : "outline"}
+              disabled={disabled || busy !== null || blocker !== null}
+              aria-busy={busy === platform || undefined}
+              onClick={() => void run(platform)}
+            >
+              {busy === platform ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              {busy === platform
+                ? `Reading your ${MARKETPLACE_LABELS[platform]} closet...`
+                : `Import from ${MARKETPLACE_LABELS[platform]}`}
+            </Button>
+          ))}
+        </div>
       </CardContent>
     </Card>
   );

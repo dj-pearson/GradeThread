@@ -26,6 +26,13 @@ export interface FakeCall {
   body: unknown;
 }
 
+export interface FakeError {
+  status: number;
+  code: string;
+  message: string;
+  details?: string | null;
+}
+
 export interface FakePostgrest {
   tables: Record<string, Row[]>;
   calls: FakeCall[];
@@ -36,8 +43,15 @@ export interface FakePostgrest {
    */
   maxRows: number;
   reset(seed?: Record<string, Row[]>): void;
-  /** Make the next `method` on `table` answer a 500. */
-  failNext(table: string, method: "GET" | "POST" | "PATCH" | "DELETE"): void;
+  /**
+   * Make the next `method` on `table` answer a 500, or the given error (a
+   * 409 unique violation, say) when `error` is passed.
+   */
+  failNext(
+    table: string,
+    method: "GET" | "POST" | "PATCH" | "DELETE",
+    error?: FakeError,
+  ): void;
   /** Every call that wrote to `table`. */
   writes(table: string): FakeCall[];
   restore(): void;
@@ -133,7 +147,7 @@ function singular(name: string): string {
 
 export function installFakePostgrest(): FakePostgrest {
   const realFetch = globalThis.fetch;
-  const failures: Array<{ table: string; method: string }> = [];
+  const failures: Array<{ table: string; method: string; error?: FakeError }> = [];
 
   const fake: FakePostgrest = {
     tables: {},
@@ -147,8 +161,8 @@ export function installFakePostgrest(): FakePostgrest {
       fake.maxRows = Number.POSITIVE_INFINITY;
       failures.length = 0;
     },
-    failNext(table, method) {
-      failures.push({ table, method });
+    failNext(table, method, error) {
+      failures.push({ table, method, error });
     },
     writes(table) {
       return fake.calls.filter((c) => c.table === table && c.method !== "GET");
@@ -252,7 +266,11 @@ export function installFakePostgrest(): FakePostgrest {
 
     const f = failures.findIndex((x) => x.table === table && x.method === method);
     if (f >= 0) {
-      failures.splice(f, 1);
+      const [hit] = failures.splice(f, 1);
+      if (hit.error) {
+        const { status, ...rest } = hit.error;
+        return json({ details: null, hint: null, ...rest }, status);
+      }
       return json({ message: "injected failure", code: "XX000", details: null, hint: null }, 500);
     }
 

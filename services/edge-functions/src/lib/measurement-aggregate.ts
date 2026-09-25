@@ -245,34 +245,70 @@ export function cohortsToRetire<T extends CohortKey>(
 
 export interface AggregateSummary {
   cohorts: number;
+  /** Sufficient cohorts among the chunks that were actually saved. */
   sufficient: number;
   upserted: number;
   /** Published cohorts whose last observation went away and were unpublished. */
   retired: number;
+  /** Observation rows read. Every page, or the job threw. */
+  rowsRead: number;
+  /** Upsert or retire chunks that failed. Non-zero means the job route 500s. */
+  failedChunks: number;
+}
+
+/** The slice of the Supabase client this job uses; injectable for tests. */
+type AggregateDb = Pick<typeof supabaseAdmin, "from">;
+// The PostgREST builder's generic type does not survive being passed through a
+// filter callback; the calls below are the same ones the job made before.
+// deno-lint-ignore no-explicit-any
+type Query = any;
+
+const PAGE = 1000;
+const CHUNK = 500;
+
+/**
+ * Read every row of a table in id order, keyset-paged.
+ *
+ * MC-06: a failed page THROWS. It used to log and break, and the job then
+ * saved stats from partial data and retired every cohort it had not reached,
+ * which unpublished real numbers and still answered 200 ok. `.range()` offset
+ * paging is also gone: keyset on id cannot skip or repeat a row when the table
+ * changes mid-read.
+ */
+async function readAllById<T extends { id: string }>(
+  db: AggregateDb,
+  table: string,
+  columns: string,
+  filter?: (q: Query) => Query,
+): Promise<T[]> {
+  const out: T[] = [];
+  let lastId: string | null = null;
+  for (;;) {
+    let q: Query = db.from(table).select(columns);
+    if (filter) q = filter(q);
+    if (lastId !== null) q = q.gt("id", lastId);
+    const { data, error } = await q.order("id", { ascending: true }).limit(PAGE);
+    if (error) {
+      throw new Error(`[measurement-aggregate] read of ${table} failed: ${error.message}`);
+    }
+    const page = (data ?? []) as T[];
+    out.push(...page);
+    if (page.length < PAGE) break;
+    lastId = page[page.length - 1]!.id;
+  }
+  return out;
 }
 
 /** Read every observation, aggregate, and upsert the stats table. */
-export async function computeMeasurementAggregates(): Promise<AggregateSummary> {
-  const rows: (CohortKey & CohortObservation)[] = [];
-
-  // Paged so the whole table does not have to fit in one PostgREST response.
-  const PAGE = 1000;
-  for (let from = 0;; from += PAGE) {
-    const { data, error } = await supabaseAdmin
-      .from("garment_measurements")
-      .select(
-        "brand_key, style_key, department, measurement_group, size_label, field_key, inches, user_id",
-      )
-      .order("id", { ascending: true })
-      .range(from, from + PAGE - 1);
-    if (error) {
-      console.error("[measurement-aggregate] read failed:", error.message);
-      break;
-    }
-    const page = (data ?? []) as unknown as (CohortKey & CohortObservation)[];
-    rows.push(...page);
-    if (page.length < PAGE) break;
-  }
+export async function computeMeasurementAggregates(
+  db: AggregateDb = supabaseAdmin,
+): Promise<AggregateSummary> {
+  // Throws on a failed page, before anything is written or retired.
+  const rows = await readAllById<CohortKey & CohortObservation & { id: string }>(
+    db,
+    "garment_measurements",
+    "id, brand_key, style_key, department, measurement_group, size_label, field_key, inches, user_id",
+  );
 
   const stats = aggregateAll(rows);
 
@@ -283,16 +319,19 @@ export async function computeMeasurementAggregates(): Promise<AggregateSummary> 
   // contributors had ALL opted out kept its `sufficient=true` row and the page
   // kept printing a median backed by nothing at all. "Nothing to write" and
   // "nothing to retire" are different questions and only one of them was being
-  // asked.
+  // asked. An empty result is only trusted because the read above is COMPLETE:
+  // a failed page throws rather than leaving `rows` short.
 
   let upserted = 0;
-  const CHUNK = 500;
+  let sufficient = 0;
+  let failedChunks = 0;
   for (let i = 0; i < stats.length; i += CHUNK) {
-    const chunk = stats.slice(i, i + CHUNK).map((s) => ({
+    const slice = stats.slice(i, i + CHUNK);
+    const chunk = slice.map((s) => ({
       ...s,
       updated_at: new Date().toISOString(),
     }));
-    const { error } = await supabaseAdmin
+    const { error } = await db
       .from("garment_measurement_stats")
       .upsert(chunk as never, {
         onConflict:
@@ -300,9 +339,11 @@ export async function computeMeasurementAggregates(): Promise<AggregateSummary> 
       });
     if (error) {
       console.error("[measurement-aggregate] upsert failed:", error.message);
+      failedChunks++;
       continue;
     }
     upserted += chunk.length;
+    sufficient += slice.filter((s) => s.sufficient).length;
   }
 
   // A cohort whose last observation was deleted (an opt-out, or a purge) leaves
@@ -312,20 +353,20 @@ export async function computeMeasurementAggregates(): Promise<AggregateSummary> 
   // the read path already filters on.
   //
   // This runs unconditionally. An empty `stats` is the case that needs it MOST,
-  // because it means every observation is gone.
-  let retired = 0;
-  const { data: existing } = await supabaseAdmin
-    .from("garment_measurement_stats")
-    .select(
-      "id, brand_key, style_key, department, measurement_group, size_label, field_key",
-    )
-    .eq("sufficient", true);
-  const stale = cohortsToRetire(
-    stats,
-    (existing ?? []) as unknown as (CohortKey & { id: string })[],
+  // because it means every observation is gone. The published set is paged the
+  // same way and a failed read throws: retiring against a PARTIAL published set
+  // would only miss rows, but pretending it read them all would hide that.
+  const existing = await readAllById<CohortKey & { id: string }>(
+    db,
+    "garment_measurement_stats",
+    "id, brand_key, style_key, department, measurement_group, size_label, field_key",
+    (q) => q.eq("sufficient", true),
   );
-  for (const row of stale) {
-    await supabaseAdmin
+  const stale = cohortsToRetire(stats, existing);
+  let retired = 0;
+  for (let i = 0; i < stale.length; i += CHUNK) {
+    const ids = stale.slice(i, i + CHUNK).map((r) => r.id);
+    const { error } = await db
       .from("garment_measurement_stats")
       .update({
         sample_count: 0,
@@ -336,14 +377,21 @@ export async function computeMeasurementAggregates(): Promise<AggregateSummary> 
         sufficient: false,
         updated_at: new Date().toISOString(),
       } as never)
-      .eq("id", row.id);
-    retired++;
+      .in("id", ids);
+    if (error) {
+      console.error("[measurement-aggregate] retire failed:", error.message);
+      failedChunks++;
+      continue;
+    }
+    retired += ids.length;
   }
 
   return {
     cohorts: stats.length,
-    sufficient: stats.filter((s) => s.sufficient).length,
+    sufficient,
     upserted,
     retired,
+    rowsRead: rows.length,
+    failedChunks,
   };
 }

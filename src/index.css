@@ -91,6 +91,12 @@
      `text-grade-green-text` for green copy; emerald stays for rings and bars. */
   --color-grade-green-text: var(--grade-green-text);
 
+  /* AA-safe green for STATUS text ("Signed", "Connected", a positive delta).
+     text-green-600 at text-xs read about 3.3:1 and had no dark variant. Same
+     values as grade-green-text, kept separate so a grade palette change does
+     not move status copy. Use `text-success-text`. */
+  --color-success-text: var(--success-text);
+
   /* Semantic color mappings */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -160,6 +166,7 @@
   --destructive: #cc1f3d;
   --brand-red-text: #cc1f3d;
   --grade-green-text: #047857;
+  --success-text: #047857;
   --border: #e2e8f0;
   --input: #e2e8f0;
   --ring: #0c1e36;
@@ -205,6 +212,7 @@
   --destructive: #fb5e78;
   --brand-red-text: #fb5e78;
   --grade-green-text: #34d399;
+  --success-text: #34d399;
   --border: rgba(255, 255, 255, 0.08);
   --input: rgba(255, 255, 255, 0.12);
   --ring: #f03d5f;
@@ -257,6 +265,7 @@
     --destructive: #cc1f3d;
     --foreground: #0e0e1a;
     --grade-green-text: #047857;
+    --success-text: #047857;
     --input: #e2e8f0;
     --muted: #f0f4f8;
     --muted-foreground: #64748b;

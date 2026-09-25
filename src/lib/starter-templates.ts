@@ -20,6 +20,19 @@
 // `src/lib/starter-templates.test.ts` enforces every rule in this comment.
 
 import type { StarterPreset } from "@/lib/starter-presets";
+import { APPAREL_CONDITION_LABELS, EBAY_CONDITION_ENUM_TO_ID } from "@/lib/constants";
+
+/**
+ * The picker's condition line, built from the value so the two cannot drift.
+ * Apparel labels, because every starter is apparel: USED_EXCELLENT (3000) is
+ * "Pre-owned - Good" to a clothing buyer, which is what the old hand-typed
+ * "Excellent" note got wrong.
+ */
+export function conditionLine(ebayCondition: string): string {
+  const id = EBAY_CONDITION_ENUM_TO_ID[ebayCondition];
+  const label = id ? APPAREL_CONDITION_LABELS[id] : undefined;
+  return `Condition: ${label ?? ebayCondition}`;
+}
 
 /** What the picker needs on top of the shared preset shape. */
 export interface StarterTemplate extends StarterPreset {
@@ -27,11 +40,19 @@ export interface StarterTemplate extends StarterPreset {
   conditionDescription: string;
 }
 
-export const STARTER_TEMPLATES: readonly StarterTemplate[] = Object.freeze([
+/** What the picker lists under a starter: the condition and the note it saves. */
+function details(ebayCondition: string, conditionDescription: string) {
+  return [
+    { label: "Condition", value: conditionLine(ebayCondition).replace(/^Condition: /, "") },
+    { label: "Condition note", value: conditionDescription },
+  ];
+}
+
+const STARTERS: ReadonlyArray<Omit<StarterTemplate, "details">> = [
   {
     id: "everyday-basics",
     name: "Everyday basics",
-    ebayCondition: "USED_EXCELLENT",
+    ebayCondition: "PRE_OWNED_EXCELLENT",
     conditionDescription:
       "Worn a handful of times. No holes, stains or pilling, and the print and seams are intact.",
     body:
@@ -39,12 +60,12 @@ export const STARTER_TEMPLATES: readonly StarterTemplate[] = Object.freeze([
       "Returns accepted for 30 days. Send it back the way it arrived and I " +
       "refund the item price.\n\n" +
       "Buying more than one? Bundle them and I will send you a discounted offer.",
-    note: "Condition: Pre-owned — Excellent",
+    note: conditionLine("PRE_OWNED_EXCELLENT"),
   },
   {
     id: "vintage-and-thrifted",
     name: "Vintage and thrifted",
-    ebayCondition: "USED_GOOD",
+    ebayCondition: "USED_EXCELLENT",
     conditionDescription:
       "Honest vintage wear consistent with its age. Anything worth knowing about is photographed and listed above.",
     body:
@@ -56,12 +77,12 @@ export const STARTER_TEMPLATES: readonly StarterTemplate[] = Object.freeze([
       "before you buy if you want another angle and I will send it the same " +
       "day.\n\n" +
       "Ships in one business day, tracked, from a smoke-free home.",
-    note: "Condition: Pre-owned — Good",
+    note: conditionLine("USED_EXCELLENT"),
   },
   {
     id: "designer-and-luxury",
     name: "Designer and luxury",
-    ebayCondition: "USED_EXCELLENT",
+    ebayCondition: "PRE_OWNED_EXCELLENT",
     conditionDescription:
       "Excellent pre-owned condition. Hardware, lining and stitching all photographed above.",
     body:
@@ -70,12 +91,12 @@ export const STARTER_TEMPLATES: readonly StarterTemplate[] = Object.freeze([
       "Ships within one business day, insured, signature on delivery, packed " +
       "in a box rather than a mailer.\n\n" +
       "Returns accepted for 30 days as long as the tags are still attached.",
-    note: "Condition: Pre-owned — Excellent",
+    note: conditionLine("PRE_OWNED_EXCELLENT"),
   },
   {
     id: "kids-and-baby",
     name: "Kids and baby",
-    ebayCondition: "USED_GOOD",
+    ebayCondition: "USED_EXCELLENT",
     conditionDescription:
       "Gently used with normal play wear. Washed and checked for holes, stains and working snaps before listing.",
     body:
@@ -84,6 +105,10 @@ export const STARTER_TEMPLATES: readonly StarterTemplate[] = Object.freeze([
       "Kids clothes are cheaper by the pile: add anything else from my shop to " +
       "a bundle and I will send a discounted offer for the lot in one box.\n\n" +
       "Ships in one business day from a smoke-free, pet-free home.",
-    note: "Condition: Pre-owned — Good",
+    note: conditionLine("USED_EXCELLENT"),
   },
-]);
+]
+
+export const STARTER_TEMPLATES: readonly StarterTemplate[] = Object.freeze(
+  STARTERS.map((t) => ({ ...t, details: details(t.ebayCondition, t.conditionDescription) })),
+);

@@ -1,6 +1,6 @@
 // US-3039: fetch the published measurement table for one garment.
 //
-// One request per distinct (brand, style, group, size, gender), cached by
+// One request per distinct (brand, style, group, size), cached by
 // TanStack Query for the editing session. The table is a few hundred bytes and
 // the endpoint marks it cacheable for half an hour, so the composer autofills
 // and checks drift on every keystroke without touching the network again.
@@ -19,9 +19,11 @@ export function measurementStatsQueryKey(
   style: string | null,
   group: string | null,
   size: string | null,
-  gender: string | null,
 ): (string | null)[] {
-  return ["measurement-stats", brand, style, group, size, gender];
+  // MC-05: no gender. The server resolves the department from the matched
+  // style, the same way the ingest filed the rows, so gender only split the
+  // cache without changing the answer.
+  return ["measurement-stats", brand, style, group, size];
 }
 
 export async function fetchMeasurementStats(
@@ -29,7 +31,6 @@ export async function fetchMeasurementStats(
   style: string | null,
   group: string | null,
   size: string | null,
-  gender: string | null,
 ): Promise<IndexStatsResponse> {
   // Brand, group and size are all required to name a cohort. Asking without
   // them would be asking the server to guess, and the server correctly will
@@ -42,7 +43,6 @@ export async function fetchMeasurementStats(
     size: size.trim(),
   });
   if (style?.trim()) params.set("style", style.trim());
-  if (gender?.trim()) params.set("gender", gender.trim());
 
   const res = await edgeFetch(`/api/flipdesk/measurement-stats?${params.toString()}`);
   if (!res.ok) return NO_INDEX_STATS;

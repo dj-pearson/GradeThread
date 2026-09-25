@@ -6,10 +6,18 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - scripts/ops/edge-watchdog.sh
-reviewed: 2026-09-24
+reviewed: 2026-09-25
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
+
+> [!note] Re-reviewed 2026-09-25. Drift flagged `main.ts` for IMP-02 (a
+> method-split limiter on `/api/flipdesk/import/*`) and IMP-09 (three
+> `requireWorkspaceRoleForWrites("listing_manager")` mounts on the import and
+> closet-import write paths). Both are `app.use` middleware under `/api/`; no
+> verb route was added or moved, so nothing here about which host serves what
+> changed. Still accurate.
+
 
 
 > [!note] Re-reviewed 2026-09-20. Drift flagged `main.ts` for US-3197. The diff

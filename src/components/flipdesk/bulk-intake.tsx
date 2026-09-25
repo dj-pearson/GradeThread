@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
@@ -298,12 +298,6 @@ export function BulkIntake() {
             </p>
           </div>
         </div>
-      </div>
-
-      <div className="flex justify-end">
-        <Button variant="ghost" size="sm" asChild>
-          <Link to="/dashboard/flipdesk/intake">Switch to single item</Link>
-        </Button>
       </div>
 
       {/* Shared haul header */}

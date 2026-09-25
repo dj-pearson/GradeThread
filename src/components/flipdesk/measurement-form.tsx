@@ -104,6 +104,35 @@ function unitSuffix(field: MeasurementField, lengthUnit: "in" | "cm"): string {
   return "US";
 }
 
+const CM_PER_IN = 2.54;
+const round = (n: number, places: number) => {
+  const f = 10 ** places;
+  return Math.round(n * f) / f;
+};
+
+/**
+ * Lengths are STORED in inches (src/lib/measurements.ts) whatever the toggle
+ * says. The toggle used to change only the suffix, so 56 typed in cm was saved
+ * and listed as 56 in.
+ */
+function lengthToStored(raw: string, field: MeasurementField, unit: "in" | "cm"): number | string {
+  if (field.unit !== "length" || unit !== "cm") return raw;
+  const n = Number(raw);
+  return Number.isFinite(n) ? round(n / CM_PER_IN, 2) : raw;
+}
+
+/** A stored inch value (or a median in inches) as the seller reads it. */
+function lengthToDisplay(
+  stored: number | string | null | undefined,
+  field: MeasurementField,
+  unit: "in" | "cm",
+): string {
+  if (stored === undefined || stored === null) return "";
+  if (field.unit !== "length" || unit !== "cm") return String(stored);
+  const n = Number(stored);
+  return Number.isFinite(n) && String(stored).trim() !== "" ? String(round(n * CM_PER_IN, 1)) : String(stored);
+}
+
 export function MeasurementForm({
   category,
   brand,
@@ -156,11 +185,11 @@ export function MeasurementForm({
   // re-runs on each keystroke with no network call.
   const styleKey = (style ?? "").trim() || null;
   const { data: indexStats = NO_INDEX_STATS } = useQuery<IndexStatsResponse>({
-    queryKey: measurementStatsQueryKey(brandKey, styleKey, group, sizeKey, genderKey),
+    queryKey: measurementStatsQueryKey(brandKey, styleKey, group, sizeKey),
     enabled: !!user && !!brandKey && !!sizeKey,
     staleTime: 30 * 60 * 1000,
     queryFn: () =>
-      fetchMeasurementStats(brandKey, styleKey, group, sizeKey, genderKey),
+      fetchMeasurementStats(brandKey, styleKey, group, sizeKey),
   });
   const template = MEASUREMENT_TEMPLATES[group];
   // US-2335: the per-field <Label> was never linked to its input. useId rather
@@ -222,10 +251,15 @@ export function MeasurementForm({
   const fixSize = fixableSize(sizeVerdict);
   const sizeEstimateNote = tierNote(sizeBands.tier, sizeBands.brandLabel);
 
-  function set(key: string, raw: string) {
+  // What the seller is typing, per field, so a cm value is not reformatted
+  // mid-keystroke by the round trip through inches. Cleared on blur and when
+  // the unit changes.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  function set(key: string, raw: string, field?: MeasurementField) {
     const next = { ...values };
     if (raw.trim() === "") delete next[key];
-    else next[key] = raw;
+    else next[key] = field ? lengthToStored(raw, field, unit) : raw;
     onChange(next);
     setTouched((prev) => {
       if (prev.has(key)) return prev;
@@ -262,13 +296,21 @@ export function MeasurementForm({
             size={size}
             values={values}
           />
-          {/* in / cm toggle — applies to length fields */}
-          <div className="flex overflow-hidden rounded-md border text-xs">
+          {/* in / cm toggle. Applies to length fields; values stay in inches. */}
+          <div
+            role="group"
+            aria-label="Length unit"
+            className="flex overflow-hidden rounded-md border text-xs"
+          >
             {(["in", "cm"] as const).map((u) => (
               <button
                 key={u}
                 type="button"
-                onClick={() => setUnit(u)}
+                aria-pressed={unit === u}
+                onClick={() => {
+                  setDrafts({});
+                  setUnit(u);
+                }}
                 className={cn(
                   "px-2 py-0.5",
                   unit === u
@@ -415,8 +457,21 @@ export function MeasurementForm({
                   id={`${fieldIdBase}-${field.key}`}
                   type="number"
                   inputMode="decimal"
-                  value={values[field.key] ?? ""}
-                  onChange={(e) => set(field.key, e.target.value)}
+                  min={0}
+                  value={drafts[field.key] ?? lengthToDisplay(values[field.key], field, unit)}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setDrafts((prev) => ({ ...prev, [field.key]: raw }));
+                    set(field.key, raw, field);
+                  }}
+                  onBlur={() =>
+                    setDrafts((prev) => {
+                      if (!(field.key in prev)) return prev;
+                      const out = { ...prev };
+                      delete out[field.key];
+                      return out;
+                    })
+                  }
                   className="pr-10"
                 />
                 <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
@@ -429,10 +484,11 @@ export function MeasurementForm({
                   <button
                     type="button"
                     className="underline underline-offset-2"
-                    aria-label={`Use ${suggestion.median} for ${field.label}`}
+                    aria-label={`Use ${lengthToDisplay(suggestion.median, field, unit)} ${unitSuffix(field, unit)} for ${field.label}`}
+                    // The median is already in inches: store it as is.
                     onClick={() => set(field.key, String(suggestion.median))}
                   >
-                    {suggestion.median}
+                    {lengthToDisplay(suggestion.median, field, unit)}{" "}
                     {unitSuffix(field, unit)}
                   </button>{" "}
                   ({suggestion.sampleCount} measured)
@@ -460,8 +516,10 @@ export function MeasurementForm({
                 <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
                   <Info className="mt-0.5 h-3 w-3 shrink-0" />
                   <span>
-                    Most size {sizeKey} measure {band.cohortP25}&quot; to{" "}
-                    {band.cohortP75}&quot; here. Worth a second look.{" "}
+                    Most size {sizeKey} measure{" "}
+                    {lengthToDisplay(band.cohortP25, field, unit)} to{" "}
+                    {lengthToDisplay(band.cohortP75, field, unit)}{" "}
+                    {unitSuffix(field, unit)} here. Worth a second look.{" "}
                     <button
                       type="button"
                       className="underline underline-offset-2"

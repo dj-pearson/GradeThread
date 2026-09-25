@@ -12,12 +12,19 @@ code_refs:
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/defect-weighting.ts
   - services/edge-functions/src/tests/weighted-grade-parity_test.ts
-reviewed: 2026-09-24
+reviewed: 2026-09-25
 tags: [grading, contract]
 summary: The 1.0-10.0 scale, the five weighted factors, the rounding rule that has now shipped wrong twice, and which engine criteria are published and therefore no longer free to tune.
 ---
 
 # Grading scale, factor weights and rounding
+
+> **Re-reviewed 2026-09-25.** Drift flagged `src/lib/constants.ts` on
+> 32b1dedeb (listing templates). The change adds three condition tables beside
+> `EBAY_CONDITION_OPTIONS`: `EBAY_CONDITION_ENUM_TO_ID` (a mirror of the edge
+> preflight's `CONDITION_ENUM_TO_ID`), `APPAREL_CONDITION_IDS` and
+> `APPAREL_CONDITION_LABELS`, used by the starter templates. No constant this
+> note cites moved.
 
 > **Re-reviewed 2026-09-22.** Drift flagged `src/lib/constants.ts` on
 > 3b252aa1 (US-3450). The change is one exported type alias,

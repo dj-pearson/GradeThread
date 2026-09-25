@@ -1,9 +1,11 @@
 // The reconnect toast. An item whose row reached the server but whose photos
 // did not is saved, and saying "still queued" or "failed" about it sends the
-// seller to enter the garment a second time.
+// seller to enter the garment a second time. The sync is mounted once for the
+// whole dashboard, so it runs on any page.
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   flush: vi.fn(),
   count: vi.fn(),
   toast: {
+    dismiss: vi.fn(),
     loading: vi.fn(() => "t1"),
     success: vi.fn(),
     error: vi.fn(),
@@ -19,30 +22,31 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/offline-queue", () => ({
-  flushIntakeQueue: mocks.flush,
-  queuedIntakeCount: mocks.count,
+  flushIntakeQueueExclusive: mocks.flush,
+  queueCounts: mocks.count,
+}));
+vi.mock("@/stores/auth-store", () => ({
+  useAuthStore: (sel: (s: { user: { id: string } }) => unknown) => sel({ user: { id: "me" } }),
 }));
 vi.mock("@/lib/pwa", () => ({ ensureServiceWorker: vi.fn() }));
 vi.mock("sonner", () => ({ toast: mocks.toast }));
 
-const { useOfflineIntakeSync } = await import("@/hooks/use-offline-intake");
+const { OfflineIntakeSync } = await import("@/hooks/use-offline-intake");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let host: HTMLDivElement;
 let root: Root;
 
-function Probe() {
-  useOfflineIntakeSync();
-  return null;
-}
 
 async function mountAndSync() {
   const client = new QueryClient();
   await act(async () => {
     root.render(
       <QueryClientProvider client={client}>
-        <Probe />
+        <MemoryRouter initialEntries={["/dashboard/flipdesk/items"]}>
+          <OfflineIntakeSync />
+        </MemoryRouter>
       </QueryClientProvider>,
     );
   });
@@ -55,6 +59,7 @@ async function mountAndSync() {
 
 const base = {
   synced: 0,
+  syncedIds: [] as string[],
   failed: 0,
   firstError: null,
   photosDropped: 0,
@@ -66,7 +71,7 @@ const base = {
 
 beforeEach(() => {
   mocks.flush.mockReset();
-  mocks.count.mockReset().mockResolvedValue(1);
+  mocks.count.mockReset().mockResolvedValue({ itemsPending: 1, photosPending: 0 });
   for (const fn of Object.values(mocks.toast)) fn.mockClear();
   host = document.createElement("div");
   document.body.appendChild(host);
@@ -117,9 +122,79 @@ describe("offline sync toast", () => {
     );
   });
 
+  it("counts and flushes only the signed-in user's records", async () => {
+    mocks.flush.mockResolvedValue({ ...base, synced: 1 });
+    await mountAndSync();
+    expect(mocks.count).toHaveBeenCalledWith("me");
+    expect(mocks.flush).toHaveBeenCalledWith("me");
+  });
+
+  it("offers to review the items it synced", async () => {
+    mocks.flush.mockResolvedValue({ ...base, synced: 2, syncedIds: ["a", "b"] });
+    await mountAndSync();
+    const opts = mocks.toast.success.mock.calls[0]![1] as { action: { label: string } };
+    expect(opts.action.label).toBe("Review 2 items");
+  });
+
+  it("does nothing when another flush holds the lock", async () => {
+    mocks.flush.mockResolvedValue(null);
+    await mountAndSync();
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+    expect(mocks.toast.dismiss).toHaveBeenCalledWith("t1");
+  });
+
+  it("flushes on reconnect while the seller is on another page", async () => {
+    mocks.count.mockResolvedValue({ itemsPending: 0, photosPending: 0 });
+    await mountAndSync();
+    expect(mocks.flush).not.toHaveBeenCalled();
+    mocks.count.mockResolvedValue({ itemsPending: 1, photosPending: 0 });
+    mocks.flush.mockResolvedValue({ ...base, synced: 1, syncedIds: ["a"] });
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(mocks.flush).toHaveBeenCalledWith("me");
+  });
+
   it("says synced when everything went up", async () => {
     mocks.flush.mockResolvedValue({ ...base, synced: 2 });
     await mountAndSync();
-    expect(mocks.toast.success).toHaveBeenCalledWith("Synced 2 offline items.", { id: "t1" });
+    expect(mocks.toast.success).toHaveBeenCalledWith(
+      "Synced 2 offline items.",
+      expect.objectContaining({ id: "t1" }),
+    );
+  });
+
+  it("retries 30s after a flush that left work behind", async () => {
+    const spy = vi.spyOn(globalThis, "setTimeout");
+    mocks.flush.mockResolvedValue({ ...base, failed: 1, firstError: "refused" });
+    await mountAndSync();
+    const retry = spy.mock.calls.find((c) => c[1] === 30_000);
+    spy.mockRestore();
+    expect(retry).toBeDefined();
+    mocks.flush.mockResolvedValue({ ...base, synced: 1 });
+    await act(async () => {
+      (retry![0] as () => void)();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(mocks.flush).toHaveBeenCalledTimes(2);
+  });
+
+  it("schedules no retry when it unmounts while a flush is still running", async () => {
+    let finish!: (v: unknown) => void;
+    mocks.flush.mockReturnValue(new Promise((r) => (finish = r)));
+    await mountAndSync();
+    act(() => root.unmount());
+    const spy = vi.spyOn(globalThis, "setTimeout");
+    await act(async () => {
+      finish({ ...base, failed: 1, firstError: "refused" });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    const retry = spy.mock.calls.find((c) => c[1] === 30_000);
+    spy.mockRestore();
+    expect(retry).toBeUndefined();
+    // afterEach unmounts again; give it a fresh root.
+    root = createRoot(host);
   });
 });

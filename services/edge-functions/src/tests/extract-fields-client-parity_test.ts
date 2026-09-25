@@ -18,7 +18,7 @@ const IOS_WRITER = new URL(
   "ios/GradeThread/AIExtract/AIItemFieldWriter.swift",
   REPO_ROOT,
 );
-const WEB_INTAKE = new URL("src/pages/flipdesk/intake.tsx", REPO_ROOT);
+const WEB_INTAKE = new URL("src/pages/flipdesk/intake-single.tsx", REPO_ROOT);
 
 /** Pull the string literals out of a `const NAME = [ ... ] as const;` block. */
 function arrayLiteral(src: string, declaration: RegExp): string[] {
@@ -149,12 +149,15 @@ Deno.test("US-2269: the web intake applies every EXTRACT_FIELDS name too", async
     /const AI_FILLABLE_FIELDS = \[([\s\S]*?)\] as const;/,
   );
 
-  // The intake form is text-driven, so it deliberately doesn't offer the
-  // garment_* classifiers (it derives those via deriveGarmentDefaults) or a
-  // public `description` (that field is the seller's own copy there). Everything
-  // else the AI can return must be applicable.
-  const exempt = new Set(["garment_type", "garment_category", "description"]);
-  const missing = fields.filter((f) => !exempt.has(f) && !fillable.includes(f));
+  // The garment_* classifiers are not form fields; the intake keeps the
+  // accepted ones in AI_GARMENT_FIELDS and saves them with the row. Every
+  // other field the AI can return must be applicable to the form, description
+  // included (the panel used to show it and then drop it).
+  const garment = arrayLiteral(
+    intake,
+    /const AI_GARMENT_FIELDS = \[([\s\S]*?)\] as const;/,
+  );
+  const missing = fields.filter((f) => !garment.includes(f) && !fillable.includes(f));
   assertEquals(
     missing,
     [],

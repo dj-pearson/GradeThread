@@ -24,6 +24,11 @@ export interface StarterPreset {
   body: string;
   /** An extra line the picker shows under the body (templates use it for the condition). */
   note?: string;
+  /**
+   * Labelled values the picker lists with the sample, for what it saves besides
+   * the body (templates: the condition and the buyer-facing condition note).
+   */
+  details?: ReadonlyArray<{ label: string; value: string }>;
 }
 
 /**

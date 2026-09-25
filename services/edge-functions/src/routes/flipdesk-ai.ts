@@ -21,6 +21,9 @@ import {
   type ExtractionResult,
   type ExtractPhoto,
   type NegotiationMode,
+  MAX_EXTRACT_TEXT_CHARS,
+  parseInlineExtractPhotos,
+  sanitizeKnownFields,
 } from "../lib/ai-extract.ts";
 import {
   estimateSize,
@@ -234,12 +237,22 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
 
-  const text = typeof body.text === "string" ? body.text : undefined;
+  const text =
+    typeof body.text === "string" ? body.text.slice(0, MAX_EXTRACT_TEXT_CHARS) : undefined;
 
   // Accept either typed photos [{url,type}] or a plain photo_urls string[].
+  // A photo may also arrive inline ({data, media_type, type}) from the Add
+  // item form, whose staged photos have no URL yet. Inline bytes are
+  // magic-byte checked here, before quota or any model call.
   const photos: ExtractPhoto[] = [];
   if (Array.isArray(body.photos)) {
+    const inline = parseInlineExtractPhotos(body.photos);
+    if (!inline.ok) return c.json({ error: inline.error }, 400);
+    photos.push(...inline.photos);
     for (const p of body.photos) {
+      // An inline entry was taken above; a stray url on it must not add a
+      // second, fetched copy of the same photo.
+      if (p && typeof p === "object" && typeof (p as { data?: unknown }).data === "string") continue;
       if (p && typeof p === "object" && typeof (p as ExtractPhoto).url === "string") {
         photos.push({
           url: (p as ExtractPhoto).url,
@@ -261,10 +274,8 @@ flipdeskAiRoutes.post("/extract", async (c) => {
   }
   const cappedPhotos = photos.slice(0, MAX_PHOTOS);
 
-  const knownFields =
-    body.known_fields && typeof body.known_fields === "object"
-      ? (body.known_fields as Record<string, unknown>)
-      : {};
+  // Only the extractor's own fields, each capped, reach the prompt.
+  const knownFields = sanitizeKnownFields(body.known_fields);
   const itemId = typeof body.item_id === "string" ? body.item_id : null;
   // Aspects pass defaults ON when an item is in play; callers can opt out.
   const includeEbayAspects = body.include_ebay_aspects === undefined
@@ -303,6 +314,7 @@ flipdeskAiRoutes.post("/extract", async (c) => {
       photoCount: cappedPhotos.length,
       photoTypes: cappedPhotos.map((p) => p.type ?? "untyped"),
       photoHosts: cappedPhotos.map((p) => {
+        if (p.inline) return "inline";
         try {
           return new URL(p.url).host;
         } catch {
@@ -319,7 +331,8 @@ flipdeskAiRoutes.post("/extract", async (c) => {
   // network-bound preparation instead of being bolted on in front of it.
   //
   // Flag off means this returns immediately without fetching a thing.
-  const visualPass = startVisualPass(cappedPhotos);
+  // URL photos only: the visual pass fetches by URL, and an inline photo has none.
+  const visualPass = startVisualPass(cappedPhotos.filter((p) => !p.inline));
 
   // Enablement + monthly cap check.
   const quota = await checkQuota(userId);
@@ -413,6 +426,7 @@ flipdeskAiRoutes.post("/extract", async (c) => {
         photoCount: cappedPhotos.length,
         photoTypes: cappedPhotos.map((p) => p.type ?? "untyped"),
         photoHosts: cappedPhotos.map((p) => {
+          if (p.inline) return "inline";
           try {
             return new URL(p.url).host;
           } catch {

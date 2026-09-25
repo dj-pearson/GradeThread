@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, Link } from "react-router";
+import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -420,17 +420,6 @@ export function SnapCatalog() {
           </Button>
         </div>
       )}
-
-      <p className="text-center text-xs text-muted-foreground">
-        Prefer typing?{" "}
-        <Link
-          to="/dashboard/flipdesk/intake"
-          className="underline hover:text-foreground"
-        >
-          Use the standard intake form
-        </Link>
-        .
-      </p>
 
       <AiFillPanel
         open={aiPanelOpen}

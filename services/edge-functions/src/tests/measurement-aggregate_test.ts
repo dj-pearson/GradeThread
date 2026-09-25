@@ -17,6 +17,7 @@ const {
   aggregateAll,
   cohortKeyString,
   cohortsToRetire,
+  computeMeasurementAggregates,
   dropOutliers,
   outlierFence,
   quantileSorted,
@@ -231,4 +232,133 @@ Deno.test("US-3036: a cohort that still has observations is NOT retired", () => 
 Deno.test("US-3036: nothing published means nothing to retire", () => {
   assertEquals(cohortsToRetire([KEY], []), []);
   assertEquals(cohortsToRetire([], []), []);
+});
+
+// ── MC-06: a failed read must not unpublish numbers or report success ───────
+
+type Op = { table: string; kind: string; args: unknown[] };
+
+/**
+ * A fake of the slice of supabase-js the job uses. Every chain is recorded;
+ * `respond` decides what the awaited chain resolves to.
+ */
+function fakeDb(
+  respond: (ops: Op[]) => { data?: unknown; error?: { message: string } | null },
+) {
+  const log: Op[][] = [];
+  const from = (table: string) => {
+    const ops: Op[] = [];
+    log.push(ops);
+    const b: Record<string, unknown> = {};
+    for (const kind of ["select", "gt", "eq", "in", "order", "limit", "upsert", "update"]) {
+      b[kind] = (...args: unknown[]) => {
+        ops.push({ table, kind, args });
+        return b;
+      };
+    }
+    b.then = (ok: (v: unknown) => unknown, bad?: (e: unknown) => unknown) =>
+      Promise.resolve({ error: null, ...respond(ops) }).then(ok, bad);
+    return b;
+  };
+  return { db: { from } as never, log };
+}
+
+const OBS = (i: number, field = "waist") => ({
+  id: `00000000-0000-0000-0000-${String(i).padStart(12, "0")}`,
+  ...KEY,
+  field_key: field,
+  inches: 17 + (i % 3) * 0.1,
+  user_id: `u${i % 4}`,
+});
+
+Deno.test("MC-06: a failed observation read throws and retires nothing", async () => {
+  const { db, log } = fakeDb((ops) => {
+    if (ops[0]?.table === "garment_measurements") {
+      return { data: null, error: { message: "boom" } };
+    }
+    return { data: [{ id: "s1", ...KEY }] };
+  });
+  let threw = false;
+  try {
+    await computeMeasurementAggregates(db);
+  } catch (err) {
+    threw = true;
+    assert(String(err).includes("boom"));
+  }
+  assert(threw, "a failed page must throw, not break");
+  const touchedStats = log.some((ops) =>
+    ops.some((o) => o.kind === "update" || o.kind === "upsert")
+  );
+  assert(!touchedStats, "nothing may be written or retired after a failed read");
+});
+
+Deno.test("MC-06: a failed read on a LATER page still throws", async () => {
+  let calls = 0;
+  const { db, log } = fakeDb((ops) => {
+    if (ops[0]?.table !== "garment_measurements") return { data: [] };
+    calls++;
+    if (calls === 1) {
+      return { data: Array.from({ length: 1000 }, (_, i) => OBS(i + 1)) };
+    }
+    return { data: null, error: { message: "page 2 timed out" } };
+  });
+  let threw = false;
+  try {
+    await computeMeasurementAggregates(db);
+  } catch {
+    threw = true;
+  }
+  assert(threw);
+  // The second page asked for ids after the last one seen (keyset, not range).
+  const second = log.filter((ops) => ops[0]?.table === "garment_measurements")[1]!;
+  const gt = second.find((o) => o.kind === "gt");
+  assertEquals(gt?.args, ["id", OBS(1000).id]);
+  assert(!log.some((ops) => ops.some((o) => o.kind === "update")));
+});
+
+Deno.test("MC-06: a normal run reports rowsRead and failedChunks 0", async () => {
+  const rows = Array.from({ length: 6 }, (_, i) => OBS(i + 1));
+  const { db, log } = fakeDb((ops) => {
+    const table = ops[0]?.table;
+    if (table === "garment_measurements" && ops[0]?.kind === "select") {
+      return { data: rows };
+    }
+    if (table === "garment_measurement_stats" && ops[0]?.kind === "select") {
+      // One published cohort that no longer has observations behind it.
+      return { data: [{ id: "stale-1", ...KEY, field_key: "inseam" }] };
+    }
+    return {};
+  });
+  const summary = await computeMeasurementAggregates(db);
+  assertEquals(summary.rowsRead, 6);
+  assertEquals(summary.failedChunks, 0);
+  assertEquals(summary.cohorts, 1);
+  assertEquals(summary.sufficient, 1);
+  assertEquals(summary.retired, 1);
+  const retire = log.find((ops) => ops.some((o) => o.kind === "update"))!;
+  assertEquals(retire.find((o) => o.kind === "in")?.args, ["id", ["stale-1"]]);
+});
+
+Deno.test("MC-06: a failed upsert chunk is counted and not reported as sufficient", async () => {
+  const rows = Array.from({ length: 6 }, (_, i) => OBS(i + 1));
+  const { db } = fakeDb((ops) => {
+    if (ops[0]?.table === "garment_measurements") return { data: rows };
+    if (ops.some((o) => o.kind === "upsert")) return { error: { message: "nope" } };
+    return { data: [] };
+  });
+  const summary = await computeMeasurementAggregates(db);
+  assertEquals(summary.failedChunks, 1);
+  assertEquals(summary.upserted, 0);
+  assertEquals(summary.sufficient, 0);
+});
+
+Deno.test("MC-06: the job route answers 500 when any chunk failed", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../routes/jobs-measurement-aggregate.ts", import.meta.url),
+  );
+  assert(src.includes("summary.failedChunks > 0"));
+  const lib = await Deno.readTextFile(
+    new URL("../lib/measurement-aggregate.ts", import.meta.url),
+  );
+  assert(!lib.includes(".range(from"), "offset paging is gone");
 });

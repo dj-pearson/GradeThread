@@ -14,6 +14,14 @@
 // that owner, and the per-sale processor re-derives the owner from the joined
 // item rather than trusting any caller-supplied id.
 //
+// Lump-sum manual payouts (consignment page pass, C6): the web Pay dialog
+// records a manual payout with no sale_id. The per-sale US-2290 guard cannot
+// see it, so the engine skips a sale when the consignor has one pending or
+// paid that was recorded on or after that sale ('unallocated_manual'), and
+// warns ops once per consignor. The full fix,
+// allocating manual payouts to specific sales so the two paths net correctly,
+// needs a migration and is deferred.
+//
 // Idempotency: at most one source='auto' payout per sale (partial UNIQUE index
 // uniq_consignor_payouts_auto_sale, 00301). A re-ingest / immediate+cron race
 // loses on the 23505 and is treated as "already created".
@@ -77,6 +85,19 @@ export interface ProcessResult {
   payoutId?: string;
   amount?: number;
   reason?: string;
+}
+
+// One ops warning per consignor per process, not one per sale per sweep.
+const warnedUnallocated = new Set<string>();
+function warnUnallocatedManual(ownerId: string, consignorId: string): void {
+  if (warnedUnallocated.has(consignorId)) return;
+  warnedUnallocated.add(consignorId);
+  void emitOpsEvent("consignor.payout_unallocated_manual", "warning", {
+    title: `Auto payouts held for consignor ${consignorId}: a lump-sum manual payout is not tied to any sale`,
+    source: "consignor-payout.unallocated_manual",
+    actorUserId: ownerId,
+    data: { consignor_id: consignorId },
+  }).catch(() => {/* never let the ops feed break the guard */});
 }
 
 interface SaleRow {
@@ -253,9 +274,33 @@ export async function processSaleConsignorPayout(
     consignor.stripe_connect_account_id && consignor.payouts_enabled && stripe,
   );
 
+  // C6: any lump-sum manual payout for this consignor that is not tied to a
+  // sale. Tenant-scoped by the item owner.
+  //
+  // Only lump sums recorded ON OR AFTER this sale can have covered it: before
+  // the sale there was no share to pay, and POST /payouts refuses an overpay
+  // without an explicit override. Without this bound one cash payout would
+  // hold every later sale for that consignor forever.
+  const saleAt = sale.sold_at ?? sale.sale_date ?? sale.created_at;
+  let lumpQuery = supabaseAdmin
+    .from("consignor_payouts")
+    .select("id")
+    .eq("consignor_id", consignor.id)
+    .eq("user_id", ownerId)
+    .eq("source", "manual")
+    .is("sale_id", null)
+    .in("status", ["pending", "paid"]);
+  if (saleAt) lumpQuery = lumpQuery.gte("created_at", saleAt);
+  const { data: lumpRows, error: lumpErr } = await lumpQuery.limit(1);
+  // A failed read must not look like "none": skip rather than risk paying twice.
+  if (lumpErr) return skip("unallocated_manual_unknown");
+  const unallocatedManual = (lumpRows ?? []).length > 0;
+  if (unallocatedManual) warnUnallocatedManual(ownerId, consignor.id);
+
   const plan = planAutoPayout({
     existing,
     manual: manualPayouts,
+    unallocatedManual,
     share,
     onboarded,
   });

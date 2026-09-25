@@ -1,6 +1,6 @@
 // US-3039: serve the published measurement table for one garment.
 //
-// GET /api/flipdesk/measurement-stats?brand=&style=&group=&size=&gender=
+// GET /api/flipdesk/measurement-stats?brand=&style=&group=&size=
 //   → { cohort: {...} | null, fields: [{ field, label, median, p25, p75,
 //       sampleCount, contributorCount }] }
 //
@@ -28,12 +28,27 @@ import { resolveBrandKnowledgePack } from "../lib/brand-knowledge.ts";
 // normalizeSizeLabel is deliberately NOT imported here: resolveMeasurementCohort
 // already applies it, and calling it twice at two call sites is how the read
 // path and the write path drift into disagreeing about what one size is called.
-import { normalizeDepartment } from "../lib/size-systems.ts";
-import { resolveMeasurementCohort } from "../lib/measurement-ingest.ts";
+import {
+  type MeasurementCohort,
+  resolveMeasurementCohort,
+} from "../lib/measurement-ingest.ts";
 import {
   MEASUREMENT_TEMPLATES,
   type MeasurementGroup,
 } from "../lib/measurement-templates.ts";
+
+/**
+ * MC-05: the department a stats read looks under is the one the INGEST filed
+ * the rows under, which is the matched style's department or ''. It used to
+ * fall back to a `gender` query param, which the write path never uses, so an
+ * unmatched-style item with gender=Men looked under 'Men' while its brand rows
+ * sat under '' and the lookup came back empty.
+ */
+export function measurementStatsDepartment(
+  cohort: Pick<MeasurementCohort, "department">,
+): string {
+  return cohort.department;
+}
 
 export const flipdeskMeasurementStatsRoutes = new Hono<{
   Variables: { userId: string };
@@ -120,11 +135,10 @@ flipdeskMeasurementStatsRoutes.get("/", async (c) => {
     });
     if (!cohort) return c.json(EMPTY);
 
-    // The department can come from the matched style or from an explicit
-    // gender param; an unmatched style leaves it empty, which is the brand
+    // The department comes from the matched style only, exactly as the ingest
+    // decides it; an unmatched style leaves it empty, which is the brand
     // rollup's own department value.
-    const department = cohort.department ||
-      normalizeDepartment(c.req.query("gender")) || "";
+    const department = measurementStatsDepartment(cohort);
 
     const { data, error } = await supabaseAdmin
       .from("garment_measurement_stats")

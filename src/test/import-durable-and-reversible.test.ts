@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { guessField } from "@/lib/import-mapping";
 
 // US-2518. The CSV inventory import ran as a loop in the browser, under a banner
 // that read "Don't close this tab", matched existing items by SKU and wrote to
@@ -52,14 +53,20 @@ describe("the import no longer runs in the browser (US-2518)", () => {
 
   it("a CSV template is offered next to the upload control", () => {
     const src = read(PAGE);
-    expect(src).toContain("Download the CSV template");
-    expect(src).toMatch(/a\.download = "gradethread-inventory-template\.csv"/);
+    // IMP-13: the button moved into the source picker; the file is still
+    // built on the page.
+    expect(read("src/components/flipdesk/import-source-picker.tsx")).toContain(
+      "Download the CSV template",
+    );
+    // IMP-15: through the shared download, which revokes the URL after the
+    // browser has read it.
+    expect(src).toMatch(/downloadBlob\(csvBlob\(csv\), "gradethread-inventory-template\.csv"\)/);
     // The template's headers have to be ones guessField() recognises, or it
     // hands the seller a file that maps to nothing.
-    const mapping = read("src/lib/import-mapping.ts");
+    // IMP-11: asked of guessField itself rather than grepped out of its table,
+    // which is now built from a synonym list per field.
     for (const header of ["Item Title", "Brand", "Purchase Price", "Status"]) {
-      const key = header.toLowerCase().replace(/[^a-z0-9]/g, "");
-      expect(mapping, `guessField does not know "${header}"`).toContain(`${key}:`);
+      expect(guessField(header), `guessField does not know "${header}"`).not.toBe("skip");
     }
   });
 });
@@ -151,7 +158,8 @@ describe("an import is reversible (US-2518)", () => {
     expect(src).toContain("Undo this import");
     expect(src).toMatch(/\/undo/);
     // Wrapped across lines in the JSX, so match the clause that survives it.
-    expect(src).toMatch(/already published to a[\s\n]+marketplace is left alone/);
+    // IMP-05 widened what undo keeps: published, sold since, or edited since.
+    expect(src).toMatch(/since published, sold or[\s\n]+edited is left alone/);
   });
 });
 

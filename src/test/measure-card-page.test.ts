@@ -30,7 +30,7 @@ describe("the mail form is not US-only by accident (US-2540)", () => {
 
   it("labels the region and postal fields for the chosen country", () => {
     const src = read(PAGE);
-    expect(src).toMatch(/isUs \? "State" : "State \/ Province \/ Region"/);
+    expect(src).toMatch(/isUs\s*\?\s*"State"\s*:\s*needsState\s*\?\s*"State \/ Province \/ Region"/);
     expect(src).toMatch(/isUs \? "ZIP" : "Postal code"/);
   });
 
@@ -114,5 +114,203 @@ describe("a failed status read is not an empty one (US-2540)", () => {
     const errAt = src.indexOf(") : isError ? (");
     const formAt = src.indexOf("<form onSubmit=");
     expect(errAt).toBeLessThan(formAt);
+  });
+});
+
+describe("the server decides who may request a card (MC-01)", () => {
+  it("the page does not read the signed-in user's own plan", () => {
+    const src = read(PAGE);
+    expect(src).not.toContain("profile?.flipdesk_plan");
+    expect(src).not.toMatch(/useAuth\(\)/);
+  });
+
+  it("the query is keyed on the workspace owner", () => {
+    expect(read(PAGE)).toMatch(
+      /queryKey = \["measure_card_request", workspaceOwnerId\]/,
+    );
+  });
+
+  it("the page and the route agree on the eligibility reasons", () => {
+    const union = (src: string) => {
+      const m = /type CardRequestEligibilityReason =([^;]+);/.exec(src);
+      expect(m, "CardRequestEligibilityReason is missing").toBeTruthy();
+      return [...m![1]!.matchAll(/"([a-z_]+)"/g)].map((x) => x[1]).sort();
+    };
+    const page = union(read(PAGE));
+    expect(page).toEqual(union(read(ROUTE)));
+    expect(page).toEqual(["active_request", "free_plan", "ok", "viewer"]);
+  });
+
+  it("the form is shown only when the server says ok, and viewers are told why", () => {
+    const src = read(PAGE);
+    expect(src).toContain('reason === "viewer"');
+    expect(src).toContain("Only teammates who can edit can request a card");
+    expect(src).toMatch(/reason !== "ok" \? \(/);
+  });
+});
+
+describe("the new request is shown from the POST response (MC-07)", () => {
+  it("writes the returned request into the cache instead of refetching", () => {
+    const src = read(PAGE);
+    expect(src).toMatch(/qc\.setQueryData<CardRequestState>\(queryKey/);
+    expect(src).toContain('reason: "active_request"');
+  });
+
+  it("refreshes the status when the seller comes back to the tab", () => {
+    const src = read(PAGE);
+    expect(src).toContain("refetchOnWindowFocus: true");
+    expect(src).toContain("staleTime: 60_000");
+  });
+});
+
+describe("the address form matches what the server accepts (MC-08)", () => {
+  const limits = (src: string) => {
+    const m = /const MAIL_FIELD_LIMITS = \{([^}]+)\}/.exec(src);
+    expect(m, "MAIL_FIELD_LIMITS is missing").toBeTruthy();
+    return Object.fromEntries(
+      [...m![1]!.matchAll(/([a-z_0-9]+):\s*(\d+)/g)].map((x) => [x[1], Number(x[2])]),
+    );
+  };
+
+  it("the page and the server agree on every field limit", () => {
+    const page = limits(read(PAGE));
+    expect(page).toEqual(limits(read(ROUTE)));
+    expect(Object.keys(page)).toHaveLength(6);
+  });
+
+  it("the page and the server agree on where a state is required", () => {
+    const list = (src: string) => {
+      const m = /const STATE_REQUIRED_COUNTRIES = \[([^\]]+)\]/.exec(src);
+      expect(m).toBeTruthy();
+      return [...m![1]!.matchAll(/"([A-Z]{2})"/g)].map((x) => x[1]);
+    };
+    expect(list(read(PAGE))).toEqual(list(read(ROUTE)));
+    expect(list(read(PAGE))).toEqual(["US", "CA", "AU"]);
+  });
+
+  it("every input carries an autofill hint and a length cap", () => {
+    const src = read(PAGE);
+    for (const hint of [
+      "name",
+      "address-line1",
+      "address-line2",
+      "address-level2",
+      "address-level1",
+      "postal-code",
+      "country",
+    ]) {
+      expect(src).toContain(`autoComplete="${hint}"`);
+    }
+    for (const key of ["ship_name", "address_line1", "address_line2", "city", "state", "postal_code"]) {
+      expect(src).toContain(`maxLength={MAIL_FIELD_LIMITS.${key}}`);
+    }
+  });
+
+  it("country comes before the fields it changes", () => {
+    const src = read(PAGE);
+    expect(src.indexOf('htmlFor="mc-country"')).toBeLessThan(src.indexOf('htmlFor="mc-name"'));
+  });
+});
+
+describe("a shipped card can be replaced (MC-09)", () => {
+  it("the dead-end support line is gone", () => {
+    expect(read(PAGE)).not.toContain("Contact support");
+  });
+
+  it("offers a replacement only when the server says ok", () => {
+    const src = read(PAGE);
+    expect(src).toContain("Lost or damaged? Request a replacement card");
+    expect(src).toMatch(/reason === "ok" \? \(\s*<Button/);
+  });
+});
+
+describe("measuring comes first (MC-10)", () => {
+  it("the Measure block is the first card on the page", () => {
+    const src = read(PAGE);
+    const measure = src.indexOf('<CardTitle className="text-base">Measure an item</CardTitle>');
+    expect(measure).toBeGreaterThan(-1);
+    for (const later of ["How to shoot with it", "Print at home (free)", "Get a card mailed to you"]) {
+      expect(measure).toBeLessThan(src.indexOf(later));
+    }
+  });
+
+  it("the stale To-list tab comment is gone", () => {
+    expect(read(PAGE)).not.toContain("To-list tab");
+  });
+
+  it("the how-to folds away once the owner is set up", () => {
+    const src = read(PAGE);
+    expect(src).toMatch(/<details\s+open=\{!isSetUp\}/);
+    expect(src).toMatch(/const isSetUp = Boolean\(request \|\| cardSource\)/);
+  });
+});
+
+describe("accessibility and copy (MC-11)", () => {
+  it("no em dash anywhere in the page or the diagram", () => {
+    for (const f of [PAGE, DIAGRAM]) {
+      expect(read(f).includes("—"), `${f} contains an em dash`).toBe(false);
+    }
+  });
+
+  it("the Do and Avoid lists are named by visible headings", () => {
+    const src = read(PAGE);
+    expect(src).toMatch(/<h3 id="mc-capture-do"[^>]*>\s*Do\s*<\/h3>/);
+    expect(src).toMatch(/<h3 id="mc-capture-avoid"[^>]*>\s*Avoid\s*<\/h3>/);
+    expect(src).toContain('aria-labelledby="mc-capture-do"');
+    expect(src).toContain('aria-labelledby="mc-capture-avoid"');
+  });
+
+  it("the loading spinner announces itself", () => {
+    const src = read(PAGE);
+    expect(src).toContain('<div role="status">');
+    expect(src).toContain('<span className="sr-only">Checking your card request</span>');
+  });
+});
+
+describe("Test my card (MC-12)", () => {
+  it("the page and the route agree on the corner names", () => {
+    const union = (src: string) => {
+      const m = /type CardCorner =([^;]+);/.exec(src);
+      expect(m, "CardCorner is missing").toBeTruthy();
+      return [...m![1]!.matchAll(/"([a-z-]+)"/g)].map((x) => x[1]).sort();
+    };
+    const detect = read("services/edge-functions/src/lib/measure-detect.ts");
+    expect(union(read(PAGE))).toEqual(union(detect));
+  });
+
+  it("posts the photo to the card-test route and stores nothing client-side", () => {
+    const src = read(PAGE);
+    expect(src).toContain('edgeFetch("/api/flipdesk/measure/card-test"');
+    expect(src).toContain('accept="image/jpeg,image/png"');
+    expect(src).not.toMatch(/localStorage/);
+  });
+});
+
+describe("review fixes", () => {
+  it("the card-test result sits in a live region that is mounted before it", () => {
+    const src = read(PAGE);
+    const region = src.indexOf('<div role="status" aria-live="polite">');
+    expect(region).toBeGreaterThan(-1);
+    expect(src.indexOf('data-testid="mc-test-result"')).toBeGreaterThan(region);
+  });
+
+  it("a viewer is not offered a card test the server would 403", () => {
+    const src = read(PAGE);
+    expect(src).toContain("Only teammates who can edit can run the card test.");
+  });
+
+  it("MC-04: unreadable rows cannot be selected for a bulk move", () => {
+    const src = read("src/pages/admin/measure-cards.tsx");
+    expect(src).toContain("disabled={r.address_unreadable}");
+    expect(src).toMatch(/selectable\.map\(\(r\) => r\.id\)/);
+  });
+
+  it("seller-facing card-request errors carry no em dash", () => {
+    const route = read(ROUTE);
+    for (const lead of ["We can't post a card", "Mailed MeasureCards are"]) {
+      const at = route.indexOf(lead);
+      expect(at).toBeGreaterThan(-1);
+      expect(route.slice(at, route.indexOf("\n", at + 120))).not.toContain("—");
+    }
   });
 });

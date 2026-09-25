@@ -132,6 +132,9 @@ const REQUIRED_RESOURCE_IDS = [
   "TEST_USER_A_CONFLICT_ID",
   "TEST_USER_A_RECONCILE_SESSION",
   "TEST_USER_A_CONSIGNOR_ID",
+  "TEST_USER_A_CONSIGNOR_PAYOUT_ID",
+  "TEST_USER_B_CONSIGNOR_ID",
+  "TEST_USER_B_ITEM_ID",
   // US-2228: the receipt routes read from a PRIVATE bucket, so a skipped case
   // here is an unverified path to another tenant's card tails.
   "TEST_USER_A_EXPENSE_ID",
@@ -380,6 +383,36 @@ Deno.test({
     });
     await res.body?.cancel();
     assertDenied(res.status, "POST ai/extract (foreign item_id)");
+  },
+});
+Deno.test({
+  // Inline photos on /extract (the Add item form's staged shots). Two things
+  // must hold: a foreign item_id is still refused when the body carries photo
+  // bytes instead of text, and non-image bytes are refused with a 4xx before
+  // any quota spend or model call, whoever sends them.
+  name: "B cannot run inline-photo extraction against A's item, and SVG bytes are refused",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID");
+    if (itemId) {
+      const res = await fetch(`${BASE}/api/flipdesk/ai/extract`, {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ item_id: itemId, photos: [{ data: png, type: "tag" }] }),
+      });
+      await res.body?.cancel();
+      assertDenied(res.status, "POST ai/extract (inline photo, foreign item_id)");
+    }
+    const svg = btoa('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+    const res = await fetch(`${BASE}/api/flipdesk/ai/extract`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ photos: [{ data: svg, media_type: "image/png", type: "tag" }] }),
+    });
+    await res.body?.cancel();
+    assertEquals(res.status, 400);
   },
 });
 Deno.test({
@@ -1335,7 +1368,7 @@ Deno.test({
     const put = await fetch(`${BASE}/api/flipdesk/templates/${id}`, {
       method: "PUT",
       headers: authHeaders(B_JWT!),
-      body: JSON.stringify({ name: "pwned" }),
+      body: JSON.stringify({ name: "pwned", is_default: true }),
     });
     await put.body?.cancel();
     assertDenied(put.status, "PUT listing template");
@@ -1346,6 +1379,43 @@ Deno.test({
     });
     await del.body?.cancel();
     assertDenied(del.status, "DELETE listing template");
+
+    // B's is_default:true PUT must not have cleared anything in A's account
+    // on its way to the 404: A's name is unchanged and A still has a default.
+    const list = await fetch(`${BASE}/api/flipdesk/templates`, {
+      headers: authHeaders(A_JWT!),
+    });
+    assertEquals(list.status, 200);
+    const { templates } = await list.json() as {
+      templates: Array<{ id: string; name: string; is_default: boolean }>;
+    };
+    const mine = templates.find((t) => t.id === id);
+    assert(mine, "A's template must still exist");
+    assertEquals(mine.name, "Tenant-A template");
+    assertEquals(templates.filter((t) => t.is_default).length, 1);
+    assert(mine.is_default, "A's default must survive B's PUT");
+  },
+});
+
+Deno.test({
+  // A malformed template id answers like a foreign one (404), not a 500 from
+  // the uuid column.
+  name: "a malformed listing template id is a 404 for PUT and DELETE",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const put = await fetch(`${BASE}/api/flipdesk/templates/abc`, {
+      method: "PUT",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ name: "x" }),
+    });
+    await put.body?.cancel();
+    assertEquals(put.status, 404);
+    const del = await fetch(`${BASE}/api/flipdesk/templates/abc`, {
+      method: "DELETE",
+      headers: authHeaders(B_JWT!),
+    });
+    await del.body?.cancel();
+    assertEquals(del.status, 404);
   },
 });
 
@@ -3171,6 +3241,152 @@ Deno.test({
   },
 });
 
+// Consignment page pass (C2): the routes the US-600 block above never covered.
+Deno.test({
+  name: "B cannot record an intake signature on A's consignor",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_CONSIGNOR_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/consignors/${id}/intake`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ signature_name: "x" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST consignor intake (A's)");
+  },
+});
+
+Deno.test({
+  name: "B cannot start Stripe onboarding for A's consignor",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_CONSIGNOR_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/consignors/${id}/connect`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({}),
+    });
+    await res.body?.cancel();
+    // assertDenied, NOT assertDeniedOrGated: the ownership 404 must come
+    // before the 503 "Payments are not configured" branch. A 503 here means
+    // the route reached Stripe setup for a consignor B does not own.
+    assertDenied(res.status, "POST consignor connect (A's)");
+  },
+});
+
+Deno.test({
+  name: "B cannot read or refresh A's consignor Stripe status",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_CONSIGNOR_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/consignors/${id}/connect/status`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    assertDenied(res.status, "GET consignor connect/status (A's)");
+    assert(!("connected" in body), "connect/status told B whether A's consignor is connected");
+  },
+});
+
+Deno.test({
+  name: "B's payout ledger filtered to A's consignor is empty",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_CONSIGNOR_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/consignment/payouts?consignor_id=${id}`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    const body = (await res.json().catch(() => ({}))) as { payouts?: unknown[] };
+    if (res.status === 200) {
+      assertEquals(body.payouts ?? [], [], "B's filtered ledger returned A's payouts");
+    } else {
+      assertDenied(res.status, "GET payouts?consignor_id= (A's)");
+    }
+  },
+});
+
+// C15: the "Add items" picker lists only the caller's own items.
+Deno.test({
+  name: "B's unassigned-items picker never lists A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const aItem = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/unassigned-items`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = (await res.json().catch(() => ({}))) as { items?: Array<{ id: string }> };
+    assert(
+      !(body.items ?? []).some((i) => i.id === aItem),
+      "B's unassigned-items picker listed A's item",
+    );
+  },
+});
+
+// C7: settling a manual payout by id.
+Deno.test({
+  name: "B cannot mark A's consignor payout paid",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_PAYOUT_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_CONSIGNOR_PAYOUT_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/payouts/${id}`, {
+      method: "PATCH",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ action: "mark_paid" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "PATCH consignor payout (A's)");
+  },
+});
+
+// C15: attaching inventory to a consignor, in both directions.
+Deno.test({
+  name: "B cannot attach B's items to A's consignor",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_ID") ||
+    !Deno.env.get("TEST_USER_B_ITEM_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_CONSIGNOR_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/consignors/${id}/items`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ item_ids: [Deno.env.get("TEST_USER_B_ITEM_ID")!] }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST consignor items (A's consignor)");
+  },
+});
+
+Deno.test({
+  name: "B attaching A's item to B's consignor updates nothing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_B_CONSIGNOR_ID") ||
+    !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_B_CONSIGNOR_ID")!;
+    const aItem = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/consignors/${id}/items`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ item_ids: [aItem] }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { updated?: number };
+    if (res.status === 200) {
+      assertEquals(body.updated, 0, "B attached A's item to B's consignor");
+    } else {
+      assertDenied(res.status, "POST consignor items (A's item)");
+    }
+    // A's item must still be unassigned when read back as A.
+    const list = await fetch(`${BASE}/api/flipdesk/consignment/consignors/${id}/items`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const listed = (await list.json().catch(() => ({}))) as { items?: Array<{ id: string }> };
+    assert(
+      !(listed.items ?? []).some((i) => i.id === aItem),
+      "A's item shows up under B's consignor",
+    );
+  },
+});
+
 // ── AI Support Assistant (US-829) ────────────────────────────────────────
 //
 // support_conversations + support_messages carry RLS that scopes a read to the
@@ -4806,6 +5022,110 @@ Deno.test({
     });
     await res.body?.cancel();
     assertDenied(res.status, "POST measure card-request as non-member");
+  },
+});
+
+// MC-01: GET /card-request now also answers "may this caller request a card",
+// and it answers for the OWNER's tenant. A viewer member of A's workspace reads
+// A's state (200, reason "viewer"), and B in B's own workspace never sees the
+// request the viewer saw in A's.
+Deno.test({
+  name: "MC-01: card-request eligibility is the owner's, and B never sees A's request",
+  ignore: !VIEWER_READY || !CONFIGURED,
+  fn: async () => {
+    const asViewer = await fetch(`${BASE}/api/flipdesk/measure/card-request`, {
+      headers: viewerHeaders(),
+    });
+    const viewerBody = await asViewer.json() as {
+      request: { id: string } | null;
+      eligibility?: { can_request: boolean; reason: string };
+    };
+    assertEquals(asViewer.status, 200, "viewer member reads the owner's card state");
+    assertEquals(viewerBody.eligibility?.reason, "viewer");
+    assertEquals(viewerBody.eligibility?.can_request, false);
+
+    const asB = await fetch(`${BASE}/api/flipdesk/measure/card-request`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const bBody = await asB.json() as { request: { id: string } | null };
+    assertEquals(asB.status, 200, "B reads B's own card state");
+    if (viewerBody.request && bBody.request) {
+      assert(
+        bBody.request.id !== viewerBody.request.id,
+        "B's GET returned the request that belongs to A's workspace",
+      );
+    }
+  },
+});
+
+// MC-10: GET /card-request now returns waiting_count, a head count of the
+// owner's cataloged inventory_items. B's number must be B's own: it is checked
+// against B's cataloged rows read back through PostgREST with B's JWT, where
+// RLS plus an explicit user_id filter can only ever return B's items.
+Deno.test({
+  name: "MC-10: B's measure waiting_count counts only B's own items",
+  ignore: !CONFIGURED || !Deno.env.get("SUPABASE_URL"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/measure/card-request`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = await res.json() as { waiting_count?: number | null };
+    assertEquals(res.status, 200, "B reads B's own measure summary");
+    if (body.waiting_count == null) return; // count unavailable: nothing leaked
+
+    const bId = JSON.parse(atob(B_JWT!.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")))
+      .sub as string;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    const check = await fetch(
+      `${supabaseUrl}/rest/v1/inventory_items?user_id=eq.${bId}&status=eq.cataloged&select=id`,
+      {
+        headers: {
+          Authorization: `Bearer ${B_JWT!}`,
+          apikey: anon,
+          Prefer: "count=exact",
+          Range: "0-0",
+        },
+      },
+    );
+    await check.body?.cancel();
+    const total = Number((check.headers.get("content-range") ?? "").split("/")[1]);
+    if (!Number.isFinite(total)) return; // REST unavailable here; skip the compare
+    assertEquals(
+      body.waiting_count,
+      total,
+      "B's waiting_count differs from B's own cataloged items: it counted another tenant's",
+    );
+  },
+});
+
+// MC-12: POST /card-test reads and writes no tenant table: it decodes the
+// uploaded bytes, runs the detector and answers. What it must still do is sit
+// behind the same auth and workspace gate as the rest of /measure/*, so it is
+// not an anonymous CPU endpoint and a non-member cannot act in A's workspace.
+Deno.test({
+  name: "MC-12: card-test needs a session and refuses a non-member in A's workspace",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const form = () => {
+      const f = new FormData();
+      f.append("photo", new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" }), "x.png");
+      return f;
+    };
+    const anon = await fetch(`${BASE}/api/flipdesk/measure/card-test`, {
+      method: "POST",
+      body: form(),
+    });
+    await anon.body?.cancel();
+    assertDenied(anon.status, "POST measure card-test with no JWT");
+
+    const foreign = await fetch(`${BASE}/api/flipdesk/measure/card-test`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${B_JWT}`, "X-Workspace-Owner": WS_OWNER! },
+      body: form(),
+    });
+    await foreign.body?.cancel();
+    assertDenied(foreign.status, "POST measure card-test as non-member");
   },
 });
 
@@ -11395,3 +11715,53 @@ Deno.test({
     }
   },
 });
+
+// ── IMP-09: import writes need manage_inventory (listing_manager+) ──────────
+//
+// Starting an import, undoing one and starting a closet read create or delete
+// inventory in bulk. The viewer half runs on every CI job (the seed emits a
+// viewer); the member half needs TEST_MEMBER_JWT, which the seed does not yet
+// emit (KNOWN_UNSEEDED). import-role-floor_test.ts drives the member refusal
+// in-process so it is covered either way. A 2xx here is a FAIL.
+const IMPORT_WRITE_PATHS: Array<{ path: string; body: unknown }> = [
+  { path: "/api/flipdesk/import/runs", body: { rows: [{ row: 2, title: "IMP-09 probe" }] } },
+  { path: "/api/flipdesk/import/runs/00000000-0000-4000-8000-000000000000/undo", body: {} },
+  {
+    path: "/api/flipdesk/closet-import/runs",
+    body: { platform: "poshmark", rows: [] },
+  },
+];
+
+for (const { path, body } of IMPORT_WRITE_PATHS) {
+  Deno.test({
+    name: `IMP-09: viewer cannot POST ${path}`,
+    ignore: !VIEWER_READY,
+    fn: async () => {
+      const res = await fetch(`${BASE}${path}`, {
+        method: "POST",
+        headers: viewerHeaders(),
+        body: JSON.stringify(body),
+      });
+      await res.body?.cancel();
+      assertEquals(res.status, 403, `POST ${path} as viewer`);
+    },
+  });
+
+  Deno.test({
+    name: `IMP-09: member cannot POST ${path} (requires listing_manager)`,
+    ignore: !BASE || !WS_OWNER || !MEMBER_JWT,
+    fn: async () => {
+      const res = await fetch(`${BASE}${path}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${MEMBER_JWT}`,
+          "Content-Type": "application/json",
+          "X-Workspace-Owner": WS_OWNER!,
+        },
+        body: JSON.stringify(body),
+      });
+      await res.body?.cancel();
+      assertEquals(res.status, 403, `POST ${path} as member`);
+    },
+  });
+}

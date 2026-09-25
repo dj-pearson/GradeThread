@@ -7,7 +7,7 @@
 // every query is scoped to the workspace owner. Update/delete are scoped by id
 // AND user_id; an id from the request is never trusted alone.
 
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { jsonError } from "../lib/http-errors.ts";
 import { normalizeTemplateInput } from "../lib/listing-template.ts";
@@ -21,19 +21,82 @@ const TEMPLATE_COLUMNS =
   "item_specifics, ebay_category_id, return_policy_id, shipping_policy_id, " +
   "payment_policy_id, is_default, sort_order, created_at, updated_at";
 
-function isUniqueViolation(error: { code?: string } | null): boolean {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type DbError = { code?: string; message?: string; details?: string | null } | null;
+
+function isUniqueViolation(error: DbError): boolean {
   return error?.code === "23505";
 }
 
-/** Clear the owner's existing default so the partial-unique index holds. */
-async function clearDefault(ownerId: string, exceptId?: string): Promise<void> {
-  let q = supabaseAdmin
+/**
+ * Two unique rules can fire on a template write, and they need different
+ * answers. The name rule (listing_templates_user_id_name_key) is fixed by
+ * renaming. The one-default index fires when another save made a different row
+ * the default in between our clear and our set, and renaming cannot fix that.
+ */
+export function classifyUniqueViolation(
+  error: DbError,
+): "template_default_conflict" | "template_name_taken" {
+  const text = `${error?.message ?? ""} ${error?.details ?? ""}`;
+  return text.includes("idx_listing_templates_one_default")
+    ? "template_default_conflict"
+    : "template_name_taken";
+}
+
+function conflict(c: Context, error: DbError): Response {
+  return classifyUniqueViolation(error) === "template_default_conflict"
+    ? jsonError(
+      c,
+      409,
+      "Another template just became your default. Reload and try again.",
+      "template_default_conflict",
+    )
+    : jsonError(c, 409, "A template with that name already exists", "template_name_taken");
+}
+
+/** Clear the owner's existing default so the one-default index holds. */
+async function clearDefault(ownerId: string, exceptId: string): Promise<DbError> {
+  const { error } = await supabaseAdmin
     .from("listing_templates")
     .update({ is_default: false })
     .eq("user_id", ownerId)
-    .eq("is_default", true);
-  if (exceptId) q = q.neq("id", exceptId);
-  await q;
+    .eq("is_default", true)
+    .neq("id", exceptId);
+  return error;
+}
+
+/**
+ * Make `id` the owner's only default. Called only AFTER the row's own write
+ * succeeded, so a 404 or a name clash can never clear the old default first
+ * (US-1265, the bug 00317 fixed for the RPC path). There is still a window
+ * between the clear and the set; closing it needs the deferred trigger with an
+ * advisory lock, which is a migration and also covers the native RPC path.
+ */
+async function promoteDefault(
+  c: Context,
+  ownerId: string,
+  id: string,
+): Promise<{ row: Record<string, unknown> } | { res: Response }> {
+  const clearErr = await clearDefault(ownerId, id);
+  if (clearErr) {
+    return { res: jsonError(c, 500, "Template saved, but it could not be made the default") };
+  }
+  const { data, error } = await supabaseAdmin
+    .from("listing_templates")
+    .update({ is_default: true })
+    .eq("id", id)
+    .eq("user_id", ownerId)
+    .select(TEMPLATE_COLUMNS)
+    .maybeSingle();
+  if (error) {
+    if (isUniqueViolation(error)) return { res: conflict(c, error) };
+    return { res: jsonError(c, 500, "Template saved, but it could not be made the default") };
+  }
+  if (!data) return { res: jsonError(c, 404, "Template not found") };
+  // TEMPLATE_COLUMNS is a concatenated string, which supabase-js cannot parse
+  // into a row type, so the row is typed by hand here.
+  return { row: data as unknown as Record<string, unknown> };
 }
 
 // GET / — list the workspace owner's templates.
@@ -61,27 +124,46 @@ flipdeskTemplatesRoutes.post("/", async (c) => {
   const norm = normalizeTemplateInput(body);
   if (!norm.ok) return jsonError(c, 400, norm.error);
 
-  if (norm.value.is_default) await clearDefault(ownerId);
+  const wantDefault = norm.value.is_default;
 
+  // Insert as non-default first: a name clash must leave the old default alone.
   const { data, error } = await supabaseAdmin
     .from("listing_templates")
-    .insert({ ...norm.value, user_id: ownerId })
+    .insert({ ...norm.value, is_default: false, user_id: ownerId })
     .select(TEMPLATE_COLUMNS)
     .single();
   if (error || !data) {
-    if (isUniqueViolation(error)) {
-      return jsonError(c, 409, "A template with that name already exists");
-    }
+    if (isUniqueViolation(error)) return conflict(c, error);
     return jsonError(c, 500, "Could not create template");
   }
-  return c.json({ template: data }, 201);
+  if (!wantDefault) return c.json({ template: data }, 201);
+  const newId = (data as unknown as { id: string }).id;
+  const promoted = await promoteDefault(c, ownerId, newId);
+  if ("res" in promoted) {
+    // Take the new row back out, so a failed create means nothing was saved.
+    // Left in place, the seller's retry of the same form would hit the name
+    // rule on the row they were just told did not save.
+    const { error: undoErr } = await supabaseAdmin
+      .from("listing_templates")
+      .delete()
+      .eq("id", newId)
+      .eq("user_id", ownerId);
+    if (undoErr) {
+      return jsonError(c, 500, "Template saved, but it could not be made the default");
+    }
+    if (promoted.res.status === 409) return promoted.res;
+    return jsonError(c, 500, "Could not create template");
+  }
+  return c.json({ template: promoted.row }, 201);
 });
 
 // PUT /:id — replace a template (full body; name required). Scoped to owner.
 flipdeskTemplatesRoutes.put("/:id", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const id = c.req.param("id");
-  if (!id) return jsonError(c, 400, "Template id is required");
+  // A malformed id answers exactly like a foreign one, and before any query:
+  // a non-uuid would otherwise reach the uuid column and 500 on 22P02.
+  if (!id || !UUID_RE.test(id)) return jsonError(c, 404, "Template not found");
 
   let body: unknown;
   try {
@@ -92,31 +174,33 @@ flipdeskTemplatesRoutes.put("/:id", async (c) => {
   const norm = normalizeTemplateInput(body);
   if (!norm.ok) return jsonError(c, 400, norm.error);
 
-  if (norm.value.is_default) await clearDefault(ownerId, id);
-
-  // Scoped by id AND user_id — never trust the id alone (US-268).
+  // Write every field but the default flag first, scoped by id AND user_id
+  // (US-268). A 404 or a name clash returns here, before any default is
+  // cleared. Turning the default OFF is safe to do in this same write.
+  const { is_default: wantDefault, ...fields } = norm.value;
   const { data, error } = await supabaseAdmin
     .from("listing_templates")
-    .update(norm.value)
+    .update(wantDefault ? fields : { ...fields, is_default: false })
     .eq("id", id)
     .eq("user_id", ownerId)
     .select(TEMPLATE_COLUMNS)
     .maybeSingle();
   if (error) {
-    if (isUniqueViolation(error)) {
-      return jsonError(c, 409, "A template with that name already exists");
-    }
+    if (isUniqueViolation(error)) return conflict(c, error);
     return jsonError(c, 500, "Could not update template");
   }
   if (!data) return jsonError(c, 404, "Template not found");
-  return c.json({ template: data });
+  if (!wantDefault) return c.json({ template: data });
+  const promoted = await promoteDefault(c, ownerId, id);
+  if ("res" in promoted) return promoted.res;
+  return c.json({ template: promoted.row });
 });
 
 // DELETE /:id — delete a template. Scoped to owner.
 flipdeskTemplatesRoutes.delete("/:id", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const id = c.req.param("id");
-  if (!id) return jsonError(c, 400, "Template id is required");
+  if (!id || !UUID_RE.test(id)) return jsonError(c, 404, "Template not found");
 
   // Verify ownership before deleting (mirrors api-keys delete).
   const { data: existing, error: fetchErr } = await supabaseAdmin

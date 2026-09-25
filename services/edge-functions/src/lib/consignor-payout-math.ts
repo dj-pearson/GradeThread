@@ -101,7 +101,10 @@ export interface ExistingAutoPayout {
 
 export type AutoPayoutPlan =
   // Nothing to do.
-  | { action: "skip"; reason: "zero_share" | "already_settled" | "paid_manually" }
+  | {
+    action: "skip";
+    reason: "zero_share" | "already_settled" | "paid_manually" | "unallocated_manual";
+  }
   // No row yet → create one, then transfer (onboarded) or queue (not onboarded).
   | { action: "create"; settle: "transfer" | "queue" }
   // Row already exists (pending/failed) → fire the transfer now (consignor has
@@ -143,6 +146,12 @@ export function planAutoPayout(args: {
   existing: ExistingAutoPayout | null;
   /** Operator-created payouts already on this sale (US-2290). */
   manual?: ReadonlyArray<{ status: string }>;
+  /**
+   * The consignor has a manual payout with no sale_id that is pending or
+   * paid: a lump sum from the Pay dialog. The engine cannot tell which sales
+   * it covered, so it must not pay any of them again on top of it.
+   */
+  unallocatedManual?: boolean;
   share: number;
   onboarded: boolean;
 }): AutoPayoutPlan {
@@ -152,6 +161,13 @@ export function planAutoPayout(args: {
   // has already settled this sale, so nothing the engine computes is relevant.
   if (manualPayoutBlocksAuto(args.manual ?? [])) {
     return { action: "skip", reason: "paid_manually" };
+  }
+
+  // Consignment page pass (C6): a lump-sum manual payout is not tied to any
+  // sale, so the per-sale check above cannot see it. Until manual payouts are
+  // allocated to sales, stop and let a human decide rather than pay twice.
+  if (args.unallocatedManual) {
+    return { action: "skip", reason: "unallocated_manual" };
   }
 
   if (existing) {

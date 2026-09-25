@@ -420,6 +420,44 @@ export const EBAY_CONDITION_OPTIONS: { value: string; label: string }[] = [
   { value: "FOR_PARTS_OR_NOT_WORKING", label: "For parts / not working" },
 ];
 
+// eBay condition enum -> conditionId. Mirror of CONDITION_ENUM_TO_ID in the
+// edge's publish-preflight.ts; keep the two in step.
+export const EBAY_CONDITION_ENUM_TO_ID: Record<string, string> = {
+  NEW: "1000",
+  NEW_OTHER: "1500",
+  NEW_WITH_DEFECTS: "1750",
+  LIKE_NEW: "2750",
+  PRE_OWNED_EXCELLENT: "2990",
+  USED_EXCELLENT: "3000",
+  PRE_OWNED_FAIR: "3010",
+  USED_VERY_GOOD: "4000",
+  USED_GOOD: "5000",
+  USED_ACCEPTABLE: "6000",
+  FOR_PARTS_OR_NOT_WORKING: "7000",
+};
+
+// The only conditionIds most apparel leaves accept (publish-preflight.ts).
+// 4000/5000/6000 are rejected at publish, and 3000 is shown to the buyer as
+// "Pre-owned - Good", not "Excellent".
+export const APPAREL_CONDITION_IDS: ReadonlySet<string> = new Set([
+  "1000",
+  "1500",
+  "1750",
+  "2990",
+  "3000",
+  "3010",
+]);
+
+// What an apparel buyer sees for each of those ids.
+export const APPAREL_CONDITION_LABELS: Record<string, string> = {
+  "1000": "New with tags",
+  "1500": "New without tags",
+  "1750": "New with defects",
+  "2990": "Pre-owned - Excellent",
+  "3000": "Pre-owned - Good",
+  "3010": "Pre-owned - Fair",
+};
+
 // eBay "Department" item-specific values for clothing — the most common required
 // aspect that blocks publish. Values mirror what inferDepartment() produces
 // server-side; eBay's plural-tolerant matching reconciles e.g. "Unisex Adult"
@@ -1279,6 +1317,12 @@ export const CONSIGNOR_STATUS_LABELS: Record<
   paused: "Paused",
   archived: "Archived",
 };
+
+// C12: what the split is a percentage OF. The agreement, the edit dialog and
+// the math (consignor_pnl, consignor-payout-math.ts) all use net proceeds, and
+// the edit dialog used to say gross. One sentence, used everywhere.
+export const CONSIGNOR_SPLIT_BASIS =
+  "their share of each item's net proceeds (sale price minus marketplace and payment fees; shipping is not taken out)";
 
 // A plain union, not an `as const` array: nothing iterates these, so the array
 // only ever existed to derive this type and was emitted into the bundle for it.

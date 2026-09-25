@@ -38,6 +38,10 @@ interface RequestRow {
   requested_at: string;
   exported_at: string | null;
   shipped_at: string | null;
+  // MC-04: set when the street columns could not be decrypted. The row stays
+  // visible in the queue (so the operator can see it exists) but never reaches
+  // the vendor CSV, where a blank address would print as a blank label.
+  address_unreadable?: boolean;
 }
 
 const STATUSES = new Set(["requested", "exported", "shipped"]);
@@ -76,15 +80,25 @@ async function listRequests(status: string): Promise<RequestRow[]> {
         address_line2: null,
         city: "",
         postal_code: "",
+        address_unreadable: true,
       });
     }
   }
   return out;
 }
 
-/** One CSV cell: quote + escape. Pure, exported for tests. */
+/**
+ * One CSV cell: quote + escape. Pure, exported for tests.
+ *
+ * MC-03: a cell starting with = + - @ TAB or CR is read as a formula by Excel
+ * and Sheets even inside quotes, so a ship_name of =HYPERLINK(...) would run
+ * when the operator opened the vendor file. The OWASP rule is a leading single
+ * quote. Done HERE, at export, because rows stored before the seller route
+ * started refusing such values are still in the table.
+ */
 export function csvCell(v: string | number | null): string {
-  const s = v == null ? "" : String(v);
+  let s = v == null ? "" : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return `"${s.replace(/"/g, '""')}"`;
 }
 
@@ -103,7 +117,8 @@ export function requestsToCsv(rows: RequestRow[]): string {
     "plan",
     "requested_at",
   ].join(",");
-  const lines = rows.map((r) =>
+  // MC-04: an undecryptable row has a blanked address; leave it out.
+  const lines = rows.filter((r) => !r.address_unreadable).map((r) =>
     [
       csvCell(r.id),
       csvCell(r.ship_name),
@@ -126,7 +141,11 @@ adminMeasureCardRoutes.get("/requests", async (c) => {
   const status = c.req.query("status") ?? "requested";
   if (!STATUSES.has(status)) return c.json({ error: "Unknown status" }, 400);
   try {
-    return c.json({ requests: await listRequests(status) });
+    const requests = await listRequests(status);
+    return c.json({
+      requests,
+      unreadable_count: requests.filter((r) => r.address_unreadable).length,
+    });
   } catch (err) {
     console.error("[admin-measure-cards] list failed:", err);
     return c.json({ error: "Could not load the queue." }, 500);
@@ -150,6 +169,41 @@ adminMeasureCardRoutes.get("/requests.csv", async (c) => {
   }
 });
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BULK_MAX_IDS = 500;
+
+/**
+ * MC-04: the statuses a row may move FROM to reach `next`. The bulk update is
+ * filtered on these, so a shipped row can never be sent back to 'exported'
+ * (which would reopen it in the queue, or trip the one-active-request unique
+ * index and fail the whole batch with 23505). Pure, exported for tests.
+ */
+export function predecessorStatuses(
+  next: "exported" | "shipped",
+): Array<"requested" | "exported"> {
+  return next === "exported" ? ["requested"] : ["requested", "exported"];
+}
+
+/** MC-04: validate a bulk body's ids. Refuses rather than slicing. */
+export function parseBulkIds(
+  raw: unknown,
+): { ok: true; ids: string[] } | { ok: false; error: string } {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { ok: false, error: "ids is required" };
+  }
+  if (raw.length > BULK_MAX_IDS) {
+    return {
+      ok: false,
+      error: `At most ${BULK_MAX_IDS} ids per request; send the rest separately.`,
+    };
+  }
+  if (!raw.every((x) => typeof x === "string" && UUID_RE.test(x))) {
+    return { ok: false, error: "Every id must be a request UUID." };
+  }
+  return { ok: true, ids: [...new Set(raw as string[])] };
+}
+
 // Bulk status transition: requested -> exported -> shipped. Shipping stamps
 // each seller's profile record (mail outranks download).
 adminMeasureCardRoutes.post("/requests/bulk", async (c) => {
@@ -159,11 +213,13 @@ adminMeasureCardRoutes.post("/requests/bulk", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  const ids = Array.isArray(body.ids)
-    ? body.ids.filter((x): x is string => typeof x === "string").slice(0, 500)
-    : [];
+  if (!body || typeof body !== "object") {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const parsed = parseBulkIds(body.ids);
+  if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+  const ids = parsed.ids;
   const status = typeof body.status === "string" ? body.status : "";
-  if (ids.length === 0) return c.json({ error: "ids is required" }, 400);
   if (status !== "exported" && status !== "shipped") {
     return c.json({ error: "status must be 'exported' or 'shipped'" }, 400);
   }
@@ -204,6 +260,7 @@ adminMeasureCardRoutes.post("/requests/bulk", async (c) => {
     .from("measure_card_requests")
     .update(patch as never)
     .in("id", ids)
+    .in("status", predecessorStatuses(status))
     .select("id, owner_user_id, card_version");
   if (error) return c.json({ error: "Bulk update failed." }, 500);
 
@@ -212,16 +269,39 @@ adminMeasureCardRoutes.post("/requests/bulk", async (c) => {
     owner_user_id: string;
     card_version: number;
   }>;
+  const movedIds = new Set(rows.map((r) => r.id));
+  const skipped = ids.filter((id) => !movedIds.has(id));
+
+  // A mailed card is the authoritative profile record. One UPDATE per card
+  // version rather than one per row, and only owners whose stamp actually
+  // landed go in the audit row.
+  const stamped: string[] = [];
+  let stampFailed = false;
   if (status === "shipped") {
-    // A mailed card is the authoritative profile record.
+    const byVersion = new Map<number, Set<string>>();
     for (const r of rows) {
-      await supabaseAdmin
+      const set = byVersion.get(r.card_version) ?? new Set<string>();
+      set.add(r.owner_user_id);
+      byVersion.set(r.card_version, set);
+    }
+    for (const [version, owners] of byVersion) {
+      const { data: done, error: stampErr } = await supabaseAdmin
         .from("users")
         .update({
-          measure_card_version: r.card_version,
+          measure_card_version: version,
           measure_card_source: "mail",
         } as never)
-        .eq("id", r.owner_user_id);
+        .in("id", [...owners])
+        .select("id");
+      if (stampErr) {
+        stampFailed = true;
+        console.error(
+          `[admin-measure-cards] profile stamp failed for card v${version}:`,
+          stampErr.message,
+        );
+        continue;
+      }
+      for (const u of (done ?? []) as Array<{ id: string }>) stamped.push(u.id);
     }
   }
   // US-2355: a bulk operator action over SHARED records (up to 500 ids), which
@@ -234,12 +314,18 @@ adminMeasureCardRoutes.post("/requests/bulk", async (c) => {
     action: `measure_card.requests.bulk_${status}`,
     targetType: "measure_card_request",
     targetId: null,
-    after: { status, updated: rows.length },
+    after: { status, updated: rows.length, skipped: skipped.length },
     details: {
       request_ids: rows.map((r) => r.id),
       // Marking shipped also stamps users.measure_card_version / _source.
-      profiles_stamped: status === "shipped" ? rows.map((r) => r.owner_user_id) : [],
+      profiles_stamped: stamped,
+      skipped_ids: skipped,
     },
   });
-  return c.json({ ok: true, updated: rows.length });
+  return c.json({
+    ok: true,
+    updated: rows.length,
+    skipped,
+    ...(stampFailed ? { profile_stamp_failed: true } : {}),
+  });
 });

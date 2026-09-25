@@ -478,9 +478,12 @@ async function main(): Promise<void> {
   });
   out.TEST_USER_A_WEBHOOK_EVENT_ID = aWebhookEventId;
 
+  // A's DEFAULT template, so the isolation case can tell whether B's PUT with
+  // is_default:true cleared A's default before its own 404.
   out.TEST_USER_A_TEMPLATE_ID = await insert("listing_templates", {
     user_id: aId,
     name: "Tenant-A template",
+    is_default: true,
   });
 
   out.TEST_USER_A_RULE_ID = await insert("repricing_rules", {
@@ -562,6 +565,28 @@ async function main(): Promise<void> {
     user_id: aId,
     name: "Tenant-A consignor",
     default_split_pct: 50,
+  });
+  // Consignment page pass (C7): a MANUAL pending payout owned by A, so B
+  // settling it by id has something real to be refused.
+  out.TEST_USER_A_CONSIGNOR_PAYOUT_ID = await insert("consignor_payouts", {
+    user_id: aId,
+    consignor_id: out.TEST_USER_A_CONSIGNOR_ID,
+    amount: 1.0,
+    status: "pending",
+    source: "manual",
+    note: "tenant-isolation fixture",
+  });
+  // C15: B's own consignor and item, so both directions of item assignment
+  // can be tried: B's item onto A's consignor, and A's item onto B's.
+  out.TEST_USER_B_CONSIGNOR_ID = await insert("consignors", {
+    user_id: bId,
+    name: "Tenant-B consignor",
+    default_split_pct: 50,
+  });
+  out.TEST_USER_B_ITEM_ID = await insert("inventory_items", {
+    user_id: bId,
+    title: "Tenant-B-fixture-shirt",
+    brand: "FixtureBrand",
   });
 
   // US-2518: a CSV import run owned by A. Its payload is A's catalog file and

@@ -4,6 +4,7 @@ import { normalizeToImageFile } from "@/lib/media-intake";
 import {
   assessMacroPhoto,
   measureMacroPhoto,
+  isMacroPhotoType,
   uploadMaxWidthFor,
   type MacroQualityAssessment,
 } from "@/lib/macro-photo-quality";
@@ -138,9 +139,13 @@ export async function uploadItemPhoto({
     // Non-macro slots get the unchanged 2400 default — the increase must NOT be
     // global, because the upload-speed tradeoff that motivated the low cap is
     // real on mobile data.
+    // A macro slot caps the LONG edge: a width-only cap let a tall tag shot
+    // through at full size, which iOS canvas cannot draw above ~16.7 MP.
     const main = await compressImage(
       file,
-      uploadMaxWidthFor(photoType, photoRole),
+      isMacroPhotoType(photoType, photoRole)
+        ? { maxEdge: uploadMaxWidthFor(photoType, photoRole) }
+        : uploadMaxWidthFor(photoType, photoRole),
       0.85,
     );
     // Always prefer the canvas-baked output: compressImage applies EXIF
@@ -280,4 +285,45 @@ export async function uploadItemPhoto({
   );
 
   return { originalSize, storedSize: body.size, macro };
+}
+
+export type BatchOutcome<T, R> =
+  | { task: T; ok: true; result: R }
+  | { task: T; ok: false; error: unknown };
+
+/**
+ * Run uploads a few at a time, retrying each failure once. A photo the device
+ * cannot prepare (PhotoPrepError) is not retried: the same bytes fail the
+ * same way. Outcomes come back in task order.
+ */
+export async function uploadInPool<T, R>(
+  tasks: readonly T[],
+  run: (task: T) => Promise<R>,
+  { concurrency = 3, retries = 1 }: { concurrency?: number; retries?: number } = {},
+): Promise<BatchOutcome<T, R>[]> {
+  const out: BatchOutcome<T, R>[] = new Array(tasks.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < tasks.length) {
+      const i = next++;
+      const task = tasks[i]!;
+      let attempt = 0;
+      for (;;) {
+        try {
+          out[i] = { task, ok: true, result: await run(task) };
+          break;
+        } catch (error) {
+          if (attempt >= retries || error instanceof PhotoPrepError) {
+            out[i] = { task, ok: false, error };
+            break;
+          }
+          attempt++;
+        }
+      }
+    }
+  };
+  await Promise.allSettled(
+    Array.from({ length: Math.min(concurrency, tasks.length) }, worker),
+  );
+  return out;
 }

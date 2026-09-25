@@ -18,6 +18,38 @@ import type { DescriptionBlock, DescriptionBlockKey } from "./description-blocks
 const TRAILING_KEYS: readonly DescriptionBlockKey[] = ["credentials", "facts"];
 
 export const TEMPLATE_NAME_MAX = 80;
+/** Footer text is copied into every AutoLister draft; keep it bounded. */
+export const DESCRIPTION_TEMPLATE_MAX = 20000;
+/** eBay rejects a condition description over 1000 characters at publish. */
+export const CONDITION_NOTE_MAX = 1000;
+/** eBay allows 45 item specifics per listing, 65 characters per name and value. */
+export const SPECIFICS_MAX = 45;
+export const SPECIFIC_NAME_MAX = 65;
+export const SPECIFIC_VALUE_MAX = 65;
+/** sort_order is an integer column; anything past this is a typo, not an order. */
+export const SORT_ORDER_MAX = 100000;
+
+/**
+ * The condition values a template may store. The same list as
+ * EBAY_CONDITION_VALUES in ai-listing.ts, copied rather than imported because
+ * ai-listing.ts imports this module; listing-template_test.ts pins the two.
+ */
+export const TEMPLATE_CONDITION_VALUES: readonly string[] = [
+  "NEW",
+  "NEW_OTHER",
+  "NEW_WITH_DEFECTS",
+  "LIKE_NEW",
+  "PRE_OWNED_EXCELLENT",
+  "USED_EXCELLENT",
+  "PRE_OWNED_FAIR",
+  "USED_VERY_GOOD",
+  "USED_GOOD",
+  "USED_ACCEPTABLE",
+  "FOR_PARTS_OR_NOT_WORKING",
+];
+
+/** eBay category and business-policy ids are numeric strings. */
+const EBAY_ID_RE = /^\d{1,20}$/;
 
 /** DB-column shape the route inserts/updates (snake_case mirrors the table). */
 export interface NormalizedTemplate {
@@ -45,26 +77,47 @@ function trimOrNull(v: unknown): string | null {
 }
 
 /** Coerce an item-specifics map to { string: string }, dropping empties. */
-function coerceSpecifics(v: unknown): Record<string, string> {
-  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+function coerceSpecifics(
+  v: unknown,
+): { ok: true; value: Record<string, string> } | { ok: false; error: string } {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return { ok: true, value: {} };
   const out: Record<string, string> = {};
   for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
     const key = k.trim();
     if (!key) continue;
+    let sv: string | null = null;
     if (typeof val === "string") {
-      const sv = val.trim();
-      if (sv) out[key] = sv;
+      sv = val.trim() || null;
     } else if (typeof val === "number" || typeof val === "boolean") {
-      out[key] = String(val);
+      sv = String(val);
     }
+    if (sv === null) continue;
+    if (key.length > SPECIFIC_NAME_MAX) {
+      return {
+        ok: false,
+        error: `Item specific names must be ${SPECIFIC_NAME_MAX} characters or fewer`,
+      };
+    }
+    if (sv.length > SPECIFIC_VALUE_MAX) {
+      return {
+        ok: false,
+        error: `Item specific values must be ${SPECIFIC_VALUE_MAX} characters or fewer (${key})`,
+      };
+    }
+    out[key] = sv;
   }
-  return out;
+  if (Object.keys(out).length > SPECIFICS_MAX) {
+    return { ok: false, error: `A template can hold at most ${SPECIFICS_MAX} item specifics` };
+  }
+  return { ok: true, value: out };
 }
 
 /**
  * Validate + normalize a create/update payload (snake_case wire shape, matching
  * the iOS EdgeAPI's convertToSnakeCase encoder). Name is required; every other
- * field is optional and trimmed-to-null when blank.
+ * field is optional and trimmed-to-null when blank. Every free-text field is
+ * capped here, because a template is copied into every draft it touches and a
+ * value eBay will refuse should fail at save, not at publish.
  */
 export function normalizeTemplateInput(body: unknown): NormalizeResult {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -79,22 +132,57 @@ export function normalizeTemplateInput(body: unknown): NormalizeResult {
       error: `Template name must be ${TEMPLATE_NAME_MAX} characters or fewer`,
     };
   }
+  const description = trimOrNull(b.description_template);
+  if (description && description.length > DESCRIPTION_TEMPLATE_MAX) {
+    return {
+      ok: false,
+      error: `Footer text must be ${DESCRIPTION_TEMPLATE_MAX} characters or fewer`,
+    };
+  }
+  const note = trimOrNull(b.condition_description);
+  if (note && note.length > CONDITION_NOTE_MAX) {
+    return {
+      ok: false,
+      error: `Condition note must be ${CONDITION_NOTE_MAX} characters or fewer`,
+    };
+  }
+  const condition = trimOrNull(b.ebay_condition);
+  if (condition && !TEMPLATE_CONDITION_VALUES.includes(condition)) {
+    return { ok: false, error: "Condition is not a value eBay accepts" };
+  }
+  const ids: Record<string, string | null> = {};
+  for (
+    const [field, label] of [
+      ["ebay_category_id", "Category id"],
+      ["return_policy_id", "Return policy id"],
+      ["shipping_policy_id", "Shipping policy id"],
+      ["payment_policy_id", "Payment policy id"],
+    ] as const
+  ) {
+    const v = trimOrNull(b[field]);
+    if (v && !EBAY_ID_RE.test(v)) {
+      return { ok: false, error: `${label} must be digits only` };
+    }
+    ids[field] = v;
+  }
+  const specifics = coerceSpecifics(b.item_specifics);
+  if (!specifics.ok) return specifics;
   const rawSort = b.sort_order;
   const sort = typeof rawSort === "number" && Number.isFinite(rawSort)
-    ? Math.trunc(rawSort)
+    ? Math.min(SORT_ORDER_MAX, Math.max(0, Math.trunc(rawSort)))
     : 0;
   return {
     ok: true,
     value: {
       name,
-      description_template: trimOrNull(b.description_template),
-      ebay_condition: trimOrNull(b.ebay_condition),
-      condition_description: trimOrNull(b.condition_description),
-      item_specifics: coerceSpecifics(b.item_specifics),
-      ebay_category_id: trimOrNull(b.ebay_category_id),
-      return_policy_id: trimOrNull(b.return_policy_id),
-      shipping_policy_id: trimOrNull(b.shipping_policy_id),
-      payment_policy_id: trimOrNull(b.payment_policy_id),
+      description_template: description,
+      ebay_condition: condition,
+      condition_description: note,
+      item_specifics: specifics.value,
+      ebay_category_id: ids.ebay_category_id,
+      return_policy_id: ids.return_policy_id,
+      shipping_policy_id: ids.shipping_policy_id,
+      payment_policy_id: ids.payment_policy_id,
       is_default: b.is_default === true,
       sort_order: sort,
     },

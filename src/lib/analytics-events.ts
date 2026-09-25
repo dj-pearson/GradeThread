@@ -83,6 +83,11 @@ export const ANALYTICS_EVENTS = {
   "closet_import_started": "The seller pressed Import my closet. Property `platform`.",
   "closet_import_completed":
     "A closet import run finished. Properties `platform`, `status`, `inserted`, `updated`, `failed`.",
+  // IMP-14: the press that did not start a run, with the extension's reason
+  // code (never its text) and whether the wait timed out, which may still
+  // start one.
+  "closet_import_failed":
+    "Import my closet did not start a run. Properties `platform`, `reason`, `timed_out`.",
   "closet_import_first_item":
     "A closet import created this account's first imported item. Property `seconds_since_extension_install`.",
 

@@ -300,7 +300,16 @@ Deno.test("US-3363: every table the scan could not resolve is a VIEW", () => {
   }
   assertEquals(
     [...RESULT.unresolved].sort(),
-    ["help_articles_stale", "items_full", "public_grade_reports", "public_showcase_finds"],
+    // consignor_pnl: POST /payouts reads consignor_share, payouts_paid and
+    // payouts_pending for the overpay cap. All three are columns of the view
+    // as 00438_money_precision.sql defines it.
+    [
+      "consignor_pnl",
+      "help_articles_stale",
+      "items_full",
+      "public_grade_reports",
+      "public_showcase_finds",
+    ],
     "the set of views queried by name changed. That is fine, but a NEW name " +
       "here means a new unchecked query -- confirm it is a view and update this.",
   );

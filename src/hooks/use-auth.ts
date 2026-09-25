@@ -12,6 +12,7 @@ import { confirmSignupConsentOnce } from "@/lib/signup-consent";
 import { initIdleLogout, clearIdleActivity } from "@/lib/idle-logout";
 import { removeAutolisterLocalStorage } from "@/lib/autolister-session-idb";
 import { clearAllSnapHistory } from "@/lib/snap-history";
+import { consumeInvoluntarySignOut } from "@/lib/signout-intent";
 import type {
   UserRow,
   WorkspaceMemberRow,
@@ -272,6 +273,18 @@ function initAuth() {
       // (aborting in-flight uploads) and the IndexedDB database follow via a
       // lazy import so the upload pipeline stays out of the auth bundle.
       removeAutolisterLocalStorage();
+      // Nor their offline intake queue: cost, notes and raw GPS-tagged photos
+      // in IndexedDB, which would otherwise wait on disk for the next account.
+      // Except when the session died on its own (see signout-intent.ts): the
+      // queue is then the only copy of the seller's work, and its records are
+      // owner-scoped, so it is kept for their next sign-in.
+      if (!consumeInvoluntarySignOut()) {
+        void import("@/lib/offline-queue")
+          .then((m) => m.clearOfflineIntakeQueue())
+          .catch(() => {
+            /* best-effort, as above */
+          });
+      }
       void import("@/stores/autolister-upload-store")
         .then((m) => m.clearAutolisterLocalState())
         .catch(() => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Sparkles, AlertTriangle } from "lucide-react";
 import {
   Dialog,
@@ -34,7 +34,22 @@ interface AiFillPanelProps {
   currentValues: Record<string, string>;
   /** Optional display labels per field key. */
   fieldLabels?: Record<string, string>;
+  /**
+   * The fields this caller will actually write. Suggestions for anything else
+   * are not shown and never logged as accepted. Omitted, every field is.
+   */
+  applicableFields?: readonly string[];
   onApply: (accepted: AcceptedField[]) => void;
+}
+
+/** "photo:tag" reads as "Read from tag photo"; plain words for the rest. */
+function sourceLabel(source: string): string {
+  const photo = /^photo:(\w+)/.exec(source);
+  if (photo) return `Read from ${photo[1]!.replace(/_/g, " ")} photo`;
+  if (source === "photo") return "Read from a photo";
+  if (source === "text") return "Read from your text";
+  if (source === "snap") return "From your snap";
+  return source;
 }
 
 function humanize(key: string): string {
@@ -143,20 +158,30 @@ export function AiFillPanel({
   result,
   currentValues,
   fieldLabels = {},
+  applicableFields,
   onApply,
 }: AiFillPanelProps) {
+  // Joined so a caller passing a fresh array each render does not re-run the
+  // memos below.
+  const applicableKey = applicableFields ? applicableFields.join("|") : null;
+  const conflicts = useMemo(() => {
+    const allowed = applicableKey === null ? null : new Set(applicableKey.split("|"));
+    return (result?.conflicts ?? []).filter((c) => !allowed || allowed.has(c.field));
+  }, [result, applicableKey]);
   const conflictFields = useMemo(
-    () => new Set((result?.conflicts ?? []).map((c) => c.field)),
-    [result]
+    () => new Set(conflicts.map((c) => c.field)),
+    [conflicts]
   );
 
-  // Suggestion rows, excluding fields that are surfaced as conflicts.
+  // Suggestion rows, excluding fields that are surfaced as conflicts and any
+  // the caller cannot write.
   const rows = useMemo(() => {
     if (!result) return [];
+    const allowed = applicableKey === null ? null : new Set(applicableKey.split("|"));
     return Object.entries(result.suggestions).filter(
-      ([field]) => !conflictFields.has(field)
+      ([field]) => !conflictFields.has(field) && (!allowed || allowed.has(field))
     );
-  }, [result, conflictFields]);
+  }, [result, conflictFields, applicableKey]);
 
   const [accept, setAccept] = useState<Record<string, boolean>>({});
   const [values, setValues] = useState<Record<string, string>>({});
@@ -164,16 +189,24 @@ export function AiFillPanel({
     Record<string, "text" | "photo">
   >({});
 
-  // Re-initialise whenever a fresh extraction result arrives.
+  // Read through a ref: callers build currentValues fresh on every render,
+  // and re-initialising on it wiped the seller's edits and toggles each time
+  // the parent re-rendered.
+  const currentRef = useRef(currentValues);
+  currentRef.current = currentValues;
+
+  // Re-initialise only when a fresh extraction result arrives.
   useEffect(() => {
     if (!result) return;
     const nextAccept: Record<string, boolean> = {};
     const nextValues: Record<string, string> = {};
     for (const [field, sug] of Object.entries(result.suggestions)) {
       nextValues[field] = sug.value;
-      // Default-on only when the field is currently empty — AI never
-      // silently overwrites something the user already filled.
-      nextAccept[field] = !(currentValues[field] ?? "").trim();
+      // Default-on only when the field is currently empty (AI never silently
+      // overwrites something the user already filled) and the model is at
+      // least middling sure. A low-confidence guess waits to be switched on.
+      nextAccept[field] =
+        !(currentRef.current[field] ?? "").trim() && sug.confidence >= 0.5;
     }
     const nextPick: Record<string, "text" | "photo"> = {};
     for (const conflict of result.conflicts) {
@@ -182,11 +215,11 @@ export function AiFillPanel({
     setAccept(nextAccept);
     setValues(nextValues);
     setConflictPick(nextPick);
-  }, [result, currentValues]);
+  }, [result]);
 
   if (!result) return null;
 
-  const hasAnything = rows.length > 0 || result.conflicts.length > 0;
+  const hasAnything = rows.length > 0 || conflicts.length > 0;
 
   function acceptAll() {
     setAccept((prev) => {
@@ -219,7 +252,7 @@ export function AiFillPanel({
       }
     }
 
-    for (const conflict of result.conflicts) {
+    for (const conflict of conflicts) {
       const pick = conflictPick[conflict.field] ?? "photo";
       const value =
         pick === "photo" ? conflict.photo_value : conflict.text_value;
@@ -267,7 +300,7 @@ export function AiFillPanel({
 
         {/* Conflicts first — they need an explicit decision. */}
         <ConflictPicker
-          conflicts={result.conflicts}
+          conflicts={conflicts}
           picks={conflictPick}
           fieldLabels={fieldLabels}
           onPick={(field, pick) =>
@@ -340,7 +373,7 @@ export function AiFillPanel({
                     </Badge>
                   ) : (
                     <span className="text-xs text-muted-foreground">
-                      {sug.source}
+                      {sourceLabel(sug.source)}
                     </span>
                   )}
                   {sug.source === "research" &&

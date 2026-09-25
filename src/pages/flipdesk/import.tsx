@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Upload,
   Loader2,
   AlertCircle,
   CheckCircle2,
-  Link2,
-  Download,
   Undo2,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -20,25 +20,6 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
@@ -53,23 +34,24 @@ import {
   type ExistingListingsAnswer,
 } from "@/lib/existing-listings";
 import { useWorkspace } from "@/hooks/use-workspace";
-import { useFetchGoogleSheet } from "@/hooks/use-sheet-import";
 import { parseSheet } from "@/lib/csv";
+import { decidePoll, nextPollDelay } from "@/lib/import-poll";
 import {
-  IMPORT_FIELDS,
-  IMPORT_FIELD_LABELS,
+  MAX_IMPORT_ROWS,
+  buildImportPayload,
+  buildMapped,
   guessField,
-  normalizeStatus,
-  normalizeCategory,
-  parsePrice,
-  parseDate,
+  failedRowsCsv,
+  importableRows,
+  validateImportRows,
   type ImportField,
+  type MappedRow,
 } from "@/lib/import-mapping";
+import { ImportMappingStep, ImportPreview } from "@/components/flipdesk/import-preview";
 import {
   applyImportPreset,
   detectImportPreset,
   getImportPreset,
-  IMPORT_PRESETS,
   type ImportPreset,
 } from "@/lib/import-presets";
 import { PageHelp } from "@/components/help/page-help";
@@ -78,31 +60,36 @@ import {
   type ClosetImportStart,
 } from "@/components/flipdesk/closet-import-card";
 import { track } from "@/lib/analytics";
+import { escapeCsvCell } from "@/lib/items-csv";
+import { csvBlob, downloadBlob } from "@/lib/download";
+import {
+  IMPORT_RUNS_KEY,
+  canUndoRun,
+  isOpenRun,
+  useImportRuns,
+  type ImportRun,
+} from "@/hooks/use-import-runs";
+import { RecentImportsCard } from "@/components/flipdesk/recent-imports-card";
+import {
+  ImportSourcePicker,
+  type ImportSource,
+  type LoadedSource,
+} from "@/components/flipdesk/import-source-picker";
 
-type ImportRow = {
-  raw: string[];
-  mapped: Partial<Record<ImportField, string>>;
+// IMP-07: shown when the server refuses a file for its size or row count.
+type UndoResult = {
+  deleted_items?: number;
+  restored_items?: number;
+  kept_published?: number;
+  kept_edited?: number;
+  kept_modified?: number;
 };
 
-// US-2518: the run row the server owns. The browser polls it; it no longer does
-// the importing, so closing the tab costs nothing.
-type ImportRun = {
-  id: string;
-  status: "pending" | "running" | "completed" | "failed" | "undone";
-  // US-9201: 'csv' | 'sheet' | 'paste' for a spreadsheet, or the marketplace a
-  // closet read came from. Present on polled runs; absent on the stub the page
-  // seeds while the first poll is in flight.
-  origin?: string;
-  total_rows: number;
-  processed_rows: number;
-  inserted_count: number;
-  updated_count: number;
-  skipped_count: number;
-  failed_count: number;
-  errors?: { row: number; message: string }[];
-  error?: string | null;
-  undone_at?: string | null;
-};
+const NO_IMPORT_PERMISSION =
+  "Importing and undoing need inventory access in this workspace. Ask a workspace admin.";
+
+const TOO_BIG_MESSAGE =
+  "This file is too big for one import. Split it into files of 5,000 rows or fewer.";
 
 // The header row of the downloadable template. Header text matches what
 // guessField() recognises, so a seller who starts here gets every column mapped
@@ -163,52 +150,35 @@ const TEMPLATE_EXAMPLE = [
   "",
 ];
 
-function csvCell(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
+// IMP-15: the shared CSV writer (formula-safe) and the shared download,
+// which appends the anchor and revokes the URL only after the browser has read
+// it. The old inline version revoked it on the same tick.
 function downloadTemplate(): void {
   const csv = [TEMPLATE_HEADERS, TEMPLATE_EXAMPLE]
-    .map((row) => row.map(csvCell).join(","))
+    .map((row) => row.map(escapeCsvCell).join(","))
     .join("\r\n");
-  const url = URL.createObjectURL(
-    new Blob([csv], { type: "text/csv;charset=utf-8" }),
-  );
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "gradethread-inventory-template.csv";
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(csvBlob(csv), "gradethread-inventory-template.csv");
 }
 
 // US-2518: the fill-only rule (US-1082) and the list of columns a re-import may
-// write now live where the writing happens —
-// services/edge-functions/src/lib/inventory-import.ts. They were here because
-// the import ran in the browser; keeping a second copy would be two sources of
-// truth for which columns a CSV is allowed to touch.
-
-function buildMapped(
-  row: string[],
-  headers: string[],
-  mapping: ImportField[],
-): Partial<Record<ImportField, string>> {
-  const result: Partial<Record<ImportField, string>> = {};
-  for (let i = 0; i < headers.length; i++) {
-    const field = mapping[i];
-    const value = row[i];
-    if (!field || field === "skip" || !value) continue;
-    result[field] = value.trim();
-  }
-  return result;
-}
+// write live where the writing happens:
+// services/edge-functions/src/lib/inventory-import.ts. IMP-12: building the
+// payload and the dry run lives in src/lib/import-mapping.ts, so what the
+// summary promises is exactly what is sent.
 
 export function FlipdeskImportPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const { workspaceOwnerId, can } = useWorkspace();
+  // IMP-09: the server refuses an import, an undo and a closet read below
+  // listing_manager, so the buttons say so before the click, not after.
+  const canImport = can("manage_inventory");
 
-  const [text, setText] = useState("");
-  const [sheetUrl, setSheetUrl] = useState("");
+  // IMP-13: what is loaded and where it came from (sent as the run's origin).
+  // The file's text is parsed, not held in a controlled textarea.
+  const [loaded, setLoaded] = useState<LoadedSource | null>(null);
+  // Bumped by Reset to remount the picker, which clears its link and paste.
+  const [pickerKey, setPickerKey] = useState(0);
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<ImportField[]>([]);
@@ -222,44 +192,95 @@ export function FlipdeskImportPage() {
     readExistingListings(user?.id),
   );
   const [importing, setImporting] = useState(false);
-  // US-2518: the server's run, polled. `run` is the whole progress and result
-  // surface now — a browser refresh mid-import picks it back up.
+  // US-2518: the server's run, polled. `run` is the LAST RUN, and it is kept
+  // apart from the loaded file (headers/rows/mapping): loading a new file never
+  // clears it, so its Undo survives. IMP-10: it is also seeded on mount from
+  // ?run= or from the newest open run, which is what makes "refresh or close
+  // the tab and it picks back up" true.
   const [run, setRun] = useState<ImportRun | null>(null);
-  const [undoing, setUndoing] = useState(false);
-  const pollRef = useRef<number | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // setSearchParams changes identity with the URL; the poll effect reads it
+  // through a ref so writing ?run= does not restart polling.
+  const setSearchParamsRef = useRef(setSearchParams);
+  useEffect(() => {
+    setSearchParamsRef.current = setSearchParams;
+  }, [setSearchParams]);
+  const queryClient = useQueryClient();
+  const recentRuns = useImportRuns({ refetchWhileOpen: true });
+  const seededRef = useRef(false);
+  // The run this page watched while it was open. Only its completion toasts;
+  // a run resumed already finished just shows its results.
+  const watchedOpenRef = useRef<string | null>(null);
+  const [undoingId, setUndoingId] = useState<string | null>(null);
+  // Keyed by run: an Undo pressed in Recent imports must not print its counts
+  // under a different run's results card.
+  const [lastUndo, setLastUndo] = useState<(UndoResult & { runId: string }) | null>(null);
+  // IMP-15: the file a run was started from, so its failed rows can be handed
+  // back. Only the run this page started from a file has one.
+  const runSourceRef = useRef<{ runId: string; headers: string[]; rows: string[][]; name: string } | null>(null);
+  const runOpen = isOpenRun(run);
+  // IMP-02: set when polling stops because the run can no longer be read.
+  const [pollError, setPollError] = useState<string | null>(null);
   // US-9201: the extension's install time, handed over with the run so the
   // completion event can carry install-to-first-imported-item. A duration
   // only; the timestamp itself is never sent.
   const closetInstalledAtRef = useRef<string | null>(null);
-  const fetchSheet = useFetchGoogleSheet();
 
-  async function handleFetchSheet() {
-    if (!sheetUrl.trim()) return;
-    // US-3262: the Fetch button is disabled while a read is in flight; the
-    // Enter key on the input was not, so a second press started a second read
-    // of the same sheet. Both land in setText/detectFromText, so the slower
-    // reply overwrites the faster one's headers and mapping. Guarded here
-    // rather than on the keydown, so the next caller inherits it.
-    if (fetchSheet.isPending) return;
-    try {
-      const { csv } = await fetchSheet.mutateAsync({ url: sheetUrl.trim() });
-      setText(csv);
-      detectFromText(csv);
-    } catch (err) {
-      toastError(err, "Could not read that file.", { duration: 12_000 });
-    }
+  // IMP-10: the open run lives in the URL, so a refresh resumes it.
+  function rememberRun(id: string) {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("run", id);
+        return next;
+      },
+      { replace: true },
+    );
   }
 
-  function detectFromText(raw: string) {
+  // IMP-10: on mount, pick up ?run= or the newest run that is still going.
+  const runParam = searchParams.get("run");
+  const recentData = recentRuns.data;
+  useEffect(() => {
+    if (seededRef.current || run) return;
+    if (runParam) {
+      seededRef.current = true;
+      const known = recentData?.find((r) => r.id === runParam);
+      setRun(
+        known ?? {
+          id: runParam,
+          status: "pending",
+          total_rows: 0,
+          processed_rows: 0,
+          inserted_count: 0,
+          updated_count: 0,
+          skipped_count: 0,
+          failed_count: 0,
+        },
+      );
+      return;
+    }
+    if (!recentData) return;
+    seededRef.current = true;
+    const open = recentData.find(isOpenRun);
+    if (open) setRun(open);
+  }, [runParam, recentData, run]);
+
+  useEffect(() => {
+    setImporting(runOpen);
+  }, [runOpen]);
+
+  function detectFromText(raw: string, from: ImportSource, name: string): number | null {
     if (!raw.trim()) {
       toast.error("No data found.");
-      return;
+      return null;
     }
     const { headers: h, rows: r } = parseSheet(raw);
     if (h.length === 0) {
       toast.error("Could not detect headers — first row appears empty.");
-      return;
+      return null;
     }
+    setLoaded({ from, name, rows: r.length });
     setHeaders(h);
     setRows(r);
     // The file itself is the better evidence, so detection wins. The signup
@@ -270,101 +291,49 @@ export function FlipdeskImportPage() {
     const found = detected ?? getImportPreset(presetIdForAnswer(signupAnswer) ?? "") ?? null;
     setPreset(found);
     setMapping(found ? applyImportPreset(h, found) : h.map(guessField));
-    setRun(null);
     toast.success(
       found
         ? `Looks like a ${found.name}. ${h.length} columns mapped, ${r.length} rows.`
         : `Detected ${h.length} columns, ${r.length} rows.`,
     );
+    return r.length;
   }
 
-  function handleDetect() {
-    detectFromText(text);
-  }
-
-  async function handleFile(file: File | null) {
-    if (!file) return;
-    try {
-      const raw = await file.text();
-      setText(raw);
-      detectFromText(raw);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`Failed to read file: ${msg}`);
-    }
-  }
-
-  const mappedRows: ImportRow[] = useMemo(
-    () =>
-      rows.map((row) => ({
-        raw: row,
-        mapped: buildMapped(row, headers, mapping),
-      })),
+  const mappedRows: MappedRow[] = useMemo(
+    () => rows.map((row) => buildMapped(row, headers, mapping)),
     [rows, headers, mapping],
   );
-
-  const previewRows = mappedRows.slice(0, 10);
+  const payload = useMemo(() => buildImportPayload(mappedRows), [mappedRows]);
+  const validation = useMemo(
+    () => validateImportRows(mappedRows, payload, mapping),
+    [mappedRows, payload, mapping],
+  );
   const titleFieldMapped = mapping.includes("title");
+  const importCount = Math.min(validation.willImport, MAX_IMPORT_ROWS);
 
-  // US-2518 — build the payload the durable worker consumes. The browser still
-  // owns the parsing and the mapping (that is a UI), but it hands over resolved
-  // values so the server never has to guess at a date format.
-  function buildPayload() {
-    return mappedRows.map((r, i) => {
-      const m = r.mapped;
-      const listPrice = parsePrice(m.list_price ?? "");
-      const listDate = m.list_date ? parseDate(m.list_date) : null;
-      const salePrice = parsePrice(m.sale_price ?? "");
-      const saleDate = m.sale_date ? parseDate(m.sale_date) : null;
-      return {
-        row: i + 2,
-        title: m.title ?? null,
-        sku: m.sku ?? null,
-        container: m.container ?? null,
-        description: m.description ?? null,
-        brand: m.brand ?? null,
-        style: m.style ?? null,
-        size: m.size ?? null,
-        condition_notes: m.condition_notes ?? null,
-        comps_note: m.comps ?? null,
-        item_category: m.item_category ? normalizeCategory(m.item_category) : null,
-        status: m.status ? normalizeStatus(m.status) : null,
-        source_name: m.source ?? null,
-        sourced_by: m.sourced_by ?? null,
-        acquired_price: parsePrice(m.purchase_price ?? ""),
-        acquired_date: m.purchase_date ? parseDate(m.purchase_date) : null,
-        listing:
-          listPrice !== null || listDate !== null || m.link
-            ? {
-                listing_price: listPrice,
-                listing_url: m.link ?? null,
-                listed_at: listDate,
-              }
-            : null,
-        sale:
-          salePrice !== null || saleDate !== null
-            ? {
-                sale_price: salePrice,
-                platform_fees: parsePrice(m.fees ?? ""),
-                tax: parsePrice(m.tax ?? ""),
-                shipping_cost: parsePrice(m.shipping_cost ?? ""),
-                net_profit: parsePrice(m.net_profit ?? ""),
-                payout_amount: parsePrice(m.payout ?? ""),
-                tracking_number: m.tracking ?? null,
-                sold_at: saleDate,
-              }
-            : null,
-      };
+  const handlePresetChange = useCallback(
+    (v: string) => {
+      const next = getImportPreset(v) ?? null;
+      setPreset(next);
+      setMapping(next ? applyImportPreset(headers, next) : headers.map(guessField));
+    },
+    [headers],
+  );
+  const handleMappingChange = useCallback((index: number, field: ImportField) => {
+    setMapping((prev) => {
+      const next = [...prev];
+      next[index] = field;
+      return next;
     });
-  }
+  }, []);
 
   async function handleImport() {
     if (!user || !workspaceOwnerId) {
       toast.error("You must be signed in.");
       return;
     }
-    if (!can("manage_inventory")) {
-      toast.error("You don't have permission to import inventory in this workspace.");
+    if (!canImport) {
+      toast.error(NO_IMPORT_PERMISSION);
       return;
     }
     if (!titleFieldMapped) {
@@ -374,23 +343,42 @@ export function FlipdeskImportPage() {
 
     setImporting(true);
     setRun(null);
+    setPollError(null);
     try {
       const res = await edgeFetch("/api/flipdesk/import/runs", {
         method: "POST",
-        json: { rows: buildPayload(), origin: sheetUrl.trim() ? "sheet" : "csv" },
+        // IMP-12: titled rows only, capped; the count the button showed.
+        json: {
+          rows: importableRows(payload, MAX_IMPORT_ROWS),
+          origin: loaded?.from ?? "csv",
+        },
       });
       const json = (await res.json().catch(() => ({}))) as {
         run_id?: string;
         total_rows?: number;
         error?: string;
       };
+      // IMP-07: a body over the import tier, or a file over the row cap, gets
+      // one sentence that says what to do rather than a status code.
+      if (res.status === 413 || (res.status === 400 && /capped at/i.test(json.error ?? ""))) {
+        throw new Error(TOO_BIG_MESSAGE);
+      }
       if (!res.ok || !json.run_id) {
         throw new Error(json.error || "Could not start the import.");
       }
+      watchedOpenRef.current = json.run_id;
+      runSourceRef.current = {
+        runId: json.run_id,
+        headers,
+        rows,
+        name: loaded?.name ?? "import",
+      };
+      rememberRun(json.run_id);
       setRun({
         id: json.run_id,
         status: "pending",
-        total_rows: json.total_rows ?? mappedRows.length,
+        origin: loaded?.from ?? "csv",
+        total_rows: json.total_rows ?? importCount,
         processed_rows: 0,
         inserted_count: 0,
         updated_count: 0,
@@ -404,11 +392,30 @@ export function FlipdeskImportPage() {
     }
   }
 
+  // IMP-14: the extension timed out but may still be starting the run. Look
+  // for it a few times, and attach to it so progress and Undo show here.
+  async function attachNewestOpenRun() {
+    for (let i = 0; i < 6; i++) {
+      const { data } = await recentRuns.refetch();
+      const open = data?.find(isOpenRun);
+      if (open) {
+        watchedOpenRef.current = open.id;
+        rememberRun(open.id);
+        setRun(open);
+        return;
+      }
+      await new Promise((r) => window.setTimeout(r, 5_000));
+    }
+  }
+
   // US-9201: a closet import run started by the extension. Same polling, same
   // results card, same undo; only the origin differs.
   function handleClosetStarted(start: ClosetImportStart) {
     closetInstalledAtRef.current = start.installedAt;
     setImporting(true);
+    setPollError(null);
+    watchedOpenRef.current = start.runId;
+    rememberRun(start.runId);
     setRun({
       id: start.runId,
       status: "pending",
@@ -463,28 +470,71 @@ export function FlipdeskImportPage() {
   // Poll the run until it terminalizes. The run is the source of truth, so a
   // refresh, a flaky connection or a closed laptop lid changes nothing about
   // whether the import finishes.
+  //
+  // IMP-02: every 2s for the first 10s, then every 5s; paused while the tab is
+  // hidden; a 429 waits for Retry-After; a 403 or 404 stops and says why.
   useEffect(() => {
     const id = run?.id;
     const open = run?.status === "pending" || run?.status === "running";
-    if (!id || !open) {
-      if (pollRef.current !== null) {
-        window.clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-      return;
-    }
+    if (!id || !open) return;
     let cancelled = false;
+    let timer: number | null = null;
+    const startedAt = Date.now();
+    const schedule = (delayMs: number) => {
+      if (cancelled) return;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => void tick(), delayMs);
+    };
     const tick = async () => {
+      timer = null;
+      if (cancelled) return;
+      // A hidden tab stops asking; visibilitychange below picks it back up.
+      if (document.hidden) return;
+      const normal = nextPollDelay(Date.now() - startedAt);
       try {
         const res = await edgeFetch(`/api/flipdesk/import/runs/${id}`, {
           silentGate: true,
         });
-        if (!res.ok) return;
+        if (cancelled) return;
+        const decision = decidePoll(res.status, res.headers.get("Retry-After"), normal);
+        if (decision.kind === "stop") {
+          // The run can never be read again, so drop it and its ?run= param.
+          // Leaving it 'pending' kept runOpen true and the source picker
+          // disabled for good, with a spinner that never ends.
+          setPollError(decision.message);
+          setImporting(false);
+          watchedOpenRef.current = null;
+          setRun(null);
+          setSearchParamsRef.current(
+            (prev) => {
+              const next = new URLSearchParams(prev);
+              next.delete("run");
+              return next;
+            },
+            { replace: true },
+          );
+          return;
+        }
+        if (decision.kind === "retry") {
+          schedule(decision.delayMs);
+          return;
+        }
         const json = (await res.json()) as { run?: ImportRun };
-        if (cancelled || !json.run) return;
+        if (cancelled) return;
+        if (!json.run) {
+          schedule(normal);
+          return;
+        }
+        setPollError(null);
         setRun(json.run);
+        if (isOpenRun(json.run)) watchedOpenRef.current = json.run.id;
         if (json.run.status !== "pending" && json.run.status !== "running") {
           setImporting(false);
+          void queryClient.invalidateQueries({ queryKey: [IMPORT_RUNS_KEY] });
+          // A run that had already finished before this page saw it open is
+          // shown, not announced again.
+          if (watchedOpenRef.current !== json.run.id) return;
+          watchedOpenRef.current = null;
           recordClosetCompletion(json.run);
           if (json.run.failed_count > 0 || json.run.status === "failed") {
             toast.warning(
@@ -500,46 +550,62 @@ export function FlipdeskImportPage() {
               }.`,
             );
           }
+          return;
         }
+        schedule(normal);
       } catch {
         // A failed poll is not a failed import — the run keeps going.
+        schedule(normal);
       }
     };
+    const onVisible = () => {
+      if (!document.hidden && timer === null) void tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     void tick();
-    pollRef.current = window.setInterval(() => void tick(), 2000);
     return () => {
       cancelled = true;
-      if (pollRef.current !== null) {
-        window.clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
+      document.removeEventListener("visibilitychange", onVisible);
+      if (timer !== null) window.clearTimeout(timer);
     };
-  }, [run?.id, run?.status, recordClosetCompletion]);
+  }, [run?.id, run?.status, recordClosetCompletion, queryClient]);
+
+  const failedDownload = useMemo(() => {
+    const src = runSourceRef.current;
+    if (!run || !src || src.runId !== run.id || isOpenRun(run)) return null;
+    return failedRowsCsv(src.headers, src.rows, run.errors ?? []);
+    // runSourceRef is written in the same render pass that sets `run`.
+  }, [run]);
+
+  function downloadFailedRows() {
+    const src = runSourceRef.current;
+    if (!failedDownload || !src) return;
+    const base = src.name.replace(/\.(csv|tsv|txt)$/i, "");
+    downloadBlob(csvBlob(failedDownload.csv), `${base}-failed-rows.csv`);
+  }
 
   // US-2518 — put the catalog back. Items the run created are deleted, columns
   // it filled are restored to what they held, and anything since published to a
-  // marketplace is left alone and reported.
-  async function handleUndo() {
-    if (!run) return;
-    setUndoing(true);
+  // marketplace is left alone and reported. IMP-10: any recent run, not only
+  // the one this page started.
+  async function handleUndo(target: ImportRun) {
+    setUndoingId(target.id);
     try {
-      const res = await edgeFetch(`/api/flipdesk/import/runs/${run.id}/undo`, {
+      const res = await edgeFetch(`/api/flipdesk/import/runs/${target.id}/undo`, {
         method: "POST",
       });
-      const json = (await res.json().catch(() => ({}))) as {
-        deleted_items?: number;
-        restored_items?: number;
-        kept_published?: number;
-        error?: string;
-      };
+      const json = (await res.json().catch(() => ({}))) as UndoResult & { error?: string };
       if (!res.ok) throw new Error(json.error || "Undo failed.");
-      setRun({ ...run, status: "undone", undone_at: new Date().toISOString() });
-      const kept = json.kept_published ?? 0;
+      if (run?.id === target.id) {
+        setRun({ ...run, status: "undone", undone_at: new Date().toISOString() });
+      }
+      setLastUndo({ ...json, runId: target.id });
+      const kept = (json.kept_published ?? 0) + (json.kept_edited ?? 0) + (json.kept_modified ?? 0);
       toast.success(
         `Undone: ${json.deleted_items ?? 0} deleted, ${json.restored_items ?? 0} restored.`,
         kept > 0
           ? {
-              description: `${kept} item${kept === 1 ? "" : "s"} kept — already published to a marketplace.`,
+              description: `${kept} item${kept === 1 ? "" : "s"} kept because you changed, sold or published them since.`,
               duration: 12_000,
             }
           : undefined,
@@ -547,7 +613,8 @@ export function FlipdeskImportPage() {
     } catch (err) {
       toastError(err);
     } finally {
-      setUndoing(false);
+      setUndoingId(null);
+      void queryClient.invalidateQueries({ queryKey: [IMPORT_RUNS_KEY] });
     }
   }
 
@@ -587,271 +654,42 @@ export function FlipdeskImportPage() {
           extension has answered a ping — an install step when it is missing,
           and the free bound stated when the account has no plan. */}
       <ClosetImportCard
-        disabled={importing || !can("manage_inventory")}
+        disabled={importing || !canImport}
         onStarted={handleClosetStarted}
+        onStillReading={() => void attachNewestOpenRun()}
       />
 
-      {/* Step 1: input — upload OR paste */}
-      <Card>
-        <CardHeader>
-          <CardTitle>1. Load your data</CardTitle>
-          <CardDescription>
-            Upload a CSV file (recommended for 200+ rows — more reliable than
-            paste), or paste from Google Sheets (handles tabs or commas).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Google Sheet link — paste a share URL and we pull it directly */}
-          <div className="rounded-md border bg-muted/30 p-4">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Link2 className="h-4 w-4" />
-              Connect a Google Sheet
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Paste a share link. The sheet must be shared with{" "}
-              <strong>Anyone with the link</strong> (Viewer). We pull the first
-              tab — add <code>#gid=…</code> to target a specific tab.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Input
-                aria-label="Google Sheet share link"
-                value={sheetUrl}
-                onChange={(e) => setSheetUrl(e.target.value)}
-                placeholder="https://docs.google.com/spreadsheets/d/…"
-                className="min-w-[260px] flex-1 text-xs"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleFetchSheet();
-                }}
-              />
-              <Button
-                variant="outline"
-                onClick={handleFetchSheet}
-                disabled={!sheetUrl.trim() || fetchSheet.isPending}
-              >
-                {fetchSheet.isPending ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Link2 className="mr-2 h-4 w-4" />
-                )}
-                Fetch sheet
-              </Button>
-            </div>
-          </div>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs">
-              <span className="bg-card px-2 text-muted-foreground">
-                or upload a file
-              </span>
-            </div>
-          </div>
-
-          <div className="rounded-md border-2 border-dashed border-muted-foreground/30 p-4 text-center">
-            <input
-              type="file"
-              accept=".csv,.tsv,text/csv,text/tab-separated-values,text/plain"
-              onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
-              className="hidden"
-              id="csv-file-input"
-            />
-            <label
-              htmlFor="csv-file-input"
-              className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-brand-navy px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy/90"
-            >
-              <Upload className="h-4 w-4" />
-              Choose CSV file
-            </label>
-            <p className="mt-2 text-xs text-muted-foreground">
-              In Google Sheets: File → Download → Comma-separated values (.csv)
-            </p>
-            {/* US-2518: a seller with no spreadsheet yet had nothing to start
-                from, and had to guess at column names. These headers are the
-                ones guessField() recognises, so a file built on this maps
-                itself. */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mt-2"
-              onClick={downloadTemplate}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              Download the CSV template
-            </Button>
-          </div>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs">
-              <span className="bg-card px-2 text-muted-foreground">
-                or paste
-              </span>
-            </div>
-          </div>
-
-          {/* US-2335: the only text near this is a divider reading "or paste",
-              and its placeholder is a sample table that stops being announced on
-              the first keystroke. */}
-          <Textarea
-            aria-label="Paste rows to import"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={6}
-            placeholder="Container	Item #	Item Title	...
-A1	GT-0001	Lululemon Align Pant	..."
-            className="font-mono text-xs"
-          />
-          <div className="flex justify-end">
-            <Button onClick={handleDetect} disabled={!text.trim()}>
-              Detect columns
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Step 1: where the data comes from (IMP-13). */}
+      <ImportSourcePicker
+        key={pickerKey}
+        disabled={runOpen}
+        loaded={loaded}
+        onLoad={detectFromText}
+        onDownloadTemplate={downloadTemplate}
+      />
 
       {/* Step 2: mapping */}
       {headers.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>2. Confirm the mapping</CardTitle>
-            <CardDescription>
-              {rows.length} rows detected. Map each spreadsheet column to a
-              FlipDesk field. Skipped columns aren't imported.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {/* US-9209: a switching seller picks (or is handed) their old tool's
-                preset. "Plain spreadsheet" is the generic guess this page always
-                used; an unverified preset says so rather than promising. */}
-            <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
-              <Label htmlFor="import-preset">Exported from</Label>
-              <Select
-                value={preset?.id ?? "none"}
-                onValueChange={(v) => {
-                  const next = getImportPreset(v) ?? null;
-                  setPreset(next);
-                  setMapping(next ? applyImportPreset(headers, next) : headers.map(guessField));
-                }}
-              >
-                <SelectTrigger id="import-preset" className="w-64" aria-label="Exported from">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Plain spreadsheet</SelectItem>
-                  {IMPORT_PRESETS.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {preset && !preset.verified ? (
-                <span className="text-xs text-muted-foreground">
-                  Mapping the documented columns for {preset.name}. Nobody has
-                  checked it against a real file yet, so look over step 2 before
-                  you import.
-                </span>
-              ) : null}
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {headers.map((header, i) => (
-                <div key={i} className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="font-mono text-xs">
-                      {header || `(col ${i + 1})`}
-                    </Badge>
-                  </div>
-                  {/* One per spreadsheet COLUMN. Named from the column header
-                      — stable source data, not something being edited — with the
-                      position as the fallback for an unnamed column, matching
-                      what the Badge above already shows. */}
-                  <Select
-                    value={mapping[i] ?? "skip"}
-                    onValueChange={(v) => {
-                      const next = [...mapping];
-                      next[i] = v as ImportField;
-                      setMapping(next);
-                    }}
-                  >
-                    <SelectTrigger aria-label={`Map column ${header || i + 1} to`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {IMPORT_FIELDS.map((f) => (
-                        <SelectItem key={f} value={f}>
-                          {IMPORT_FIELD_LABELS[f]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ))}
-            </div>
-            {!titleFieldMapped && (
-              <div className="mt-4 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                <AlertCircle className="h-4 w-4" />
-                One column must map to <strong>Item Title</strong>.
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <ImportMappingStep
+          headers={headers}
+          mapping={mapping}
+          sample={rows[0]}
+          rowCount={rows.length}
+          preset={preset}
+          duplicateFields={validation.duplicateFields}
+          onPresetChange={handlePresetChange}
+          onMappingChange={handleMappingChange}
+        />
       )}
 
-      {/* Step 3: preview */}
-      {previewRows.length > 0 && titleFieldMapped && (
-        <Card>
-          <CardHeader>
-            <CardTitle>3. Preview (first 10 rows)</CardTitle>
-            <CardDescription>
-              How rows will land after mapping. Numbers are parsed; dates
-              normalized to ISO; status normalized to FlipDesk enum.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Brand</TableHead>
-                  <TableHead>Size</TableHead>
-                  <TableHead>Cost</TableHead>
-                  <TableHead>List $</TableHead>
-                  <TableHead>Sold $</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Source</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {previewRows.map((r, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="max-w-xs truncate">
-                      {r.mapped.title ?? <span className="text-destructive">—</span>}
-                    </TableCell>
-                    <TableCell>{r.mapped.brand ?? ""}</TableCell>
-                    <TableCell>{r.mapped.size ?? ""}</TableCell>
-                    <TableCell>{parsePrice(r.mapped.purchase_price ?? "")?.toFixed(2) ?? ""}</TableCell>
-                    <TableCell>{parsePrice(r.mapped.list_price ?? "")?.toFixed(2) ?? ""}</TableCell>
-                    <TableCell>{parsePrice(r.mapped.sale_price ?? "")?.toFixed(2) ?? ""}</TableCell>
-                    <TableCell>
-                      {r.mapped.status ? (
-                        <Badge variant="outline" className="text-xs">
-                          {normalizeStatus(r.mapped.status) ?? r.mapped.status}
-                        </Badge>
-                      ) : (
-                        ""
-                      )}
-                    </TableCell>
-                    <TableCell>{r.mapped.source ?? ""}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+      {/* Step 3: the dry run and preview */}
+      {rows.length > 0 && titleFieldMapped && (
+        <ImportPreview payload={payload} validation={validation} />
+      )}
+
+      {/* IMP-09: one line saying why Import, Reset and Undo are disabled. */}
+      {!canImport && (
+        <p className="text-sm text-muted-foreground">{NO_IMPORT_PERMISSION}</p>
       )}
 
       {/* Step 4: import */}
@@ -859,20 +697,25 @@ A1	GT-0001	Lululemon Align Pant	..."
         <div className="flex justify-end gap-2">
           <Button
             variant="outline"
-            disabled={importing}
+            disabled={importing || !canImport}
             onClick={() => {
-              setText("");
+              setLoaded(null);
+              setPickerKey((k) => k + 1);
               setHeaders([]);
               setRows([]);
               setMapping([]);
-              setRun(null);
             }}
           >
             Reset
           </Button>
-          <Button onClick={handleImport} disabled={importing}>
+          <Button
+            onClick={handleImport}
+            disabled={importing || !canImport || importCount === 0}
+          >
             {importing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Import {rows.length} items
+            {validation.overCap
+              ? `Import the first ${MAX_IMPORT_ROWS.toLocaleString()}`
+              : `Import ${importCount} item${importCount === 1 ? "" : "s"}`}
           </Button>
         </div>
       )}
@@ -908,6 +751,14 @@ A1	GT-0001	Lululemon Align Pant	..."
         </Card>
       )}
 
+      {/* IMP-02: polling stopped for good (403/404). Outside the progress card,
+          because the run is dropped when this is set. */}
+      {pollError && (
+        <p role="alert" className="text-sm text-destructive">
+          {pollError}
+        </p>
+      )}
+
       {/* Results */}
       {run && run.status !== "pending" && run.status !== "running" && (
         <Card>
@@ -924,7 +775,7 @@ A1	GT-0001	Lululemon Align Pant	..."
                   ? "Import stopped"
                   : "Import complete"}
             </CardTitle>
-            <CardDescription>
+            <CardDescription role="status" aria-live="polite">
               {run.inserted_count} new · {run.updated_count} filled ·{" "}
               {run.skipped_count} unchanged · {run.failed_count} failed
             </CardDescription>
@@ -934,45 +785,82 @@ A1	GT-0001	Lululemon Align Pant	..."
               <p className="text-sm text-destructive">{run.error}</p>
             )}
             {(run.errors ?? []).length > 0 && (
-              <div className="max-h-64 overflow-y-auto rounded-md border bg-muted/30 p-3 text-xs">
+              <div className="max-h-64 overflow-y-auto rounded-md bg-muted/30 p-3 text-xs">
                 {(run.errors ?? []).map((e, i) => (
-                  <div key={i} className="font-mono">
-                    Row {e.row}: {e.message}
+                  <div key={i}>
+                    {e.row > 0 ? `Row ${e.row}: ` : ""}
+                    {e.message}
                   </div>
                 ))}
               </div>
+            )}
+            {run.failed_count > (run.errors ?? []).length && (
+              <p className="text-xs text-muted-foreground">
+                Showing the first {(run.errors ?? []).length} of {run.failed_count} problems.
+              </p>
             )}
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => navigate("/dashboard/flipdesk/items")}>
                 View items
               </Button>
+              {/* IMP-15: hand the failed rows back as a file to fix and
+                  re-import. Fill by SKU makes the re-import safe. */}
+              {failedDownload && failedDownload.count > 0 && (
+                <Button variant="outline" onClick={downloadFailedRows}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Download the {failedDownload.count} row
+                  {failedDownload.count === 1 ? "" : "s"} that failed
+                </Button>
+              )}
               {/* US-2518: a wrong column mapping used to be permanent. */}
-              {run.status !== "undone" &&
-                run.inserted_count + run.updated_count > 0 && (
-                  <Button
-                    variant="outline"
-                    onClick={handleUndo}
-                    disabled={undoing}
-                  >
-                    {undoing ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Undo2 className="mr-2 h-4 w-4" />
-                    )}
-                    Undo this import
-                  </Button>
-                )}
+              {/* Same rule as Recent imports, so the two never disagree
+                  (an undo in progress has undone_at set before status). */}
+              {canUndoRun(run) && (
+                <Button
+                  variant="outline"
+                  onClick={() => void handleUndo(run)}
+                  disabled={undoingId !== null || !canImport}
+                >
+                  {undoingId === run.id ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Undo2 className="mr-2 h-4 w-4" />
+                  )}
+                  Undo this import
+                </Button>
+              )}
             </div>
             {run.status !== "undone" && (
               <p className="text-xs text-muted-foreground">
                 Undo deletes the items this import created and puts back the
-                values it filled in. Anything you have already published to a
-                marketplace is left alone.
+                values it filled in. Anything you have since published, sold or
+                edited is left alone.
+              </p>
+            )}
+            {run.status === "undone" && lastUndo?.runId === run.id && (
+              <p role="status" className="text-sm text-muted-foreground">
+                {lastUndo.deleted_items ?? 0} deleted, {lastUndo.restored_items ?? 0} restored
+                {(lastUndo.kept_published ?? 0) > 0 &&
+                  `, ${lastUndo.kept_published} kept because published`}
+                {(lastUndo.kept_modified ?? 0) > 0 &&
+                  `, ${lastUndo.kept_modified} kept because sold since`}
+                {(lastUndo.kept_edited ?? 0) > 0 &&
+                  `, ${lastUndo.kept_edited} with your later edits kept`}
+                .
               </p>
             )}
           </CardContent>
         </Card>
       )}
+
+      {/* IMP-10: every recent run, including the extension's own closet
+          reads, each with its own Undo. */}
+      <RecentImportsCard
+        runs={recentRuns.data ?? []}
+        onUndo={(r) => void handleUndo(r)}
+        undoingId={undoingId}
+        canUndo={canImport}
+      />
     </div>
   );
 }

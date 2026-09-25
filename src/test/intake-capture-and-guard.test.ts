@@ -8,7 +8,7 @@ import { resolve } from "node:path";
 // in silence, measurements could not be entered even though "measured" is a
 // pipeline status, and "required" was an asterisk typed into a label.
 
-const INTAKE = "src/pages/flipdesk/intake.tsx";
+const INTAKE = "src/pages/flipdesk/intake-single.tsx";
 // The row and the photo-shortfall message are built here; their behaviour is
 // tested in src/pages/flipdesk/__tests__/intake-plan.test.ts.
 const INTAKE_PLAN = "src/pages/flipdesk/intake-plan.ts";
@@ -61,7 +61,9 @@ describe("photos can be taken at intake (US-2546 AC2)", () => {
 describe("a filled form warns before it is abandoned (US-2546 AC3)", () => {
   it("the page is guarded", () => {
     const src = read(INTAKE);
-    expect(src).toContain("useNavigationGuard(dirty)");
+    // Single mode only: a ?mode= switch keeps the draft mounted and is not a
+    // leave, and the dialog below renders only in the single form.
+    expect(src).toMatch(/useNavigationGuard\(\s*dirty && !mode,/);
     expect(src).toContain("open={guard.blocked}");
   });
 
@@ -70,7 +72,7 @@ describe("a filled form warns before it is abandoned (US-2546 AC3)", () => {
     // click through, which is how a guard stops working.
     const src = read(INTAKE);
     expect(src).toMatch(/const dirty =\s*\n?\s*!saving &&/);
-    expect(src).toContain("v !== INITIAL[k as keyof FormState]");
+    expect(src).toContain("v !== baseline[k as keyof FormState]");
   });
 
   it("it names the photos, which are the part that cannot be recovered", () => {
@@ -96,11 +98,13 @@ describe("measurements can be entered at intake (US-2546 AC4)", () => {
   it("staged work is cleared by Save & Add another", () => {
     // Otherwise the next item in the batch inherits the last one's photos and
     // measurements, which is a data-integrity bug, not a UI one.
+    // Both save routes (queued and inserted) reset through one function.
     const src = read(INTAKE);
-    const resets = src.match(/setStagedPhotos\(\[\]\);/g) ?? [];
-    expect(resets.length, "both reset paths must clear it").toBeGreaterThanOrEqual(2);
-    const mResets = src.match(/setMeasurements\(\{\}\);/g) ?? [];
-    expect(mResets.length).toBeGreaterThanOrEqual(2);
+    const body = src.slice(src.indexOf("function resetForNext("), src.indexOf("async function save("));
+    expect(body).toContain("setStagedPhotos([]);");
+    expect(body).toContain("setMeasurements({});");
+    const calls = src.match(/resetForNext\(/g) ?? [];
+    expect(calls.length, "both reset paths must call it").toBeGreaterThanOrEqual(3);
   });
 });
 

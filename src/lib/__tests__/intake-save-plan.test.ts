@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  isDraftAlreadySaved,
   offlineSavedMessage,
+  shouldQueueAfterError,
   planIntakeSave,
   resolveIntakeSourceChoice,
 } from "@/lib/intake-save-plan";
@@ -59,5 +61,41 @@ describe("planIntakeSave", () => {
     expect(
       planIntakeSave({ online: true, source: { kind: "new", name: "Bins" }, photoCount: 2 }),
     ).toEqual({ route: "insert", sourceId: null, newSourceName: "Bins" });
+  });
+});
+
+describe("shouldQueueAfterError", () => {
+  it("falls back to the queue on a failed fetch or a timed-out request", () => {
+    expect(shouldQueueAfterError(new TypeError("Failed to fetch"))).toBe(true);
+    // postgrest-js folds a rejected fetch into a plain error object.
+    expect(shouldQueueAfterError({ message: "TypeError: Failed to fetch", code: "" })).toBe(true);
+    expect(shouldQueueAfterError({ message: "TimeoutError: signal timed out", code: "" })).toBe(true);
+    expect(shouldQueueAfterError(new DOMException("aborted", "AbortError"))).toBe(true);
+  });
+
+  it("surfaces a real refusal instead of queueing it", () => {
+    expect(shouldQueueAfterError({ message: "new row violates row-level security", code: "42501" })).toBe(false);
+    expect(shouldQueueAfterError({ message: "duplicate key", code: "23505" })).toBe(false);
+  });
+});
+
+describe("isDraftAlreadySaved", () => {
+  it("reads a primary-key 23505 as the first try having landed", () => {
+    expect(
+      isDraftAlreadySaved({
+        code: "23505",
+        message: 'duplicate key value violates unique constraint "inventory_items_pkey"',
+      }),
+    ).toBe(true);
+  });
+
+  it("does not mistake a SKU clash for it", () => {
+    expect(
+      isDraftAlreadySaved({
+        code: "23505",
+        message: 'duplicate key value violates unique constraint "idx_inventory_items_user_sku"',
+        details: "Key (user_id, sku)=(u, A1) already exists.",
+      }),
+    ).toBe(false);
   });
 });

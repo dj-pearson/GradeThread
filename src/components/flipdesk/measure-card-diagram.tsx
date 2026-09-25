@@ -3,7 +3,7 @@ import { MEASURE_CARD_V1 } from "@/lib/measure-card";
 // US-2540: what the card actually looks like.
 //
 // The page told sellers to "shoot with all four black squares fully visible"
-// without ever showing the object — so someone who had not yet printed one was
+// without ever showing the object, so someone who had not yet printed one was
 // being given framing instructions for a thing they could not picture. Every
 // dimension here is read from MEASURE_CARD_V1, the same generated geometry the
 // PDF and the decoder use, so the drawing cannot drift from the card.
@@ -39,7 +39,7 @@ export function MeasureCardDiagram({ className }: { className?: string }) {
             fill="#111111"
           />
         ))}
-        {/* The rectangle the four centres form — the measurement ground truth,
+        {/* The rectangle the four centres form: the measurement ground truth,
             and the reason a covered corner ruins the photo. */}
         <rect
           x={centers[0]![0]}
@@ -75,7 +75,7 @@ export function MeasureCardDiagram({ className }: { className?: string }) {
         </text>
       </svg>
       <figcaption className="mt-2 text-xs text-muted-foreground">
-        Not to scale and not a usable card — a photo of this screen will not
+        Not to scale and not a usable card. A photo of this screen will not
         decode. The real card is {w}in × {h}in ({Math.round(w * 25.4)}mm ×{" "}
         {Math.round(h * 25.4)}mm), and the four corner squares are what the
         measurement is calculated from: cover one and the photo cannot be used.

@@ -2,12 +2,18 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  CONDITION_NOTE_MAX,
+  DESCRIPTION_TEMPLATE_MAX,
+  SORT_ORDER_MAX,
+  SPECIFIC_NAME_MAX,
+  SPECIFIC_VALUE_MAX,
+  SPECIFICS_MAX,
   TEMPLATE_NAME_MAX,
   nameProblem,
   normalizeInput,
   preferredTemplate,
   templateChanges,
-  templateSummary,
+  templateChips,
   type ListingTemplate,
 } from "@/lib/flipdesk-templates";
 import { ALL_SURFACES } from "@/lib/surfaces";
@@ -34,6 +40,8 @@ const stripComments = (s: string) =>
 
 const WEB_LIB = "src/lib/flipdesk-templates.ts";
 const PAGE = "src/pages/flipdesk/templates.tsx";
+// The editor moved out of the page into its own dialog component.
+const EDITOR = "src/components/flipdesk/template-editor-dialog.tsx";
 const PICKER = "src/components/flipdesk/saved-template-picker.tsx";
 const EDGE_LIB = "services/edge-functions/src/lib/listing-template.ts";
 const EDGE_ROUTE = "services/edge-functions/src/routes/flipdesk-templates.ts";
@@ -138,15 +146,34 @@ describe("three clients, one row shape (US-2877 AC1)", () => {
     expect(m, "the edge no longer declares TEMPLATE_NAME_MAX").not.toBeNull();
     expect(TEMPLATE_NAME_MAX).toBe(Number(m![1]));
   });
+
+  it.each([
+    ["DESCRIPTION_TEMPLATE_MAX", DESCRIPTION_TEMPLATE_MAX],
+    ["CONDITION_NOTE_MAX", CONDITION_NOTE_MAX],
+    ["SPECIFICS_MAX", SPECIFICS_MAX],
+    ["SPECIFIC_NAME_MAX", SPECIFIC_NAME_MAX],
+    ["SPECIFIC_VALUE_MAX", SPECIFIC_VALUE_MAX],
+    ["SORT_ORDER_MAX", SORT_ORDER_MAX],
+  ])("%s is the server's number", (name, value) => {
+    const edgeSrc = stripComments(read(EDGE_LIB));
+    const m = edgeSrc.match(new RegExp(`export const ${name} = (\\d+)`));
+    expect(m, `the edge no longer declares ${name}`).not.toBeNull();
+    expect(value).toBe(Number(m![1]));
+  });
 });
 
 describe("the page can create, edit and delete (US-2877 AC1)", () => {
   const page = stripComments(read(PAGE));
+  const editor = stripComments(read(EDITOR));
 
   it("all four verbs are wired", () => {
-    for (const fn of ["listTemplates", "createTemplate", "updateTemplate", "deleteTemplate"]) {
+    for (const fn of ["listTemplates", "deleteTemplate"]) {
       expect(page, `the page never calls ${fn}`).toContain(fn);
     }
+    for (const fn of ["createTemplate", "updateTemplate"]) {
+      expect(editor, `the editor never calls ${fn}`).toContain(fn);
+    }
+    expect(page, "the page never renders the editor").toMatch(/<TemplateEditorDialog\b/);
   });
 
   it("the edge route still offers all four", () => {
@@ -163,7 +190,10 @@ describe("the page can create, edit and delete (US-2877 AC1)", () => {
     // ticket.
     expect(page).toContain("useConfirm");
     expect(page).toMatch(/destructive: true/);
-    expect(page).toContain("keep everything it filled in");
+    // The wording lives in deleteConfirmText so deleting the default can also
+    // say which template takes over.
+    expect(page).toContain("deleteConfirmText(t, templates)");
+    expect(read(WEB_LIB)).toContain("keep everything it filled in");
   });
 
   it("every field iOS's editor captures is on the page too", () => {
@@ -181,15 +211,23 @@ describe("the page can create, edit and delete (US-2877 AC1)", () => {
       ["payment policy", "Payment policy ID"],
       ["item specifics", "Add a detail"],
     ] as const) {
-      expect(page, `the editor has no ${label} field`).toContain(marker);
+      expect(editor, `the editor has no ${label} field`).toContain(marker);
     }
   });
 
   it("the condition list is the shared one", () => {
     // A hand-typed second list of eBay conditions is how a template ends up
     // holding a value eBay rejects at publish.
-    expect(page).toContain('import { EBAY_CONDITION_OPTIONS } from "@/lib/constants"');
-    expect(page).toMatch(/EBAY_CONDITION_OPTIONS\.map\(/);
+    // The editor's fallback is TEMPLATE_CONDITION_OPTIONS, which is the shared
+    // list with one apparel relabel (USED_EXCELLENT reads "Pre-owned - Good"),
+    // derived by map() so it carries exactly the shared values.
+    const lib = read("src/lib/flipdesk-templates.ts");
+    expect(lib).toMatch(/TEMPLATE_CONDITION_OPTIONS[^=]*=\s*EBAY_CONDITION_OPTIONS\.map\(/);
+    expect(editor).not.toMatch(/value:\s*"USED_/);
+    // Used as the fallback list, not merely imported. When eBay restricts the
+    // chosen category, the editor narrows to eBay's own options instead.
+    expect((editor.match(/TEMPLATE_CONDITION_OPTIONS/g) ?? []).length).toBeGreaterThan(1);
+    expect(editor).toContain("useEbayCategoryConditions");
   });
 });
 
@@ -259,7 +297,7 @@ describe("both clients offer the same set, applied the same way (US-2877 AC3, AC
     // passed with the picker switched to a private key, because the import
     // line still said the word -- which is the ordinary way this kind of check
     // goes quiet.
-    for (const f of [PAGE, PICKER, "src/pages/flipdesk/autolister-bulk-edit.tsx"]) {
+    for (const f of [PAGE, EDITOR, PICKER, "src/pages/flipdesk/autolister-bulk-edit.tsx"]) {
       expect(stripComments(read(f)), `${f} does not use the shared key`).toMatch(
         /queryKey: TEMPLATES_QUERY_KEY/,
       );
@@ -333,11 +371,30 @@ describe("the client agrees with the server about normalization", () => {
     expect(nameProblem("Vintage denim")).toBeNull();
   });
 
-  it("the summary says what a template carries", () => {
-    expect(templateSummary(blank())).toContain("Empty");
-    const t = { ...blank(), description_template: "hi", item_specifics: { Brand: "Levi's" } };
-    expect(templateSummary(t)).toContain("description");
-    expect(templateSummary(t)).toContain("1 item detail");
+  it("the chips say what a template carries", () => {
+    expect(templateChips(blank())).toEqual([]);
+    const t = {
+      ...blank(),
+      description_template: "hi",
+      ebay_condition: "PRE_OWNED_EXCELLENT",
+      item_specifics: { Brand: "Levi's" },
+      shipping_policy_id: "1",
+    };
+    const labels = templateChips(t).map((c) => c.label);
+    expect(labels).toContain("Footer");
+    expect(labels).toContain("1 detail");
+    expect(labels.some((l) => l.startsWith("Pre-owned"))).toBe(true);
+    const policies = templateChips(t).find((c) => c.label === "1 of 3 policies");
+    expect(policies?.tone).toBe("warn");
+    const all = templateChips({ ...t, payment_policy_id: "2", return_policy_id: "3" });
+    expect(all.find((c) => c.label === "3 of 3 policies")?.tone).toBeUndefined();
+  });
+
+  it("a template with only a condition note is not empty", () => {
+    const labels = templateChips({ ...blank(), condition_description: "Light wear." }).map(
+      (c) => c.label,
+    );
+    expect(labels).toEqual(["Condition note"]);
   });
 });
 

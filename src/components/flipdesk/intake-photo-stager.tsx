@@ -36,6 +36,12 @@ export interface StagedPhoto {
   photoType: FlipdeskPhotoType;
   /** The qualifier saying what this photo shows; null for a slot that takes none. */
   photoRole?: string | null;
+  /**
+   * The item_photos row id this photo will be uploaded under, fixed when it
+   * is staged so a retry (online, or later from the queue) targets the same
+   * storage path and row instead of making a second copy.
+   */
+  photoId?: string;
 }
 
 /** Slot identity is (type, role), so a suit can hold three separate tag slots. */
@@ -96,16 +102,20 @@ export function IntakePhotoStager({
   const optionalRoles = profile.roles.filter((r) => !r.required);
 
   // Object URLs are a leak if nobody revokes them, and this form can stage and
-  // clear several batches in one session (Save & Add another).
+  // clear several batches in one session (Save & Add another). The old effect
+  // captured only the first render's list, so every later batch leaked. Now a
+  // URL is revoked when its photo leaves the list. The photos themselves live
+  // in the page's state and outlast this component (a switch to Bulk mode
+  // unmounts it and keeps the draft), so the page revokes what is left when
+  // IT unmounts.
+  const liveUrlsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const urls = photos.map((p) => p.previewUrl);
-    return () => {
-      for (const u of urls) URL.revokeObjectURL(u);
-    };
-    // Only on unmount: revoking on every change would kill the URLs of photos
-    // still on screen.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const now = new Set(photos.map((p) => p.previewUrl).filter(Boolean));
+    for (const u of liveUrlsRef.current) {
+      if (!now.has(u)) URL.revokeObjectURL(u);
+    }
+    liveUrlsRef.current = now;
+  }, [photos]);
 
   function openPicker(
     which: "camera" | "library",
@@ -131,6 +141,7 @@ export function IntakePhotoStager({
         previewUrl: URL.createObjectURL(file),
         photoType: slot.photoType,
         photoRole: slot.photoRole,
+        photoId: crypto.randomUUID(),
       });
     }
     setCounter(n);

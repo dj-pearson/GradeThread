@@ -183,3 +183,47 @@ describe("a revise sends the price in the marketplace's units (US-2739)", () => 
   });
 });
 
+
+describe("closet import honesty (IMP-14)", () => {
+  it("blocks on an unreachable, expired or unconnected extension, and only then", async () => {
+    const { closetImportBlocker } = await import("@/lib/lister-extension");
+    expect(closetImportBlocker({ reachable: false, signedIn: true, tokenStatus: "active" })?.kind).toBe("update");
+    expect(closetImportBlocker({ reachable: true, signedIn: true, tokenStatus: "expired" })?.kind).toBe("reconnect");
+    expect(closetImportBlocker({ reachable: true, signedIn: false, tokenStatus: "none" })?.kind).toBe("reconnect");
+    expect(closetImportBlocker({ reachable: true, signedIn: true, tokenStatus: "active" })).toBeNull();
+    // An older build that does not report token state is unknown, not blocked.
+    expect(closetImportBlocker({ reachable: true, signedIn: true, tokenStatus: null })).toBeNull();
+  });
+
+  it("warns when a read did not reach the end of the closet", async () => {
+    const { closetImportCoverageNotice } = await import("@/lib/lister-extension");
+    expect(closetImportCoverageNotice({ tilesRead: 48, reachedEnd: false }, "poshmark")).toMatch(
+      /stopped before the end of your Poshmark closet \(48 listings seen\)/,
+    );
+    expect(closetImportCoverageNotice({ tilesRead: 48, reachedEnd: true }, "poshmark")).toBeNull();
+    expect(closetImportCoverageNotice(undefined, "poshmark")).toBeNull();
+  });
+
+  it("does not tell a paying seller that closet import needs a paid plan", async () => {
+    const { closetImportFailureText } = await import("@/lib/lister-extension");
+    const text = closetImportFailureText("seller_locked", "poshmark");
+    expect(text).toMatch(/reconnect the extension/i);
+  });
+
+  it("the card treats a timeout as 'still reading', never as the scroll message", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("src/components/flipdesk/closet-import-card.tsx", "utf8");
+    const at = src.indexOf("if (res.timedOut)");
+    expect(at).toBeGreaterThan(0);
+    const branch = src.slice(at, src.indexOf("return;", at));
+    expect(branch).toContain("Still reading your");
+    expect(branch).toContain("onStillReading?.()");
+    expect(branch).not.toContain("closetImportFailureText");
+    // And it comes before the generic failure sentence.
+    expect(at).toBeLessThan(src.indexOf("closetImportFailureText(res.reason"));
+    expect(src).toMatch(/track\("closet_import_failed"/);
+    expect(src).toMatch(/aria-busy=/);
+    expect(src).toMatch(/Reading your \$\{MARKETPLACE_LABELS\[platform\]\} closet\.\.\./);
+    expect(src).not.toMatch(/\bChrome\b/);
+  });
+});

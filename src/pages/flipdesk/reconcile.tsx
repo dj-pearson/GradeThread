@@ -111,6 +111,7 @@ import type { FlipdeskPhotoType, ReconcileAssignmentSnapshot } from "@/types/dat
 import { cn } from "@/lib/utils";
 import { HelpLink } from "@/components/help/help-link";
 import { Term } from "@/components/help/term";
+import { RECONCILE_TABS, type ReconcileTab } from "@/lib/reconcile-tabs";
 
 interface DumpPhoto extends ClusterablePhoto {
   name: string;
@@ -165,8 +166,7 @@ const LINKABLE_PICKER_LIMIT = 200;
 // US-963: the unified Reconcile area hosts four flows as tabs. The active tab is
 // reflected in the `?tab=` query param so the old /reconciliation route can deep
 // -link straight to its flow and tab choice survives a refresh/share.
-const RECONCILE_TABS = ["photos", "ebay", "payouts", "cross-source"] as const;
-type ReconcileTab = (typeof RECONCILE_TABS)[number];
+// The list lives in @/lib/reconcile-tabs so deep links can be tested against it.
 
 export function FlipdeskReconcilePage() {
   const { workspaceOwnerId, can } = useWorkspace();

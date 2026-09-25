@@ -8,7 +8,10 @@
 //   curl -fsS -X POST https://functions.gradethread.com/api/jobs/measurement-aggregate \
 //     -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET"
 //
-// Returns { cohorts, sufficient, upserted }. `sufficient` is the number the
+// Returns { cohorts, sufficient, upserted, retired, rowsRead, failedChunks }.
+// A failed page read throws (500) before anything is written or retired, and a
+// run with any failed upsert or retire chunk answers 500 with its summary, so a
+// partial run is never reported as ok. `sufficient` is the number the
 // US-3037 gate reads: it is the count of cohorts that clear both floors, which
 // is the count of numbers that could appear on a page.
 
@@ -29,6 +32,9 @@ export async function handleMeasurementAggregateCron(c: Context): Promise<Respon
 
   try {
     const summary = await computeMeasurementAggregates();
+    if (summary.failedChunks > 0) {
+      return c.json({ ok: false, error: "Some chunks failed to save", ...summary }, 500);
+    }
     return c.json({ ok: true, ...summary });
   } catch (err) {
     console.error(

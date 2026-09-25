@@ -142,6 +142,12 @@ const NOT_A_LABEL_MAP: ReadonlyMap<string, string> = new Map([
       "parsed for comparison; the parser self-check below reads it anyway to " +
       "prove the parser agrees with the module system.",
   ],
+  [
+    "src/lib/import-mapping.ts",
+    "MARKETPLACE_ALIASES maps what a seller types in a Marketplace column " +
+      "(\"posh\", \"fb\") to a listing_platform VALUE, not to a display " +
+      "name. Its values are enum keys, so there is no label to compare.",
+  ],
 ]);
 
 function readSource(file: string): string {

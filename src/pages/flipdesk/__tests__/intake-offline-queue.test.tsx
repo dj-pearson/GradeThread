@@ -21,9 +21,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/supabase", () => ({ supabase: { from: mocks.from, rpc: mocks.rpc } }));
 vi.mock("@/lib/offline-queue", () => ({ enqueueIntake: mocks.enqueueIntake }));
-vi.mock("@/lib/item-photo-upload", () => ({ uploadItemPhoto: mocks.uploadItemPhoto }));
+vi.mock("@/lib/item-photo-upload", async (orig) => ({
+  ...(await orig<typeof import("@/lib/item-photo-upload")>()),
+  uploadItemPhoto: mocks.uploadItemPhoto,
+}));
 vi.mock("@/hooks/use-offline-intake", () => ({
-  useOfflineIntakeSync: () => ({ pending: 0, online: false, refresh: mocks.refresh, sync: vi.fn() }),
+  useOfflineIntakeStatus: () => ({ pending: 0, photosPending: 0, online: false, refresh: mocks.refresh }),
 }));
 vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), {
@@ -40,7 +43,14 @@ vi.mock("@/stores/auth-store", () => ({
 vi.mock("@/hooks/use-workspace", () => ({
   useWorkspace: () => ({ workspaceOwnerId: "owner-1", can: () => true }),
 }));
-vi.mock("@/hooks/use-sku-sequence", () => ({ useSkuSequence: () => ({ nextSku: null }) }));
+vi.mock("@/hooks/use-sku-sequence", () => ({
+  SKU_SEQUENCE_KEY: "sku_sequence",
+  SKU_PREVIEW_KEY: "sku_preview",
+  useSkuSequence: () => ({ nextSku: null, isEnabled: false }),
+}));
+vi.mock("@/hooks/use-open-photo-sessions", () => ({
+  useOpenPhotoSessions: () => ({ data: 0 }),
+}));
 vi.mock("@/hooks/use-sources", () => ({ useSources: () => ({ data: [] }) }));
 vi.mock("@/hooks/use-ai-extract", () => ({
   useAiExtract: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -203,7 +213,7 @@ describe("intake offline save", () => {
       extras.photos.map((p) => [(p.blob as File).name, p.photoType, p.photoRole, p.sortOrder]),
     ).toEqual([
       ["front.jpg", "front", null, 0],
-      ["back.jpg", "back", null, 1],
+      ["back.jpg", "back", null, 100],
     ]);
 
     expect(mocks.from).not.toHaveBeenCalled();

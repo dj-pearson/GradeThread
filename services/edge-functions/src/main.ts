@@ -316,7 +316,11 @@ import {
   apiV1WriteLimit,
 } from "./middleware/api-v1-rate.ts";
 import { apiUsageMiddleware } from "./lib/api-usage-log.ts";
-import { blockViewerWrites, workspaceMiddleware } from "./middleware/workspace.ts";
+import {
+  blockViewerWrites,
+  requireWorkspaceRoleForWrites,
+  workspaceMiddleware,
+} from "./middleware/workspace.ts";
 import { securityHeaders } from "./middleware/security-headers.ts";
 import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
 import {
@@ -401,6 +405,9 @@ app.use(
     origin: (origin) => (isAllowedOrigin(origin) ? origin : null),
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ALLOWED_HEADERS,
+    // A cross-origin fetch cannot read Retry-After unless it is exposed, and
+    // the web AI toasts name the wait from it.
+    exposeHeaders: ["Retry-After"],
     maxAge: 86400,
   })
 );
@@ -833,6 +840,13 @@ app.use("/api/keys/*", workspaceMiddleware);
 // missing or a mutating surface router is mounted outside their coverage.
 app.use("/api/flipdesk/*", blockViewerWrites);
 app.use("/api/grade/*", blockViewerWrites);
+// IMP-09: starting an import, undoing one, and a closet read all create or
+// delete inventory in bulk (a closet read up to 2,000 live listings), which is
+// manage_inventory: listing_manager and up. blockViewerWrites alone let a
+// 'member' do all three. Reads (the progress poll, the runs list) stay open.
+app.use("/api/flipdesk/import/runs", requireWorkspaceRoleForWrites("listing_manager"));
+app.use("/api/flipdesk/import/runs/:id/undo", requireWorkspaceRoleForWrites("listing_manager"));
+app.use("/api/flipdesk/closet-import/runs", requireWorkspaceRoleForWrites("listing_manager"));
 
 // US-584: cron-run ledger. Every /api/jobs/* hit that presents the internal
 // job secret (i.e. a legit scheduled call, not an unauthenticated probe) is
@@ -1238,7 +1252,18 @@ app.use("/api/flipdesk/sync", rateLimiter(60, 60_000, "flipdesk-sync"));
 app.use("/api/flipdesk/sync/*", rateLimiter(60, 60_000, "flipdesk-sync"));
 app.use("/api/flipdesk/reconciliation/*", rateLimiter(30, 60_000, "flipdesk-recon"));
 app.use("/api/flipdesk/sheets/*", rateLimiter(30, 60_000, "flipdesk-sheets"));
-app.use("/api/flipdesk/import/*", rateLimiter(30, 60_000, "flipdesk-import"));
+// IMP-02: the Import page polls GET /runs/:id every few seconds while a run is
+// open. On the shared 30/min bucket that poll alone hit 429, froze progress and
+// made an Undo in the same minute fail. Reads get their own budget; writes keep
+// the 30/min one.
+app.use(
+  "/api/flipdesk/import/*",
+  rateLimiter(30, 60_000, "flipdesk-import", undefined, { methods: ["POST", "PUT", "PATCH", "DELETE"] }),
+);
+app.use(
+  "/api/flipdesk/import/*",
+  rateLimiter(120, 60_000, "flipdesk-import-poll", undefined, { methods: ["GET"] }),
+);
 // US-9201: one closet read per press; 30/min bounds a stuck extension.
 app.use("/api/flipdesk/closet-import", rateLimiter(30, 60_000, "flipdesk-closet-import"));
 app.use("/api/flipdesk/closet-import/*", rateLimiter(30, 60_000, "flipdesk-closet-import"));

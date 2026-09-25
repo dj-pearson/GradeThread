@@ -21,6 +21,7 @@ import {
   Users,
   KeyRound,
   Gift,
+  Images,
   Keyboard,
   Shield,
   Star,
@@ -372,6 +373,14 @@ export function CommandPalette() {
         label: "Intake new item",
         icon: <Plus className="h-4 w-4" />,
         run: () => go("/dashboard/flipdesk/intake"),
+        requires: "manage_inventory",
+      },
+      {
+        kind: "action",
+        id: "photo-dump",
+        label: "Photo dump: sort phone photos into items",
+        icon: <Images className="h-4 w-4" />,
+        run: () => go("/dashboard/flipdesk/money?view=reconcile&tab=photos"),
         requires: "manage_inventory",
       },
       {

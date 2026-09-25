@@ -1,0 +1,321 @@
+// MeasureCard page, rendered. The source guards in src/test/measure-card-page
+// .test.ts pin the contracts with the server; this drives the page with a
+// mocked edge and asserts what a seller actually sees and what gets sent.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createElement as h, act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+type Call = { path: string; init?: { method?: string; json?: unknown; body?: unknown } };
+const calls: Call[] = [];
+let getBody: unknown = null;
+let cardTestBody: unknown = null;
+
+function jsonRes(body: unknown, status = 200) {
+  return Promise.resolve({
+    ok: status < 400,
+    status,
+    json: () => Promise.resolve(body),
+  });
+}
+
+vi.mock("@/lib/edge-fetch", () => ({
+  edgeFetch: (path: string, init?: Call["init"]) => {
+    calls.push({ path, init });
+    if (path === "/api/flipdesk/measure/card-test") return jsonRes(cardTestBody);
+    if (path === "/api/flipdesk/measure/card-request" && !init?.method) {
+      return jsonRes(getBody);
+    }
+    if (path === "/api/flipdesk/measure/card-request") {
+      return jsonRes(
+        {
+          ok: true,
+          request: {
+            id: "r-new",
+            status: "requested",
+            card_version: 2,
+            requested_at: "2026-09-25T00:00:00Z",
+            shipped_at: null,
+            tracking_number: null,
+            tracking_carrier: null,
+          },
+        },
+        201,
+      );
+    }
+    return jsonRes({});
+  },
+}));
+vi.mock("@/hooks/use-workspace", () => ({
+  useWorkspace: () => ({ workspaceOwnerId: "owner-1", role: "owner" }),
+}));
+vi.mock("@/components/help/page-help", () => ({ PageHelp: () => null }));
+vi.mock("sonner", () => ({
+  toast: { success: () => {}, error: () => {}, warning: () => {}, info: () => {} },
+}));
+
+const { FlipdeskMeasureCardPage } = await import("@/pages/flipdesk/measure-card");
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+let root: Root | null = null;
+let container: HTMLDivElement | null = null;
+
+async function mount(state: unknown) {
+  getBody = state;
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  await act(async () => {
+    root = createRoot(container!);
+    root.render(
+      h(
+        QueryClientProvider,
+        { client: qc },
+        h(MemoryRouter, null, h(FlipdeskMeasureCardPage)),
+      ),
+    );
+  });
+  // Let the query resolve.
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
+function text(): string {
+  return container?.textContent ?? "";
+}
+
+function button(label: string): HTMLButtonElement | undefined {
+  return Array.from(container!.querySelectorAll("button")).find(
+    (b) => b.textContent?.trim() === label,
+  ) as HTMLButtonElement | undefined;
+}
+
+function type(id: string, value: string) {
+  const el = container!.querySelector<HTMLInputElement>(`#${id}`)!;
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value",
+  )!.set!;
+  act(() => {
+    setter.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+const OK = { request: null, eligibility: { can_request: true, reason: "ok" } };
+
+beforeEach(() => {
+  calls.length = 0;
+});
+
+afterEach(() => {
+  act(() => {
+    root?.unmount();
+  });
+  root = null;
+  container?.remove();
+  container = null;
+});
+
+describe("the address form (MC-08)", () => {
+  it("caps the postal code at the server's limit", async () => {
+    await mount(OK);
+    const zip = container!.querySelector<HTMLInputElement>("#mc-zip");
+    expect(zip?.getAttribute("maxlength")).toBe("20");
+    expect(zip?.getAttribute("autocomplete")).toBe("postal-code");
+  });
+
+  it("shows the address back for review before anything is POSTed", async () => {
+    await mount(OK);
+    type("mc-name", "Pat Doe");
+    type("mc-a1", "1 Main St");
+    type("mc-city", "Austin");
+    type("mc-state", "TX");
+    type("mc-zip", "78701");
+    const form = container!.querySelector("form")!;
+    act(() => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    const review = container!.querySelector('[data-testid="mc-review"]');
+    expect(review?.textContent).toContain("1 Main St");
+    expect(review?.textContent).toContain("Austin, TX, 78701");
+    expect(text()).toContain("We will mail it to:");
+    expect(calls.some((c) => c.init?.method === "POST")).toBe(false);
+
+    await act(async () => {
+      button("Confirm and request")!.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    const post = calls.find((c) => c.init?.method === "POST");
+    expect(post?.path).toBe("/api/flipdesk/measure/card-request");
+    expect((post?.init?.json as { ship_name: string }).ship_name).toBe("Pat Doe");
+    // MC-07: the status comes from the POST answer, with no second GET.
+    const gets = calls.filter(
+      (c) => c.path === "/api/flipdesk/measure/card-request" && !c.init?.method,
+    );
+    expect(gets).toHaveLength(1);
+    expect(text()).toContain("Requested");
+  });
+
+  it("Edit goes back to the filled-in form", async () => {
+    await mount(OK);
+    type("mc-name", "Pat Doe");
+    act(() => {
+      container!.querySelector("form")!.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    act(() => {
+      button("Edit")!.click();
+    });
+    expect(container!.querySelector<HTMLInputElement>("#mc-name")?.value).toBe("Pat Doe");
+  });
+});
+
+describe("eligibility from the server (MC-01)", () => {
+  it("a viewer is told why and sees no form", async () => {
+    await mount({ request: null, eligibility: { can_request: false, reason: "viewer" } });
+    expect(text()).toContain("Only teammates who can edit can request a card");
+    expect(container!.querySelector("#mc-name")).toBeNull();
+  });
+
+  it("a free-plan workspace sees the upgrade copy and no form", async () => {
+    await mount({ request: null, eligibility: { can_request: false, reason: "free_plan" } });
+    expect(text()).toContain("included with paid plans");
+    expect(container!.querySelector("#mc-name")).toBeNull();
+  });
+});
+
+describe("a shipped card (MC-09)", () => {
+  const SHIPPED = {
+    id: "r1",
+    status: "shipped",
+    card_version: 2,
+    requested_at: "2026-08-01T00:00:00Z",
+    shipped_at: "2026-08-05T00:00:00Z",
+    tracking_number: "9400111",
+    tracking_carrier: "USPS",
+  };
+
+  it("keeps the shipped summary and offers a replacement that opens the form", async () => {
+    await mount({ request: SHIPPED, eligibility: { can_request: true, reason: "ok" } });
+    expect(text()).toContain("shipped");
+    expect(text()).toContain("9400111");
+    expect(text()).not.toContain("Contact support");
+    expect(container!.querySelector("#mc-name")).toBeNull();
+    const replace = button("Lost or damaged? Request a replacement card");
+    expect(replace).toBeTruthy();
+    act(() => {
+      replace!.click();
+    });
+    expect(container!.querySelector("#mc-name")).not.toBeNull();
+  });
+
+  it("no replacement button when the workspace cannot request one", async () => {
+    await mount({ request: SHIPPED, eligibility: { can_request: false, reason: "free_plan" } });
+    expect(button("Lost or damaged? Request a replacement card")).toBeUndefined();
+  });
+});
+
+describe("the work that is waiting comes first (MC-10)", () => {
+  it("shows the live count on the Measure block, before the how-to", async () => {
+    await mount({ ...OK, waiting_count: 12, card: { source: null, version: null } });
+    const t = text();
+    expect(t).toContain("12 items waiting to be measured");
+    expect(t.indexOf("12 items waiting")).toBeLessThan(t.indexOf("How to shoot with it"));
+    const link = container!.querySelector('a[href="/dashboard/flipdesk/inventory?status=cataloged"]');
+    expect(link?.textContent).toContain("12 items waiting");
+  });
+
+  it("says so when nothing is waiting", async () => {
+    await mount({ ...OK, waiting_count: 0, card: { source: null, version: null } });
+    expect(text()).toContain("Nothing waiting. Catalog an item first.");
+  });
+
+  it("renders only one primary button", async () => {
+    await mount({ ...OK, waiting_count: 3, card: { source: null, version: null } });
+    // shadcn's default variant is the only one using bg-primary.
+    const primary = Array.from(
+      container!.querySelectorAll("button, a[data-slot='button']"),
+    ).filter((b) => /(^|\s)bg-primary(\s|$)/.test(b.className));
+    expect(primary).toHaveLength(1);
+    expect(primary[0]!.textContent).toContain("3 items waiting");
+  });
+
+  it("folds the how-to away and states the card once the seller is set up", async () => {
+    await mount({ ...OK, waiting_count: 1, card: { source: "download", version: 2 } });
+    expect(container!.querySelector("details")?.open).toBe(false);
+    expect(text()).toContain("Your card: v2, printed at home.");
+  });
+
+  it("opens the how-to for someone with no card yet", async () => {
+    await mount({ ...OK, waiting_count: 1, card: { source: null, version: null } });
+    expect(container!.querySelector("details")?.open).toBe(true);
+    expect(text()).toContain("No card yet.");
+  });
+});
+
+describe("accessible names (MC-11)", () => {
+  it("each capture list is named by its heading", async () => {
+    await mount(OK);
+    const lists = Array.from(container!.querySelectorAll("ul[aria-labelledby]"));
+    const names = lists.map(
+      (ul) => document.getElementById(ul.getAttribute("aria-labelledby")!)?.textContent?.trim(),
+    );
+    expect(names).toEqual(["Do", "Avoid"]);
+  });
+});
+
+describe("Test my card (MC-12)", () => {
+  async function shoot(result: unknown) {
+    cardTestBody = result;
+    const input = container!.querySelector<HTMLInputElement>("#mc-test-photo")!;
+    const file = new File([new Uint8Array([137, 80, 78, 71])], "card.png", { type: "image/png" });
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
+
+  const BASE_RESULT = {
+    missing_corners: [],
+    card_version: 1,
+    residual_in: 0.01,
+    tilt_deg: 2,
+    layout_error_pct: 0.1,
+    scale_checked: false,
+    scale_note: "A photo of the card alone cannot tell a 100% print from a scaled one.",
+  };
+
+  it("shows a pass badge from the server's answer", async () => {
+    await mount(OK);
+    await shoot({ ...BASE_RESULT, ok: true, markers_found: 4 });
+    const post = calls.find((c) => c.path === "/api/flipdesk/measure/card-test");
+    expect(post?.init?.method).toBe("POST");
+    expect(post?.init?.body).toBeInstanceOf(FormData);
+    const result = container!.querySelector('[data-testid="mc-test-result"]');
+    expect(result?.textContent).toContain("Card passed: all 4 squares found");
+    expect(result?.textContent).toContain("cannot tell a 100% print");
+  });
+
+  it("names the failing corner", async () => {
+    await mount(OK);
+    await shoot({
+      ...BASE_RESULT,
+      ok: false,
+      markers_found: 3,
+      missing_corner: "bottom-left",
+      missing_corners: ["bottom-left"],
+      message: "The bottom-left square is missing or covered.",
+    });
+    const result = container!.querySelector('[data-testid="mc-test-result"]');
+    expect(result?.textContent).toContain("Card failed: bottom-left square not found");
+    expect(result?.textContent).toContain("The bottom-left square is missing or covered.");
+  });
+});

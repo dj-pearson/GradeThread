@@ -42,6 +42,10 @@ interface QueueRow {
   postal_code: string;
   country: string;
   requested_at: string;
+  // MC-04: the street columns could not be decrypted. The row is left out of
+  // the vendor CSV, so it must not be bulk-marked exported or shipped either:
+  // that would close a request whose card was never printed.
+  address_unreadable?: boolean;
 }
 
 export function AdminMeasureCardsPage() {
@@ -62,13 +66,18 @@ export function AdminMeasureCardsPage() {
     },
   });
 
+  const selectable = useMemo(
+    () => rows.filter((r) => !r.address_unreadable),
+    [rows],
+  );
+  const unreadableCount = rows.length - selectable.length;
   const allSelected = useMemo(
-    () => rows.length > 0 && rows.every((r) => selected.has(r.id)),
-    [rows, selected],
+    () => selectable.length > 0 && selectable.every((r) => selected.has(r.id)),
+    [selectable, selected],
   );
 
   function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)));
+    setSelected(allSelected ? new Set() : new Set(selectable.map((r) => r.id)));
   }
   function toggle(id: string) {
     setSelected((prev) => {
@@ -89,13 +98,19 @@ export function AdminMeasureCardsPage() {
       });
       const json = (await res.json().catch(() => ({}))) as {
         updated?: number;
+        skipped?: string[];
         error?: string;
       };
       if (!res.ok) {
         toast.error(json.error ?? "Bulk update failed.");
         return;
       }
-      toast.success(`Marked ${json.updated ?? 0} request(s) ${next}.`);
+      // MC-04: rows already past that step are skipped, not moved back.
+      const skipped = json.skipped?.length ?? 0;
+      toast.success(
+        `Marked ${json.updated ?? 0} request(s) ${next}.` +
+          (skipped > 0 ? ` Skipped ${skipped} already past that step.` : ""),
+      );
       setSelected(new Set());
       await qc.invalidateQueries({ queryKey: ["admin_measure_cards"] });
     } finally {
@@ -186,6 +201,14 @@ export function AdminMeasureCardsPage() {
               No {status} requests.
             </p>
           ) : (
+            <div className="space-y-2">
+            {unreadableCount > 0 ? (
+              <p className="text-sm text-destructive">
+                {unreadableCount} {unreadableCount === 1 ? "request has" : "requests have"} an
+                address that could not be decrypted. They are left out of the
+                CSV and cannot be marked; check the edge logs for their ids.
+              </p>
+            ) : null}
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -195,6 +218,7 @@ export function AdminMeasureCardsPage() {
                         type="checkbox"
                         checked={allSelected}
                         onChange={toggleAll}
+                        disabled={selectable.length === 0}
                         aria-label="Select all"
                       />
                     </TableHead>
@@ -213,14 +237,29 @@ export function AdminMeasureCardsPage() {
                           type="checkbox"
                           checked={selected.has(r.id)}
                           onChange={() => toggle(r.id)}
-                          aria-label={`Select ${r.ship_name}`}
+                          disabled={r.address_unreadable}
+                          aria-label={
+                            r.address_unreadable
+                              ? `Request ${r.id}: address unreadable`
+                              : `Select ${r.ship_name}`
+                          }
                         />
                       </TableCell>
-                      <TableCell className="font-medium">{r.ship_name}</TableCell>
+                      <TableCell className="font-medium">
+                        {r.address_unreadable ? (
+                          <Badge variant="destructive">Address unreadable</Badge>
+                        ) : (
+                          r.ship_name
+                        )}
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {r.address_line1}
-                        {r.address_line2 ? `, ${r.address_line2}` : ""}, {r.city},{" "}
-                        {r.state} {r.postal_code} {r.country}
+                        {r.address_unreadable
+                          ? `${r.state} ${r.country}`
+                          : <>
+                              {r.address_line1}
+                              {r.address_line2 ? `, ${r.address_line2}` : ""}, {r.city},{" "}
+                              {r.state} {r.postal_code} {r.country}
+                            </>}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{r.plan_key ?? "?"}</Badge>
@@ -233,6 +272,7 @@ export function AdminMeasureCardsPage() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
             </div>
           )}
         </CardContent>

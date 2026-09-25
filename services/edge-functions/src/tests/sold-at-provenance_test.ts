@@ -347,14 +347,16 @@ const REGISTRY: Record<string, readonly Site[]> = {
       table: "flipdesk_ebay_orphan_sales",
     },
   ],
-  "src/pages/flipdesk/import.tsx": [
+  // IMP-12: the payload builder moved from the Import page into this lib.
+  "src/lib/import-mapping.ts": [
+    { text: "sold_at: string | null;", kind: "shape" },
     {
       text: "sold_at: saleDate,",
       kind: "sales_write_source",
       provenance: "utc_anchored_day",
       why:
-        "parseDate() in src/lib/import-mapping.ts returns a bare YYYY-MM-DD. " +
-        "POSTed to /api/flipdesk/import, which writes it.",
+        "parseDate() in this file returns a bare YYYY-MM-DD. " +
+        "buildImportPayload's rows are POSTed to /api/flipdesk/import, which writes it.",
     },
   ],
   "src/types/database.ts": [

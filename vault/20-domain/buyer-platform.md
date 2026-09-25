@@ -25,7 +25,7 @@ code_refs:
   - supabase/migrations/00535_ingested_listings.sql
   - supabase/migrations/00536_buyer_video_grading.sql
   - supabase/migrations/00537_buyer_growth_metrics.sql
-reviewed: 2026-09-24
+reviewed: 2026-09-25
 tags: [buyer, plans, entitlements, contract]
 summary: A buyer's effective tier is the higher of their buyer subscription and the tier their seller plan already includes; the plan matrix is written twice and only a cross-boundary parity test keeps the halves honest.
 ---
@@ -33,6 +33,13 @@ summary: A buyer's effective tier is the higher of their buyer subscription and 
 > [!note] Re-reviewed 2026-09-11 (US-3329). The only change to this note's code refs since its last review renames the fifth grading factor's LABEL from "Odor & Cleanliness" to "Cleanliness" (and in ai-grading.ts adds the flag-gated GRADING_CLEANLINESS_V2 wording). Checked: nothing this note states depends on that label, the factor key, or its weight.
 
 # The buyer platform
+
+> **Re-reviewed 2026-09-25.** Drift flagged `src/lib/constants.ts` on
+> 32b1dedeb (listing templates). The change adds three condition tables beside
+> `EBAY_CONDITION_OPTIONS`: `EBAY_CONDITION_ENUM_TO_ID` (a mirror of the edge
+> preflight's `CONDITION_ENUM_TO_ID`), `APPAREL_CONDITION_IDS` and
+> `APPAREL_CONDITION_LABELS`, used by the starter templates. No constant this
+> note cites moved.
 
 > **Re-reviewed 2026-09-22.** Drift flagged `src/lib/constants.ts` on
 > 3b252aa1 (US-3450). The change is one exported type alias,

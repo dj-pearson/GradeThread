@@ -459,3 +459,30 @@ Deno.test("SRC-5: main.ts mounts the buy bypass and the buy bucket", async () =>
   const route = main.indexOf('app.route("/api/flipdesk/scout", flipdeskScoutRoutes)');
   assert(buy > 0 && route > buy, "the buy limiter must be mounted before the scout routes");
 });
+
+// IMP-02: the Import page's status poll and its writes (start, undo) share the
+// /api/flipdesk/import/* prefix. The poll must not drain the write bucket.
+Deno.test("flipdesk import: polls have their own bucket and do not drain the write budget", async () => {
+  const main = await Deno.readTextFile(new URL("../main.ts", import.meta.url));
+  assert(
+    /rateLimiter\(30, 60_000, "flipdesk-import", undefined, \{ methods: \["POST", "PUT", "PATCH", "DELETE"\] \}\)/.test(main),
+    "the import write limiter must be method-filtered to writes",
+  );
+  assert(
+    /rateLimiter\(120, 60_000, "flipdesk-import-poll", undefined, \{ methods: \["GET"\] \}\)/.test(main),
+    "the import poll limiter must be GET-only",
+  );
+  const store = memoryStore();
+  const writes = rateLimiter(30, 60_000, "flipdesk-import", store, { methods: ["POST", "PUT", "PATCH", "DELETE"] });
+  const polls = rateLimiter(120, 60_000, "flipdesk-import-poll", store, { methods: ["GET"] });
+  // A 2-minute run polled every 2s is ~31 GETs a minute.
+  for (let i = 0; i < 40; i++) {
+    const g = await call(writes, { userId: "u", method: "GET" });
+    assert(g.nexted);
+    const p = await call(polls, { userId: "u", method: "GET" });
+    assert(p.nexted, `poll ${i} should pass`);
+  }
+  const undo = await call(writes, { userId: "u", method: "POST" });
+  assert(undo.nexted);
+  assertEquals(undo.rec.status, null);
+});

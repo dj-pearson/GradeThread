@@ -107,14 +107,18 @@ const FIXED_SITES: FixedSite[] = [
     ],
   },
   {
-    rel: "src/pages/flipdesk/intake.tsx",
+    rel: "src/pages/flipdesk/intake-single.tsx",
     why:
       "An AI extract landing after 'Save & add another' repopulated the panel " +
       "for the blank form, and aiResult feeds the NEXT item's garment_type. " +
-      "US-3223.",
+      "US-3223. A barcode lookup landing late filled the next item's SKU. " +
+      "Both reset routes go through resetForNext, which supersedes both.",
     requires: [
       { text: "aiExtractRuns.begin()" },
-      { text: "aiExtractRuns.supersede()", atLeast: 2 },
+      { text: "aiExtractRuns.supersede()" },
+      { text: "lookupRuns.begin()" },
+      { text: "lookupRuns.supersede()" },
+      { text: "resetForNext(", atLeast: 3 },
       { text: "if (run.superseded) return" },
     ],
   },

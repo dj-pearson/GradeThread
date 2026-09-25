@@ -4174,6 +4174,7 @@ export function FlipdeskComposerPage({
         result={aiCopyResult}
         currentValues={{ title, description }}
         fieldLabels={{ title: "Title", description: "Description" }}
+        applicableFields={["title", "description"]}
         onApply={(accepted) =>
           applyAiCopy(accepted, "AI copy applied. Save the draft to keep it.")
         }

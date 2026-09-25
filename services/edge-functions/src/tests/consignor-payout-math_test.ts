@@ -283,6 +283,53 @@ Deno.test("US-2290: the DECISION read covers both sources", () => {
   );
 });
 
+// Consignment page pass (C6): the web Pay dialog records a lump-sum manual
+// payout with NO sale_id, so the per-sale US-2290 check above cannot see it.
+// A consignor paid $51 by hand, owed $51 on one sale, must not be paid again
+// by the engine once they finish Stripe onboarding.
+Deno.test("C6: an unallocated manual payout stops the engine paying the sale again", () => {
+  assertEquals(
+    planAutoPayout({
+      existing: null,
+      manual: [],
+      unallocatedManual: true,
+      share: 51,
+      onboarded: true,
+    }),
+    { action: "skip", reason: "unallocated_manual" },
+  );
+});
+
+Deno.test("C6: it also stops a queued auto row from firing", () => {
+  assertEquals(
+    planAutoPayout({
+      existing: { id: "a1", status: "pending" },
+      unallocatedManual: true,
+      share: 51,
+      onboarded: true,
+    }),
+    { action: "skip", reason: "unallocated_manual" },
+  );
+});
+
+Deno.test("C6: without the flag the decision is unchanged", () => {
+  assertEquals(
+    planAutoPayout({ existing: null, unallocatedManual: false, share: 51, onboarded: true }),
+    { action: "create", settle: "transfer" },
+  );
+});
+
+Deno.test("C6: the engine reads lump-sum manual rows and passes the flag", () => {
+  const src = Deno.readTextFileSync(
+    new URL("../lib/consignor-payout.ts", import.meta.url),
+  );
+  assertEquals(src.includes('.is("sale_id", null)'), true);
+  assertEquals(src.includes("unallocatedManual,"), true);
+  // Only lump sums recorded on or after the sale can have covered it, so one
+  // cash payout does not hold every later sale forever.
+  assertEquals(src.includes('lumpQuery.gte("created_at", saleAt)'), true);
+});
+
 // US-2296: roundCents must be half-up at CURRENCY magnitudes, not just near 1.
 // The previous implementation added Number.EPSILON, whose size is the gap at 1 —
 // so it corrected the float error for small amounts and silently stopped

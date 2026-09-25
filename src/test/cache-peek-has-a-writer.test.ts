@@ -106,6 +106,16 @@ const DECLARED: readonly DeclaredPeek[] = [
       "patching it; writer and reader are the same module",
   },
   {
+    file: "src/pages/flipdesk/templates.tsx",
+    key: "getQueryData<ListingTemplate[]>(TEMPLATES_QUERY_KEY)",
+    writer: "src/pages/flipdesk/templates.tsx",
+    writes: "queryKey: TEMPLATES_QUERY_KEY",
+    why:
+      "the one-click Make default star snapshots the template list before " +
+      "flipping is_default, so onError can put it back; the page's own " +
+      "useQuery is the writer",
+  },
+  {
     file: "src/pages/flipdesk/search.tsx",
     key: "getQueryData<RecentSearch[]>(recentKey)",
     writer: "src/pages/flipdesk/search.tsx",

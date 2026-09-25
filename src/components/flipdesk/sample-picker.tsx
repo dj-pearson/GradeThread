@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -41,6 +41,20 @@ export interface SamplePickerProps {
   adding: boolean;
   /** Called with the picked samples and the name each one should be saved as. */
   onAdd: (picks: Array<{ sample: StarterPreset; name: string }>) => void;
+  /**
+   * How the last add went, when some picks did not save. The saved ones are
+   * unticked and a line says which failed and why, so a retry sends only the
+   * rest.
+   */
+  result?: {
+    total: number;
+    added: readonly string[];
+    failed: ReadonlyArray<{ id: string; name: string; message: string }>;
+  } | null;
+  /** Progress while adding: how many picks are done out of how many. */
+  progress?: { done: number; total: number } | null;
+  /** A heading for the body text, e.g. "Footer" for templates. */
+  bodyLabel?: string;
 }
 
 /**
@@ -63,8 +77,17 @@ export function SamplePickerBody({
   noun,
   adding,
   onAdd,
+  result = null,
+  progress = null,
+  bodyLabel,
 }: Omit<SamplePickerProps, "open" | "title" | "description">) {
   const [checked, setChecked] = useState<string[]>([]);
+
+  // Untick what saved, so the seller's retry only sends the failures.
+  useEffect(() => {
+    if (!result || result.added.length === 0) return;
+    setChecked((prev) => prev.filter((id) => !result.added.includes(id)));
+  }, [result]);
 
   const picked = samples.filter((s) => checked.includes(s.id));
   const names = uniqueNames(
@@ -92,7 +115,14 @@ export function SamplePickerBody({
             s.name;
           const renamed = on && finalName !== s.name;
           return (
-            <li key={s.id} className="flex items-start gap-3 py-3">
+            // The group role sits on a div inside the li: on the li itself it
+            // would replace listitem and leave the ul with no list items.
+            <li key={s.id} className="py-3">
+              <div
+                role="group"
+                aria-labelledby={`sample-${s.id}-name`}
+                className="flex items-start gap-3"
+              >
               <Checkbox
                 id={`sample-${s.id}`}
                 className="mt-1"
@@ -100,30 +130,58 @@ export function SamplePickerBody({
                 disabled={adding}
                 onCheckedChange={() => toggle(s.id)}
               />
-              <label
-                htmlFor={`sample-${s.id}`}
-                className="min-w-0 flex-1 cursor-pointer"
-              >
-                <span className="block font-medium">{finalName}</span>
+              <div className="min-w-0 flex-1">
+                {/* Only the name is the checkbox's label; the body and details
+                    are read as the group's content, not as one long label. */}
+                <label
+                  htmlFor={`sample-${s.id}`}
+                  id={`sample-${s.id}-name`}
+                  className="block cursor-pointer font-medium"
+                >
+                  {finalName}
+                </label>
                 {renamed && (
                   <span className="block text-xs text-muted-foreground">
                     You already have one called &ldquo;{s.name}&rdquo;, so this
                     one gets a new name.
                   </span>
                 )}
+                {s.details && s.details.length > 0 && (
+                  <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                    {s.details.map((d) => (
+                      <div key={d.label} className="contents">
+                        <dt className="font-medium text-muted-foreground">{d.label}</dt>
+                        <dd>{d.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                {bodyLabel && (
+                  <span className="mt-1 block text-xs font-medium text-muted-foreground">
+                    {bodyLabel}
+                  </span>
+                )}
                 <span className="mt-1 block whitespace-pre-wrap text-sm text-muted-foreground">
                   {s.body}
                 </span>
-                {s.note && (
+                {s.note && !s.details && (
                   <span className="mt-1 block text-xs text-muted-foreground">
                     {s.note}
                   </span>
                 )}
-              </label>
+              </div>
+              </div>
             </li>
           );
         })}
       </ul>
+
+      {result && result.failed.length > 0 && (
+        <p role="alert" className="text-sm text-destructive">
+          Added {result.added.length} of {result.total}.{" "}
+          {result.failed.map((f) => `${f.name} did not save: ${f.message}`).join(" ")}
+        </p>
+      )}
 
       <DialogFooter>
         <Button
@@ -145,7 +203,9 @@ export function SamplePickerBody({
           }
         >
           {adding
-            ? "Adding…"
+            ? progress
+              ? `Adding ${Math.min(progress.done + 1, progress.total)} of ${progress.total}...`
+              : "Adding..."
             : picked.length === 0
               ? `Add ${noun}s`
               : `Add ${picked.length} ${noun}${picked.length === 1 ? "" : "s"}`}

@@ -53,7 +53,19 @@ import {
   withAiAction,
 } from "../lib/ai-metering.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
-import { readImageDimensions } from "../lib/upload-validation.ts";
+import {
+  readImageDimensions,
+  validateImageUpload,
+} from "../lib/upload-validation.ts";
+import {
+  CALIBRATE_REMEDIATION,
+  CARD_TEST_LAYOUT_TOLERANCE,
+  type CardCorner,
+  cardLayoutErrorFraction,
+  detectMarkers,
+  estimateTiltDeg,
+  missingMarkerCorners,
+} from "../lib/measure-detect.ts";
 
 export const flipdeskMeasureRoutes = new Hono<{
   Variables: {
@@ -735,21 +747,98 @@ function requestSummary(row: {
   };
 }
 
-// The seller's latest mail request (any status) — drives the tools page.
+/** Why the tools page may or may not offer the mail form. */
+export type CardRequestEligibilityReason =
+  | "ok"
+  | "free_plan"
+  | "active_request"
+  | "viewer";
+
+/**
+ * Who may request a mailed card, decided HERE so the page never has to guess.
+ *
+ * The page used to read the signed-in user's OWN profile.flipdesk_plan while
+ * the POST checks the plan of `workspaceOwnerId ?? userId`. So a free member of
+ * a paid workspace was told to upgrade, and a paid member of a free workspace
+ * filled in an address and met a 403. The inputs are the OWNER's plan, the
+ * caller's role in that workspace, and the latest request's status.
+ *
+ * Order matters: a viewer is refused whatever the plan (blockViewerWrites would
+ * 403 the POST), and an active request wins over the plan so a seller who
+ * downgraded after requesting still sees the status, not an upgrade pitch.
+ */
+export function cardRequestEligibility(input: {
+  role: string | undefined;
+  ownerPlan: string | null | undefined;
+  latestStatus: string | null | undefined;
+}): { can_request: boolean; reason: CardRequestEligibilityReason } {
+  if (input.role === "viewer") return { can_request: false, reason: "viewer" };
+  if (
+    input.latestStatus &&
+    (ACTIVE_REQUEST_STATUSES as readonly string[]).includes(input.latestStatus)
+  ) {
+    return { can_request: false, reason: "active_request" };
+  }
+  if ((input.ownerPlan ?? "free") === "free") {
+    return { can_request: false, reason: "free_plan" };
+  }
+  return { can_request: true, reason: "ok" };
+}
+
+// The seller's latest mail request (any status) plus whether they may make
+// one, both for the WORKSPACE OWNER's tenant — drives the tools page.
+//
+// MC-10: also the page's "what is waiting" facts, so one GET renders it:
+//   waiting_count  the owner's inventory_items at status 'cataloged' (a head
+//                  count, scoped .eq("user_id", ownerId)); null if the count
+//                  failed, which the page shows as no number rather than zero.
+//   card           users.measure_card_source / _version for the owner, so the
+//                  page can say which card they have and fold the how-to.
 flipdeskMeasureRoutes.get("/card-request", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const { data, error } = await supabaseAdmin
-    .from("measure_card_requests")
-    .select("id, status, card_version, requested_at, shipped_at, tracking_number, tracking_carrier")
-    .eq("owner_user_id", ownerId)
-    .order("requested_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) return c.json({ error: "Could not load your request." }, 500);
+  const [reqRes, ownerRes, waitingRes] = await Promise.all([
+    supabaseAdmin
+      .from("measure_card_requests")
+      .select("id, status, card_version, requested_at, shipped_at, tracking_number, tracking_carrier")
+      .eq("owner_user_id", ownerId)
+      .order("requested_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("users")
+      .select("flipdesk_plan, measure_card_source, measure_card_version")
+      .eq("id", ownerId)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("inventory_items")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", ownerId)
+      .eq("status", "cataloged"),
+  ]);
+  if (reqRes.error || ownerRes.error) {
+    return c.json({ error: "Could not load your request." }, 500);
+  }
+  if (waitingRes.error) {
+    console.error("[measure-card] waiting count failed:", waitingRes.error.message);
+  }
+  const data = reqRes.data as Parameters<typeof requestSummary>[0] | null;
+  const owner = ownerRes.data as {
+    flipdesk_plan: string | null;
+    measure_card_source: string | null;
+    measure_card_version: number | null;
+  } | null;
   return c.json({
-    request: data
-      ? requestSummary(data as Parameters<typeof requestSummary>[0])
-      : null,
+    request: data ? requestSummary(data) : null,
+    eligibility: cardRequestEligibility({
+      role: c.get("workspaceRole"),
+      ownerPlan: owner?.flipdesk_plan,
+      latestStatus: data?.status ?? null,
+    }),
+    waiting_count: waitingRes.error ? null : (waitingRes.count ?? 0),
+    card: {
+      source: owner?.measure_card_source ?? null,
+      version: owner?.measure_card_version ?? null,
+    },
   });
 });
 
@@ -763,6 +852,109 @@ flipdeskMeasureRoutes.get("/card-request", async (c) => {
 // from the other direction.
 export const MAIL_COUNTRIES = ["US", "CA", "GB", "IE", "AU", "NZ"] as const;
 
+// MC-02: the longest value each address field may hold. MIRRORED in
+// src/pages/flipdesk/measure-card.tsx (maxLength on each input); a Vitest
+// guard compares the two. Values over the limit are REFUSED, not shortened:
+// a card mailed to a silently truncated address is a lost card.
+export const MAIL_FIELD_LIMITS = {
+  ship_name: 120,
+  address_line1: 200,
+  address_line2: 200,
+  city: 120,
+  state: 80,
+  postal_code: 20,
+} as const;
+
+// MC-08: the countries whose addresses need a state / province / region line.
+// Elsewhere (GB, IE, NZ) the field is optional and stored as ''. MIRRORED in
+// src/pages/flipdesk/measure-card.tsx; a Vitest guard compares them.
+export const STATE_REQUIRED_COUNTRIES = ["US", "CA", "AU"] as const;
+
+// A cell starting with one of these is read as a formula by Excel and Sheets
+// (OWASP CSV injection). The fulfilment CSV defends stored rows on export too
+// (admin-measure-cards.ts csvCell); refusing them here keeps new ones out.
+const FORMULA_LEAD = /^[=+\-@\t\r]/;
+const FORMULA_CHECKED_FIELDS = [
+  "ship_name",
+  "address_line1",
+  "address_line2",
+  "city",
+] as const;
+
+export type MailAddress = {
+  -readonly [K in keyof typeof MAIL_FIELD_LIMITS]: string;
+} & { country: string };
+
+export type MailAddressCheck =
+  | { ok: true; value: MailAddress }
+  | { ok: false; error: string; fields?: Record<string, string> };
+
+/** Validate a card-request body. Trims, never slices. */
+export function validateMailAddress(
+  body: Record<string, unknown>,
+): MailAddressCheck {
+  const raw = (key: string): string =>
+    typeof body[key] === "string" ? (body[key] as string).trim() : "";
+  const value = {} as MailAddress;
+  const tooLong: Record<string, string> = {};
+  for (const [key, max] of Object.entries(MAIL_FIELD_LIMITS)) {
+    const v = raw(key);
+    if (v.length > max) tooLong[key] = `max ${max} characters`;
+    value[key as keyof typeof MAIL_FIELD_LIMITS] = v;
+  }
+  if (Object.keys(tooLong).length > 0) {
+    return {
+      ok: false,
+      error: "Some address fields are too long. Shorten them and try again.",
+      fields: tooLong,
+    };
+  }
+  const country = raw("country").toUpperCase() || "US";
+  const needsState = (STATE_REQUIRED_COUNTRIES as readonly string[]).includes(
+    country,
+  );
+  if (
+    !value.ship_name || !value.address_line1 || !value.city ||
+    (needsState && !value.state) || !value.postal_code
+  ) {
+    return {
+      ok: false,
+      error: needsState
+        ? "Name, address, city, state, and postal code are required."
+        : "Name, address, city, and postal code are required.",
+    };
+  }
+  if (!/^[A-Z]{2}$/.test(country)) {
+    return {
+      ok: false,
+      error: "Country must be a two-letter code, like US or GB.",
+      fields: { country: "two-letter code" },
+    };
+  }
+  if (!(MAIL_COUNTRIES as readonly string[]).includes(country)) {
+    return {
+      ok: false,
+      error: "We can't post a card to that country yet. The print-at-home PDF " +
+        "works with the same pipeline.",
+    };
+  }
+  const formula: Record<string, string> = {};
+  for (const key of FORMULA_CHECKED_FIELDS) {
+    if (FORMULA_LEAD.test(value[key])) {
+      formula[key] = "cannot start with = + - or @";
+    }
+  }
+  if (Object.keys(formula).length > 0) {
+    return {
+      ok: false,
+      error: "Names and address lines can't start with =, +, - or @.",
+      fields: formula,
+    };
+  }
+  value.country = country;
+  return { ok: true, value };
+}
+
 // Request a mailed card. Paid plans only; one active request per seller.
 flipdeskMeasureRoutes.post("/card-request", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
@@ -773,31 +965,27 @@ flipdeskMeasureRoutes.post("/card-request", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  const field = (key: string, max: number): string =>
-    typeof body[key] === "string" ? (body[key] as string).trim().slice(0, max) : "";
-  const shipName = field("ship_name", 120);
-  const line1 = field("address_line1", 200);
-  const line2 = field("address_line2", 200);
-  const city = field("city", 120);
-  const state = field("state", 80);
-  const postal = field("postal_code", 20);
-  const country = field("country", 2).toUpperCase() || "US";
-  if (!shipName || !line1 || !city || !state || !postal) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const checked = validateMailAddress(body);
+  if (!checked.ok) {
     return c.json(
-      { error: "Name, address, city, state, and postal code are required." },
+      checked.fields
+        ? { error: checked.error, fields: checked.fields }
+        : { error: checked.error },
       400,
     );
   }
-  if (!(MAIL_COUNTRIES as readonly string[]).includes(country)) {
-    return c.json(
-      {
-        error:
-          "We can't post a card to that country yet — the print-at-home PDF " +
-          "works with the same pipeline.",
-      },
-      400,
-    );
-  }
+  const {
+    ship_name: shipName,
+    address_line1: line1,
+    address_line2: line2,
+    city,
+    state,
+    postal_code: postal,
+    country,
+  } = checked.value;
 
   // Plan gate (server-side; the page also hides the form for free plans).
   const { data: userRow } = await supabaseAdmin
@@ -811,7 +999,7 @@ flipdeskMeasureRoutes.post("/card-request", async (c) => {
     return c.json(
       {
         error:
-          "Mailed MeasureCards are a paid-plan perk — download the free print-at-home PDF, or upgrade to have one mailed.",
+          "Mailed MeasureCards are a paid-plan perk. Download the free print-at-home PDF, or upgrade to have one mailed.",
       },
       403,
     );
@@ -915,6 +1103,125 @@ flipdeskMeasureRoutes.post("/card-downloaded", async (c) => {
       .eq("id", ownerId);
   }
   return c.json({ ok: true, card_version: version });
+});
+
+// ── MC-12: "Test my card" ─────────────────────────────────────────────
+//
+// POST /api/flipdesk/measure/card-test  (multipart, field "photo")
+//   -> { ok, markers_found, missing_corner?, missing_corners, card_version,
+//        residual_in, tilt_deg, layout_error_pct, warning?, scale_checked:false,
+//        scale_note, reason?, message? }
+//
+// A test shot of the seller's printed card, run through the same detector the
+// measure passes use. Nothing is stored and nothing is billed (no model call);
+// the photo never leaves this request. Rate-limited with the rest of
+// /api/flipdesk/measure/* in main.ts.
+//
+// US-268: this route reads and writes no tenant table. The only input is the
+// uploaded bytes, which are validated by magic bytes before decode (US-276).
+
+/** The honest limit of a card-only photo, sent with every answer. */
+export const CARD_TEST_SCALE_NOTE =
+  "A photo of the card alone cannot tell a 100% print from a scaled one. " +
+  "Check it once with the credit-card box printed on the card.";
+
+export interface CardTestResult {
+  ok: boolean;
+  markers_found: number;
+  missing_corner?: CardCorner;
+  missing_corners: CardCorner[];
+  card_version: number | null;
+  residual_in: number | null;
+  tilt_deg: number | null;
+  layout_error_pct: number | null;
+  warning?: string;
+  reason?: string;
+  message?: string;
+  scale_checked: false;
+  scale_note: string;
+}
+
+/** Run the card test on a decoded image. Pure apart from CPU; exported for tests. */
+export function runCardTest(img: Image): CardTestResult {
+  const adaptive = calibrateAdaptive(img, MEASURE_CARD_VERSIONS, {
+    evidenceOnly: false,
+  });
+  const result = adaptive.result;
+  const base = { scale_checked: false as const, scale_note: CARD_TEST_SCALE_NOTE };
+  if (!result.ok) {
+    const found = detectMarkers(adaptive.gray, MEASURE_CARD_VERSIONS);
+    const { cardVersion, missing } = missingMarkerCorners(
+      found.map((m) => m.id),
+      MEASURE_CARD_VERSIONS,
+    );
+    const r = Number.isFinite(result.quality.reprojResidualIn)
+      ? result.quality.reprojResidualIn
+      : null;
+    return {
+      ok: false,
+      markers_found: found.length,
+      ...(missing.length === 1 ? { missing_corner: missing[0] } : {}),
+      missing_corners: missing,
+      card_version: cardVersion,
+      residual_in: r === null ? null : Math.round(r * 1000) / 1000,
+      tilt_deg: estimateTiltDeg(found, MEASURE_CARD_VERSIONS[0]!),
+      layout_error_pct: null,
+      reason: result.reason,
+      message: missing.length === 1 && result.reason === "card_not_fully_visible"
+        ? `The ${missing[0]} square is missing or covered. ` +
+          CALIBRATE_REMEDIATION.card_not_fully_visible
+        : result.message,
+      ...base,
+    };
+  }
+  const card = MEASURE_CARD_VERSIONS.find((v) => v.version === result.cardVersion) ??
+    MEASURE_CARD_VERSIONS[0]!;
+  const layout = cardLayoutErrorFraction(result.homography, result.markers, card);
+  const layoutPct = Math.round(layout * 10000) / 100;
+  return {
+    ok: true,
+    markers_found: result.markers.length,
+    missing_corners: [],
+    card_version: result.cardVersion,
+    residual_in: Math.round(result.quality.reprojResidualIn * 1000) / 1000,
+    tilt_deg: estimateTiltDeg(result.markers, card),
+    layout_error_pct: layoutPct,
+    ...(layout > CARD_TEST_LAYOUT_TOLERANCE
+      ? {
+        warning:
+          `The squares are ${layoutPct}% off where the card says they should be. ` +
+          "Reprint at 100% on flat paper, or shoot it again flatter.",
+      }
+      : {}),
+    ...base,
+  };
+}
+
+flipdeskMeasureRoutes.post("/card-test", async (c) => {
+  let form: FormData;
+  try {
+    form = await c.req.formData();
+  } catch {
+    return c.json(
+      { error: "Invalid form data. Expected multipart/form-data." },
+      400,
+    );
+  }
+  const file = form.get("photo");
+  if (!(file instanceof File) || file.size === 0) {
+    return c.json({ error: "Add a photo of your card." }, 400);
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const verdict = validateImageUpload(bytes, { allow: ["jpeg", "png"] });
+  if (!verdict.ok) return c.json({ error: verdict.reason }, 400);
+
+  let decoded: Image;
+  try {
+    decoded = (await Image.decode(bytes)) as Image;
+  } catch {
+    return c.json({ error: "Could not read that image." }, 422);
+  }
+  return c.json(runCardTest(decoded));
 });
 
 // US-1580: correction telemetry — the production evidence behind the word

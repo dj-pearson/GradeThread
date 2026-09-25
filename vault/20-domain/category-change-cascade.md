@@ -10,7 +10,7 @@ code_refs:
   - src/lib/garment-mapping.ts
   - src/lib/grading-readiness.ts
   - src/lib/measurement-templates.ts
-reviewed: 2026-09-24
+reviewed: 2026-09-25
 tags: [flipdesk, grading, ebay, contract]
 summary: An item carries three category axes that must agree; correcting one cascades into the others, and the specifics a change cannot carry are set aside rather than destroyed.
 ---
@@ -42,6 +42,13 @@ summary: An item carries three category axes that must agree; correcting one cas
 > and is a different part of this file.
 
 # Changing a category — what cascades, and what the seller keeps
+
+> **Re-reviewed 2026-09-25.** Drift flagged `src/lib/ebay-prefill.ts` on
+> 3a64ac032 (listing templates). The change appends a web mirror of the edge's
+> `mapGradeToApparelCondition` and `APPAREL_CONDITION_BANDS`, plus
+> `conditionOverstatesGrade`, for the template editor's grade preview. It is
+> condition mapping only; nothing about category changes, aspect remapping or
+> the cascade this note describes moved.
 
 > **Re-reviewed 2026-09-02, and one rule below is now stricter.** eBay began
 > enforcing standard values for SIZE aspects (see [[ebay-standard-size-values]]),

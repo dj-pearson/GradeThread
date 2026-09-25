@@ -122,7 +122,7 @@ describe("hard blockers (AC4)", () => {
 describe("wiring (AC1, AC3)", () => {
   it("the route exists and intake hands off to it when the flow is on", () => {
     expect(read("src/routes/index.tsx")).toMatch(/"\/dashboard\/flipdesk\/review\/:id"/);
-    const intake = read("src/pages/flipdesk/intake.tsx");
+    const intake = read("src/pages/flipdesk/intake-single.tsx");
     expect(intake).toMatch(/reviewFlow\.enabled/);
     expect(intake).toMatch(/reviewPath\(/);
     expect(intake).toMatch(/\/dashboard\/flipdesk\/items\?focus=/);

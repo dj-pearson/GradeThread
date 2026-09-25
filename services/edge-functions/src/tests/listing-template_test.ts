@@ -1,11 +1,19 @@
 // US-674 — listing template validation/normalization + the AutoLister overlay
 // patch. listing-template.ts is pure (no DB/network), so it's imported directly.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   buildTemplateListingPatch,
+  CONDITION_NOTE_MAX,
+  DESCRIPTION_TEMPLATE_MAX,
   mergeTemplateSpecifics,
   type ListingTemplateRow,
   normalizeTemplateInput,
+  SORT_ORDER_MAX,
+  SPECIFIC_NAME_MAX,
+  SPECIFIC_VALUE_MAX,
+  SPECIFICS_MAX,
+  TEMPLATE_CONDITION_VALUES,
   TEMPLATE_NAME_MAX,
   templateTextBlock,
   withTemplateBlock,
@@ -16,6 +24,7 @@ import {
   type RenderContext,
   renderDescription,
 } from "../lib/description-blocks.ts";
+import { EBAY_CONDITION_VALUES } from "../lib/ai-listing.ts";
 
 // ── normalizeTemplateInput ──────────────────────────────────────────
 
@@ -221,4 +230,77 @@ Deno.test("US-3476: template specifics merge into a generated draft, template wi
 Deno.test("US-3476: a legacy string-valued draft map is coerced, not dropped", () => {
   const merged = mergeTemplateSpecifics({ Fit: "Slim", Blank: "  " }, { Brand: "Gap" });
   assertEquals(merged, { Fit: ["Slim"], Brand: ["Gap"] });
+});
+
+// ── field caps (server-side, so a value eBay refuses fails at save) ──
+
+Deno.test("normalize rejects a condition note over eBay's 1000-char limit", () => {
+  const ok = normalizeTemplateInput({ name: "T", condition_description: "x".repeat(CONDITION_NOTE_MAX) });
+  assert(ok.ok);
+  const r = normalizeTemplateInput({ name: "T", condition_description: "x".repeat(CONDITION_NOTE_MAX + 1) });
+  assert(!r.ok);
+  assert(r.error.includes("Condition note"));
+});
+
+Deno.test("normalize rejects over-long footer text", () => {
+  const r = normalizeTemplateInput({
+    name: "T",
+    description_template: "x".repeat(DESCRIPTION_TEMPLATE_MAX + 1),
+  });
+  assert(!r.ok);
+  assert(r.error.includes("Footer"));
+});
+
+Deno.test("normalize caps item specifics: count, name and value length", () => {
+  const many: Record<string, string> = {};
+  for (let i = 0; i < SPECIFICS_MAX + 1; i++) many[`K${i}`] = "v";
+  const tooMany = normalizeTemplateInput({ name: "T", item_specifics: many });
+  assert(!tooMany.ok);
+  const longValue = normalizeTemplateInput({
+    name: "T",
+    item_specifics: { Brand: "x".repeat(SPECIFIC_VALUE_MAX + 1) },
+  });
+  assert(!longValue.ok);
+  assert(longValue.error.includes("Brand"));
+  const longName = normalizeTemplateInput({
+    name: "T",
+    item_specifics: { ["x".repeat(SPECIFIC_NAME_MAX + 1)]: "v" },
+  });
+  assert(!longName.ok);
+  const atCap = normalizeTemplateInput({
+    name: "T",
+    item_specifics: { Brand: "x".repeat(SPECIFIC_VALUE_MAX) },
+  });
+  assert(atCap.ok);
+});
+
+Deno.test("normalize rejects a condition that is not an eBay value", () => {
+  const r = normalizeTemplateInput({ name: "T", ebay_condition: "FOO" });
+  assert(!r.ok);
+  for (const v of EBAY_CONDITION_VALUES) {
+    assert(normalizeTemplateInput({ name: "T", ebay_condition: v }).ok, v);
+  }
+});
+
+Deno.test("the template condition list is ai-listing's list", () => {
+  assertEquals([...TEMPLATE_CONDITION_VALUES], [...EBAY_CONDITION_VALUES]);
+});
+
+Deno.test("normalize allows digits only in category and policy ids", () => {
+  for (const field of ["ebay_category_id", "return_policy_id", "shipping_policy_id", "payment_policy_id"]) {
+    assert(!normalizeTemplateInput({ name: "T", [field]: "abc" }).ok, field);
+    assert(!normalizeTemplateInput({ name: "T", [field]: "12a" }).ok, field);
+    const ok = normalizeTemplateInput({ name: "T", [field]: " 15687 " });
+    assert(ok.ok, field);
+  }
+});
+
+Deno.test("normalize clamps sort_order into 0..SORT_ORDER_MAX", () => {
+  const big = normalizeTemplateInput({ name: "T", sort_order: 1e12 });
+  assert(big.ok);
+  assertEquals(big.value.sort_order, SORT_ORDER_MAX);
+  assertEquals(SORT_ORDER_MAX, 100000);
+  const neg = normalizeTemplateInput({ name: "T", sort_order: -5 });
+  assert(neg.ok);
+  assertEquals(neg.value.sort_order, 0);
 });

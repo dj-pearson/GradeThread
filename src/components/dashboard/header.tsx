@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router";
 import {
   LogOut,
@@ -22,6 +23,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { MobileNav } from "@/components/dashboard/sidebar";
 import { NotificationCenter } from "@/components/dashboard/notification-center";
 import { OPEN_SHORTCUTS_EVENT } from "@/components/dashboard/shortcuts-help";
@@ -94,9 +105,28 @@ export function Header() {
 
   const { theme, toggleTheme } = useThemeStore();
 
-  async function handleSignOut() {
+  // Sign-out deletes the offline intake queue (it is per device, and the next
+  // account must not inherit it), so say so first when items are waiting.
+  const [unsynced, setUnsynced] = useState(0);
+
+  async function doSignOut() {
+    setUnsynced(0);
     await signOut();
     navigate("/login");
+  }
+
+  async function handleSignOut() {
+    let pending = 0;
+    if (user) {
+      try {
+        const { queuedIntakeCount } = await import("@/lib/offline-queue");
+        pending = await queuedIntakeCount(user.id);
+      } catch {
+        /* no IndexedDB: nothing queued to lose */
+      }
+    }
+    if (pending > 0) setUnsynced(pending);
+    else await doSignOut();
   }
 
   return (
@@ -191,6 +221,23 @@ export function Header() {
         </DropdownMenuContent>
       </DropdownMenu>
       </div>
+      <AlertDialog open={unsynced > 0} onOpenChange={(o) => !o && setUnsynced(0)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sign out with items not synced?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {unsynced} item{unsynced === 1 ? " has" : "s have"} not synced yet.
+              Signing out deletes {unsynced === 1 ? "it" : "them"} from this device.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay signed in</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void doSignOut()}>
+              Sign out and delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </header>
   );
 }

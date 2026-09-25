@@ -23,7 +23,7 @@ const RECORD_ENTRY_FILES = [
   "src/components/flipdesk/mark-listed-dialog.tsx",
   "src/components/flipdesk/bulk-intake.tsx",
   "src/components/flipdesk/snap-catalog.tsx",
-  "src/pages/flipdesk/intake.tsx",
+  "src/pages/flipdesk/intake-single.tsx",
   "src/pages/flipdesk/expenses.tsx",
 ];
 

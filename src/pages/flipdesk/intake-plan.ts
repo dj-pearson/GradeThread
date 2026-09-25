@@ -43,11 +43,61 @@ export interface IntakeFormState {
   status: ItemStatus;
 }
 
+export type PriceCheck =
+  | { ok: true; value: number | null }
+  | { ok: false; message: string };
+
+/**
+ * The purchase price box. Blank is fine (no cost yet). Otherwise a plain
+ * decimal, zero or more, at most two places, rounded to cents. Exponent forms
+ * ("1e3"), negatives and fractions of a cent are refused: the database rejects
+ * a negative (acquired_price_nonneg), and a queued item with one would fail on
+ * every flush.
+ */
+export function validatePurchasePrice(raw: string): PriceCheck {
+  const t = raw.trim().replace(/^\$\s*/, "").replace(/,/g, "");
+  if (!t) return { ok: true, value: null };
+  if (!/^(\d+(\.\d{0,2})?|\.\d{1,2})$/.test(t)) {
+    return {
+      ok: false,
+      message: /^-/.test(t)
+        ? "Price can't be negative."
+        : "Enter a price like 12.50, with at most two decimals.",
+    };
+  }
+  return { ok: true, value: Math.round(Number(t) * 100) / 100 };
+}
+
+/** The price as a number, or null when blank or not a valid price. */
 export function priceOrNull(v: string): number | null {
-  const t = v.trim();
-  if (!t) return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
+  const r = validatePurchasePrice(v);
+  return r.ok ? r.value : null;
+}
+
+export type IntakeSaveError =
+  | { kind: "sku" }
+  | { kind: "price" }
+  | { kind: "source-denied" }
+  | { kind: "other" };
+
+/**
+ * What a failed save means, so the form can say it in plain words instead of
+ * putting Postgres text in a toast. `stage` is which call failed: a 42501 from
+ * get_or_create_source is a member who may not add sources.
+ */
+export function classifyIntakeSaveError(
+  err: unknown,
+  stage: "source" | "insert",
+): IntakeSaveError {
+  const rec = (err && typeof err === "object" ? err : {}) as Record<string, unknown>;
+  const code = typeof rec.code === "string" ? rec.code : "";
+  const text = `${String(rec.message ?? "")} ${String(rec.details ?? "")}`;
+  if (code === "42501" && stage === "source") return { kind: "source-denied" };
+  if (code === "23505" && /idx_inventory_items_user_sku|\(user_id, sku\)/.test(text)) {
+    return { kind: "sku" };
+  }
+  if (code === "23514" && /price/.test(text)) return { kind: "price" };
+  return { kind: "other" };
 }
 
 export function trimOrNull(v: string): string | null {
@@ -69,6 +119,11 @@ export function resolveIntakeSource(
 }
 
 export function buildIntakeInsert(args: {
+  /**
+   * The draft's client id, used as the item id. A retry after a lost response
+   * then hits the same row instead of making a duplicate.
+   */
+  id?: string;
   form: IntakeFormState;
   ownerId: string;
   sourceId: string | null;
@@ -103,6 +158,7 @@ export function buildIntakeInsert(args: {
   const garment = deriveGarmentDefaults(itemCategory, aiGarment);
 
   return {
+    ...(args.id ? { id: args.id } : {}),
     user_id: ownerId,
     title: form.title.trim(),
     sku: trimOrNull(form.sku),
