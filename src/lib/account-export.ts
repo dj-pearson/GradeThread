@@ -117,6 +117,23 @@ async function exportRows<T>(
 }
 
 /**
+ * Rows matching ANY of several owner columns, each read on its own and merged
+ * by id. A workspace row is the caller's when they are its member OR its owner
+ * (or, for an invitation, its sender), and one `.eq` cannot say that.
+ */
+async function exportRowsUnion<T extends { id?: unknown }>(
+  table: string,
+  scopes: ReadonlyArray<{ col: string; id: string }>,
+): Promise<T[]> {
+  const parts = await Promise.all(scopes.map((s) => exportRows<T>(table, s)));
+  const byId = new Map<string, T>();
+  for (const rows of parts) {
+    for (const r of rows) byId.set(String(r.id), r);
+  }
+  return [...byId.values()];
+}
+
+/**
  * Gathers ALL of the signed-in user's data for a GDPR SAR / CCPA export (each
  * query is filtered to the caller's own rows, not only RLS-scoped) and
  * packages it into a downloadable ZIP. Image binaries
@@ -230,10 +247,17 @@ export async function buildAccountExport(
     ),
     exportRows("notifications", mine),
     exportRows("push_device_tokens", mine),
-    // The caller's own memberships, not the roster of a workspace they sit in.
-    exportRows("workspace_members", { col: "member_id", id: me }),
-    // Invitations the caller sent.
-    exportRows("workspace_invitations", { col: "invited_by", id: me }),
+    // The caller's own memberships plus the roster of the workspace they OWN,
+    // never the roster of someone else's workspace they merely sit in.
+    exportRowsUnion("workspace_members", [
+      { col: "member_id", id: me },
+      { col: "owner_id", id: me },
+    ]),
+    // Invitations to the caller's own workspace, and any the caller sent.
+    exportRowsUnion("workspace_invitations", [
+      { col: "owner_id", id: me },
+      { col: "invited_by", id: me },
+    ]),
     exportRows(
       "marketplace_connections",
       mine,
@@ -319,8 +343,8 @@ export async function buildAccountExport(
     "  api_keys.json             your API keys (metadata only — secret hashes excluded)",
     "  notifications.json        your in-app notifications",
     "  device_tokens.json        push-notification device registrations",
-    "  workspace_memberships.json workspaces you belong to",
-    "  workspace_invitations.json invitations you sent",
+    "  workspace_memberships.json workspaces you belong to, and your own workspace's members",
+    "  workspace_invitations.json invitations to your workspace, and ones you sent",
     "  marketplace_connections.json connected marketplaces (OAuth tokens excluded)",
     "  payout_imports.json       imported payout records",
     "  feedback.json             feedback messages you sent",

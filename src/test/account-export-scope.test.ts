@@ -24,6 +24,18 @@ const tables: Record<string, Row[]> = {
     { id: "inv-me", user_id: ME, acquired_price: 5 },
     { id: "inv-owner", user_id: OWNER, acquired_price: 500 },
   ],
+  workspace_members: [
+    // ME sits in OWNER's workspace: only ME's own row is ME's data.
+    { id: "wm-me", owner_id: OWNER, member_id: ME },
+    { id: "wm-peer", owner_id: OWNER, member_id: "peer-1" },
+    // ME also owns a workspace: its roster is ME's data.
+    { id: "wm-mine", owner_id: ME, member_id: "helper-1" },
+  ],
+  workspace_invitations: [
+    { id: "inv-to-owner", owner_id: OWNER, invited_by: OWNER },
+    { id: "inv-by-me", owner_id: OWNER, invited_by: ME },
+    { id: "inv-to-mine", owner_id: ME, invited_by: ME },
+  ],
   sales: [
     { id: "sale-me", user_id: ME, sale_price: 20, platform_fees: 2, inventory_item_id: "inv-me" },
     { id: "sale-owner", user_id: OWNER, sale_price: 900, platform_fees: 90, inventory_item_id: "inv-owner" },
@@ -100,5 +112,9 @@ describe("buildAccountExport scopes every read to the caller", () => {
       sales: { total_revenue: number };
     };
     expect(summary.sales.total_revenue).toBe(20);
+
+    const byId = (rows: unknown) => (rows as Row[]).map((r) => r.id).sort();
+    expect(byId(file("workspace_memberships.json"))).toEqual(["wm-me", "wm-mine"]);
+    expect(byId(file("workspace_invitations.json"))).toEqual(["inv-by-me", "inv-to-mine"]);
   });
 });

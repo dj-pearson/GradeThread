@@ -82,7 +82,7 @@ describe("the account export reads only the caller's own rows", () => {
   // grade_reports also admits workspace members (00451), so a read scoped by
   // RLS alone put the owner's inventory and sales in a member's archive.
   it("every exportRows call names a scope", () => {
-    const calls = [...src.matchAll(/exportRows(?:<[^>]+>)?\(\s*([^)]*?)\)/gs)]
+    const calls = [...src.matchAll(/exportRows(?:Union)?(?:<[^>]+>)?\(\s*([^)]*?)\)/gs)]
       // skip the declaration itself
       .filter((m) => !m[0].includes("table: string"));
     expect(calls.length).toBeGreaterThanOrEqual(15);
