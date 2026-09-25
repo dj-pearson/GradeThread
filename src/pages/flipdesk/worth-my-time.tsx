@@ -63,6 +63,7 @@ const TIER_REASONS: Record<string, string> = {
   urgent_shipping: "Has to go out soon",
   valued_work: "Closest to being ready to sell",
   research: "Needs a price before it can be ranked",
+  below_cost: "Likely to cost more than it makes",
   unvalued: "We can't estimate this one yet",
 };
 

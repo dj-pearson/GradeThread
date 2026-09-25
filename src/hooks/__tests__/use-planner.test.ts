@@ -45,8 +45,9 @@ vi.mock("@/lib/auth-token", () => ({
 }));
 vi.mock("@/lib/edge-api", () => ({ edgeApiUrl: () => "https://edge.test" }));
 
-const { buildPlan, planToSessionTasks, readStoredPlan, clearPlannerPlan } =
+const { buildPlan, planToSessionTasks, readStoredPlan, clearPlannerPlan, valueInputFor } =
   await import("@/hooks/use-planner");
+const { explainTask } = await import("@/lib/work-explain");
 const { QueryClient } = await import("@tanstack/react-query");
 
 const NOW = "2026-09-21T12:00:00.000Z";
@@ -327,5 +328,74 @@ describe("sold orders come first, with real ship-by dates (WMT-13)", () => {
     const built = await buildPlan({ ...BASE, book: book() });
     expect(built.ranked[0]!.key).toBe("sold:pack_ship");
     expect(built.shipToday).toEqual([]);
+  });
+});
+
+describe("unlisted prep work is valued (WMT-14)", () => {
+  it("an unlisted item with a target price is valued_work, and says the fees were assumed", async () => {
+    tables.items_full = [item({ listing_platform: null })];
+    const built = await buildPlan({ ...BASE, book: book() });
+    const r = built.ranked.find((x) => x.key === "item-1:photograph")!;
+    expect(r.tier).toBe("valued_work");
+    expect(r.value.complete).toBe(true);
+    expect(r.value.missing).toContain("fee_schedule_assumed");
+    const why = explainTask({
+      task: r,
+      duration: r.duration ?? { unestimated: true, reason: "x" },
+      value: r.value,
+      takenAt: NOW,
+      now: NOW,
+      hourlyTargetSet: false,
+    });
+    expect(why.facts).toContain("fee_schedule_assumed");
+  });
+
+  it("a $15 remaining-cost correction lowers the conservative figure by $15", async () => {
+    tables.items_full = [item({ listing_platform: null })];
+    const before = await buildPlan({ ...BASE, book: book() });
+    const after = await buildPlan({
+      ...BASE,
+      book: book([{
+        inventoryItemId: "item-1",
+        actionKey: null,
+        kind: "remaining_cost",
+        value: { amount: 1500, lowCents: null, highCents: null },
+        originalValue: null,
+        source: "seller",
+        updatedAt: NOW,
+      }]),
+    });
+    const key = "item-1:photograph";
+    const b = before.ranked.find((x) => x.key === key)!.conservativeCents!;
+    const a = after.ranked.find((x) => x.key === key)!.conservativeCents!;
+    expect(b - a).toBe(1500);
+  });
+
+  it("a $6 item lands in below_cost, under the work that pays", async () => {
+    tables.items_full = [
+      item({ id: "cheap", target_price: 6, listing_platform: null }),
+      item({ id: "good", target_price: 80, listing_platform: null }),
+    ];
+    const built = await buildPlan({ ...BASE, book: book() });
+    const cheap = built.ranked.find((x) => x.key === "cheap:photograph")!;
+    expect(cheap.tier).toBe("below_cost");
+    const order = built.ranked.map((x) => x.key);
+    expect(order.indexOf("good:photograph")).toBeLessThan(order.indexOf("cheap:photograph"));
+  });
+
+  it("evidence order: sale price for a sold item, then target, then list price as an asking price", () => {
+    const sold = valueInputFor(
+      item({ status: "sold", sale_price: 42, target_price: 50, list_price: 60 }) as never,
+      null,
+      NOW,
+    );
+    expect(sold.evidence).toMatchObject({ amountCents: 4200, source: "sold_comp" });
+    const target = valueInputFor(item({ target_price: 50, list_price: 60 }) as never, null, NOW);
+    expect(target.evidence).toMatchObject({ amountCents: 5000, source: "seller_estimate" });
+    const asking = valueInputFor(item({ target_price: null, list_price: 60 }) as never, null, NOW);
+    expect(asking.evidence).toMatchObject({ amountCents: 6000, source: "active_asking" });
+    const withShip = valueInputFor(item({ shipping_cost: 7.5 }) as never, null, NOW);
+    expect(withShip.shippingCents).toBe(750);
+    expect(valueInputFor(item({ shipping_cost: 0 }) as never, null, NOW).shippingCents).toBeNull();
   });
 });

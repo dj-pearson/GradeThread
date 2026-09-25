@@ -55,6 +55,10 @@ export const RANK_TIERS = [
   "urgent_shipping",
   "valued_work",
   "research",
+  // WMT-14: valued, and worth nothing or less once fees and the costs still
+  // ahead come off. Kept in the plan, below the work that pays, so the seller
+  // can see it and decide rather than have it silently outrank nothing.
+  "below_cost",
   "unvalued",
 ] as const;
 export type RankTier = (typeof RANK_TIERS)[number];
@@ -63,7 +67,8 @@ const TIER_ORDER: Record<RankTier, number> = {
   urgent_shipping: 0,
   valued_work: 1,
   research: 2,
-  unvalued: 3,
+  below_cost: 3,
+  unvalued: 4,
 };
 
 export interface RankConflict {
@@ -365,6 +370,11 @@ export function rankWork(input: RankInput): RankedTask[] {
         chain !== null && chain > 0
       ? conservativeCents / chain
       : null;
+    if (tier === "valued_work" && score !== null && score <= 0) {
+      // WMT-14: a job that loses money per minute does not compete on rate
+      // with jobs that make it.
+      tier = "below_cost";
+    }
 
     ranked.push({
       key: task.candidate.key,
@@ -446,7 +456,7 @@ function compareRanked(
     const da = parseInstant(a.dueAt);
     const db = parseInstant(b.dueAt);
     if (da !== db) return (da ?? Number.MAX_SAFE_INTEGER) - (db ?? Number.MAX_SAFE_INTEGER);
-  } else if (a.tier === "valued_work") {
+  } else if (a.tier === "valued_work" || a.tier === "below_cost") {
     if (a.score !== b.score) return (b.score ?? 0) - (a.score ?? 0);
   }
   const da = parseInstant(a.dueAt);

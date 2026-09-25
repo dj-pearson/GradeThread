@@ -28,6 +28,9 @@ export const EXPLAIN_FACT_COPY: Record<ExplainFact, string> = {
   best_rate: "It returns the most for the time it still needs.",
   needs_price_research: "It needs a price before we can rank it properly.",
   cannot_estimate_value: "We can't put a number on this one yet.",
+  below_cost: "Once fees and the costs still ahead come off, this one is likely to lose money.",
+  fee_schedule_assumed:
+    "It isn't listed anywhere yet, so we assumed eBay's fees.",
   timing_is_default: "The minutes are our starting guess, not your pace.",
   timing_is_learned: "The minutes come from your own finished jobs.",
   timing_is_override: "The minutes are the ones you set.",

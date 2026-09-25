@@ -46,7 +46,12 @@ import {
   type RawObservation,
   type WorkContext,
 } from "@/lib/work-duration-learning";
-import { estimateWorkValue, type ValueResult } from "@/lib/work-value";
+import {
+  estimateWorkValue,
+  type PriceEvidence,
+  type ValueInput,
+  type ValueResult,
+} from "@/lib/work-value";
 import { adviseOnItem, type AdviceResult } from "@/lib/work-advice";
 import {
   isOwedParcel,
@@ -653,30 +658,11 @@ export async function buildPlan(
     tasks: candidates.map((c) => {
       const item = byId.get(c.itemId);
       const corrected = valueOverrideFor(book, c.itemId);
-      const value: ValueResult = estimateWorkValue({
-        marketplace: item?.listing_platform ?? null,
-        // A corrected range is the seller telling us what it SELLS for, so it
-        // enters as evidence at the conservative end -- the end the ranker
-        // sorts on. The high is kept in the book for the row to show; running
-        // it through the fee schedule a second time would widen a range the
-        // seller already narrowed.
-        evidence: corrected
-          ? { amountCents: corrected.lowCents, source: "seller_estimate", observedAt: now }
-          : item?.target_price != null
-          ? {
-            amountCents: Math.round(item.target_price * 100),
-            source: "seller_estimate",
-            observedAt: item.updated_at ?? null,
-          }
-          : null,
-        purchaseCents: item?.purchase_price != null
-          ? Math.round(item.purchase_price * 100)
-          : null,
-        // "What is still left to spend on this." It lands in spentCents
-        // because that is the field that DEDUCTS; the name is about when the
-        // money moved, and the planner only cares that it comes off.
-        spentCents: costOverrideFor(book, c.itemId),
-      });
+      // WMT-14: ONE builder for the value inputs, shared with the runner's
+      // advice, so the two can never value the same garment differently.
+      const value: ValueResult = item
+        ? estimateWorkValue(valueInputFor(item, book, now))
+        : estimateWorkValue({ marketplace: null, evidence: null });
       return {
         candidate: c,
         value,
@@ -1180,6 +1166,73 @@ export function planToSessionTasks(plan: PreparedPlan): Record<string, unknown>[
   });
 }
 
+// ── The value inputs for one garment (WMT-14) ───────────────────────
+
+/** A dollars column as whole cents, or null when absent or not positive. */
+function dollarsCents(v: number | null | undefined): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
+  return Math.round(v * 100);
+}
+
+/**
+ * What estimateWorkValue is told about one item.
+ *
+ * FEES. An item with no marketplace yet is almost always headed for eBay, and
+ * refusing to value it left measure, photograph and price jobs -- most of a
+ * plan -- ranked as "can't estimate". So eBay's schedule is ASSUMED, and
+ * `fee_schedule_assumed` lands in `missing` so "Why this one?" says so. An
+ * item that names another marketplace is still refused: that is a known fee
+ * schedule this code does not model, not an unknown one.
+ *
+ * EVIDENCE, strongest first: the seller's own corrected range; the price a
+ * SOLD item actually went for; the seller's target price; and last the list
+ * price, which is an asking price and enters discounted.
+ */
+export function valueInputFor(
+  item: ItemListRow,
+  book: OverrideBook | null,
+  now: string,
+): ValueInput {
+  const corrected = book ? valueOverrideFor(book, item.id) : null;
+  const sold = item.status === "sold" || item.status === "shipped";
+  const salePrice = dollarsCents(item.sale_price);
+  const target = dollarsCents(item.target_price);
+  const listed = dollarsCents(item.list_price);
+
+  let evidence: PriceEvidence | null = null;
+  if (corrected) {
+    // The seller's range, as a range: both ends, no extra band.
+    evidence = {
+      amountCents: corrected.lowCents,
+      highAmountCents: corrected.highCents,
+      source: "seller_estimate",
+      observedAt: now,
+    };
+  } else if (sold && salePrice !== null) {
+    evidence = { amountCents: salePrice, source: "sold_comp", observedAt: item.updated_at ?? null };
+  } else if (target !== null) {
+    evidence = { amountCents: target, source: "seller_estimate", observedAt: item.updated_at ?? null };
+  } else if (listed !== null) {
+    evidence = { amountCents: listed, source: "active_asking", observedAt: item.updated_at ?? null };
+  }
+
+  const platform = item.listing_platform ?? null;
+  return {
+    marketplace: platform ?? "ebay",
+    feeScheduleAssumed: platform === null,
+    evidence,
+    purchaseCents: item.purchase_price != null && Number.isFinite(item.purchase_price)
+      ? Math.round(item.purchase_price * 100)
+      : null,
+    // Recorded postage where the row has it. A zero is the column default,
+    // not a free parcel, so it falls through to the labelled fallback.
+    shippingCents: dollarsCents(item.shipping_cost),
+    // "What is still left to spend on this", as the seller corrected it. A
+    // FUTURE cost, so it moves the rank.
+    futureCostCents: book ? costOverrideFor(book, item.id) : null,
+  };
+}
+
 // ── Advice for the task in hand (R2 03/06, US-3180) ─────────────────
 
 /**
@@ -1205,19 +1258,7 @@ export function adviseOnCurrentItem(args: {
     String(item.status ?? ""),
   );
 
-  const value = estimateWorkValue({
-    marketplace: item.listing_platform ?? null,
-    evidence: item.target_price != null
-      ? {
-        amountCents: Math.round(item.target_price * 100),
-        source: "seller_estimate",
-        observedAt: item.updated_at ?? null,
-      }
-      : null,
-    purchaseCents: item.purchase_price != null
-      ? Math.round(item.purchase_price * 100)
-      : null,
-  });
+  const value = estimateWorkValue(valueInputFor(item, null, new Date().toISOString()));
 
   // The minutes still ahead on the prep ladder, from the same candidate
   // builder the plan uses.
