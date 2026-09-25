@@ -84,8 +84,13 @@ describe("TopReferrers", () => {
   it("labels ranks from the server, ties included", async () => {
     await render();
     await flush();
-    const labels = Array.from(container.querySelectorAll("ol > li")).map((li) => li.getAttribute("aria-label"));
-    expect(labels).toEqual(["Tied for 1st: Ann", "Tied for 1st: Bea", "Rank 3: Cy"]);
+    const rows = Array.from(container.querySelectorAll("ol > li"));
+    const labels = rows.map((li) => li.querySelector(".sr-only")?.textContent);
+    expect(labels).toEqual(["Tied for 1st:", "Tied for 1st:", "Rank 3:"]);
+    // No aria-label on the row: it would replace the name, count and credits
+    // a screen reader reads from the row's own text.
+    expect(rows.every((li) => !li.hasAttribute("aria-label"))).toBe(true);
+    expect(rows[0]?.textContent).toContain("Ann");
     expect(container.textContent).not.toMatch(/CREDITS/);
   });
 });

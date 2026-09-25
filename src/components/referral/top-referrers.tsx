@@ -29,8 +29,13 @@ export interface LeaderboardReferrer {
 }
 
 async function fetchBoard(): Promise<LeaderboardReferrer[]> {
+  // no-cache: the feed is sent with max-age=300 for crawlers and CDNs, but a
+  // seller who just joined the board must not get the browser's stale copy
+  // back when the opt-in form invalidates this query. The query's own
+  // staleTime already keeps refetches rare.
   const res = await fetch(`${edgeApiUrl()}/api/content/public/referral-leaderboard.json`, {
     headers: { Accept: "application/json" },
+    cache: "no-cache",
   });
   if (!res.ok) throw new Error(`leaderboard ${res.status}`);
   const json = (await res.json()) as { referrers?: LeaderboardReferrer[] };
@@ -119,13 +124,12 @@ export function TopReferrers({ limit, className, seedKey }: TopReferrersProps) {
           const rank = r.rank ?? i + 1;
           const tied = r.tied ?? false;
           return (
-            <li
-              key={`${r.display_name}-${i}`}
-              className="flex items-center gap-3 py-3"
-              aria-label={`${rankLabel(rank, tied)}: ${r.display_name}`}
-            >
+            <li key={`${r.display_name}-${i}`} className="flex items-center gap-3 py-3">
               <div className="flex w-12 flex-shrink-0 items-center gap-1 tabular-nums">
-                <span className="text-lg font-bold text-brand-navy dark:text-foreground">
+                {/* The label is read in place, so the row's name, count and
+                    credits are still announced after it. */}
+                <span className="sr-only">{rankLabel(rank, tied)}:</span>
+                <span className="text-lg font-bold text-brand-navy dark:text-foreground" aria-hidden>
                   {tied ? "=" : ""}
                   {rank}
                 </span>

@@ -126,13 +126,16 @@ function clickSource(raw: string | null): string {
   return raw && (AFFILIATE_CLICK_SOURCES as readonly string[]).includes(raw) ? raw : "link";
 }
 
-/** Drop ref and utm_source from the address bar once they have been captured. */
+/**
+ * Drop ref from the address bar once it has been captured, so a reload or a
+ * copied URL does not re-attribute. utm_source stays: analytics (PostHog after
+ * consent, the UTM capture, nudge attribution) read it from the URL later.
+ */
 function stripRefParams(): void {
   try {
     const url = new URL(window.location.href);
-    if (!url.searchParams.has("ref") && !url.searchParams.has("utm_source")) return;
+    if (!url.searchParams.has("ref")) return;
     url.searchParams.delete("ref");
-    url.searchParams.delete("utm_source");
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   } catch {
     /* history unavailable — leaving the params is harmless */

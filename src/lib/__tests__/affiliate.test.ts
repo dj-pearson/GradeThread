@@ -55,10 +55,10 @@ describe("captureAffiliateRef", () => {
     expect(body.source).toBe("whatsapp");
   });
 
-  it("strips ref and utm_source from the address bar and keeps the rest", () => {
+  it("strips ref from the address bar and keeps utm_source for analytics", () => {
     land("?ref=ABCD2345&utm_source=badge&keep=1");
     captureAffiliateRef();
-    expect(window.location.search).toBe("?keep=1");
+    expect(window.location.search).toBe("?utm_source=badge&keep=1");
   });
 
   it("treats an unknown utm_source as a plain link", async () => {

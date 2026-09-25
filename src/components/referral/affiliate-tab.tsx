@@ -247,6 +247,17 @@ function PayoutCard({ onOpenCreator }: { onOpenCreator: () => void }) {
     return <Skeleton className="h-48 w-full" aria-busy="true" />;
   }
 
+  if (!payouts.enabled && payouts.program === "creator") {
+    // An admitted creator with the payout engine switched off: telling them
+    // cash is "for approved creators" would read as a demotion.
+    return (
+      <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+        You're an approved creator, but cash commission is switched off right
+        now, so none is being earned. Anything already owed to you still stands.
+      </p>
+    );
+  }
+
   if (!payouts.enabled) {
     return (
       <div className="flex flex-col gap-2 rounded-md border border-dashed p-3 text-sm sm:flex-row sm:items-center sm:justify-between">

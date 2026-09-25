@@ -18,7 +18,7 @@ import {
 export function ReferralTimeline() {
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["referral-events"],
-    queryFn: async (): Promise<{ events: ReferralEvent[]; truncated: boolean }> => {
+    queryFn: async (): Promise<{ events: ReferralEvent[]; truncated: boolean; total?: number }> => {
       const res = await edgeFetch("/api/referrals/me/events");
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Couldn't load your referrals");
@@ -74,7 +74,10 @@ export function ReferralTimeline() {
         ))}
       </ul>
       {data.truncated && (
-        <p className="text-xs text-muted-foreground">Showing your first 100 referrals.</p>
+        <p className="text-xs text-muted-foreground">
+          Showing your newest {data.events.length}
+          {data.total ? ` of ${data.total}` : ""} referrals.
+        </p>
       )}
     </div>
   );

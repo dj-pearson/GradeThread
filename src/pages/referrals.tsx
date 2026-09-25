@@ -598,7 +598,9 @@ export function ReferralsPage() {
                         ? data.leaderboard.tied
                           ? `You're tied for #${rank}.`
                           : `You're #${rank}.`
-                        : "You'll appear once your first referral is rewarded."}
+                        : data.stats.granted > 0
+                          ? "Your name isn't shown on the public board. Pick a different display name."
+                          : "You'll appear once your first referral is rewarded."}
                   </p>
                   {data.leaderboard.enabled ? (
                     <div className="flex gap-2">
