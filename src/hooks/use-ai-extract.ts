@@ -84,7 +84,16 @@ export interface AiExtractResponse {
 
 export interface AiExtractInput {
   text?: string;
-  photos?: { url: string; type?: string }[];
+  /**
+   * A URL the edge fetches, or the bytes inline (base64 JPEG, no data:
+   * prefix) for photos that are not uploaded yet, as on Add item.
+   */
+  photos?: (
+    | { url: string; type?: string }
+    | { data: string; media_type: string; type?: string; role?: string }
+  )[];
+  /** Cancels the request (a Cancel button, or a timeout). Not sent. */
+  signal?: AbortSignal;
   known_fields?: Record<string, unknown>;
   item_id?: string;
 }
@@ -152,6 +161,8 @@ export async function recordAiAcceptance(
 }
 
 export function aiErrorToast(err: ApiError): void {
+  // A cancel or a timeout is the caller's to explain.
+  if (err.name === "AbortError" || err.name === "TimeoutError") return;
   if (err.status === 403) {
     toastError(err, "AI enrichment is switched off for this account.", {
       nextStep: "Turn it back on in Settings.",
@@ -188,11 +199,12 @@ export function aiErrorToast(err: ApiError): void {
   }
 }
 
-async function postJson<T>(path: string, input: unknown): Promise<T> {
+async function postJson<T>(path: string, input: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`${edgeApiUrl()}${path}`, {
     method: "POST",
     headers: await aiHeaders(),
     body: JSON.stringify(input),
+    signal,
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -208,8 +220,8 @@ async function postJson<T>(path: string, input: unknown): Promise<T> {
 
 export function useAiExtract() {
   return useMutation<AiExtractResponse, ApiError, AiExtractInput>({
-    mutationFn: (input) =>
-      postJson<AiExtractResponse>("/api/flipdesk/ai/extract", input),
+    mutationFn: ({ signal, ...input }) =>
+      postJson<AiExtractResponse>("/api/flipdesk/ai/extract", input, signal),
     onError: aiErrorToast,
   });
 }

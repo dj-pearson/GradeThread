@@ -42,6 +42,16 @@ interface AiFillPanelProps {
   onApply: (accepted: AcceptedField[]) => void;
 }
 
+/** "photo:tag" reads as "Read from tag photo"; plain words for the rest. */
+function sourceLabel(source: string): string {
+  const photo = /^photo:(\w+)/.exec(source);
+  if (photo) return `Read from ${photo[1]!.replace(/_/g, " ")} photo`;
+  if (source === "photo") return "Read from a photo";
+  if (source === "text") return "Read from your text";
+  if (source === "snap") return "From your snap";
+  return source;
+}
+
 function humanize(key: string): string {
   return key
     .split("_")
@@ -363,7 +373,7 @@ export function AiFillPanel({
                     </Badge>
                   ) : (
                     <span className="text-xs text-muted-foreground">
-                      {sug.source}
+                      {sourceLabel(sug.source)}
                     </span>
                   )}
                   {sug.source === "research" &&

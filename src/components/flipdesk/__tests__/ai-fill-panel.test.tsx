@@ -14,7 +14,7 @@ import type { AiExtractResponse } from "@/hooks/use-ai-extract";
 
 const result = {
   suggestions: {
-    brand: { value: "Nike", confidence: 0.9, source: "text" },
+    brand: { value: "Nike", confidence: 0.9, source: "photo:tag" },
     color: { value: "Blue", confidence: 0.3, source: "text" },
     sku: { value: "X-1", confidence: 0.9, source: "text" },
   },
@@ -79,7 +79,7 @@ describe("AiFillPanel", () => {
     )!;
     act(() => apply.click());
     expect(onApply).toHaveBeenCalledWith([
-      { field: "brand", value: "Nike ACG", source: "text", confidence: 0.9 },
+      { field: "brand", value: "Nike ACG", source: "photo:tag", confidence: 0.9 },
     ]);
   });
 
@@ -94,5 +94,13 @@ describe("AiFillPanel", () => {
     const sw = document.body.querySelector('[aria-label="Accept Color"]')!;
     expect(sw.getAttribute("aria-checked")).toBe("false");
     expect(document.body.querySelector('[aria-label="Accept Brand"]')!.getAttribute("aria-checked")).toBe("true");
+  });
+});
+
+describe("source labels", () => {
+  it("says where a value was read, in words", () => {
+    render({ brand: "", color: "" });
+    expect(document.body.textContent).toContain("Read from tag photo");
+    expect(document.body.textContent).not.toContain("photo:tag");
   });
 });

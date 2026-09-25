@@ -9,6 +9,7 @@ import {
 } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { safeFetch, SsrfError } from "./ssrf.ts";
+import { validateImageUpload } from "./upload-validation.ts";
 import {
   type BrandKnowledgePack,
   brandPackPromptBlock,
@@ -202,7 +203,7 @@ export function isPlaceholderValue(value: unknown, field?: string): boolean {
   return PLACEHOLDER_VALUES.has(s);
 }
 
-const EXTRACT_FIELDS = [
+export const EXTRACT_FIELDS = [
   "title",
   "brand",
   "style",
@@ -378,7 +379,15 @@ export interface AttributeSuggestion {
 export type CanonicalAttributeColumn = Record<string, string | string[]>;
 
 export interface ExtractPhoto {
+  /** Empty for an inline photo. */
   url: string;
+  /**
+   * Bytes sent in the request body (base64, no data: prefix), already
+   * magic-byte checked by parseInlineExtractPhotos. Used instead of fetching
+   * `url`. The Add item form sends its staged photos this way, because they
+   * are not uploaded until the item row exists.
+   */
+  inline?: { data: string; mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp" };
   type?: string; // front | back | tag | detail | defect | flatlay | on_model
   // US-2471: the `item_photos.photo_role` qualifier. This is what finally tells
   // the model WHICH tag photo is the brand and which is the size — before it,
@@ -895,6 +904,77 @@ function sniffImageMediaType(b: Uint8Array): AnthropicImageMediaType | null {
 // Base64-encode bytes via the global btoa (no extra dependency, so the frozen
 // edge lockfile stays untouched). Chunked so String.fromCharCode never gets an
 // argument list big enough to overflow for multi-MB photos.
+function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** Inline photos per extract, same cap as URL photos. */
+export const MAX_INLINE_PHOTOS = 8;
+/** Longest free text the extract route reads. */
+export const MAX_EXTRACT_TEXT_CHARS = 8_000;
+const MAX_KNOWN_FIELD_CHARS = 200;
+
+/**
+ * Inline photos from a request body: [{ data (base64), media_type?, type?,
+ * role? }]. Every one is decoded and magic-byte checked (validateImageUpload,
+ * the same gate as uploads), so an SVG or a renamed PDF is refused before any
+ * model call; the caller's media_type is never trusted. Returns the first
+ * reason a photo was refused, with its position.
+ */
+export function parseInlineExtractPhotos(
+  raw: readonly unknown[],
+): { ok: true; photos: ExtractPhoto[] } | { ok: false; error: string } {
+  const photos: ExtractPhoto[] = [];
+  const entries = raw.filter(
+    (p): p is Record<string, unknown> =>
+      !!p && typeof p === "object" && typeof (p as { data?: unknown }).data === "string",
+  );
+  if (entries.length > MAX_INLINE_PHOTOS) {
+    return { ok: false, error: `Send at most ${MAX_INLINE_PHOTOS} photos.` };
+  }
+  for (const [i, p] of entries.entries()) {
+    const data = (p.data as string).replace(/^data:[^,]*,/, "");
+    let bytes: Uint8Array;
+    try {
+      bytes = base64ToBytes(data);
+    } catch {
+      return { ok: false, error: `Photo ${i + 1} is not valid base64.` };
+    }
+    const check = validateImageUpload(bytes, { maxBytes: MAX_IMAGE_FETCH_BYTES });
+    if (!check.ok) return { ok: false, error: `Photo ${i + 1}: ${check.reason}` };
+    const mediaType = sniffImageMediaType(bytes);
+    if (!mediaType) {
+      return { ok: false, error: `Photo ${i + 1} must be a JPEG, PNG, WebP or GIF.` };
+    }
+    photos.push({
+      url: "",
+      type: typeof p.type === "string" ? p.type : undefined,
+      role: typeof p.role === "string" ? p.role : undefined,
+      inline: { data, mediaType },
+    });
+  }
+  return { ok: true, photos };
+}
+
+/**
+ * known_fields as the extractor may see them: only EXTRACT_FIELDS keys, string
+ * values capped at 200 characters. Anything else in the body is dropped, not
+ * forwarded into the prompt.
+ */
+export function sanitizeKnownFields(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, unknown> = {};
+  for (const key of EXTRACT_FIELDS) {
+    const v = (raw as Record<string, unknown>)[key];
+    if (typeof v === "string") out[key] = v.slice(0, MAX_KNOWN_FIELD_CHARS);
+    else if (typeof v === "number" || typeof v === "boolean") out[key] = v;
+  }
+  return out;
+}
+
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   const chunk = 0x8000;
@@ -972,6 +1052,18 @@ export async function buildPhotoContentWithColor(
 }> {
   const fetched = await Promise.all(
     photos.map(async (photo, i) => {
+      if (photo.inline) {
+        // Validated at the route; nothing to fetch.
+        const measurable = COLOUR_MEASURABLE_TYPES.includes(
+          (photo.type ?? "") as typeof COLOUR_MEASURABLE_TYPES[number],
+        );
+        return {
+          photo,
+          mediaType: photo.inline.mediaType,
+          data: photo.inline.data,
+          bytes: measurable ? base64ToBytes(photo.inline.data) : null,
+        };
+      }
       try {
         // SSRF-safe fetch: photo.url can be caller-supplied (POST
         // /api/flipdesk/ai/extract accepts photo_urls in the request body), so

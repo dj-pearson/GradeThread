@@ -386,6 +386,36 @@ Deno.test({
   },
 });
 Deno.test({
+  // Inline photos on /extract (the Add item form's staged shots). Two things
+  // must hold: a foreign item_id is still refused when the body carries photo
+  // bytes instead of text, and non-image bytes are refused with a 4xx before
+  // any quota spend or model call, whoever sends them.
+  name: "B cannot run inline-photo extraction against A's item, and SVG bytes are refused",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID");
+    if (itemId) {
+      const res = await fetch(`${BASE}/api/flipdesk/ai/extract`, {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ item_id: itemId, photos: [{ data: png, type: "tag" }] }),
+      });
+      await res.body?.cancel();
+      assertDenied(res.status, "POST ai/extract (inline photo, foreign item_id)");
+    }
+    const svg = btoa('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+    const res = await fetch(`${BASE}/api/flipdesk/ai/extract`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ photos: [{ data: svg, media_type: "image/png", type: "tag" }] }),
+    });
+    await res.body?.cancel();
+    assertEquals(res.status, 400);
+  },
+});
+Deno.test({
   // US-2817. Bulk re-identify is the first AI path that OVERWRITES an
   // existing brand/size/color/style rather than filling a blank, and it
   // follows the write through to the listing titles that quote the old

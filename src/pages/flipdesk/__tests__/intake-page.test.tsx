@@ -67,6 +67,12 @@ vi.mock("@/hooks/use-sku-sequence", () => ({
 vi.mock("@/hooks/use-open-photo-sessions", () => ({
   useOpenPhotoSessions: () => ({ data: mocks.openSessions }),
 }));
+vi.mock("@/lib/ai-photo-payload", () => ({
+  stagedPhotosForAi: async (photos: Array<{ photoType: string }>) =>
+    [...photos]
+      .sort((a, b) => Number(b.photoType === "tag") - Number(a.photoType === "tag"))
+      .map((p) => ({ data: "QUJD", media_type: "image/jpeg", type: p.photoType })),
+}));
 vi.mock("@/hooks/use-sources", () => ({ useSources: () => mocks.useSources() }));
 vi.mock("@/hooks/use-ai-extract", () => ({
   useAiExtract: () => ({ mutateAsync: mocks.extract, isPending: false }),
@@ -751,5 +757,25 @@ describe("photo dump entry", () => {
       tabs[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
     });
     expect(document.activeElement).toBe(tabs[3]);
+  });
+});
+
+describe("AI Fill reads the staged photos", () => {
+  it("runs with only staged photos, tag first, and no text", async () => {
+    mocks.extract.mockResolvedValue({ suggestions: {}, conflicts: [] });
+    await renderPage();
+    expect(button("AI Fill").disabled).toBe(true);
+    await click("stage four");
+    expect(button("AI Fill").disabled).toBe(false);
+    await click("AI Fill");
+    expect(mocks.extract).toHaveBeenCalledTimes(1);
+    const input = mocks.extract.mock.calls[0]![0] as {
+      text?: string;
+      photos: Array<{ type: string; data: string }>;
+      signal: AbortSignal;
+    };
+    expect(input.text).toBeUndefined();
+    expect(input.photos.map((p) => p.type)).toEqual(["tag", "front", "back", "detail"]);
+    expect(input.signal).toBeInstanceOf(AbortSignal);
   });
 });

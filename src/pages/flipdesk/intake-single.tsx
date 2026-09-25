@@ -70,6 +70,7 @@ import {
   type AiExtractResponse,
 } from "@/hooks/use-ai-extract";
 import { useProductLookup } from "@/hooks/use-product-lookup";
+import { stagedPhotosForAi } from "@/lib/ai-photo-payload";
 
 import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
@@ -312,6 +313,8 @@ export function IntakeSingleForm({
   const aiExtractRuns = useLatestRun();
   const [aiResult, setAiResult] = useState<AiExtractResponse | null>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiSlow, setAiSlow] = useState(false);
+  const aiAbortRef = useRef<AbortController | null>(null);
   const [aiGarment, setAiGarment] = useState<AiGarment>(NO_AI_GARMENT);
   // SNAP-13: the snap's condition note is AI-derived and marked as such.
   const [aiFields, setAiFields] = useState<Set<string>>(
@@ -381,12 +384,15 @@ export function IntakeSingleForm({
     });
   }
 
+  const aiText = [form.title, form.description, form.condition_notes]
+    .filter((t) => t.trim())
+    .join("\n");
+  const hasAiInput = aiText.trim() !== "" || stagedPhotos.length > 0;
+
   async function handleAiFill() {
-    const text = [form.title, form.description, form.condition_notes]
-      .filter((s) => s.trim())
-      .join("\n");
-    if (!text.trim()) {
-      toast.error("Add a title, description, or notes for the AI to read.");
+    const text = aiText;
+    if (!hasAiInput) {
+      toast.error("Add a photo, a title, a description or notes for the AI to read.");
       return;
     }
     const known: Record<string, unknown> = {};
@@ -407,13 +413,38 @@ export function IntakeSingleForm({
     // feeding the previous item's garment_type/garment_category straight into
     // the next insert at deriveGarmentDefaults below.
     const run = aiExtractRuns.begin();
+    // A photo read can take a while on weak wifi: a Cancel appears after 8s,
+    // and the request gives up on its own at 60s.
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
+    let timedOut = false;
+    const slowTimer = setTimeout(() => setAiSlow(true), 8_000);
+    const giveUp = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 60_000);
     try {
-      const result = await aiExtract.mutateAsync({ text, known_fields: known });
+      // The tag photo first: it is where brand, size and fiber are read.
+      const photos = stagedPhotos.length > 0 ? await stagedPhotosForAi(stagedPhotos) : [];
+      const result = await aiExtract.mutateAsync({
+        ...(text.trim() ? { text } : {}),
+        ...(photos.length > 0 ? { photos } : {}),
+        known_fields: known,
+        signal: controller.signal,
+      });
       if (run.superseded) return;
       setAiResult(result);
       setAiPanelOpen(true);
     } catch {
-      /* error toast handled by the hook */
+      // The hook toasts real errors; a cancel says nothing, a timeout says so.
+      if (timedOut && !run.superseded) {
+        toast.error("AI Fill took too long. Try again, or fill it in by hand.");
+      }
+    } finally {
+      clearTimeout(slowTimer);
+      clearTimeout(giveUp);
+      if (aiAbortRef.current === controller) aiAbortRef.current = null;
+      setAiSlow(false);
     }
   }
 
@@ -1008,19 +1039,32 @@ export function IntakeSingleForm({
               Only title is required. Everything else can be filled in later.
             </CardDescription>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleAiFill}
-            disabled={aiExtract.isPending}
-          >
-            {aiExtract.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="mr-2 h-4 w-4" />
+          <div className="flex items-center gap-2">
+            {aiExtract.isPending && aiSlow && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => aiAbortRef.current?.abort()}
+              >
+                Cancel
+              </Button>
             )}
-            AI Fill
-          </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleAiFill}
+              disabled={aiExtract.isPending || !hasAiInput}
+              title={hasAiInput ? undefined : "Add a photo or some text first"}
+            >
+              {aiExtract.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
+              )}
+              AI Fill
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
