@@ -3,16 +3,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { usePageHost } from "@/hooks/use-page-host";
 import { cn } from "@/lib/utils";
-import {
-  Sparkles,
-  Compass,
-  Archive,
-  AlertTriangle,
-  User,
-  Shield,
-  Bell,
-  Download,
-} from "lucide-react";
 import { ProfileSettingsTab } from "@/components/settings/profile-settings-tab";
 import { SecuritySettingsTab } from "@/components/settings/security-settings-tab";
 import { NotificationsSettingsTab } from "@/components/settings/notifications-settings-tab";
@@ -21,23 +11,12 @@ import { FlipdeskSettingsTab } from "@/components/settings/flipdesk-settings-tab
 import { DataSettingsTab } from "@/components/settings/data-settings-tab";
 import { PhotoArchiveCard } from "@/components/settings/photo-archive-card";
 import { DangerZoneCard } from "@/components/settings/danger-zone-card";
-
-// US-608: settings are split into deep-linkable tabs (?tab=<value>) so a long
-// single scroll becomes findable sections. Order here drives the tab strip.
-const SETTINGS_TABS = [
-  { value: "profile", label: "Profile", icon: User },
-  { value: "security", label: "Security", icon: Shield },
-  { value: "notifications", label: "Notifications", icon: Bell },
-  { value: "ai", label: "AI", icon: Sparkles },
-  { value: "flipdesk", label: "FlipDesk", icon: Compass },
-  { value: "data", label: "Data", icon: Download },
-  { value: "storage", label: "Storage", icon: Archive },
-  { value: "danger", label: "Danger", icon: AlertTriangle },
-] as const;
-
-type SettingsTab = (typeof SETTINGS_TABS)[number]["value"];
-const SETTINGS_TAB_VALUES = SETTINGS_TABS.map((t) => t.value) as SettingsTab[];
-const DEFAULT_SETTINGS_TAB: SettingsTab = "profile";
+import {
+  DEFAULT_SETTINGS_TAB,
+  SETTINGS_TABS,
+  SETTINGS_TAB_VALUES,
+  type SettingsTab,
+} from "@/lib/settings-tabs";
 
 // Web-growth action 6: each tab's cards, state and save handlers live in their
 // own component under src/components/settings/. This page owns only the tab

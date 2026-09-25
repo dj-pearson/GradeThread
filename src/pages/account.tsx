@@ -5,6 +5,7 @@ import { PageHostContext } from "@/hooks/use-page-host";
 import { PageHeader } from "@/components/ui/page-header";
 import type { WorkspaceCapability } from "@/lib/workspace-permissions";
 import { SettingsPage } from "@/pages/settings";
+import { ACCOUNT_HUB_TAB_VALUES } from "@/lib/settings-tabs";
 import { BillingPage } from "@/pages/billing";
 import { TeamPage } from "@/pages/team";
 import { ApiKeysPage } from "@/pages/api-keys";
@@ -16,7 +17,11 @@ import { ReferralsPage } from "@/pages/referrals";
 // with PageHostContext.embedded = true so each page suppresses its own
 // PageHeader (US-1441) — the tab label names the section, so a per-page heading
 // would just duplicate it and stack a second title under this tab strip.
-const TABS: { value: string; label: string; requires?: WorkspaceCapability }[] =
+const TABS: {
+  value: (typeof ACCOUNT_HUB_TAB_VALUES)[number];
+  label: string;
+  requires?: WorkspaceCapability;
+}[] =
   [
     { value: "settings", label: "Settings" },
     { value: "billing", label: "Billing", requires: "manage_billing" },
@@ -51,7 +56,7 @@ export function AccountPage({
   // Mirror the per-capability gating the sidebar used to apply, so members
   // without billing/API rights don't see those tabs.
   const visible = TABS.filter((t) => !t.requires || can(t.requires));
-  const allowed = new Set(visible.map((t) => t.value));
+  const allowed = new Set<string>(visible.map((t) => t.value));
 
   // `?tab=` is ALSO owned by a child — the unsubscribe email deep-links
   // `/dashboard/settings?tab=notifications`, which settings.tsx reads for its

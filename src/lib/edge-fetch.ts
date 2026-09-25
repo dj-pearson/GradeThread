@@ -13,6 +13,8 @@ import { useActionCreditDialogStore } from "@/stores/action-credit-dialog-store"
 import { usePlanPickerStore } from "@/stores/plan-picker-store";
 import { FLIPDESK_PLANS } from "@/lib/constants";
 import type { FlipdeskPlanKey } from "@/lib/constants";
+import { appNavigate } from "./app-navigate";
+import { settingsTabHref } from "./settings-tabs";
 
 // ── edgeFetch (US-209 + US-210) ─────────────────────────────────
 //
@@ -242,7 +244,8 @@ export async function edgeFetch(
           action: {
             label: "Open Settings",
             onClick: () => {
-              window.location.href = "/dashboard/account?tab=settings";
+              // The Security section, where 2FA is turned on, without a reload.
+              appNavigate(settingsTabHref("security"));
             },
           },
         });
@@ -399,7 +402,8 @@ function handleAllowanceExhausted(body: Record<string, unknown>) {
       action: {
         label: "Open Settings",
         onClick: () => {
-          window.location.href = "/dashboard/settings";
+          // Straight to the AI section, where the self-set cap lives.
+          appNavigate(settingsTabHref("ai"));
         },
       },
     });
