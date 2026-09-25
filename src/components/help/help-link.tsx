@@ -49,7 +49,7 @@ export function HelpLink({ slug, label, className }: HelpLinkProps) {
   const [open, setOpen] = useState(false);
   const { pathname, search } = useLocation();
   const index = useHelpReaderIndex();
-  const listed = index.data?.articles.find((a) => a.slug === slug);
+  const listed = index.data?.articles?.find((a) => a.slug === slug);
   // Only once opened: a screen with a help button no longer costs a request.
   const { data, isLoading } = useHelpReaderArticle(slug, { enabled: open });
   const article = data?.article;

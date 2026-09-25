@@ -159,9 +159,10 @@ function HelpReaderIndexPage() {
   const pinned = useMemo(() => {
     if (!from || !data) return null;
     const category = helpCategoryOf(from);
-    const lead = from.helpSlug ? data.articles.find((a) => a.slug === from.helpSlug) : undefined;
+    const articles = data.articles ?? [];
+    const lead = from.helpSlug ? articles.find((a) => a.slug === from.helpSlug) : undefined;
     const rest = category
-      ? data.articles.filter((a) => a.category_key === category && a.slug !== lead?.slug)
+      ? articles.filter((a) => a.category_key === category && a.slug !== lead?.slug)
       : [];
     if (!lead && rest.length === 0) return null;
     return { lead, rest: rest.slice(0, 5), category };
