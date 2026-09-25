@@ -625,3 +625,88 @@ describe("the mode router", () => {
     expect(host.querySelector('input[placeholder="e.g. Lululemon Align Pant"]')).toBeNull();
   });
 });
+
+describe("keyboard-first form", () => {
+  async function pressEnter(el: HTMLElement, mods: KeyboardEventInit = {}) {
+    await act(async () => {
+      el.focus();
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...mods }));
+    });
+    await flush();
+  }
+
+  it("Enter in Title saves and returns focus to an empty Title", async () => {
+    const insert = insertChain(() => Promise.resolve({ data: { id: "x" }, error: null }));
+    await renderPage();
+    await typeTitle("Wool coat");
+    await pressEnter(titleInput());
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(titleInput().value).toBe("");
+    expect(document.activeElement).toBe(titleInput());
+  });
+
+  it("Enter in a textarea is a newline, not a save", async () => {
+    const insert = insertChain(() => Promise.resolve({ data: { id: "x" }, error: null }));
+    await renderPage();
+    await typeTitle("Wool coat");
+    await pressEnter(host.querySelector<HTMLTextAreaElement>("#intake-condition-notes")!);
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it("Ctrl+Enter runs the primary save", async () => {
+    const insert = insertChain(() => Promise.resolve({ data: { id: "x" }, error: null }));
+    await renderPage();
+    await typeTitle("Wool coat");
+    await pressEnter(host.querySelector<HTMLTextAreaElement>("#intake-condition-notes")!, { ctrlKey: true });
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain("ITEMS PAGE");
+  });
+
+  it("the Category label points at its trigger", async () => {
+    await renderPage();
+    const label = Array.from(host.querySelectorAll("label")).find((l) => l.textContent?.startsWith("Category"))!;
+    const target = document.getElementById(label.htmlFor);
+    expect(target?.getAttribute("role")).toBe("combobox");
+  });
+
+  it("names the primary button after where it goes", async () => {
+    mocks.reviewFlow = { enabled: true, isLoading: false, chosen: true };
+    await renderPage();
+    expect(button("Save & review")).toBeTruthy();
+  });
+
+  it("a viewer sees Save disabled and a one-line notice", async () => {
+    mocks.can.mockImplementation((perm: string) => perm !== "manage_inventory");
+    await renderPage();
+    expect(button("Save & Add another").disabled).toBe(true);
+    expect(button("Save & view items").disabled).toBe(true);
+    expect(host.textContent).toContain("You can view this workspace but not add items to it.");
+  });
+
+  it("shows a spinner, not a sign-in error, while the workspace resolves", async () => {
+    mocks.ownerId = null;
+    await renderPage();
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    expect(host.textContent).not.toContain("You must be signed in");
+  });
+
+  it("keeps a source created by this save selected for the next item", async () => {
+    insertChain(() => Promise.resolve({ data: { id: "x" }, error: null }));
+    mocks.rpc.mockResolvedValue({ data: "src-new", error: null });
+    mocks.useSources.mockReturnValue({ data: [{ id: "src-new", name: "Bins" }] });
+    await renderPage();
+    const sourceLabel = Array.from(host.querySelectorAll("label")).find((l) => l.textContent === "Source")!;
+    const trigger = document.getElementById(sourceLabel.htmlFor)!;
+    const native = trigger.parentElement!.querySelector("select");
+    expect(native, "Radix renders a native select inside a form").not.toBeNull();
+    await act(async () => {
+      native!.value = "__new";
+      native!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await typeInto(host.querySelector<HTMLInputElement>('input[aria-label="New source name"]')!, "Bins");
+    await typeTitle("One");
+    await click("Save & Add another");
+    expect(mocks.rpc).toHaveBeenCalledWith("get_or_create_source", expect.objectContaining({ p_name: "Bins" }));
+    expect(native!.value).toBe("src-new");
+  });
+});

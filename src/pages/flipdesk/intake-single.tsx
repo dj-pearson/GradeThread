@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useId, useRef, useState, type Ref } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type Ref } from "react";
 import { useLocation, useNavigate, useSearchParams, Link } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -242,11 +242,23 @@ export function IntakeSingleForm({
     price?: string;
   }>({});
   const titleRef = useRef<HTMLInputElement>(null);
+  // Labels for the three Selects point at their triggers.
+  const categoryId = useId();
+  const sourceId = useId();
+  const statusId = useId();
   const skuRef = useRef<HTMLInputElement>(null);
   const priceRef = useRef<HTMLInputElement>(null);
   // The item id this draft will be saved under, chosen here so a retry after
   // a lost response is idempotent. Renewed after each successful save.
   const [draftId, setDraftId] = useState(() => crypto.randomUUID());
+  const focusTitleNext = useRef(false);
+  useEffect(() => {
+    if (!focusTitleNext.current) return;
+    focusTitleNext.current = false;
+    const el = titleRef.current;
+    el?.focus();
+    el?.scrollIntoView?.({ block: "center" });
+  }, [draftId]);
   // US-2546 AC2: photos staged in memory until the item row exists.
   // SNAP-13: the snap photo is staged as the Front, so it goes up through the
   // same uploadItemPhoto path after the owner-scoped insert.
@@ -500,6 +512,38 @@ export function IntakeSingleForm({
     garment_category: aiGarment.garment_category ?? "",
   };
 
+  const canSave = !!workspaceOwnerId && can("manage_inventory");
+
+  // A native listener (attached through the form's ref below) rather than
+  // onKeyDown: a DOM listener never sees Enter from a dialog portalled out of
+  // the form, where a React handler would, and jsx-a11y reads a key handler on
+  // a form as a non-interactive element taking input.
+  function handleFormKeyDown(e: KeyboardEvent) {
+    if (e.key !== "Enter" || e.isComposing) return;
+    const target = e.target as HTMLElement;
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      if (canSave && !saving && !productLookup.isPending) void save(true);
+      return;
+    }
+    // A textarea keeps its newline; a focused button or select does its own
+    // thing on Enter.
+    if (target.tagName !== "INPUT") return;
+    const type = (target as HTMLInputElement).type;
+    if (type === "file" || type === "checkbox" || type === "radio") return;
+    e.preventDefault();
+    if (canSave && !saving && !productLookup.isPending) void save(false);
+  }
+
+  const keyHandlerRef = useRef(handleFormKeyDown);
+  keyHandlerRef.current = handleFormKeyDown;
+  const attachFormKeys = useCallback((form: HTMLFormElement | null) => {
+    if (!form) return;
+    const onKey = (e: KeyboardEvent) => keyHandlerRef.current(e);
+    form.addEventListener("keydown", onKey);
+    return () => form.removeEventListener("keydown", onKey);
+  }, []);
+
   // Reset to add another, keeping source + container + sourced_by (the common
   // case: cataloging a batch from the same trip). A fresh draft id, so the
   // next garment is a new row. The source is the one this save used: a source
@@ -519,6 +563,8 @@ export function IntakeSingleForm({
     };
     setForm(next);
     setBaseline(next);
+    // The next garment starts at Title, not on the button just pressed.
+    focusTitleNext.current = true;
     setDraftId(crypto.randomUUID());
     setAiFields(new Set());
     setAiMeta({});
@@ -785,6 +831,16 @@ export function IntakeSingleForm({
     }
   }
 
+  // The workspace resolves just after sign-in. A spinner, not "You must be
+  // signed in", while it does.
+  if (!workspaceOwnerId) {
+    return (
+      <div className="flex justify-center py-12" role="status" aria-label="Loading">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -934,6 +990,16 @@ export function IntakeSingleForm({
         </div>
       )}
 
+      {/* Keyboard-first: Enter in any field saves and starts the next item,
+          Cmd/Ctrl+Enter saves and moves on, and Enter in a textarea is still a
+          newline. The buttons call save() themselves; onSubmit only stops a
+          stray untyped button from reloading the page. */}
+      <form
+        className="space-y-6"
+        noValidate
+        onSubmit={(e) => e.preventDefault()}
+        ref={attachFormKeys}
+      >
       <Card>
         <CardHeader>
           <CardTitle>Item info</CardTitle>
@@ -950,6 +1016,7 @@ export function IntakeSingleForm({
               onChange={(v) => patch("title", v)}
               placeholder="e.g. Lululemon Align Pant"
               aiMarked={aiFields.has("title")}
+              aiConfidence={aiMeta.title?.confidence}
               inputRef={titleRef}
               error={fieldErrors.title}
             />
@@ -993,6 +1060,7 @@ export function IntakeSingleForm({
               value={form.brand}
               onChange={(v) => patch("brand", v)}
               aiMarked={aiFields.has("brand")}
+              aiConfidence={aiMeta.brand?.confidence}
             />
             <Field
               label="Style"
@@ -1000,23 +1068,26 @@ export function IntakeSingleForm({
               onChange={(v) => patch("style", v)}
               placeholder="e.g. Align Pant 25 inch"
               aiMarked={aiFields.has("style")}
+              aiConfidence={aiMeta.style?.confidence}
             />
             <Field
               label="Size"
               value={form.size}
               onChange={(v) => patch("size", v)}
               aiMarked={aiFields.has("size")}
+              aiConfidence={aiMeta.size?.confidence}
             />
             <Field
               label="Color"
               value={form.color}
               onChange={(v) => patch("color", v)}
               aiMarked={aiFields.has("color")}
+              aiConfidence={aiMeta.color?.confidence}
             />
             <div className="space-y-1">
-              <Label>
+              <Label htmlFor={categoryId}>
                 Category
-                {aiFields.has("item_category") && <AiMark />}
+                {aiFields.has("item_category") && <AiMark confidence={aiMeta.item_category?.confidence} />}
               </Label>
               <Select
                 value={form.item_category || "__none"}
@@ -1027,11 +1098,11 @@ export function IntakeSingleForm({
                   )
                 }
               >
-                <SelectTrigger aria-label="Category">
+                <SelectTrigger id={categoryId}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none">— None —</SelectItem>
+                  <SelectItem value="__none">None</SelectItem>
                   {ITEM_CATEGORIES.map((c) => (
                     <SelectItem key={c} value={c}>
                       {ITEM_CATEGORY_LABELS[c]}
@@ -1046,6 +1117,7 @@ export function IntakeSingleForm({
               onChange={(v) => patch("material", v)}
               placeholder="e.g. cotton, 90% nylon"
               aiMarked={aiFields.has("material")}
+              aiConfidence={aiMeta.material?.confidence}
             />
           </div>
         </CardContent>
@@ -1061,19 +1133,19 @@ export function IntakeSingleForm({
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1">
-              <Label>Source</Label>
+              <Label htmlFor={sourceId}>Source</Label>
               <Select
                 value={form.source_id || "__none"}
                 onValueChange={(v) =>
                   patch("source_id", v === "__none" ? "" : v)
                 }
               >
-                <SelectTrigger aria-label="Source">
+                <SelectTrigger id={sourceId}>
                   <SelectValue placeholder="Select source" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none">— None —</SelectItem>
-                  <SelectItem value="__new">+ New source…</SelectItem>
+                  <SelectItem value="__none">None</SelectItem>
+                  <SelectItem value="__new">+ New source...</SelectItem>
                   {sources.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
                       {s.name}
@@ -1121,12 +1193,12 @@ export function IntakeSingleForm({
               placeholder="e.g. A1, Closet shelf 3"
             />
             <div className="space-y-1">
-              <Label>Status</Label>
+              <Label htmlFor={statusId}>Status</Label>
               <Select
                 value={form.status}
                 onValueChange={(v) => patch("status", v as ItemStatus)}
               >
-                <SelectTrigger aria-label="Status">
+                <SelectTrigger id={statusId}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1150,7 +1222,7 @@ export function IntakeSingleForm({
           <div className="space-y-1">
             <Label htmlFor="i-description-public-for-listing">
               Description (public, for listing)
-              {aiFields.has("description") && <AiMark />}
+              {aiFields.has("description") && <AiMark confidence={aiMeta.description?.confidence} />}
             </Label>
             <Textarea id="i-description-public-for-listing"
               value={form.description}
@@ -1162,7 +1234,7 @@ export function IntakeSingleForm({
           <div className="space-y-1">
             <Label htmlFor="intake-condition-notes">
               Internal Notes
-              {aiFields.has("condition_notes") && <AiMark />}
+              {aiFields.has("condition_notes") && <AiMark confidence={aiMeta.condition_notes?.confidence} />}
             </Label>
             <Textarea
               id="intake-condition-notes"
@@ -1207,7 +1279,7 @@ export function IntakeSingleForm({
         <CardHeader>
           <CardTitle>Measurements</CardTitle>
           <CardDescription>
-            Optional. Fill what you have — the rest can be added on the prep
+            Optional. Fill what you have; the rest can be added on the prep
             page or measured from a photo later.
           </CardDescription>
         </CardHeader>
@@ -1235,7 +1307,15 @@ export function IntakeSingleForm({
       />
 
       <div className="flex flex-wrap items-center justify-end gap-2">
+        {!canSave && (
+          <p className="mr-auto text-sm text-muted-foreground">
+            {workspaceOwnerId
+              ? "You can view this workspace but not add items to it."
+              : null}
+          </p>
+        )}
         <Button
+          type="button"
           variant="outline"
           onClick={() => navigate("/dashboard/flipdesk/items")}
           disabled={saving}
@@ -1243,9 +1323,10 @@ export function IntakeSingleForm({
           Cancel
         </Button>
         <Button
+          type="button"
           variant="outline"
           onClick={() => save(false)}
-          disabled={saving || productLookup.isPending}
+          disabled={saving || productLookup.isPending || !canSave}
         >
           {saving ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1254,15 +1335,20 @@ export function IntakeSingleForm({
           )}
           Save & Add another
         </Button>
-        <Button onClick={() => save(true)} disabled={saving || productLookup.isPending}>
+        <Button
+          type="button"
+          onClick={() => save(true)}
+          disabled={saving || productLookup.isPending || !canSave}
+        >
           {saving ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
             <Save className="mr-2 h-4 w-4" />
           )}
-          Save & View items
+          {reviewFlow.enabled ? "Save & review" : "Save & view items"}
         </Button>
       </div>
+      </form>
 
       {aiPanelOpen && (
         <Suspense fallback={null}>
@@ -1330,10 +1416,14 @@ function queueLine(items: number, photos: number): string {
   return `${parts.join(" and ")} queued offline`;
 }
 
-function AiMark() {
+function AiMark({ confidence }: { confidence?: number }) {
+  const pct = confidence != null && Number.isFinite(confidence) ? Math.round(confidence * 100) : null;
   return (
-    <span className="ml-1.5 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium text-primary">
-      AI
+    <span className="ml-1.5 rounded bg-primary/10 px-1 py-0.5 text-[11px] font-medium text-primary">
+      <span aria-hidden="true">AI</span>
+      <span className="sr-only">
+        {pct != null ? `Filled by AI, ${pct}% confident` : "Filled by AI"}
+      </span>
     </span>
   );
 }
@@ -1350,6 +1440,7 @@ function Field({
   error,
   inputMode,
   prefix,
+  aiConfidence,
 }: {
   label: string;
   value: string;
@@ -1363,6 +1454,7 @@ function Field({
   inputMode?: "decimal" | "text";
   /** A unit shown inside the box, e.g. "$". */
   prefix?: string;
+  aiConfidence?: number;
   /**
    * US-2546 AC5: sets the real `required` attribute rather than a "*" typed
    * into the label. An asterisk in label TEXT is announced as the word "star"
@@ -1385,7 +1477,7 @@ function Field({
             *
           </span>
         )}
-        {aiMarked && <AiMark />}
+        {aiMarked && <AiMark confidence={aiConfidence} />}
       </Label>
       <div className="relative">
         {prefix && (
