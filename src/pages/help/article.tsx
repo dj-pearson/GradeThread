@@ -6,7 +6,7 @@ import { MarketingLayout } from "@/components/marketing/marketing-layout";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { usePublicHelpArticle } from "@/hooks/use-help-center";
+import { isHelpNotFound, usePublicHelpArticle } from "@/hooks/use-help-center";
 import {
   HELP_HUB_DESCRIPTION,
   HELP_HUB_TITLE,
@@ -36,7 +36,7 @@ export function HelpArticlePage() {
 
   const article = data?.article;
   const category = data?.category;
-  const notFound = isError && (error as Error | undefined)?.message === "not_found";
+  const notFound = isError && isHelpNotFound(error);
 
   // An article re-filed onto another shelf keeps its slug, so the old path still
   // resolves. Replace it with the canonical one rather than rendering the same

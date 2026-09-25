@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  isHelpNotFound,
   recordHelpArticleRead,
   useHelpFeedback,
   useHelpReaderArticle,
@@ -285,7 +286,7 @@ function HelpReaderIndexPage() {
 function HelpReaderArticle({ slug }: { slug: string }) {
   const { data, isLoading, isError, error, refetch } = useHelpReaderArticle(slug);
   const article = data?.article;
-  const notFound = isError && (error as Error | undefined)?.message?.includes("Not found");
+  const notFound = isError && isHelpNotFound(error);
 
   const basis = article?.reviewed_at ?? article?.published_at ?? null;
 
