@@ -87,7 +87,8 @@ public extension NotificationCategoryID {
     /// defect US-3274 found and US-3275 fixed; the artefact is what stops the
     /// mirror drifting again.
     ///
-    /// Every sender ships `kind`. The rest are per category.
+    /// Every transactional sender ships `kind` (the growth campaign does not).
+    /// The rest are per category.
     var payloadKeys: Set<String> {
         switch self {
         case .offerReceived:
@@ -111,6 +112,12 @@ public extension NotificationCategoryID {
         case .returnOpened, .inquiryOpened, .caseOpened, .caseDeadline,
              .cancellationRequested, .disputeOpened:
             return ["kind", "case_id"]
+        // The growth campaign is sent by routes/admin-growth.ts, not
+        // transactional-push.ts, and carries no `kind` stamp: only the
+        // campaign id and the link it opens. It declares no inline action, so
+        // this changes nothing on screen; it keeps the mirror honest.
+        case .marketing:
+            return ["campaign_id", "url"]
         default:
             return ["kind"]
         }

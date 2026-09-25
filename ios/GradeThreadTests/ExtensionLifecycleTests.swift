@@ -132,7 +132,9 @@ final class ExtensionLifecycleTests: XCTestCase {
         // Both have write APIs and their own controls. Offering a queued
         // instruction beside a live API path would be two ways to do one thing,
         // one of which needs a browser to be open.
-        for platform in ["ebay", "shopify", "depop"] {
+        // Depop left this list with US-3462: its partner API never opened, so
+        // it is listed and ended by the extension like Poshmark.
+        for platform in ["ebay", "shopify"] {
             XCTAssertEqual(
                 ExtensionLifecycle.actions(
                     platform: platform,

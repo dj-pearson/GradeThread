@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3512",
+  "nextId": "US-3513",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4975,19 +4975,6 @@
       ]
     },
     {
-      "id": "US-3497",
-      "passes": false,
-      "title": "Web sign-in never asks for the second factor: add AAL2 step-up on the SPA",
-      "description": "As a seller who turned on 2FA, I want the website to ask for my code at sign-in, so that a stolen password alone cannot open my account on the web.",
-      "acceptanceCriteria": [
-        "A user with a verified TOTP factor who signs in with a password on the web lands on a code screen and cannot reach any /dashboard route until supabase.auth.mfa.verify succeeds (session aal = aal2); ProtectedRoute holds on aal1.",
-        "A recovery code can be used on that screen once, and the edge marks it consumed; a second use of the same code is refused.",
-        "A user with no factor signs in exactly as today (no extra screen).",
-        "MfaCard copy stops saying or implying that 2FA is enforced on the web until this ships, and says so after it does.",
-        "A vitest render test covers aal1-with-factor -> code screen, aal2 -> dashboard, and no-factor -> dashboard."
-      ]
-    },
-    {
       "id": "US-3498",
       "passes": false,
       "title": "Server-side password change route (verify current password, AAL2, notify by email)",
@@ -5136,17 +5123,23 @@
         "contracts/push-contract.json category index 8 (marketing) has a non-null kind, or the Swift decoder accepts a nullable kind; test_category_allCases_listsAll and test_deepLink_everyKnownCategory_resolvesToARoute pass.",
         "ExtensionQueueService offers no lifecycle actions for depop and never pushes an unselectable channel; test_ebayAndShopifyOfferNothingHere and test_anUnselectableChannelIsNeverPushed pass.",
         "iOS CI 'Build + test' is green on main after the fix."
-      ]
+      ],
+      "notes": "2026-09-25: test fixes committed (PushContract kind optional; allCases 20; marketing excluded from the deep-link sweep as in noDestination; Depop expectations moved to US-3462's extension channel). No app code changed. Left open until iOS CI Build + test is green on main, which is AC3."
     },
     {
-      "id": "US-3511",
+      "id": "US-3512",
       "passes": false,
-      "title": "Pin the Supabase CLI version in CI so setup stops failing on GitHub's rate limit",
-      "description": "As a developer, I want CI to install a fixed Supabase CLI version, so that jobs stop failing in setup with 'Failed to resolve latest Supabase CLI release: rate limit exceeded'.",
+      "title": "Edge refuses password-only (AAL1) tokens from users who have 2FA on",
+      "description": "As a seller with 2FA on, I want the server to refuse a password-only session token, so that someone with my stolen password cannot skip the website's code screen and call the API directly.",
       "acceptanceCriteria": [
-        "Every supabase/setup-cli@v1 step in .github/workflows (db-migrations.yml, money-cert-integration.yml, tenant-isolation.yml) sets version to one pinned release instead of latest.",
-        "A vitest guard fails if any workflow uses supabase/setup-cli with version latest or no version.",
-        "The pinned version is recorded in one place and the guard names it."
+        "services/edge-functions/src/middleware/auth.ts rejects, with 403 and code mfa_required, any request whose verified token has aal = aal1 when the user has a verified factor; a user with no factor is unaffected.",
+        "The factor lookup is cached per user for a short TTL and fails closed (403) when it cannot be read, pinned by a test.",
+        "Routes a password-only session legitimately needs (the MFA challenge/verify path, POST /api/account/mfa/recovery-codes/consume, sign-out) stay reachable at aal1, named in one allowlist with a test that fails if a route is added to it without a reason.",
+        "tenant-isolation_test.ts (or a dedicated edge test) proves an aal1 token for a user with a factor is refused on a representative data route and an aal2 token is accepted.",
+        "vault/10-ops/mfa.md drops the 'edge still accepts AAL1' caveat in the same commit."
+      ],
+      "dependsOn": [
+        "US-3497"
       ]
     }
   ]

@@ -31,7 +31,9 @@ final class PushNotificationTests: XCTestCase {
         // case.opened, case.deadline, cancellation.requested, dispute.opened)
         // were added between 2026-08-31 and 2026-09-10, while iOS CI could not
         // compile, so this count never got the chance to object.
-        XCTAssertEqual(NotificationCategoryID.allCases.count, 19)
+        // 20 since `marketing` landed (c0f57a764): the growth campaign push
+        // routes/admin-growth.ts has sent all along.
+        XCTAssertEqual(NotificationCategoryID.allCases.count, 20)
     }
 
     func test_category_labelsAreUserReadable() {
@@ -165,8 +167,11 @@ final class PushNotificationTests: XCTestCase {
     }
 
     func test_deepLink_everyKnownCategory_resolvesToARoute() {
-        // AC: no notification category may resolve to a no-op tap.
-        for id in NotificationCategoryID.allCases {
+        // AC: no notification category may resolve to a no-op tap, except the
+        // growth campaign, whose tap deliberately just opens the app: it is
+        // news about the product, not about a row. The same single exception
+        // is named in PushCategoryCoverageTests.noDestination.
+        for id in NotificationCategoryID.allCases where id != .marketing {
             XCTAssertNotNil(
                 DeepLinkRoute.from(category: id.rawValue, userInfo: [:]),
                 "\(id.rawValue) resolved to a no-op tap")

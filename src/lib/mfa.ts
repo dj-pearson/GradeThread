@@ -79,3 +79,17 @@ export async function challengeAndVerifyTotp(
   if (isMfaIpMismatch(lastErr)) throw new Error(IP_MISMATCH_MESSAGE);
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
+
+// US-3497: the web sign-in hold. GoTrue reports nextLevel = "aal2" exactly when
+// the user has a verified factor, and currentLevel stays "aal1" until this
+// session has passed a challenge. That pair, and only that pair, is held; no
+// factor, or an AAL2 session, passes. Pure so the render test can pin it.
+export type SignInGateDecision = "pass" | "challenge";
+
+export function decideSignInGate(aal: {
+  currentLevel: string | null;
+  nextLevel: string | null;
+}): SignInGateDecision {
+  if (aal.currentLevel === "aal2") return "pass";
+  return aal.nextLevel === "aal2" ? "challenge" : "pass";
+}
