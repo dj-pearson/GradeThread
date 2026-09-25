@@ -100,7 +100,8 @@ Deno.test("the routes mount under an already-guarded prefix", () => {
   // for one of those to be forgotten, on a route that writes.
   assert(MAIN.includes('app.route("/api/flipdesk/import/link", flipdeskLinkRoutes)'));
   for (const guard of ["authMiddleware", "workspaceMiddleware", "rateLimiter"]) {
-    const line = new RegExp(`app\\.use\\("/api/flipdesk/import/\\*", ${guard}`);
+    // \s* because a long app.use(...) call wraps onto several lines.
+    const line = new RegExp(`app\\.use\\(\\s*"/api/flipdesk/import/\\*",\\s*${guard}`);
     assert(line.test(MAIN), `/api/flipdesk/import/* lost its ${guard}`);
   }
 });

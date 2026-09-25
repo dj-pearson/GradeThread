@@ -27,7 +27,7 @@ describe("parseDelimited", () => {
   });
 
   it("strips a leading BOM so the first header reads cleanly", () => {
-    const { headers } = parseSheet("﻿Title,Price\nTee,5");
+    const { headers } = parseSheet("\uFEFFTitle,Price\nTee,5");
     expect(headers[0]).toBe("Title");
   });
 
