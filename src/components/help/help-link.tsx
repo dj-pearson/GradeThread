@@ -14,6 +14,7 @@ import { useHelpReaderArticle } from "@/hooks/use-help-center";
 import type { ProductHelpSlugKey } from "@/lib/help-slugs";
 import { track } from "@/lib/analytics";
 import { HelpArticleBody } from "@/components/help/help-article-body";
+import { inAppHelpPath } from "@/lib/help/paths";
 
 // US-2584: the contextual help button.
 //
@@ -81,7 +82,11 @@ export function HelpLink({ slug, label, className }: HelpLinkProps) {
               <Skeleton className="h-40 w-full" />
             </div>
           ) : (
-            <HelpArticleBody html={article.body_html} className="mt-6 max-w-none text-sm" />
+            <HelpArticleBody
+              html={article.body_html}
+              className="mt-6 max-w-none text-sm"
+              linkFor={inAppHelpPath}
+            />
           )}
 
           {(article.faq ?? []).length > 0 && (

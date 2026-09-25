@@ -12,6 +12,7 @@ import {
 import { edgeApiUrl } from "@/lib/edge-api";
 import { track } from "@/lib/analytics";
 import { HelpArticleBody } from "@/components/help/help-article-body";
+import { inAppHelpPath } from "@/lib/help/paths";
 import { useHelpReaderArticle, useHelpReaderSearch } from "@/hooks/use-help-center";
 
 // US-2585: the answer offered before the ticket is written.
@@ -147,7 +148,11 @@ function DeflectorArticle({ slug, onClose }: { slug: string; onClose: () => void
         {article?.summary && <SheetDescription>{article.summary}</SheetDescription>}
       </SheetHeader>
       {article && (
-        <HelpArticleBody html={article.body_html} className="mt-6 max-w-none text-sm" />
+        <HelpArticleBody
+          html={article.body_html}
+          className="mt-6 max-w-none text-sm"
+          linkFor={inAppHelpPath}
+        />
       )}
       <p className="mt-8 text-sm text-muted-foreground">
         {article && (

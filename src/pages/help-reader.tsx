@@ -30,6 +30,7 @@ import {
   useHelpReaderSearch,
 } from "@/hooks/use-help-center";
 import { HelpArticleBody } from "@/components/help/help-article-body";
+import { inAppHelpPath } from "@/lib/help/paths";
 import { track } from "@/lib/analytics";
 import { HELP_VISIBILITY_LABELS, type HelpVisibility } from "@/types/help-center";
 
@@ -530,7 +531,11 @@ function HelpReaderArticle({ slug }: { slug: string }) {
               })}
             </p>
           )}
-          <HelpArticleBody html={article.body_html} className="mt-6 max-w-[70ch]" />
+          <HelpArticleBody
+            html={article.body_html}
+            className="mt-6 max-w-[70ch]"
+            linkFor={inAppHelpPath}
+          />
 
           {(article.faq ?? []).length > 0 && (
             <section className="mt-10">
