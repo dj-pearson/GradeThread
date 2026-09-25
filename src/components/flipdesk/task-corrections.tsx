@@ -265,7 +265,12 @@ function CorrectionsPanel({
     const rows = parkingRows(book, { itemId, actionKey, sessionId, kind });
     const targets = rows.length > 0
       ? rows
-      : [{ actionKey: kind === "dismiss" ? null : actionKey, sessionId: null }];
+      : [{
+        actionKey: kind === "dismiss" ? null : actionKey,
+        // A skip is stored against its session, so the fallback has to name
+        // it too or the reset matches nothing and still says "Back on the list".
+        sessionId: kind === "skip_session" ? sessionId ?? null : null,
+      }];
     try {
       for (const r of targets) {
         await unsuppress.mutateAsync({

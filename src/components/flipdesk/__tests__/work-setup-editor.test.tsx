@@ -87,4 +87,33 @@ describe("WorkSetupEditor", () => {
     expect(chip.disabled).toBe(true);
     expect(onChanged).not.toHaveBeenCalled();
   });
+
+  async function typeTargetAndSave(text: string) {
+    const input = container!.querySelector("input")!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(input, text);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    return input;
+  }
+
+  it("a saved target clears the box", async () => {
+    render();
+    const input = await typeTargetAndSave("25");
+    expect(saveMock.mock.calls).toEqual([[{ hourly_target_amount: 25 }]]);
+    expect(input.value).toBe("");
+  });
+
+  it("a failed target save keeps what the seller typed", async () => {
+    saveMock.mockRejectedValue(new Error("offline"));
+    render();
+    const input = await typeTargetAndSave("25");
+    expect(saveMock).toHaveBeenCalledTimes(1);
+    expect(input.value).toBe("25");
+  });
 });

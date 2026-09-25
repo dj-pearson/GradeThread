@@ -192,6 +192,24 @@ describe("the plan read (WMT-07)", () => {
     expect(read.calls.find(([m]) => m === "eq")![1]).toEqual(["user_id", "owner-1"]);
   });
 
+  it("reads sold stock in its own window, so an owed parcel is never cut off by older prep work", async () => {
+    await buildPlan({ ...BASE, book: book() });
+    const itemReads = reads.filter((r) => r.table === "items_full");
+    expect(itemReads.length).toBe(2);
+    // The oldest-first prep window leaves sold rows out...
+    const not = itemReads[0]!.calls.find(([m]) => m === "not")!;
+    expect(String(not[1][2])).toContain("sold");
+    // ...because they have a read of their own, owner-scoped.
+    expect(itemReads[1]!.calls).toContainEqual(["eq", ["status", "sold"]]);
+    expect(itemReads[1]!.calls).toContainEqual(["eq", ["user_id", "owner-1"]]);
+  });
+
+  it("a sold item is planned once, even when both reads return it", async () => {
+    tables.items_full = [item({ id: "sold", status: "sold", sale_date: "2026-09-20T00:00:00.000Z" })];
+    const built = await buildPlan({ ...BASE, book: book() });
+    expect(built.candidates.filter((c) => c.itemId === "sold").length).toBe(1);
+  });
+
   it("a signed-out seller is told so, not shown an empty stock", async () => {
     authState = { activeWorkspaceOwnerId: null, user: null };
     await expect(buildPlan({ ...BASE, book: book() })).rejects.toThrow("You must be signed in.");
@@ -291,6 +309,9 @@ describe("sold orders come first, with real ship-by dates (WMT-13)", () => {
     expect(read).toBeTruthy();
     expect(read.calls).toContainEqual(["eq", ["user_id", "owner-1"]]);
     expect(read.calls).toContainEqual(["is", ["shipped_at", null]]);
+    // A cancelled or refunded sale is not a parcel.
+    expect(read.calls).toContainEqual(["eq", ["status", "completed"]]);
+    expect(read.calls.some(([m]) => m === "limit")).toBe(true);
   });
 
   it("a sale due tomorrow ranks first over ten valued prep jobs, and is in the strip", async () => {

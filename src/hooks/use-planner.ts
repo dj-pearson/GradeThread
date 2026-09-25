@@ -539,14 +539,15 @@ export async function buildPlan(
 
   // WMT-07: every input read at once. The page used to wait for the
   // overrides refetch before the item read even started.
-  const [itemsRead, freshBook, freshLearned, salesRead] = await Promise.all([
+  const [itemsRead, freshBook, freshLearned, salesRead, soldRead] = await Promise.all([
     supabase
       .from("items_full")
       .select(ITEM_LIST_SELECT)
       .eq("user_id", ownerId)
       // Only rows that can be work. Without this, listed and archived stock
-      // filled the 400-row window before any sourced item was read.
-      .not("status", "in", `(${[...EXCLUDED_STATUSES].join(",")})`)
+      // filled the 400-row window before any sourced item was read. `sold`
+      // is read on its own below.
+      .not("status", "in", `(${[...EXCLUDED_STATUSES, "sold"].join(",")})`)
       // Oldest first, so unfinished work that has waited longest is read
       // before this week's.
       .order("updated_at", { ascending: true })
@@ -573,15 +574,40 @@ export async function buildPlan(
     // WMT-13: the ship-by facts live on the SALE row (00768), not the item,
     // so without this every parcel's deadline read as unknown. RLS-scoped
     // with the anon client, and owner-filtered as well.
+    // Same filter and bound as the Ship queue (use-ship-queue.ts): a
+    // cancelled or refunded sale is not a parcel, and its ship_by must not
+    // overwrite the live sale's for the same item.
     supabase
       .from("sales")
       .select("inventory_item_id,ship_by,handling_days,sold_at")
       .eq("user_id", ownerId)
-      .is("shipped_at", null),
+      .eq("status", "completed")
+      .is("shipped_at", null)
+      .order("ship_by", { ascending: true, nullsFirst: false })
+      .limit(500),
+    // Sold stock is read ON ITS OWN. In the oldest-first window above, a
+    // parcel sold today is the NEWEST row, so a seller with 400 older
+    // unfinished items never had it read at all -- and an owed parcel is the
+    // one job the plan must never miss.
+    supabase
+      .from("items_full")
+      .select(ITEM_LIST_SELECT)
+      .eq("user_id", ownerId)
+      .eq("status", "sold")
+      .order("updated_at", { ascending: true })
+      .limit(PLAN_ITEM_LIMIT),
   ]);
   const { data, error } = itemsRead;
   if (error) throw new Error(error.message);
-  const items = (data ?? []) as unknown as ItemListRow[];
+  if (soldRead.error) throw new Error(soldRead.error.message);
+  const soldItems = (soldRead.data ?? []) as unknown as ItemListRow[];
+  const soldIds = new Set(soldItems.map((i) => i.id));
+  const items = [
+    ...soldItems,
+    ...((data ?? []) as unknown as ItemListRow[]).filter((i) => !soldIds.has(i.id)),
+  ];
+  const truncated = (data ?? []).length >= PLAN_ITEM_LIMIT ||
+    soldItems.length >= PLAN_ITEM_LIMIT;
 
   const now = args.now ?? new Date().toISOString();
   const nowMs = Date.parse(now);
@@ -598,7 +624,9 @@ export async function buildPlan(
     handling_days: number | null;
     sold_at: string | null;
   }[]) {
-    if (!row.inventory_item_id) continue;
+    // First wins: the read is soonest ship_by first, so an item with two
+    // open sales keeps the earlier deadline.
+    if (!row.inventory_item_id || saleFacts[row.inventory_item_id]) continue;
     saleFacts[row.inventory_item_id] = {
       shipByDate: row.ship_by,
       handlingDays: row.handling_days,
@@ -715,7 +743,7 @@ export async function buildPlan(
     budgetMinutes: args.budgetMinutes,
     takenAt: now,
     itemsRead: items.length,
-    truncated: items.length >= PLAN_ITEM_LIMIT,
+    truncated,
     suppressed,
     book,
     gated,

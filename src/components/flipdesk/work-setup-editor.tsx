@@ -40,16 +40,19 @@ export function WorkSetupEditor({ prefs, onChanged }: WorkSetupEditorProps) {
   const tools = prefs?.availableTools ?? ["camera"];
   const disabled = readOnly || save.isPending || !prefs;
 
-  async function patch(body: Record<string, unknown>) {
+  /** True when the change landed. */
+  async function patch(body: Record<string, unknown>): Promise<boolean> {
     try {
       await save.mutateAsync(body);
       onChanged?.();
+      return true;
     } catch (err) {
       if ((err as { status?: number }).status === 403) {
         setReadOnly(true);
-        return;
+        return false;
       }
       toastError(err, "Couldn't save your setup.");
+      return false;
     }
   }
 
@@ -68,7 +71,10 @@ export function WorkSetupEditor({ prefs, onChanged }: WorkSetupEditorProps) {
       return;
     }
     setTargetError(null);
-    void patch({ hourly_target_amount: n }).then(() => setTarget(""));
+    // Cleared only when it saved: a failed save keeps what the seller typed.
+    void patch({ hourly_target_amount: n }).then((ok) => {
+      if (ok) setTarget("");
+    });
   }
 
   return (
