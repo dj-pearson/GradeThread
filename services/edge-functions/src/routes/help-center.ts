@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
+import { sanitizeHtml } from "../lib/content-sanitize.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { isAdminUserCached } from "../lib/maintenance.ts";
 import { buildHelpPurgeFiles, purgeCloudflareCache } from "../lib/cloudflare-purge.ts";
@@ -537,7 +538,7 @@ async function slugTaken(slug: string, exceptId?: string): Promise<boolean> {
 }
 
 /** Shared field coercion. Returns an error string, or the patch to apply. */
-function buildPatch(
+export function buildPatch(
   body: HelpArticleInput,
 ): { error: string } | { patch: Record<string, unknown> } {
   const patch: Record<string, unknown> = {};
@@ -548,7 +549,9 @@ function buildPatch(
     patch.title = title;
   }
   if (body.summary !== undefined) patch.summary = String(body.summary).trim();
-  if (body.body_html !== undefined) patch.body_html = String(body.body_html);
+  // Sanitized on write so the stored row is clean, and again on read in
+  // projectArticle for rows that reached the table some other way.
+  if (body.body_html !== undefined) patch.body_html = sanitizeHtml(String(body.body_html));
   if (body.body_markdown !== undefined) patch.body_markdown = String(body.body_markdown);
   if (body.body_json !== undefined) patch.body_json = body.body_json ?? {};
   if (body.category_key !== undefined) patch.category_key = String(body.category_key).trim();

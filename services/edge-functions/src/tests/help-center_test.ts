@@ -31,6 +31,7 @@ import {
   slugifyHelp,
   visibilitiesFor,
 } from "../lib/help-center.ts";
+import { HOSTILE_HELP_BODY, TIPTAP_HELP_BODY } from "./_help-bodies.ts";
 
 function row(over: Partial<HelpArticleRow> = {}): HelpArticleRow {
   return {
@@ -292,4 +293,29 @@ Deno.test("help-center.ts routes never hand-roll a visibility filter", async () 
     src.includes("visibilitiesFor("),
     "the routes must go through visibilitiesFor()",
   );
+});
+
+// ── body sanitizing on read (H1) ──────────────────────────
+// The seed and migrate scripts write through PostgREST and skip buildPatch, so
+// the read-side projection is the gate every existing row passes through.
+
+function assertNoActiveMarkup(html: string): void {
+  for (const bad of ["<script", "onerror", "<meta", "<form", "<input", "evil"]) {
+    assert(!html.toLowerCase().includes(bad), `sanitized body still carries ${bad}: ${html}`);
+  }
+}
+
+Deno.test("H1: projectArticle strips script, handlers, meta refresh and forms from body_html", () => {
+  const view = projectArticle(row({ body_html: HOSTILE_HELP_BODY }));
+  assertNoActiveMarkup(view.body_html);
+  assert(view.body_html.includes("<p>ok</p>"), "the harmless part of the body survives");
+});
+
+Deno.test("H1: a normal editor body round-trips byte-identical through projectArticle", () => {
+  assertEquals(projectArticle(row({ body_html: TIPTAP_HELP_BODY })).body_html, TIPTAP_HELP_BODY);
+});
+
+Deno.test("H1: a null body_html projects to an empty string, not a crash", () => {
+  const view = projectArticle(row({ body_html: null as unknown as string }));
+  assertEquals(view.body_html, "");
 });
