@@ -22,6 +22,9 @@ vi.mock("@/lib/offline-queue", () => ({
   flushIntakeQueue: mocks.flush,
   queuedIntakeCount: mocks.count,
 }));
+vi.mock("@/stores/auth-store", () => ({
+  useAuthStore: (sel: (s: { user: { id: string } }) => unknown) => sel({ user: { id: "me" } }),
+}));
 vi.mock("@/lib/pwa", () => ({ ensureServiceWorker: vi.fn() }));
 vi.mock("sonner", () => ({ toast: mocks.toast }));
 
@@ -115,6 +118,13 @@ describe("offline sync toast", () => {
       "1 offline photo could not be prepared on this device. Add a different one from the item page.",
       expect.objectContaining({ description: "HEIC conversion failed." }),
     );
+  });
+
+  it("counts and flushes only the signed-in user's records", async () => {
+    mocks.flush.mockResolvedValue({ ...base, synced: 1 });
+    await mountAndSync();
+    expect(mocks.count).toHaveBeenCalledWith("me");
+    expect(mocks.flush).toHaveBeenCalledWith("me");
   });
 
   it("says synced when everything went up", async () => {

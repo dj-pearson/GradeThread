@@ -8,8 +8,12 @@ import { isOffline } from "@/lib/friendly-error";
 import type { FlipdeskPhotoType, InventoryItemInsert } from "@/types/database";
 
 const DB_NAME = "flipdesk-offline";
-const DB_VERSION = 1;
+// v2: records carry queuedBy, indexed, so one seller's queue is invisible to
+// the next account signed in on the same device.
+const DB_VERSION = 2;
 const STORE = "intake-queue";
+const BY_USER = "queuedBy";
+const BY_CREATED = "createdAt";
 
 // A staged intake photo held as bytes. IndexedDB stores Blobs natively, so a
 // photo taken with no signal is not lost when the form resets.
@@ -33,6 +37,13 @@ export interface QueuedIntakePhoto {
 export interface QueuedIntake {
   id: string;
   createdAt: number;
+  /**
+   * The signed-in auth user who queued this record. Count and flush only ever
+   * touch the current user's records. A record without one (queued before v2)
+   * is held: never counted, never flushed, and deleted with the database at
+   * sign-out.
+   */
+  queuedBy?: string;
   payload: InventoryItemInsert;
   /**
    * A source typed in while offline. Creating it is a server RPC, so the name
@@ -91,9 +102,11 @@ function openDb(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: "id" });
-      }
+      const store = db.objectStoreNames.contains(STORE)
+        ? req.transaction!.objectStore(STORE)
+        : db.createObjectStore(STORE, { keyPath: "id" });
+      if (!store.indexNames.contains(BY_USER)) store.createIndex(BY_USER, BY_USER);
+      if (!store.indexNames.contains(BY_CREATED)) store.createIndex(BY_CREATED, BY_CREATED);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () =>
@@ -121,13 +134,16 @@ async function runTx<T>(
 export async function enqueueIntake(
   payload: InventoryItemInsert,
   extras: {
+    /** The signed-in auth user id. Only they will see or flush this record. */
+    queuedBy: string;
     newSourceName?: string | null;
     photos?: QueuedIntakePhoto[];
-  } = {},
+  },
 ): Promise<void> {
   const record: QueuedIntake = {
     id: crypto.randomUUID(),
     createdAt: Date.now(),
+    queuedBy: extras.queuedBy,
     payload,
     newSourceName: extras.newSourceName ?? null,
     photos: (extras.photos ?? []).map((p) => ({
@@ -142,20 +158,41 @@ async function putQueuedIntake(record: QueuedIntake): Promise<void> {
   await runTx("readwrite", (s) => s.put(record));
 }
 
-async function getQueuedIntakes(): Promise<QueuedIntake[]> {
-  const all = await runTx<QueuedIntake[]>(
+async function getQueuedIntakes(queuedBy: string): Promise<QueuedIntake[]> {
+  const mine = await runTx<QueuedIntake[]>(
     "readonly",
-    (s) => s.getAll() as IDBRequest<QueuedIntake[]>,
+    (s) => s.index(BY_USER).getAll(queuedBy) as IDBRequest<QueuedIntake[]>,
   );
-  return all.sort((a, b) => a.createdAt - b.createdAt);
+  return mine.sort((a, b) => a.createdAt - b.createdAt);
 }
 
 async function removeQueuedIntake(id: string): Promise<void> {
   await runTx("readwrite", (s) => s.delete(id));
 }
 
-export async function queuedIntakeCount(): Promise<number> {
-  return await runTx<number>("readonly", (s) => s.count());
+/** Records queued by this user. Nobody else's, and never an unowned one. */
+export async function queuedIntakeCount(queuedBy: string): Promise<number> {
+  return await runTx<number>("readonly", (s) => s.index(BY_USER).count(queuedBy));
+}
+
+/**
+ * Delete the whole offline intake database. Called at sign-out, so a shared
+ * tablet never keeps one seller's costs, notes and raw photos for the next
+ * account. Best-effort and never throws; another tab holding the database
+ * open blocks the delete until it closes, so sign-out does not wait on it.
+ */
+export function clearOfflineIntakeQueue(): Promise<void> {
+  if (typeof indexedDB === "undefined") return Promise.resolve();
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.deleteDatabase(DB_NAME);
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
 }
 
 // Pushes every queued intake to Supabase, removing each once its item row and
@@ -163,9 +200,10 @@ export async function queuedIntakeCount(): Promise<number> {
 // failed; a record whose item saved but whose photos did not stays queued for
 // the photos only and counts as synced, with the photos in photosPending.
 export async function flushIntakeQueue(
+  queuedBy: string,
   onProgress?: (done: number, total: number) => void,
 ): Promise<FlushResult> {
-  const queued = await getQueuedIntakes();
+  const queued = await getQueuedIntakes(queuedBy);
   let synced = 0;
   let failed = 0;
   let photosDropped = 0;

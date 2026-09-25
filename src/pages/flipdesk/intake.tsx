@@ -456,6 +456,7 @@ export function FlipdeskIntakePage() {
       // Offline: persist to the IndexedDB queue and flush on reconnect.
       if (plan.route === "queue") {
         await enqueueIntake(insert, {
+          queuedBy: user.id,
           newSourceName: plan.newSourceName,
           photos: stagedPhotos.map((p, i) => ({
             blob: p.file,

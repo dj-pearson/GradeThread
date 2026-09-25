@@ -22,6 +22,7 @@ vi.mock("@/lib/item-photo-upload", () => ({
 }));
 
 import {
+  clearOfflineIntakeQueue,
   enqueueIntake,
   flushIntakeQueue,
   MAX_PHOTO_ATTEMPTS,
@@ -31,6 +32,9 @@ import { PhotoPrepError } from "@/lib/item-photo-upload";
 import type { InventoryItemInsert } from "@/types/database";
 
 const OWNER = "00000000-0000-0000-0000-00000000000a";
+/** The signed-in auth user doing the queueing; a workspace member, say. */
+const ME = "00000000-0000-0000-0000-0000000000b1";
+const OTHER = "00000000-0000-0000-0000-0000000000b2";
 const payload = { user_id: OWNER, title: "Wool coat", source_id: null } as InventoryItemInsert;
 const photo = (name: string, sortOrder: number) => ({
   blob: new Blob(["x"], { type: "image/jpeg" }),
@@ -45,7 +49,7 @@ async function drain() {
   rpc.mockResolvedValue({ data: "src-new", error: null });
   upsert.mockImplementation(async (row: { id: string }) => ({ data: [{ id: row.id }], error: null }));
   uploadItemPhoto.mockResolvedValue({});
-  while ((await queuedIntakeCount()) > 0) await flushIntakeQueue();
+  while ((await queuedIntakeCount(ME)) > 0) await flushIntakeQueue(ME);
 }
 
 beforeEach(async () => {
@@ -60,8 +64,8 @@ beforeEach(async () => {
 
 describe("flushIntakeQueue", () => {
   it("creates an offline-named source, then inserts the item with its id", async () => {
-    await enqueueIntake(payload, { newSourceName: "Goodwill bins" });
-    const res = await flushIntakeQueue();
+    await enqueueIntake(payload, { queuedBy: ME, newSourceName: "Goodwill bins" });
+    const res = await flushIntakeQueue(ME);
 
     expect(res).toMatchObject({ synced: 1, failed: 0 });
     expect(rpc).toHaveBeenCalledWith("get_or_create_source", {
@@ -71,12 +75,12 @@ describe("flushIntakeQueue", () => {
     });
     const row = upsert.mock.calls[0]![0] as { source_id: string };
     expect(row.source_id).toBe("src-new");
-    expect(await queuedIntakeCount()).toBe(0);
+    expect(await queuedIntakeCount(ME)).toBe(0);
   });
 
   it("uploads queued photos to the new item after the insert", async () => {
-    await enqueueIntake(payload, { photos: [photo("a.jpg", 0), photo("b.jpg", 1)] });
-    const res = await flushIntakeQueue();
+    await enqueueIntake(payload, { queuedBy: ME, photos: [photo("a.jpg", 0), photo("b.jpg", 1)] });
+    const res = await flushIntakeQueue(ME);
 
     expect(res).toMatchObject({ synced: 1, failed: 0, photosDropped: 0 });
     expect(uploadItemPhoto).toHaveBeenCalledTimes(2);
@@ -93,6 +97,7 @@ describe("flushIntakeQueue", () => {
 
   it("an item whose row saved is synced, not failed, while its photo retries", async () => {
     await enqueueIntake(payload, {
+      queuedBy: ME,
       newSourceName: "Bins",
       photos: [photo("a.jpg", 0), photo("b.jpg", 1)],
     });
@@ -101,7 +106,7 @@ describe("flushIntakeQueue", () => {
       return {};
     });
 
-    const first = await flushIntakeQueue();
+    const first = await flushIntakeQueue(ME);
     // The row exists; calling it failed sends the seller to enter it again.
     expect(first).toMatchObject({
       synced: 1,
@@ -110,13 +115,13 @@ describe("flushIntakeQueue", () => {
       photosPending: 1,
       firstPhotoError: "upload refused",
     });
-    expect(await queuedIntakeCount()).toBe(1);
+    expect(await queuedIntakeCount(ME)).toBe(1);
 
     uploadItemPhoto.mockReset();
     uploadItemPhoto.mockResolvedValue({});
     rpc.mockClear();
     upsert.mockClear();
-    const second = await flushIntakeQueue();
+    const second = await flushIntakeQueue(ME);
     // Only the photo was left, so the item is not counted a second time.
     expect(second).toMatchObject({ synced: 0, failed: 0, photosPending: 0 });
     expect(uploadItemPhoto).toHaveBeenCalledTimes(1);
@@ -124,14 +129,14 @@ describe("flushIntakeQueue", () => {
     // The item row and the source were settled on the first pass.
     expect(rpc).not.toHaveBeenCalled();
     expect(upsert).not.toHaveBeenCalled();
-    expect(await queuedIntakeCount()).toBe(0);
+    expect(await queuedIntakeCount(ME)).toBe(0);
   });
 
   it("retries a photo under the same photoId every time", async () => {
-    await enqueueIntake(payload, { photos: [photo("a.jpg", 0), photo("b.jpg", 1)] });
+    await enqueueIntake(payload, { queuedBy: ME, photos: [photo("a.jpg", 0), photo("b.jpg", 1)] });
     uploadItemPhoto.mockRejectedValue(new Error("upload refused"));
-    await flushIntakeQueue();
-    await flushIntakeQueue();
+    await flushIntakeQueue(ME);
+    await flushIntakeQueue(ME);
 
     const ids = uploadItemPhoto.mock.calls.map(
       (c) => (c[0] as { file: File; photoId: string }),
@@ -147,56 +152,56 @@ describe("flushIntakeQueue", () => {
   });
 
   it("gives up on a photo that never uploads and reports it", async () => {
-    await enqueueIntake(payload, { photos: [photo("bad.jpg", 0)] });
+    await enqueueIntake(payload, { queuedBy: ME, photos: [photo("bad.jpg", 0)] });
     uploadItemPhoto.mockRejectedValue(new Error("not an image"));
 
-    let last = await flushIntakeQueue();
-    for (let i = 1; i < MAX_PHOTO_ATTEMPTS; i++) last = await flushIntakeQueue();
+    let last = await flushIntakeQueue(ME);
+    for (let i = 1; i < MAX_PHOTO_ATTEMPTS; i++) last = await flushIntakeQueue(ME);
 
     expect(last).toMatchObject({ synced: 0, failed: 0, photosDropped: 1, photosPending: 0 });
-    expect(await queuedIntakeCount()).toBe(0);
+    expect(await queuedIntakeCount(ME)).toBe(0);
   });
 
   it("does not spend an attempt when the network dropped before the upload", async () => {
-    await enqueueIntake(payload, { photos: [photo("a.jpg", 0)] });
+    await enqueueIntake(payload, { queuedBy: ME, photos: [photo("a.jpg", 0)] });
     uploadItemPhoto.mockRejectedValue(new TypeError("Failed to fetch"));
 
     for (let i = 0; i < MAX_PHOTO_ATTEMPTS + 2; i++) {
-      const res = await flushIntakeQueue();
+      const res = await flushIntakeQueue(ME);
       expect(res).toMatchObject({ photosDropped: 0, photosPending: 1 });
     }
-    expect(await queuedIntakeCount()).toBe(1);
+    expect(await queuedIntakeCount(ME)).toBe(1);
 
     // A real refusal still counts from zero after all that.
     uploadItemPhoto.mockRejectedValue(new Error("not an image"));
-    for (let i = 0; i < MAX_PHOTO_ATTEMPTS - 1; i++) await flushIntakeQueue();
-    expect(await queuedIntakeCount()).toBe(1);
-    expect(await flushIntakeQueue()).toMatchObject({ photosDropped: 1 });
+    for (let i = 0; i < MAX_PHOTO_ATTEMPTS - 1; i++) await flushIntakeQueue(ME);
+    expect(await queuedIntakeCount(ME)).toBe(1);
+    expect(await flushIntakeQueue(ME)).toMatchObject({ photosDropped: 1 });
   });
 
   it("does not try the upload at all while the device is offline", async () => {
-    await enqueueIntake(payload, { photos: [photo("b.jpg", 0)] });
+    await enqueueIntake(payload, { queuedBy: ME, photos: [photo("b.jpg", 0)] });
     const onLine = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
     try {
       for (let i = 0; i < MAX_PHOTO_ATTEMPTS + 1; i++) {
-        expect(await flushIntakeQueue()).toMatchObject({ photosPending: 1, photosDropped: 0 });
+        expect(await flushIntakeQueue(ME)).toMatchObject({ photosPending: 1, photosDropped: 0 });
       }
       expect(uploadItemPhoto).not.toHaveBeenCalled();
     } finally {
       onLine.mockRestore();
     }
-    expect(await flushIntakeQueue()).toMatchObject({ photosPending: 0 });
+    expect(await flushIntakeQueue(ME)).toMatchObject({ photosPending: 0 });
     expect(uploadItemPhoto).toHaveBeenCalledTimes(1);
   });
 
   it("a photo this device cannot prepare is set aside at once, with its reason", async () => {
-    await enqueueIntake(payload, { photos: [photo("IMG_1.heic", 0), photo("b.jpg", 1)] });
+    await enqueueIntake(payload, { queuedBy: ME, photos: [photo("IMG_1.heic", 0), photo("b.jpg", 1)] });
     uploadItemPhoto.mockImplementation(async ({ file }: { file: File }) => {
       if (file.name === "IMG_1.heic") throw new PhotoPrepError("HEIC conversion failed.");
       return {};
     });
 
-    const res = await flushIntakeQueue();
+    const res = await flushIntakeQueue(ME);
     // One flush, not MAX_PHOTO_ATTEMPTS: nothing was sent, so there is no
     // server verdict to wait for, and the same bytes fail the same way again.
     expect(res).toMatchObject({
@@ -208,11 +213,11 @@ describe("flushIntakeQueue", () => {
       firstPhotoError: null,
     });
     expect(uploadItemPhoto).toHaveBeenCalledTimes(2);
-    expect(await queuedIntakeCount()).toBe(0);
+    expect(await queuedIntakeCount(ME)).toBe(0);
   });
 
   it("a replay after the itemSaved write failed does not count the item again", async () => {
-    await enqueueIntake(payload, { photos: [photo("a.jpg", 0)] });
+    await enqueueIntake(payload, { queuedBy: ME, photos: [photo("a.jpg", 0)] });
     // The item row is inserted, then IndexedDB refuses to record itemSaved.
     const put = vi
       .spyOn(IDBObjectStore.prototype, "put")
@@ -220,7 +225,7 @@ describe("flushIntakeQueue", () => {
         throw new Error("QuotaExceededError");
       });
     try {
-      const first = await flushIntakeQueue();
+      const first = await flushIntakeQueue(ME);
       expect(first).toMatchObject({ synced: 1, photosPending: 1 });
     } finally {
       put.mockRestore();
@@ -229,7 +234,7 @@ describe("flushIntakeQueue", () => {
 
     // The server already has the row: the ignore-duplicates upsert returns none.
     upsert.mockResolvedValue({ data: [], error: null });
-    const second = await flushIntakeQueue();
+    const second = await flushIntakeQueue(ME);
     expect(second).toMatchObject({ synced: 0, failed: 0, photosPending: 0 });
     // Same id both times, so the server matched the existing row, and the
     // photo went to that item.
@@ -238,16 +243,38 @@ describe("flushIntakeQueue", () => {
     expect(ids[1]).toBe(ids[0]);
     expect(uploadItemPhoto).toHaveBeenCalledTimes(1);
     expect((uploadItemPhoto.mock.calls[0]![0] as { itemId: string }).itemId).toBe(ids[0]);
-    expect(await queuedIntakeCount()).toBe(0);
+    expect(await queuedIntakeCount(ME)).toBe(0);
   });
 
   it("leaves the item queued when the source RPC fails", async () => {
-    await enqueueIntake(payload, { newSourceName: "Bins" });
+    await enqueueIntake(payload, { queuedBy: ME, newSourceName: "Bins" });
     rpc.mockResolvedValue({ data: null, error: new Error("offline") });
 
-    const res = await flushIntakeQueue();
+    const res = await flushIntakeQueue(ME);
     expect(res).toMatchObject({ synced: 0, failed: 1, firstError: "offline" });
     expect(upsert).not.toHaveBeenCalled();
-    expect(await queuedIntakeCount()).toBe(1);
+    expect(await queuedIntakeCount(ME)).toBe(1);
+  });
+});
+
+describe("the queue belongs to whoever queued it", () => {
+  it("a record queued by one user is invisible to another's count and flush", async () => {
+    await enqueueIntake(payload, { queuedBy: ME, photos: [photo("a.jpg", 0)] });
+    expect(await queuedIntakeCount(OTHER)).toBe(0);
+    const res = await flushIntakeQueue(OTHER);
+    expect(res).toMatchObject({ synced: 0, failed: 0 });
+    expect(upsert).not.toHaveBeenCalled();
+    expect(uploadItemPhoto).not.toHaveBeenCalled();
+    expect(await queuedIntakeCount(ME)).toBe(1);
+    await flushIntakeQueue(ME);
+    expect(await queuedIntakeCount(ME)).toBe(0);
+  });
+
+  it("clearOfflineIntakeQueue deletes the database", async () => {
+    await enqueueIntake(payload, { queuedBy: ME });
+    await clearOfflineIntakeQueue();
+    const names = (await indexedDB.databases()).map((d) => d.name);
+    expect(names).not.toContain("flipdesk-offline");
+    expect(await queuedIntakeCount(ME)).toBe(0);
   });
 });

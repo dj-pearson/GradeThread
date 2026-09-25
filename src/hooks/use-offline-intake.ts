@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { flushIntakeQueue, queuedIntakeCount } from "@/lib/offline-queue";
 import { ensureServiceWorker } from "@/lib/pwa";
+import { useAuthStore } from "@/stores/auth-store";
 
 export function offlinePhotosPendingMessage(
   synced: number,
@@ -18,6 +19,8 @@ export function offlinePhotosPendingMessage(
 // of items still queued so the intake page can surface status.
 export function useOfflineIntakeSync() {
   const qc = useQueryClient();
+  // The queue is per signed-in user: never count or replay another account's.
+  const userId = useAuthStore((s) => s.user?.id ?? null);
   const [pending, setPending] = useState(0);
   const [online, setOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine,
@@ -25,18 +28,22 @@ export function useOfflineIntakeSync() {
   const syncingRef = useRef(false);
 
   const refresh = useCallback(async () => {
+    if (!userId) {
+      setPending(0);
+      return;
+    }
     try {
-      setPending(await queuedIntakeCount());
+      setPending(await queuedIntakeCount(userId));
     } catch {
       /* IndexedDB unavailable — ignore */
     }
-  }, []);
+  }, [userId]);
 
   const sync = useCallback(async () => {
-    if (syncingRef.current || !navigator.onLine) return;
+    if (syncingRef.current || !navigator.onLine || !userId) return;
     let total = 0;
     try {
-      total = await queuedIntakeCount();
+      total = await queuedIntakeCount(userId);
     } catch {
       return;
     }
@@ -56,7 +63,7 @@ export function useOfflineIntakeSync() {
         firstPhotoError,
         photosUnprocessable,
         firstUnprocessableError,
-      } = await flushIntakeQueue();
+      } = await flushIntakeQueue(userId);
       // A flush with synced === 0 can still have uploaded the photos of an item
       // saved on an earlier flush, so this does not wait for a new item.
       await qc.invalidateQueries({ queryKey: ["items_full"] });
@@ -103,7 +110,7 @@ export function useOfflineIntakeSync() {
       syncingRef.current = false;
       await refresh();
     }
-  }, [qc, refresh]);
+  }, [qc, refresh, userId]);
 
   useEffect(() => {
     ensureServiceWorker();

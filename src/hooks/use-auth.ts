@@ -272,6 +272,13 @@ function initAuth() {
       // (aborting in-flight uploads) and the IndexedDB database follow via a
       // lazy import so the upload pipeline stays out of the auth bundle.
       removeAutolisterLocalStorage();
+      // Nor their offline intake queue: cost, notes and raw GPS-tagged photos
+      // in IndexedDB, which would otherwise wait on disk for the next account.
+      void import("@/lib/offline-queue")
+        .then((m) => m.clearOfflineIntakeQueue())
+        .catch(() => {
+          /* best-effort, as above */
+        });
       void import("@/stores/autolister-upload-store")
         .then((m) => m.clearAutolisterLocalState())
         .catch(() => {
