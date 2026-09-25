@@ -13,6 +13,7 @@ import { failSafe } from "../lib/http-errors.ts";
 import { roleAtLeast } from "../lib/workspace-roles.ts";
 import { redactError } from "../lib/log-redact.ts";
 import { emitOpsEvent } from "../lib/ops-events.ts";
+import { findExistingTransfer } from "../lib/consignor-payout.ts";
 
 type ConsignmentEnv = {
   Variables: {
@@ -721,11 +722,12 @@ flipdeskConsignmentRoutes.post("/payouts", async (c) => {
     );
     transferId = transfer.id;
   } catch (err) {
-    const raw = err instanceof Error ? err.message : "Transfer failed";
     console.error(`[consignment.payouts.transfer] ${redactError(err)}`);
     await supabaseAdmin
       .from("consignor_payouts")
-      .update({ status: "failed", error: raw.slice(0, 1000) })
+      // The seller reads this column in History, so it carries the safe copy;
+      // the raw Stripe message went to the log above.
+      .update({ status: "failed", error: stripeTransferErrorCopy(err).slice(0, 1000) })
       .eq("id", payout.id)
       .eq("user_id", userId);
     return c.json({ error: stripeTransferErrorCopy(err), payout_id: payout.id }, 502);
@@ -774,18 +776,77 @@ flipdeskConsignmentRoutes.patch("/payouts/:id", async (c) => {
 
   const { data: existing, error: loadErr } = await supabaseAdmin
     .from("consignor_payouts")
-    .select("id, status, source, note")
+    .select("id, status, source, note, consignor_id, created_at, stripe_transfer_id")
     .eq("id", id)
     .eq("user_id", userId)
     .maybeSingle();
   if (loadErr) return failSafe(c, 500, "Couldn't load that payout.", loadErr, "consignment.payouts.patch.load");
   if (!existing) return c.json({ error: "Payout not found" }, 404);
-  const row = existing as { id: string; status: string; source: string | null; note: string | null };
+  const row = existing as {
+    id: string;
+    status: string;
+    source: string | null;
+    note: string | null;
+    consignor_id: string;
+    created_at: string | null;
+    stripe_transfer_id: string | null;
+  };
   if (row.source === "auto") {
     return c.json({ error: "Automatic payouts are settled by Stripe, not by hand." }, 409);
   }
   if (row.status !== "pending" && row.status !== "failed") {
     return c.json({ error: `This payout is already ${row.status}.` }, 409);
+  }
+
+  // A pending row can be one whose Stripe transfer WENT OUT but whose "paid"
+  // write-back failed (POST /payouts, consignor.payout_ledger_stale). Canceling
+  // it would tell the seller they still owe money they already sent. So before
+  // a cancel, ask Stripe: a transfer carrying this payout id means the row is
+  // paid, and it is healed to paid instead. If Stripe cannot answer, refuse.
+  if (action === "cancel" && row.status === "pending") {
+    if (row.stripe_transfer_id) {
+      return c.json({ error: "This payout was already sent through Stripe." }, 409);
+    }
+    const { data: owner, error: ownerErr } = await supabaseAdmin
+      .from("consignors")
+      .select("stripe_connect_account_id")
+      .eq("id", row.consignor_id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (ownerErr) {
+      return failSafe(c, 500, "Couldn't load that consignor.", ownerErr, "consignment.payouts.patch.consignor");
+    }
+    const accountId = (owner as { stripe_connect_account_id: string | null } | null)
+      ?.stripe_connect_account_id ?? null;
+    if (accountId) {
+      const stripe = getStripe();
+      const lookup = stripe
+        ? await findExistingTransfer(stripe, accountId, row.id, Date.parse(row.created_at ?? ""))
+        : { transfer: null, error: "stripe_not_configured" };
+      if (lookup.error) {
+        console.error(`[consignment.payouts.patch.transfer_lookup] ${lookup.error}`);
+        return c.json(
+          { error: "Couldn't confirm with Stripe that this payout was not sent. Try again in a minute." },
+          503,
+        );
+      }
+      if (lookup.transfer) {
+        await supabaseAdmin
+          .from("consignor_payouts")
+          .update({
+            status: "paid",
+            stripe_transfer_id: lookup.transfer.id,
+            paid_at: new Date(lookup.transfer.created * 1000).toISOString(),
+          })
+          .eq("id", id)
+          .eq("user_id", userId)
+          .eq("status", "pending");
+        return c.json(
+          { error: "This payout was already sent through Stripe, so it is now marked paid." },
+          409,
+        );
+      }
+    }
   }
 
   let patch: Record<string, unknown>;

@@ -367,7 +367,9 @@ Deno.test("C5: a Stripe throw marks the row failed, scoped by user_id, and maps 
   );
   assert(failed, "row was not marked failed");
   assert(failed.url.includes(`user_id=eq.${OWNER}`), "failed write not tenant-scoped");
-  assert(String((failed.body as { error?: string }).error).includes("Insufficient funds"));
+  // The seller reads this column in History, so it holds the safe copy, not
+  // Stripe's own text (which names the platform account).
+  assertEquals((failed.body as { error?: string }).error, "Your Stripe balance can't cover this payout yet.");
 });
 
 Deno.test("C5: a successful transfer uses integer cents and the payout idempotency key", async () => {
@@ -422,6 +424,74 @@ Deno.test("C7: an auto payout cannot be settled by hand", async () => {
   const r = await call("admin", "PATCH", `/payouts/${PAYOUT}`, { action: "cancel" });
   assertEquals(r.status, 409);
   assert(!restCalls.some((c) => c.method === "PATCH"));
+});
+
+function cancelWorld(accountId: string | null): RestHandler {
+  return (c) => {
+    if (c.method === "GET" && c.url.includes("/consignor_payouts?")) {
+      return json([{
+        id: PAYOUT,
+        note: null,
+        status: "pending",
+        source: "manual",
+        consignor_id: CONSIGNOR,
+        created_at: "2026-09-20T00:00:00Z",
+        stripe_transfer_id: null,
+      }]);
+    }
+    if (c.method === "GET" && c.url.includes("/consignors?")) {
+      return json([{ stripe_connect_account_id: accountId }]);
+    }
+    if (c.method === "PATCH") return json([{ id: PAYOUT, ...(c.body as object) }]);
+    return undefined;
+  };
+}
+
+Deno.test("C7: cancel on a payout Stripe already sent heals it to paid instead", async () => {
+  reset(cancelWorld("acct_1"));
+  setConsignmentStripeForTests({
+    transfers: {
+      list: () =>
+        Promise.resolve({
+          data: [{ id: "tr_sent", created: 1_790_000_000, metadata: { payout_id: PAYOUT } }],
+          has_more: false,
+        }),
+    },
+  });
+  const r = await call("admin", "PATCH", `/payouts/${PAYOUT}`, { action: "cancel" });
+  assertEquals(r.status, 409);
+  const writes = restCalls.filter((c) => c.method === "PATCH");
+  assertEquals(writes.length, 1);
+  const body = writes[0]!.body as { status?: string; stripe_transfer_id?: string };
+  assertEquals(body.status, "paid");
+  assertEquals(body.stripe_transfer_id, "tr_sent");
+});
+
+Deno.test("C7: cancel is refused when Stripe cannot say whether the payout went out", async () => {
+  reset(cancelWorld("acct_1"));
+  setConsignmentStripeForTests({
+    transfers: { list: () => Promise.reject(new Error("stripe down")) },
+  });
+  const r = await call("admin", "PATCH", `/payouts/${PAYOUT}`, { action: "cancel" });
+  assertEquals(r.status, 503);
+  assert(!restCalls.some((c) => c.method === "PATCH"), "canceled without Stripe's answer");
+});
+
+Deno.test("C7: cancel goes through when Stripe has no transfer for the payout", async () => {
+  reset(cancelWorld("acct_1"));
+  setConsignmentStripeForTests({
+    transfers: { list: () => Promise.resolve({ data: [], has_more: false }) },
+  });
+  const r = await call("admin", "PATCH", `/payouts/${PAYOUT}`, { action: "cancel" });
+  assertEquals(r.status, 200);
+  const write = restCalls.find((c) => c.method === "PATCH");
+  assertEquals((write?.body as { status?: string }).status, "canceled");
+});
+
+Deno.test("C7: a cash-only consignor's payout cancels without asking Stripe", async () => {
+  reset(cancelWorld(null));
+  const r = await call("admin", "PATCH", `/payouts/${PAYOUT}`, { action: "cancel" });
+  assertEquals(r.status, 200);
 });
 
 Deno.test("C7: a foreign or missing payout id is a 404", async () => {

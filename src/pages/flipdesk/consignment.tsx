@@ -1475,6 +1475,9 @@ function PayoutHistoryDialog({
       onChanged();
     } catch (err) {
       toastError(err, "Couldn't update that payout");
+      // A refused cancel can still have changed the row: the server heals a
+      // payout Stripe already sent to "paid" before it says no.
+      onChanged();
     } finally {
       setBusy(null);
     }
