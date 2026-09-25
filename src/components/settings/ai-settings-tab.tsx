@@ -1,8 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -11,22 +10,22 @@ import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/hooks/use-auth";
 import { useReportSettingsDirty } from "@/hooks/use-settings-dirty";
 import { supabase } from "@/lib/supabase";
-import { FLIPDESK_PLANS, flipdeskPlanForLegacy, type PlanKey } from "@/lib/constants";
-import { effectiveAiLimit as computeEffectiveAiLimit } from "@/lib/ai-limit";
+import { FLIPDESK_PLANS } from "@/lib/constants";
+import { aiCapHint, nextAiResetLabel } from "@/lib/ai-limit";
+import { usePlanUsage } from "@/hooks/use-plan-usage";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { toastError } from "@/lib/toast-error";
-
-function nextResetLabel(): string {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth() + 1, 1).toLocaleDateString(
-    "en-US",
-    { month: "long", day: "numeric" }
-  );
-}
 
 // The AI tab of /dashboard/settings: usage meter, the enrichment switch and the
 // personal monthly cap. Split out of settings.tsx (web-growth action 6).
+//
+// Each control saves itself: the switch on change, the cap when the field
+// loses focus (or on Enter). Usage, limit and plan come from the server's
+// billing summary rather than the profile's counter, which has no rollover.
 export function AiSettingsTab() {
   const { user, profile, refreshProfile } = useAuth();
+  const { isPersonal } = useWorkspace();
+  const usage = usePlanUsage();
 
   const [aiEnabled, setAiEnabled] = useState(
     profile?.ai_enrichment_enabled ?? true
@@ -34,35 +33,72 @@ export function AiSettingsTab() {
   const [aiLimit, setAiLimit] = useState(
     profile?.ai_action_limit != null ? String(profile.ai_action_limit) : ""
   );
-  const [savingAi, setSavingAi] = useState(false);
-  const savedEnabled = profile?.ai_enrichment_enabled ?? true;
-  const savedLimit =
-    profile?.ai_action_limit != null ? String(profile.ai_action_limit) : "";
-  const aiDirty = aiEnabled !== savedEnabled || aiLimit.trim() !== savedLimit;
+  // The last value the server accepted (or is being sent). Set as soon as a
+  // save starts, so leaving right after a blur is not "unsaved".
+  const [savedLimit, setSavedLimit] = useState(
+    profile?.ai_action_limit != null ? String(profile.ai_action_limit) : ""
+  );
+  const [savingField, setSavingField] = useState<"enabled" | "limit" | null>(null);
+  const aiDirty = aiLimit.trim() !== savedLimit;
   useReportSettingsDirty("ai", aiDirty);
+  // Follow the profile when it arrives late or changes elsewhere, but never
+  // over typing that has not been saved yet.
+  const aiDirtyRef = useRef(aiDirty);
+  aiDirtyRef.current = aiDirty;
+  const profileEnabled = profile?.ai_enrichment_enabled ?? true;
+  const profileLimit =
+    profile?.ai_action_limit != null ? String(profile.ai_action_limit) : "";
+  useEffect(() => {
+    setAiEnabled(profileEnabled);
+    if (aiDirtyRef.current) return;
+    setAiLimit(profileLimit);
+    setSavedLimit(profileLimit);
+  }, [profileEnabled, profileLimit]);
 
-  // FlipDesk plan drives the AI allowance (US-202). Fall back to the legacy
-  // US-2365: the un-backfilled fallback now translates the legacy column
-  // explicitly instead of going through the deprecated PLANS shim. Same
-  // numbers — the shim only ever derived them from FLIPDESK_PLANS — but the
-  // translation is visible rather than hidden behind an alias.
-  const flipdeskPlan = profile?.flipdesk_plan ??
-    flipdeskPlanForLegacy((profile?.plan ?? "free") as PlanKey);
-  const planAiLimit = FLIPDESK_PLANS[flipdeskPlan].aiActionsPerMonth;
-  // US-1631: same min-of-plan-and-user-cap semantics as billing / usage meters
-  // (previously `userLimit ?? plan`, which disagreed when a user's cap exceeded
-  // the plan).
-  const effectiveAiLimit = computeEffectiveAiLimit(planAiLimit, profile?.ai_action_limit ?? null);
-  const aiUsed = profile?.ai_actions_used_this_month ?? 0;
-  const aiUnlimited = effectiveAiLimit < 0;
-  const aiPct =
-    !aiUnlimited && effectiveAiLimit > 0
-      ? Math.min(100, Math.round((aiUsed / effectiveAiLimit) * 100))
-      : 0;
+  // The allowance belongs to the workspace owner. Inside someone else's
+  // workspace the usage shown is theirs, and this member's own cap would not
+  // apply to it, so the tab is read-only there.
+  const readOnly = !isPersonal;
 
-  async function handleSaveAiSettings() {
-    if (!user) return;
+  const planAiLimit = FLIPDESK_PLANS[usage.plan]?.aiActionsPerMonth ?? 0;
+  const aiUsed = usage.aiActions.used;
+  const effectiveAiLimit = usage.aiActions.limit;
+  const aiUnlimited = usage.aiActions.unlimited;
+  const aiPct = Math.min(100, usage.aiActions.pct);
+
+  async function writeAi(
+    field: "enabled" | "limit",
+    patch: { ai_enrichment_enabled?: boolean; ai_action_limit?: number | null },
+  ): Promise<boolean> {
+    if (!user) return false;
+    setSavingField(field);
+    try {
+      const { error } = await supabase
+        .from("users")
+        .update(patch as never)
+        .eq("id", user.id);
+      if (error) throw error;
+      await refreshProfile();
+      return true;
+    } catch (err) {
+      toastError(err, "Failed to save AI settings.");
+      return false;
+    } finally {
+      setSavingField(null);
+    }
+  }
+
+  async function handleToggle(next: boolean) {
+    const previous = aiEnabled;
+    setAiEnabled(next);
+    const ok = await writeAi("enabled", { ai_enrichment_enabled: next });
+    if (!ok) setAiEnabled(previous);
+    else toast.success(next ? "AI assistant turned on." : "AI assistant turned off.");
+  }
+
+  async function saveLimit() {
     const trimmed = aiLimit.trim();
+    if (trimmed === savedLimit) return;
     // US-1631: a blank field clears the personal cap (plan default). Otherwise
     // require a whole number — previously `parseInt("abc") || 0` silently saved a
     // HARD 0 cap (blocking ALL AI actions) on a typo. "0" is still allowed as an
@@ -73,24 +109,12 @@ export function AiSettingsTab() {
       );
       return;
     }
+    const previous = savedLimit;
+    setSavedLimit(trimmed);
     const limitVal = trimmed === "" ? null : Number.parseInt(trimmed, 10);
-    setSavingAi(true);
-    try {
-      const { error } = await supabase
-        .from("users")
-        .update({
-          ai_enrichment_enabled: aiEnabled,
-          ai_action_limit: limitVal,
-        } as never)
-        .eq("id", user.id);
-      if (error) throw error;
-      await refreshProfile();
-      toast.success("AI assistant settings saved.");
-    } catch (err) {
-      toastError(err, "Failed to save AI settings.");
-    } finally {
-      setSavingAi(false);
-    }
+    const ok = await writeAi("limit", { ai_action_limit: limitVal });
+    if (!ok) setSavedLimit(previous);
+    else toast.success("AI action limit saved.");
   }
 
   return (
@@ -108,19 +132,27 @@ export function AiSettingsTab() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
+          {readOnly && (
+            <p className="rounded-lg bg-muted p-3 text-sm">
+              AI allowance belongs to the workspace owner. Switch to your own
+              workspace to change these settings.
+            </p>
+          )}
           {/* Usage meter */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-sm">
               <span className="font-medium">This month's AI usage</span>
               <span className="text-muted-foreground">
-                {aiUnlimited
-                  ? `${aiUsed} actions used`
-                  : `${aiUsed} / ${effectiveAiLimit} actions`}
+                {usage.isLoading
+                  ? "Loading…"
+                  : aiUnlimited
+                    ? `${aiUsed} actions used`
+                    : `${aiUsed} / ${effectiveAiLimit} actions`}
               </span>
             </div>
-            {!aiUnlimited && <Progress value={aiPct} />}
+            {!aiUnlimited && !usage.isLoading && <Progress value={aiPct} />}
             <p className="text-xs text-muted-foreground">
-              Allowance resets on {nextResetLabel()}.
+              Allowance resets on {nextAiResetLabel()} (UTC).
               {aiUnlimited && " Your plan includes unlimited AI actions."}
             </p>
           </div>
@@ -149,7 +181,12 @@ export function AiSettingsTab() {
                 the composer's rewrite tools, and photo analysis.
               </p>
             </div>
-            <Switch aria-label="Enable AI enrichment" checked={aiEnabled} onCheckedChange={setAiEnabled} />
+            <Switch
+              aria-label="Enable AI enrichment"
+              checked={aiEnabled}
+              disabled={readOnly || savingField === "enabled"}
+              onCheckedChange={(v) => void handleToggle(v)}
+            />
           </div>
 
           {/* Custom monthly limit */}
@@ -161,6 +198,12 @@ export function AiSettingsTab() {
               min="0"
               value={aiLimit}
               onChange={(e) => setAiLimit(e.target.value)}
+              onBlur={() => void saveLimit()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void saveLimit();
+              }}
+              disabled={readOnly || savingField === "limit"}
+              aria-describedby="ai-limit-hint"
               placeholder={
                 planAiLimit < 0
                   ? "Unlimited (plan default)"
@@ -168,16 +211,13 @@ export function AiSettingsTab() {
               }
               className="max-w-xs"
             />
-            <p className="text-xs text-muted-foreground">
-              Optional. Set a lower number to cap your own AI spend. Leave
-              blank to use your plan's allowance.
+            <p id="ai-limit-hint" className="text-xs text-muted-foreground">
+              {savingField === "limit" && (
+                <Loader2 className="mr-1 inline h-3 w-3 animate-spin" aria-hidden="true" />
+              )}
+              {aiCapHint(aiLimit, planAiLimit)} Saves when you leave the field.
             </p>
           </div>
-
-          <Button onClick={handleSaveAiSettings} disabled={savingAi || !aiDirty}>
-            {savingAi && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save AI Settings
-          </Button>
         </CardContent>
       </Card>
     </>
