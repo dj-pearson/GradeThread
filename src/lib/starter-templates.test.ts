@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { STARTER_TEMPLATES } from "@/lib/starter-templates";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { conditionLine, STARTER_TEMPLATES } from "@/lib/starter-templates";
 import { nameProblem, TEMPLATE_NAME_MAX } from "@/lib/flipdesk-templates";
-import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
+import {
+  APPAREL_CONDITION_IDS,
+  APPAREL_CONDITION_LABELS,
+  EBAY_CONDITION_ENUM_TO_ID,
+  EBAY_CONDITION_OPTIONS,
+} from "@/lib/constants";
 
 describe("STARTER_TEMPLATES", () => {
   it("ships at least four samples with unique ids and names", () => {
@@ -54,5 +61,37 @@ describe("STARTER_TEMPLATES", () => {
       expect(t.body).not.toMatch(/\{\{/);
       expect(t.conditionDescription).not.toMatch(/\{\{/);
     }
+  });
+
+  it("every condition is one apparel leaves accept at publish", () => {
+    // USED_GOOD (5000) is refused by most clothing categories, and the picker
+    // offered it on two starters.
+    for (const t of STARTER_TEMPLATES) {
+      const id = EBAY_CONDITION_ENUM_TO_ID[t.ebayCondition];
+      expect(id, `${t.id} has no conditionId`).toBeDefined();
+      expect(APPAREL_CONDITION_IDS.has(id!), `${t.id} uses ${t.ebayCondition}`).toBe(true);
+    }
+  });
+
+  it("each picker note is the label of the condition it saves", () => {
+    for (const t of STARTER_TEMPLATES) {
+      const label = APPAREL_CONDITION_LABELS[EBAY_CONDITION_ENUM_TO_ID[t.ebayCondition]!];
+      expect(t.note).toBe(`Condition: ${label}`);
+      expect(t.note).toBe(conditionLine(t.ebayCondition));
+    }
+  });
+
+  it("the enum-to-id map is the edge preflight's", () => {
+    const src = readFileSync(
+      resolve(process.cwd(), "services/edge-functions/src/lib/publish-preflight.ts"),
+      "utf8",
+    );
+    const start = src.indexOf("export const CONDITION_ENUM_TO_ID");
+    expect(start).toBeGreaterThan(-1);
+    const body = src.slice(start, src.indexOf("};", start));
+    const edge: Record<string, string> = {};
+    for (const m of body.matchAll(/^\s+(\w+): "(\d+)",/gm)) edge[m[1]!] = m[2]!;
+    expect(Object.keys(edge).length).toBeGreaterThan(8);
+    expect(EBAY_CONDITION_ENUM_TO_ID).toEqual(edge);
   });
 });
