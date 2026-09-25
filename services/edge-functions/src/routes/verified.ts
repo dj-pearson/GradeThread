@@ -119,7 +119,11 @@ verifiedRoutes.get("/profile", async (c) => {
   return c.json({
     profile: {
       handle: user?.verified_handle ?? null,
-      display_name: user?.verified_display_name ?? user?.full_name ?? null,
+      // Never pre-filled from the account's full_name: the first Save would
+      // publish the seller's legal name without them choosing it. The account
+      // name travels separately so the UI can OFFER it.
+      display_name: user?.verified_display_name ?? null,
+      account_name: user?.full_name ?? null,
       bio: user?.verified_bio ?? null,
       enabled: user?.verified_enabled ?? false,
       verified_since: user?.verified_since ?? null,

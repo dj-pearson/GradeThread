@@ -10,6 +10,10 @@ import { useAuthStore } from "@/stores/auth-store";
 export interface VerifiedProfile {
   handle: string | null;
   display_name: string | null;
+  /** The account's full_name, offered as a suggestion only. GET /profile
+   *  carries it; it is never saved as the public name unless the seller
+   *  chooses it. Absent on the PUT response. */
+  account_name?: string | null;
   bio: string | null;
   enabled: boolean;
   verified_since: string | null;

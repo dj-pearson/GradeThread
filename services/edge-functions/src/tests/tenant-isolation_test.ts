@@ -4508,6 +4508,40 @@ Deno.test({
   },
 });
 
+// V3 (Verified page review): GET /api/verified/profile now carries the caller's
+// account_name (users.full_name) as a separate field so the UI can OFFER it as a
+// display name. That makes the read carry a private field, so two properties
+// are pinned: it is never reachable unauthenticated, and B reading it gets B's
+// own row (B's handle), never another account's.
+Deno.test({
+  name: "V3: verified profile read requires authentication",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/verified/profile`);
+    await res.body?.cancel();
+    assertDenied(res.status, "GET verified profile unauthenticated");
+  },
+});
+
+Deno.test({
+  name: "V3: B's verified profile read returns B's own row",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_B_HANDLE"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/verified/profile`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      profile?: { handle?: string | null };
+    };
+    assertEquals(res.status, 200);
+    assertEquals(
+      body.profile?.handle,
+      Deno.env.get("TEST_USER_B_HANDLE"),
+      "B's profile read returned a handle that is not B's",
+    );
+  },
+});
+
 // ── US-1851: rewards.ts — self-scoped, and never workspace-scoped ─────────────
 //
 // GET /api/rewards/state reads the caller's XP, level and season progress from

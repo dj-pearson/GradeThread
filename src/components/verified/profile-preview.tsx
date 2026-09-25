@@ -31,7 +31,9 @@ export function VerifiedProfilePreview({
   averageGrade: number;
   showListings: boolean;
 }) {
-  const name = displayName.trim() || "Your store name";
+  // The public page falls back to the handle when no display name is set, so
+  // the preview does too.
+  const name = displayName.trim() || handle || "Your store name";
   const path = `${SITE_URL.replace("https://", "")}/verified/${handle || "your-handle"}`;
 
   return (

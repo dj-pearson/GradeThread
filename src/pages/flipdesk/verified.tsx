@@ -77,6 +77,7 @@ export function FlipdeskVerifiedPage() {
   }, [data]);
 
   const savedHandle = data?.profile.handle ?? null;
+  const accountName = data?.profile.account_name?.trim() || null;
   const normalizedHandle = handle.trim().toLowerCase();
   const handleFormat = useMemo(
     () => (normalizedHandle ? validateHandle(normalizedHandle) : null),
@@ -292,6 +293,16 @@ export function FlipdeskVerifiedPage() {
               placeholder="The name buyers see on your profile"
               onChange={(e) => setDisplayName(e.target.value)}
             />
+            {!displayName.trim() && accountName && (
+              <Button
+                type="button"
+                variant="link"
+                className="h-auto p-0 text-xs"
+                onClick={() => setDisplayName(accountName.slice(0, 60))}
+              >
+                Use my account name ({accountName})
+              </Button>
+            )}
           </div>
 
           {/* Bio */}

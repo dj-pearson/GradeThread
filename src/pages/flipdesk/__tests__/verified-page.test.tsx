@@ -209,3 +209,23 @@ describe("public switch (V2)", () => {
     expect(mutateAsync).toHaveBeenCalledWith({ enabled: true });
   });
 });
+
+describe("display name is never pre-filled from the account (V3)", () => {
+  it("starts empty and offers the account name as a choice", () => {
+    setProfile(profile({ display_name: null, account_name: "Jane Q. Legal" }));
+    const c = render();
+    const input = c.querySelector<HTMLInputElement>("#display_name")!;
+    expect(input.value).toBe("");
+    const suggest = byText("button", "Use my account name (Jane Q. Legal)");
+    expect(suggest).toBeDefined();
+    act(() => suggest!.click());
+    expect(c.querySelector<HTMLInputElement>("#display_name")!.value).toBe("Jane Q. Legal");
+  });
+
+  it("previews the handle, not a name, when no display name is set", () => {
+    setProfile(profile({ display_name: null, account_name: "Jane Q. Legal" }));
+    const c = render();
+    const heroName = c.querySelector(".bg-brand-navy p.text-xl");
+    expect(heroName?.textContent).toBe("alpha");
+  });
+});
