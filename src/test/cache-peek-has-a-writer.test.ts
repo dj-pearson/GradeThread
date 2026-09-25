@@ -86,6 +86,17 @@ const DECLARED: readonly DeclaredPeek[] = [
       "same module is the writer",
   },
   {
+    file: "src/hooks/use-passport-identity.ts",
+    key: "getQueryData<NodesResponse>(key)",
+    writer: "src/hooks/use-passport-identity.ts",
+    writes: 'queryKey: ["passport_identity_nodes", user?.id]',
+    why:
+      "the Verified page's optimistic reveal toggle snapshots the hop list " +
+      "before flipping one hop, so onError can put it back; `key` is " +
+      '["passport_identity_nodes", user?.id], and usePassportIdentityNodes ' +
+      "in the same module is the writer",
+  },
+  {
     file: "src/pages/flipdesk/listings.tsx",
     key: "listingsPageKey",
     writer: "src/pages/flipdesk/listings.tsx",
