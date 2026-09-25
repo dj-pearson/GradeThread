@@ -41,6 +41,7 @@ import {
   validateHandle,
   profileUrl,
   profileLinkEmbedHtml,
+  verifiedSellerBadgeEmbedText,
 } from "@/lib/verified";
 import { SITE_URL } from "@/lib/seo/site";
 import { PageHelp } from "@/components/help/page-help";
@@ -432,20 +433,25 @@ export function FlipdeskVerifiedPage() {
               Embed your "Verified Seller" badge
             </CardTitle>
             <CardDescription>
-              Paste this into your eBay, Poshmark, Mercari, Depop or Grailed
-              listing description, your store bio, or your link-in-bio. It links
-              buyers to your verified profile.
+              It links buyers to your verified profile. Use the HTML on eBay
+              and your own website. Poshmark, Mercari, Depop and Grailed strip
+              HTML, so use the text version there and in your bio.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <CopyField
-              label="HTML (listing descriptions, websites)"
+              label="HTML (eBay and your own website)"
               value={profileLinkEmbedHtml(savedHandle)}
+              multiline
+            />
+            <CopyField
+              label="Text + link (Poshmark, Mercari, Depop, Grailed, bios)"
+              value={verifiedSellerBadgeEmbedText(savedHandle)}
               multiline
             />
             <p className="text-sm text-muted-foreground">
               For a <strong>per-item</strong> grade badge, use the Badge Studio
-              below — buyers see the exact condition grade for that listing.
+              below. Buyers see the exact condition grade for that listing.
             </p>
           </CardContent>
         </Card>

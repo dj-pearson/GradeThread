@@ -17,6 +17,7 @@ import {
   verifiedSellerBadgeEmbedText,
   verifiedSellerBadgeUrl,
 } from "./verified";
+import * as V from "./verified";
 
 const UUID = "0f3a1b2c-4d5e-6f70-8a9b-0c1d2e3f4a5b";
 
@@ -170,5 +171,54 @@ describe("validateHandle", () => {
     expect(validateHandle("jane-doe").ok).toBe(true);
     expect(validateHandle("ab").ok).toBe(false);
     expect(validateHandle("-leading").ok).toBe(false);
+  });
+});
+
+// V9: every embed builder carries attribution, encodes its path segment, and
+// pastes clean text.
+
+describe("embed builders (V9)", () => {
+  const builders: Array<[string, string]> = [
+    ["certBadgeEmbedHtml", V.certBadgeEmbedHtml(UUID)],
+    ["certBadgeEmbedHtml status", V.certBadgeEmbedHtml(UUID, "status")],
+    ["certBadgeEmbedText", V.certBadgeEmbedText(UUID)],
+    ["profileLinkEmbedHtml", V.profileLinkEmbedHtml("jane")],
+    ["passportBadgeEmbedHtml", V.passportBadgeEmbedHtml("ab12")],
+    ["passportBadgeEmbedText", V.passportBadgeEmbedText("ab12")],
+    ["verifiedSellerBadgeEmbedHtml", V.verifiedSellerBadgeEmbedHtml("jane")],
+    ["verifiedSellerBadgeEmbedText", V.verifiedSellerBadgeEmbedText("jane")],
+  ];
+
+  it.each(builders)("%s links with a ?s= source", (_name, out) => {
+    const href = /href="([^"]+)"/.exec(out)?.[1] ?? /(https:\/\/\S+)$/.exec(out)?.[1];
+    expect(href).toBeDefined();
+    expect(href).toContain("?s=");
+  });
+
+  it.each(builders)("%s contains no em dash", (_name, out) => {
+    expect(out).not.toContain("—");
+  });
+
+  it("the profile link badge is attributed as an embed", () => {
+    expect(V.profileLinkEmbedHtml("jane")).toContain('href="https://gradethread.com/verified/jane?s=embed"');
+  });
+
+  it("uses brand navy for the pill badges", () => {
+    expect(V.profileLinkEmbedHtml("jane")).toContain("#0F3460");
+    expect(V.passportBadgeEmbedHtml("ab12")).toContain("#0F3460");
+  });
+
+  it("percent-encodes a hostile slug, handle or cert id", () => {
+    const bad = '"><script>';
+    for (const out of [
+      V.passportBadgeEmbedHtml(bad),
+      V.profileLinkEmbedHtml(bad),
+      V.verifiedSellerBadgeEmbedHtml(bad),
+      V.certBadgeEmbedHtml(bad),
+      V.certBadgeScriptEmbed(bad),
+    ]) {
+      expect(out).not.toContain(bad);
+      expect(out).toContain("%22%3E%3Cscript%3E");
+    }
   });
 });

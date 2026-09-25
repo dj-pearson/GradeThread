@@ -442,7 +442,7 @@ function BadgePreview({
   if (format === "text") {
     return (
       <span className="text-sm">
-        ✓ GradeThread Verified condition grade — verify:{" "}
+        ✓ GradeThread Verified condition grade. Verify it:{" "}
         <span className="text-brand-navy underline dark:text-foreground">
           gradethread.com/cert/…
         </span>
