@@ -112,7 +112,7 @@ export function SettingsPage() {
               className={cn(
                 "shrink-0",
                 embedded &&
-                  "rounded-none border-b-2 border-transparent bg-transparent px-3 pb-2 shadow-none data-[state=active]:border-brand-navy data-[state=active]:bg-transparent data-[state=active]:shadow-none",
+                  "rounded-none border-b-2 border-transparent bg-transparent px-3 pb-2 shadow-none focus-visible:ring-inset data-[state=active]:border-brand-navy data-[state=active]:bg-transparent data-[state=active]:shadow-none",
               )}
             >
               <t.icon className="h-4 w-4" />
