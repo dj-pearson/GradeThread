@@ -44,11 +44,6 @@ export interface StagedPhoto {
   photoId?: string;
 }
 
-/** Revoke every preview URL in a staged list. For the page's own unmount. */
-export function revokeStagedPreviews(photos: readonly StagedPhoto[]): void {
-  for (const p of photos) if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
-}
-
 /** Slot identity is (type, role), so a suit can hold three separate tag slots. */
 const keyOf = (p: { photoType: FlipdeskPhotoType; photoRole?: string | null }) =>
   slotKey(p.photoType, p.photoRole ?? null);
@@ -112,7 +107,7 @@ export function IntakePhotoStager({
   // URL is revoked when its photo leaves the list. The photos themselves live
   // in the page's state and outlast this component (a switch to Bulk mode
   // unmounts it and keeps the draft), so the page revokes what is left when
-  // IT unmounts, via revokeStagedPreviews.
+  // IT unmounts.
   const liveUrlsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const now = new Set(photos.map((p) => p.previewUrl).filter(Boolean));

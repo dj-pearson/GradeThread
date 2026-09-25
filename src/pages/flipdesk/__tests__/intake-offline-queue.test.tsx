@@ -78,7 +78,6 @@ vi.mock("@/hooks/use-navigation-guard", () => ({
 // The stager's own picker is a file input; a button that stages two photos
 // stands in for it.
 vi.mock("@/components/flipdesk/intake-photo-stager", () => ({
-  revokeStagedPreviews: () => {},
   IntakePhotoStager: ({
     photos,
     onChange,

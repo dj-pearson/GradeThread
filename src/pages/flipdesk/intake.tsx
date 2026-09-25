@@ -79,7 +79,6 @@ import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import {
   IntakePhotoStager,
-  revokeStagedPreviews,
   type StagedPhoto,
 } from "@/components/flipdesk/intake-photo-stager";
 import { useNavigationGuard } from "@/hooks/use-navigation-guard";
@@ -253,7 +252,12 @@ export function FlipdeskIntakePage() {
   // staged when the page itself goes away is revoked here.
   const stagedRef = useRef(stagedPhotos);
   stagedRef.current = stagedPhotos;
-  useEffect(() => () => revokeStagedPreviews(stagedRef.current), []);
+  useEffect(
+    () => () => {
+      for (const p of stagedRef.current) if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+    },
+    [],
+  );
   // US-9204: when the first photo was staged. With the file's own capture time
   // it is the start of "seconds from first photo to Approve" on the review
   // screen. Cleared with the photos, so a batch does not inherit its first item's.

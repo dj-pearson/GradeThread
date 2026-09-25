@@ -108,7 +108,6 @@ vi.mock("@/components/flipdesk/grade-roi-hint", () => ({ GradeRoiHint: () => nul
 vi.mock("@/components/flipdesk/measurement-form", () => ({ MeasurementForm: () => null }));
 vi.mock("@/components/help/page-help", () => ({ PageHelp: () => null }));
 vi.mock("@/components/flipdesk/intake-photo-stager", () => ({
-  revokeStagedPreviews: () => {},
   IntakePhotoStager: ({
     photos,
     onChange,
