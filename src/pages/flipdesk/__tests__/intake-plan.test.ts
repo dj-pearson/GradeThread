@@ -6,6 +6,8 @@ import {
   buildIntakeInsert,
   photoShortfallMessage,
   priceOrNull,
+  validatePurchasePrice,
+  classifyIntakeSaveError,
   resolveIntakeSource,
   type IntakeFormState,
 } from "@/pages/flipdesk/intake-plan";
@@ -188,5 +190,50 @@ describe("photoShortfallMessage (US-2546 AC2)", () => {
     expect(photoShortfallMessage(4, 1)).toBe(
       "Saved the item, but 3 photos didn't upload. Add them from the item page.",
     );
+  });
+});
+
+describe("validatePurchasePrice", () => {
+  it("rejects negatives, exponent forms and fractions of a cent", () => {
+    expect(validatePurchasePrice("-5").ok).toBe(false);
+    expect(validatePurchasePrice("1e3").ok).toBe(false);
+    expect(validatePurchasePrice("12.345").ok).toBe(false);
+    expect(validatePurchasePrice("abc").ok).toBe(false);
+  });
+
+  it("accepts blank and plain decimals, rounded to cents", () => {
+    expect(validatePurchasePrice("")).toEqual({ ok: true, value: null });
+    expect(validatePurchasePrice("12.5")).toEqual({ ok: true, value: 12.5 });
+    expect(validatePurchasePrice("$4")).toEqual({ ok: true, value: 4 });
+    expect(validatePurchasePrice(".99")).toEqual({ ok: true, value: 0.99 });
+    expect(validatePurchasePrice("1,200.10")).toEqual({ ok: true, value: 1200.1 });
+  });
+
+  it("priceOrNull no longer passes a negative or an exponent through", () => {
+    expect(priceOrNull("-5")).toBeNull();
+    expect(priceOrNull("1e3")).toBeNull();
+  });
+});
+
+describe("classifyIntakeSaveError", () => {
+  it("names a SKU clash, a bad price and a source the member may not add", () => {
+    expect(
+      classifyIntakeSaveError(
+        { code: "23505", message: 'duplicate key value violates unique constraint "idx_inventory_items_user_sku"' },
+        "insert",
+      ),
+    ).toEqual({ kind: "sku" });
+    expect(
+      classifyIntakeSaveError(
+        { code: "23514", message: 'new row violates check constraint "inventory_items_acquired_price_nonneg"' },
+        "insert",
+      ),
+    ).toEqual({ kind: "price" });
+    expect(classifyIntakeSaveError({ code: "42501", message: "denied" }, "source")).toEqual({
+      kind: "source-denied",
+    });
+    expect(classifyIntakeSaveError({ code: "42501", message: "denied" }, "insert")).toEqual({
+      kind: "other",
+    });
   });
 });

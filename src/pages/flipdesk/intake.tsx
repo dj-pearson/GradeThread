@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState, type Ref } from "react";
 import { useLocation, useNavigate, useSearchParams, Link } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -83,6 +83,7 @@ import { Switch } from "@/components/ui/switch";
 import { useReviewFlowEnabled, useSetReviewFlow } from "@/hooks/use-review-flow";
 import { firstPhotoMsFrom, reviewPath } from "@/lib/review-flow";
 import { toastError } from "@/lib/toast-error";
+import { FieldError } from "@/components/ui/form-feedback";
 import {
   ITEM_CATEGORIES,
   ITEM_CATEGORY_LABELS,
@@ -91,9 +92,11 @@ import {
 } from "@/lib/constants";
 import {
   buildIntakeInsert,
+  classifyIntakeSaveError,
   photoShortfallMessage,
   priceOrNull,
   resolveIntakeSource,
+  validatePurchasePrice,
   type IntakeFormState,
 } from "@/pages/flipdesk/intake-plan";
 import type { ItemStatus, ItemCategory } from "@/types/database";
@@ -192,6 +195,15 @@ export function FlipdeskIntakePage() {
       : INITIAL,
   );
   const [saving, setSaving] = useState(false);
+  // Inline errors under the field that needs fixing, with focus sent there.
+  const [fieldErrors, setFieldErrors] = useState<{
+    title?: string;
+    sku?: string;
+    price?: string;
+  }>({});
+  const titleRef = useRef<HTMLInputElement>(null);
+  const skuRef = useRef<HTMLInputElement>(null);
+  const priceRef = useRef<HTMLInputElement>(null);
   // The item id this draft will be saved under, chosen here so a retry after
   // a lost response is idempotent. Renewed after each successful save.
   const [draftId, setDraftId] = useState(() => crypto.randomUUID());
@@ -284,6 +296,12 @@ export function FlipdeskIntakePage() {
 
   function patch<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm((f) => ({ ...f, [k]: v }));
+    const errKey = k === "purchase_price" ? "price" : k;
+    setFieldErrors((prev) =>
+      (prev as Record<string, string | undefined>)[errKey]
+        ? { ...prev, [errKey]: undefined }
+        : prev,
+    );
     // A manual edit clears the AI marker on that field.
     setAiFields((prev) => {
       if (!prev.has(k)) return prev;
@@ -437,9 +455,17 @@ export function FlipdeskIntakePage() {
       return;
     }
     if (!form.title.trim()) {
-      toast.error("Title is required.");
+      setFieldErrors({ title: "Add a title to save this item." });
+      titleRef.current?.focus();
       return;
     }
+    const price = validatePurchasePrice(form.purchase_price);
+    if (!price.ok) {
+      setFieldErrors({ price: price.message });
+      priceRef.current?.focus();
+      return;
+    }
+    setFieldErrors({});
     if (form.source_id === "__new" && !form.source_new.trim()) {
       toast.error("Enter a name for the new source.");
       return;
@@ -453,6 +479,9 @@ export function FlipdeskIntakePage() {
     });
 
     setSaving(true);
+    // Which call a failure came from: a 42501 from the source RPC means this
+    // member may not add sources, which is not what it means on the insert.
+    let stage: "source" | "insert" = "insert";
     try {
       const buildInsert = (sourceId: string | null) =>
         buildIntakeInsert({
@@ -504,6 +533,7 @@ export function FlipdeskIntakePage() {
       let newSourceName: string | null = plan.newSourceName;
       try {
         if (newSourceName) {
+          stage = "source";
           const supabaseAny = supabase as unknown as {
             rpc: (
               fn: string,
@@ -521,6 +551,7 @@ export function FlipdeskIntakePage() {
           if (error) throw error;
           sourceId = data;
           newSourceName = null;
+          stage = "insert";
         }
 
         // A hung request on weak wifi aborts after 10s and falls back to the
@@ -595,8 +626,24 @@ export function FlipdeskIntakePage() {
         resetForNext(form.source_id === "__new" ? "" : form.source_id);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`Save failed: ${msg}`);
+      // Never raw Postgres text: say what to change, next to the field.
+      const failure = classifyIntakeSaveError(err, stage);
+      if (failure.kind === "sku") {
+        const msg = `You already have an item with SKU ${form.sku.trim()}. Change it or leave it blank.`;
+        setFieldErrors({ sku: msg });
+        skuRef.current?.focus();
+        toast.error(msg);
+      } else if (failure.kind === "price") {
+        setFieldErrors({ price: "Price can't be negative." });
+        priceRef.current?.focus();
+        toast.error("Check the purchase price.");
+      } else if (failure.kind === "source-denied") {
+        toast.error("You can't add sources in this workspace.", {
+          description: "Pick an existing source, or ask the workspace owner to add it.",
+        });
+      } else {
+        toastError(err, "Couldn't save this item.");
+      }
     } finally {
       setSaving(false);
     }
@@ -755,15 +802,20 @@ export function FlipdeskIntakePage() {
               onChange={(v) => patch("title", v)}
               placeholder="e.g. Lululemon Align Pant"
               aiMarked={aiFields.has("title")}
+              inputRef={titleRef}
+              error={fieldErrors.title}
             />
             <div className="space-y-1">
               <Label htmlFor="sku-input">SKU / Item #</Label>
               <div className="flex gap-2">
                 <Input
                   id="sku-input"
+                  ref={skuRef}
                   value={form.sku}
                   onChange={(e) => patch("sku", e.target.value)}
                   placeholder={skuSequence.nextSku ?? "optional"}
+                  aria-invalid={fieldErrors.sku ? true : undefined}
+                  aria-describedby={fieldErrors.sku ? "sku-input-error" : undefined}
                 />
                 <Button
                   type="button"
@@ -785,6 +837,7 @@ export function FlipdeskIntakePage() {
               {/* US-3418: name the number this item will get if the box is left
                   alone, or offer to switch numbering on. Renders nothing while
                   the setting is still loading, so the form does not jump. */}
+              <FieldError id="sku-input-error">{fieldErrors.sku}</FieldError>
               <SkuAutoHint ownerId={workspaceOwnerId ?? undefined} />
             </div>
             <Field
@@ -907,8 +960,11 @@ export function FlipdeskIntakePage() {
               label="Purchase Price"
               value={form.purchase_price}
               onChange={(v) => patch("purchase_price", v)}
-              type="number"
+              inputMode="decimal"
+              prefix="$"
               placeholder="0.00"
+              inputRef={priceRef}
+              error={fieldErrors.price}
             />
             <Field
               label="Container / Bin"
@@ -1119,6 +1175,10 @@ function Field({
   placeholder,
   aiMarked = false,
   required = false,
+  inputRef,
+  error,
+  inputMode,
+  prefix,
 }: {
   label: string;
   value: string;
@@ -1126,6 +1186,12 @@ function Field({
   type?: "text" | "date" | "number";
   placeholder?: string;
   aiMarked?: boolean;
+  inputRef?: Ref<HTMLInputElement>;
+  /** Inline message under the field; also sets aria-invalid. */
+  error?: string;
+  inputMode?: "decimal" | "text";
+  /** A unit shown inside the box, e.g. "$". */
+  prefix?: string;
   /**
    * US-2546 AC5: sets the real `required` attribute rather than a "*" typed
    * into the label. An asterisk in label TEXT is announced as the word "star"
@@ -1150,15 +1216,31 @@ function Field({
         )}
         {aiMarked && <AiMark />}
       </Label>
-      <Input
-        id={id}
-        type={type}
-        value={value}
-        required={required}
-        aria-required={required || undefined}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-      />
+      <div className="relative">
+        {prefix && (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground"
+          >
+            {prefix}
+          </span>
+        )}
+        <Input
+          id={id}
+          ref={inputRef}
+          type={type}
+          inputMode={inputMode}
+          value={value}
+          required={required}
+          aria-required={required || undefined}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-error` : undefined}
+          className={prefix ? "pl-6" : undefined}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+        />
+      </div>
+      <FieldError id={`${id}-error`}>{error}</FieldError>
     </div>
   );
 }

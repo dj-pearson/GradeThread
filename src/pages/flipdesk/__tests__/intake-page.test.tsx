@@ -330,3 +330,55 @@ describe("a save on weak signal", () => {
     expect(ids[0]).not.toBe(ids[1]);
   });
 });
+
+describe("save errors in plain words", () => {
+  const raw = [
+    { code: "23505", message: 'duplicate key value violates unique constraint "idx_inventory_items_user_sku"' },
+    { code: "23514", message: 'new row violates check constraint "inventory_items_acquired_price_nonneg"' },
+  ];
+  for (const error of raw) {
+    it(`never shows the raw text for ${error.code}`, async () => {
+      insertChain(() => Promise.resolve({ data: null, error }));
+      await renderPage();
+      await typeTitle("Wool coat");
+      await typeInto(host.querySelector<HTMLInputElement>("#sku-input")!, "A1");
+      await click("Save & Add another");
+      const shown = JSON.stringify(mocks.toastError.mock.calls) + host.textContent;
+      expect(shown).not.toContain(error.message);
+      expect(shown).not.toContain("constraint");
+    });
+  }
+
+  it("says a SKU clash next to the SKU box and focuses it", async () => {
+    insertChain(() => Promise.resolve({ data: null, error: raw[0] }));
+    await renderPage();
+    await typeTitle("Wool coat");
+    const sku = host.querySelector<HTMLInputElement>("#sku-input")!;
+    await typeInto(sku, "A1");
+    await click("Save & Add another");
+    expect(host.textContent).toContain(
+      "You already have an item with SKU A1. Change it or leave it blank.",
+    );
+    expect(document.activeElement).toBe(sku);
+  });
+
+  it("refuses a bad price inline, focuses it, and does not save", async () => {
+    const insert = insertChain(() => Promise.resolve({ data: { id: "x" }, error: null }));
+    await renderPage();
+    await typeTitle("Wool coat");
+    const price = host.querySelector<HTMLInputElement>('input[placeholder="0.00"]')!;
+    await typeInto(price, "-5");
+    await click("Save & Add another");
+    expect(insert).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("Price can't be negative.");
+    expect(price.getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(price);
+  });
+
+  it("puts a missing title next to the Title box and focuses it", async () => {
+    await renderPage();
+    await click("Save & Add another");
+    expect(host.textContent).toContain("Add a title to save this item.");
+    expect(document.activeElement).toBe(titleInput());
+  });
+});
