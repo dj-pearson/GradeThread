@@ -34,6 +34,11 @@ import {
 import { toastError } from "@/lib/toast-error";
 import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
 import {
+  CONDITION_NOTE_MAX,
+  DESCRIPTION_TEMPLATE_MAX,
+  SPECIFIC_NAME_MAX,
+  SPECIFIC_VALUE_MAX,
+  SPECIFICS_MAX,
   TEMPLATES_QUERY_KEY,
   TEMPLATE_NAME_MAX,
   TemplateApiError,
@@ -44,8 +49,10 @@ import {
   nameProblem,
   normalizeInput,
   saveErrorNextStep,
+  specificRowProblems,
   updateTemplate,
 } from "@/lib/flipdesk-templates";
+import { cn } from "@/lib/utils";
 
 // The listing template editor, split out of the templates page so it can own
 // its own state (a keystroke no longer re-renders the whole list) and guard
@@ -126,6 +133,19 @@ function toInput(s: EditorState): TemplateInput {
     item_specifics,
     sort_order: s.sortOrder,
   };
+}
+
+/** "n / max", turning destructive in the last tenth before the cap. */
+function CharCount({ id, value, max }: { id: string; value: string; max: number }) {
+  const near = value.length >= max * 0.9;
+  return (
+    <p
+      id={id}
+      className={cn("text-right text-xs tabular-nums", near ? "text-destructive" : "text-muted-foreground")}
+    >
+      {value.length} / {max}
+    </p>
+  );
 }
 
 function staticConditionLabel(value: string): string {
@@ -293,12 +313,18 @@ export function TemplateEditorDialog({
     nameProblem(editor.name) ??
     duplicateNameProblem(editor.name, templates, editor.existing?.id ?? null);
   const showProblem = nameTouched && problem !== null;
+  const rowProblems = specificRowProblems(editor.specifics);
 
   function submit() {
     if (save.isPending) return;
     if (problem !== null) {
       setNameTouched(true);
       nameInput.current?.focus();
+      return;
+    }
+    if (rowProblems.size > 0) {
+      const first = editor.specifics.find((p) => rowProblems.has(p.key));
+      if (first) document.getElementById(`tpl-detail-${first.key}-name`)?.focus();
       return;
     }
     save.mutate(editor);
@@ -373,12 +399,19 @@ export function TemplateEditorDialog({
             <Textarea
               id="tpl-desc"
               rows={4}
+              maxLength={DESCRIPTION_TEMPLATE_MAX}
+              aria-describedby="tpl-desc-count"
               value={editor.descriptionTemplate}
               placeholder="e.g. Ships next business day. Smoke-free home. Bundle to save."
               onChange={(e) => {
                 const descriptionTemplate = e.target.value;
                 setEditor((s) => ({ ...s, descriptionTemplate }));
               }}
+            />
+            <CharCount
+              id="tpl-desc-count"
+              value={editor.descriptionTemplate}
+              max={DESCRIPTION_TEMPLATE_MAX}
             />
             <p className="text-sm text-muted-foreground">
               Added after the listing's own description. It never replaces
@@ -519,12 +552,19 @@ export function TemplateEditorDialog({
             <Textarea
               id="tpl-cond-note"
               rows={2}
+              maxLength={CONDITION_NOTE_MAX}
+              aria-describedby="tpl-cond-note-count"
               value={editor.conditionDescription}
               placeholder="Optional. e.g. Measured flat, see photos for wear."
               onChange={(e) => {
                 const conditionDescription = e.target.value;
                 setEditor((s) => ({ ...s, conditionDescription }));
               }}
+            />
+            <CharCount
+              id="tpl-cond-note-count"
+              value={editor.conditionDescription}
+              max={CONDITION_NOTE_MAX}
             />
           </div>
 
@@ -620,52 +660,72 @@ export function TemplateEditorDialog({
                 makes, like Brand or Country of manufacture.
               </p>
             </div>
-            {editor.specifics.map((p, i) => (
-              <div key={p.key} className="flex gap-2">
-                <Input
-                  aria-label={`Detail ${i + 1} name`}
-                  value={p.name}
-                  placeholder="Name"
-                  onChange={(e) => {
-                    const name = e.target.value;
-                    setEditor((s) => ({
-                      ...s,
-                      specifics: s.specifics.map((x) => (x.key === p.key ? { ...x, name } : x)),
-                    }));
-                  }}
-                />
-                <Input
-                  aria-label={`Detail ${i + 1} value`}
-                  value={p.value}
-                  placeholder="Value"
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setEditor((s) => ({
-                      ...s,
-                      specifics: s.specifics.map((x) => (x.key === p.key ? { ...x, value } : x)),
-                    }));
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Remove detail ${i + 1}`}
-                  onClick={() =>
-                    setEditor((s) => ({
-                      ...s,
-                      specifics: s.specifics.filter((x) => x.key !== p.key),
-                    }))
-                  }
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
+            {editor.specifics.map((p, i) => {
+              const rowProblem = rowProblems.get(p.key);
+              const errId = `tpl-detail-${p.key}-error`;
+              return (
+                <div key={p.key} className="space-y-1">
+                  <div className="flex gap-2">
+                    <Input
+                      id={`tpl-detail-${p.key}-name`}
+                      aria-label={`Detail ${i + 1} name`}
+                      aria-invalid={rowProblem ? true : undefined}
+                      aria-describedby={rowProblem ? errId : undefined}
+                      maxLength={SPECIFIC_NAME_MAX}
+                      value={p.name}
+                      placeholder="Name"
+                      onChange={(e) => {
+                        const name = e.target.value;
+                        setEditor((s) => ({
+                          ...s,
+                          specifics: s.specifics.map((x) => (x.key === p.key ? { ...x, name } : x)),
+                        }));
+                      }}
+                    />
+                    <Input
+                      aria-label={`Detail ${i + 1} value`}
+                      aria-invalid={rowProblem ? true : undefined}
+                      aria-describedby={rowProblem ? errId : undefined}
+                      maxLength={SPECIFIC_VALUE_MAX}
+                      value={p.value}
+                      placeholder="Value"
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setEditor((s) => ({
+                          ...s,
+                          specifics: s.specifics.map((x) => (x.key === p.key ? { ...x, value } : x)),
+                        }));
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Remove detail ${i + 1}`}
+                      onClick={() =>
+                        setEditor((s) => ({
+                          ...s,
+                          specifics: s.specifics.filter((x) => x.key !== p.key),
+                        }))
+                      }
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  {rowProblem && (
+                    <p id={errId} className="text-sm text-destructive">
+                      {rowProblem}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
             <Button
               type="button"
               variant="outline"
               size="sm"
+              // eBay takes at most SPECIFICS_MAX item specifics per listing.
+              disabled={editor.specifics.length >= SPECIFICS_MAX}
               onClick={() => setEditor((s) => ({ ...s, specifics: [...s.specifics, newPair()] }))}
             >
               <Plus className="mr-1.5 h-4 w-4" />

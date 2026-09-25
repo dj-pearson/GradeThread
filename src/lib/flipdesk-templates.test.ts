@@ -10,6 +10,7 @@ import {
   duplicateNameProblem,
   nextSortOrder,
   saveErrorNextStep,
+  specificRowProblems,
 } from "@/lib/flipdesk-templates";
 
 function reply(status: number, body: unknown) {
@@ -97,5 +98,22 @@ describe("duplicateNameProblem", () => {
     expect(duplicateNameProblem("Denim", list, "a")).toBeNull();
     expect(duplicateNameProblem("Shoes", list, null)).toBeNull();
     expect(duplicateNameProblem("   ", list, null)).toBeNull();
+  });
+});
+
+describe("specificRowProblems", () => {
+  it("flags half-filled rows and case-insensitive duplicate names, not blank rows", () => {
+    const p = specificRowProblems([
+      { key: "a", name: "Brand", value: "" },
+      { key: "b", name: "", value: "Levi's" },
+      { key: "c", name: "", value: "  " },
+      { key: "d", name: "Material", value: "Cotton" },
+      { key: "e", name: "material ", value: "Denim" },
+    ]);
+    expect(p.get("a")).toBe("Add a value or remove this row.");
+    expect(p.get("b")).toBe("Add a name or remove this row.");
+    expect(p.has("c")).toBe(false);
+    expect(p.has("d")).toBe(false);
+    expect(p.get("e")).toContain("already a detail above");
   });
 });

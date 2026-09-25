@@ -247,6 +247,36 @@ describe("TemplateEditorDialog", () => {
     expect(api.updateTemplate).toHaveBeenCalledTimes(1);
   });
 
+  it("counts the condition note up to eBay's cap", async () => {
+    await render();
+    await type(field("tpl-cond-note"), "x".repeat(1000));
+    const count = document.getElementById("tpl-cond-note-count")!;
+    expect(count.textContent).toBe("1000 / 1000");
+    expect(count.className).toContain("text-destructive");
+    expect(field("tpl-cond-note").getAttribute("maxlength")).toBe("1000");
+  });
+
+  it("a detail with a name and no value blocks Save with a message on the row", async () => {
+    await render();
+    await type(field("tpl-name"), "Shoes");
+    const add = [...document.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Add a detail"),
+    )!;
+    await act(async () => {
+      add.click();
+    });
+    const name = document.querySelector('[aria-label="Detail 1 name"]') as HTMLInputElement;
+    await type(name, "Brand");
+    expect(document.body.textContent).toContain("Add a value or remove this row.");
+    expect(name.getAttribute("aria-invalid")).toBe("true");
+    await act(async () => {
+      field("tpl-name").closest("form")!.requestSubmit();
+    });
+    await flush();
+    expect(api.createTemplate).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(name);
+  });
+
   describe("eBay pickers", () => {
     const POLICIES = {
       policies: [

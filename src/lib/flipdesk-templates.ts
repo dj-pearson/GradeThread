@@ -383,3 +383,39 @@ export async function addStarterTemplates(
   return result;
 }
 
+
+/**
+ * What is wrong with each item-details row, keyed by the row's key.
+ *
+ * A half-filled row used to vanish on save without a word, and two rows with
+ * the same name (in any case) collapsed into one. Both are now problems the
+ * editor shows on the row and blocks Save on. Fully blank rows are fine: they
+ * are dropped, which is what the seller expects of an empty line.
+ */
+export function specificRowProblems(
+  rows: ReadonlyArray<{ key: string; name: string; value: string }>,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  const seen = new Map<string, string>();
+  for (const r of rows) {
+    const name = r.name.trim();
+    const value = r.value.trim();
+    if (!name && !value) continue;
+    if (name && !value) {
+      out.set(r.key, "Add a value or remove this row.");
+      continue;
+    }
+    if (!name && value) {
+      out.set(r.key, "Add a name or remove this row.");
+      continue;
+    }
+    const k = name.toLowerCase();
+    const first = seen.get(k);
+    if (first !== undefined) {
+      out.set(r.key, `"${name}" is already a detail above. Use one row per name.`);
+    } else {
+      seen.set(k, r.key);
+    }
+  }
+  return out;
+}
