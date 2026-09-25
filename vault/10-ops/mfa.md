@@ -4,7 +4,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-09-25
 tags: [ops, security, mfa]
 summary: How admin step-up auth works and how to recover an operator.
 ---
@@ -29,6 +29,28 @@ Enrollment talks directly to Supabase/GoTrue (`supabase.auth.mfa.*`); it never
 goes through workspace-scoped edge routes, so a workspace MFA requirement can
 never lock a member out of *enrolling*.
 
+## Web sign-in asks for the code (US-3497)
+
+A user with a verified TOTP factor who signs in on the website with a password
+gets an AAL1 session. `ProtectedRoute` wraps every signed-in route in
+`MfaSignInGate` (`src/components/auth/mfa-sign-in-gate.tsx`), which reads
+`getAuthenticatorAssuranceLevel()` and holds the session on a code screen while
+`currentLevel` is `aal1` and `nextLevel` is `aal2`. The URL is not changed, so a
+deep link (`?next=`) is still where the user lands once the code is accepted.
+A user with no factor passes through with no extra screen; the level read is
+local to the session, so it costs no request. An unreadable level fails
+closed, with retry and sign-out.
+
+The same screen takes a recovery code (the lost-device path below), and
+sign-out is always on it.
+
+> [!warning] This is the SPA half only
+> The edge does not refuse an AAL1 token from a user who has a factor, except
+> in the admin area (`adminAuthMiddleware`) and inside a workspace whose owner
+> requires 2FA. Someone holding a stolen password can still mint an AAL1 token
+> against GoTrue and call ordinary edge routes directly. Closing that needs an
+> edge-side check and is not part of US-3497.
+
 ## Recovery codes
 
 - Minted by the edge service (`POST /api/account/mfa/recovery-codes`) from an
@@ -42,10 +64,12 @@ never lock a member out of *enrolling*.
 
 If a user loses their authenticator device:
 
-1. They sign in with **email + password** as usual. This yields an AAL1 session
-   — enough to reach Settings but not the MFA-gated areas.
-2. They call the recovery flow with one of their saved recovery codes:
-   `POST /api/account/mfa/recovery-codes/consume` with `{ "code": "XXXX-YYYY" }`.
+1. They sign in with **email + password** as usual. This yields an AAL1 session,
+   and on the web the code screen holds it there.
+2. On that screen they pick **Lost your device? Use a recovery code** and enter
+   one of their saved codes. The SPA calls
+   `POST /api/account/mfa/recovery-codes/consume` with `{ "code": "XXXX-YYYY" }`
+   and then refreshes the session so it stops listing the removed factor.
    - A valid, unused code is **burned** (marked used) and **all** of the user's
      TOTP factors are unenrolled server-side (`auth.admin.mfa.deleteFactor`).
 3. With the stale factor removed, the user is back to password-only and can
@@ -92,6 +116,7 @@ A workspace **owner** can require 2FA for members at or above a role threshold:
 | Concern | Location |
 |---|---|
 | Self-serve enroll + recovery UI | `src/components/settings/mfa-card.tsx` |
+| Web sign-in code screen | `src/components/auth/mfa-sign-in-gate.tsx` (in `protected-route.tsx`) |
 | Owner requirement UI | `src/pages/team.tsx` (`WorkspaceMfaPolicyCard`) |
 | Recovery code endpoints | `services/edge-functions/src/routes/account.ts` |
 | Recovery code crypto (pure) | `services/edge-functions/src/lib/recovery-codes.ts` |

@@ -42,6 +42,10 @@ import {
 // admin-only via AdminMfaGate). Enrollment goes client→Supabase
 // (supabase.auth.mfa.*); recovery codes are minted/consumed by the edge service
 // (/api/account/mfa/*), which stores only SHA-256 hashes.
+// US-3497: the description below says web sign-in asks for the code. That is
+// true because ProtectedRoute holds an AAL1 session with a verified factor on
+// MfaSignInGate; if that gate is ever removed, this copy has to change with it
+// (src/components/auth/__tests__/mfa-sign-in-gate.test.tsx pins both).
 
 type VerifiedFactor = { id: string };
 
@@ -238,7 +242,9 @@ export function MfaCard() {
         </CardTitle>
         <CardDescription>
           Add a one-time code from an authenticator app (Google Authenticator,
-          1Password, Authy, …) as a second factor when signing in. Strongly
+          1Password, Authy, …) as a second factor. Once it's on, the website
+          asks for a code every time you sign in with your password, and a
+          saved recovery code gets you in if you lose your device. Strongly
           recommended for accounts that manage inventory, sales, or a team.
         </CardDescription>
       </CardHeader>
