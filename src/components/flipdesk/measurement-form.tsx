@@ -185,11 +185,11 @@ export function MeasurementForm({
   // re-runs on each keystroke with no network call.
   const styleKey = (style ?? "").trim() || null;
   const { data: indexStats = NO_INDEX_STATS } = useQuery<IndexStatsResponse>({
-    queryKey: measurementStatsQueryKey(brandKey, styleKey, group, sizeKey, genderKey),
+    queryKey: measurementStatsQueryKey(brandKey, styleKey, group, sizeKey),
     enabled: !!user && !!brandKey && !!sizeKey,
     staleTime: 30 * 60 * 1000,
     queryFn: () =>
-      fetchMeasurementStats(brandKey, styleKey, group, sizeKey, genderKey),
+      fetchMeasurementStats(brandKey, styleKey, group, sizeKey),
   });
   const template = MEASUREMENT_TEMPLATES[group];
   // US-2335: the per-field <Label> was never linked to its input. useId rather
