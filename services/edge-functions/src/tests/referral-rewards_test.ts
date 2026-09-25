@@ -154,6 +154,7 @@ Deno.test("DEFAULT_REFERRAL_REWARD_CONFIG preserves the historical 5/3 split, no
     referred_credits: REFERRED_REWARD_CREDITS,
     qualification_window_days: 0,
     per_referrer_cap: 0,
+    redeem_window_days: 14,
   });
 });
 
@@ -171,12 +172,14 @@ Deno.test("normalizeReferralRewardConfig reads a full admin config verbatim", ()
       referred_credits: 6,
       qualification_window_days: 30,
       per_referrer_cap: 25,
+      redeem_window_days: 7,
     }),
     {
       referrer_credits: 10,
       referred_credits: 6,
       qualification_window_days: 30,
       per_referrer_cap: 25,
+      redeem_window_days: 7,
     },
   );
 });
@@ -201,6 +204,7 @@ Deno.test("normalizeReferralRewardConfig falls back per-field on a partial confi
     referred_credits: REFERRED_REWARD_CREDITS,
     qualification_window_days: 0,
     per_referrer_cap: 0,
+    redeem_window_days: 14,
   });
 });
 

@@ -13,8 +13,13 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   nextMilestone,
   REFERRAL_MILESTONES,
+  redeemRefusal,
+  type RedeemRefusal,
 } from "../lib/referral-rewards.ts";
-import { applyReferredSignupIncentive, getReferralRewardConfig } from "../lib/referrals.ts";
+import {
+  applyReferredSignupIncentive,
+  getReferralRewardConfig,
+} from "../lib/referrals.ts";
 import { certIdFromLandingPath, recordShareSignup } from "../lib/share-to-earn.ts";
 
 type Env = { Variables: { userId?: string } };
@@ -24,6 +29,14 @@ export const referralRoutes = new Hono<Env>();
 // Public leaderboard alias: shown on the opt-in top-referrers board. PII-free by
 // construction (no email/name unless the user types it here).
 const MAX_LEADERBOARD_NAME = 40;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const REDEEM_REFUSAL_COPY: Record<RedeemRefusal, string> = {
+  account_too_old: "Referral codes are for new accounts.",
+  already_paid: "Referral codes are for new accounts that haven't bought credits yet.",
+  circular_referral: "You referred this person, so you can't use their code.",
+};
 
 // Unambiguous alphabet (no 0/O, 1/I/L) for a human-shareable code.
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -329,7 +342,7 @@ referralRoutes.post("/redeem", async (c) => {
   const userId = c.get("userId");
   if (!userId) return c.json({ error: "Sign-in required" }, 401);
 
-  let body: { code?: unknown; source?: unknown };
+  let body: { code?: unknown; source?: unknown; click_id?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -341,16 +354,15 @@ referralRoutes.post("/redeem", async (c) => {
   // (it surfaces `error`), so this is purely additive.
   const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
   if (!code) return c.json({ error: "code is required", error_code: "missing_code" }, 400);
-  // US-603: attribution channel. Only 'affiliate' (a stored ?ref= captured off an
-  // earned link / "Graded by GradeThread" badge) is meaningful here; anything
-  // else is a manually-typed code → 'direct'.
-  const attributionSource = body.source === "affiliate" ? "affiliate" : "direct";
+  const clickId = typeof body.click_id === "string" && UUID_RE.test(body.click_id)
+    ? body.click_id
+    : null;
 
   // US-802: a suspended/deleted account must not accrue referral attribution
   // (which would later trigger a reward grant). Reject before inserting.
   const { data: me } = await supabaseAdmin
     .from("users")
-    .select("suspended")
+    .select("suspended, created_at")
     .eq("id", userId)
     .maybeSingle();
   if (!me) return c.json({ error: "Account not found.", error_code: "account_not_found" }, 404);
@@ -382,6 +394,67 @@ referralRoutes.post("/redeem", async (c) => {
     return c.json({ error: "You can't redeem your own referral code.", error_code: "self_referral" }, 400);
   }
 
+  // Abuse guards: an old account, a paying customer, or the second half of an
+  // A-refers-B-refers-A pair gets no signup incentive.
+  const rewardConfig = await getReferralRewardConfig();
+  const [{ data: paidRows }, { data: reverseRows }] = await Promise.all([
+    supabaseAdmin
+      .from("grade_credit_transactions")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("reason", "pack_purchase")
+      .limit(1),
+    supabaseAdmin
+      .from("referral_events")
+      .select("id")
+      .eq("referrer_user_id", userId)
+      .eq("referred_user_id", owner.user_id)
+      .limit(1),
+  ]);
+  const refusal = redeemRefusal({
+    accountCreatedAt: (me as { created_at?: string | null }).created_at,
+    nowMs: Date.now(),
+    windowDays: rewardConfig.redeem_window_days,
+    hasPaidPurchase: (paidRows ?? []).length > 0,
+    circular: (reverseRows ?? []).length > 0,
+  });
+  if (refusal) {
+    return c.json({ error: REDEEM_REFUSAL_COPY[refusal], error_code: refusal }, 400);
+  }
+
+  // US-603: attribution channel. 'affiliate' is the cash switch, so the
+  // client's word is not enough: it needs a logged click on this code. The
+  // visitor's own click (click_id from POST /api/affiliate/click) is preferred;
+  // any earlier click on the code still attributes the channel but pays no
+  // share reward, since we cannot tell which cert they landed on.
+  let click: { id: string; landing_path: string | null } | null = null;
+  let attributionSource: "affiliate" | "direct" = "direct";
+  if (body.source === "affiliate") {
+    const nowIso = new Date().toISOString();
+    if (clickId) {
+      const { data } = await supabaseAdmin
+        .from("affiliate_clicks")
+        .select("id, landing_path")
+        .eq("id", clickId)
+        .eq("code", code)
+        .is("converted_user_id", null)
+        .lt("created_at", nowIso)
+        .maybeSingle();
+      click = (data as { id: string; landing_path: string | null } | null) ?? null;
+    }
+    if (click) {
+      attributionSource = "affiliate";
+    } else {
+      const { data: anyClick } = await supabaseAdmin
+        .from("affiliate_clicks")
+        .select("id")
+        .eq("code", code)
+        .lt("created_at", nowIso)
+        .limit(1);
+      if ((anyClick ?? []).length > 0) attributionSource = "affiliate";
+    }
+  }
+
   const { data: inserted, error } = await supabaseAdmin
     .from("referral_events")
     .insert({
@@ -408,40 +481,31 @@ referralRoutes.post("/redeem", async (c) => {
   // Idempotent + abuse-guarded (one referral_event per user); best-effort so a
   // hiccup here never fails the redemption itself.
   const eventId = (inserted as { id?: string } | null)?.id;
-  if (eventId) await applyReferredSignupIncentive(eventId, userId);
+  const credits = eventId ? await applyReferredSignupIncentive(eventId, userId) : 0;
 
-  // US-603: best-effort close the loop on click attribution — stamp the most
-  // recent un-converted click for this code with the converting user, so the
-  // affiliate's click→conversion rate is real. Never blocks the redemption.
-  if (attributionSource === "affiliate") {
-    const { data: click } = await supabaseAdmin
+  // US-603: close the loop on click attribution. Only the visitor's OWN click
+  // (the click_id their browser got back from /click) is stamped, and only if
+  // nobody converted it first. Stamping "the newest click on the code" paid the
+  // cert share reward for whichever cert a stranger happened to open last.
+  if (click) {
+    const { data: stamped } = await supabaseAdmin
       .from("affiliate_clicks")
-      .select("id, landing_path")
+      .update({ converted_user_id: userId })
+      .eq("id", click.id)
       .eq("code", code)
       .is("converted_user_id", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const converted = click as { id?: string; landing_path?: string | null } | null;
-    if (converted?.id) {
-      await supabaseAdmin
-        .from("affiliate_clicks")
-        .update({ converted_user_id: userId })
-        .eq("id", converted.id);
+      .select("id");
 
-      // US-1854: a signup is the strongest thing a shared find can produce, so
-      // it pays the top rung of the share ladder outright. The click's
-      // landing_path is the ONLY record of which find brought this person in —
-      // the referral event knows who referred them, not what they clicked. The
-      // referrer is the code's owner, resolved above; nothing here trusts the
-      // signing-up user's input. Best-effort: a reward problem must never fail a
-      // redemption that already landed.
-      const certId = certIdFromLandingPath(converted.landing_path);
-      if (certId) {
-        await recordShareSignup(owner.user_id, "cert", certId);
-      }
+    // US-1854: a signup is the strongest thing a shared find can produce, so
+    // it pays the top rung of the share ladder outright. The click's
+    // landing_path is the ONLY record of which find brought this person in.
+    // The referrer is the code's owner, resolved above. Best-effort: a reward
+    // problem must never fail a redemption that already landed.
+    const certId = (stamped ?? []).length > 0 ? certIdFromLandingPath(click.landing_path) : null;
+    if (certId) {
+      await recordShareSignup(owner.user_id, "cert", certId);
     }
   }
 
-  return c.json({ ok: true });
+  return c.json({ ok: true, credits });
 });

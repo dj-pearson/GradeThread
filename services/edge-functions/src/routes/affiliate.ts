@@ -41,7 +41,17 @@ function siteUrl(): string {
   return Deno.env.get("SITE_URL") || "https://gradethread.com";
 }
 
-const VALID_SOURCES = new Set(["badge", "link", "certificate"]);
+const VALID_SOURCES = new Set([
+  "badge",
+  "link",
+  "certificate",
+  "copy",
+  "x",
+  "facebook",
+  "whatsapp",
+  "email",
+  "qr",
+]);
 
 // Trim to keep the row small and avoid storing oversized attacker-controlled
 // strings. Paths/hosts are diagnostics only.
@@ -76,14 +86,21 @@ affiliateRoutes.post("/click", async (c) => {
     .maybeSingle();
   if (!owner) return c.json({ ok: true });
 
-  await supabaseAdmin.from("affiliate_clicks").insert({
-    code,
-    source,
-    landing_path: clip(body.path, 512),
-    referrer_host: clip(body.referrer, 255),
-  });
+  // The click id goes back to THIS visitor's browser, so a later redeem stamps
+  // their own click rather than whichever click on the code came last.
+  const { data: inserted } = await supabaseAdmin
+    .from("affiliate_clicks")
+    .insert({
+      code,
+      source,
+      landing_path: clip(body.path, 512),
+      referrer_host: clip(body.referrer, 255),
+    })
+    .select("id")
+    .single();
+  const clickId = (inserted as { id?: string } | null)?.id;
 
-  return c.json({ ok: true });
+  return c.json(clickId ? { ok: true, click_id: clickId } : { ok: true });
 });
 
 // AUTHED — the caller's earned-link code + funnel. Strictly scoped to the

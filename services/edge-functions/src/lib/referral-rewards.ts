@@ -35,6 +35,10 @@ export interface ReferralRewardConfig {
   // Max number of granted referrals a single referrer earns rewards for; once
   // hit, further referrals qualify but pay no reward. 0 = unlimited.
   per_referrer_cap: number;
+  // A referral code can only be redeemed by an account younger than this many
+  // days. Stops an established account from claiming the signup incentive by
+  // typing a friend's code months later. 0 = no limit.
+  redeem_window_days: number;
 }
 
 export const REFERRAL_REWARD_CONFIG_SETTING_KEY = "referral.reward_config";
@@ -45,6 +49,7 @@ export const DEFAULT_REFERRAL_REWARD_CONFIG: ReferralRewardConfig = {
   referred_credits: REFERRED_REWARD_CREDITS,
   qualification_window_days: 0,
   per_referrer_cap: 0,
+  redeem_window_days: 14,
 };
 
 // Coerce one untrusted non-negative-integer field: an ABSENT field falls back to
@@ -78,7 +83,42 @@ export function normalizeReferralRewardConfig(raw: unknown): ReferralRewardConfi
       r.per_referrer_cap,
       DEFAULT_REFERRAL_REWARD_CONFIG.per_referrer_cap,
     ),
+    redeem_window_days: coerceNonNegInt(
+      r.redeem_window_days,
+      DEFAULT_REFERRAL_REWARD_CONFIG.redeem_window_days,
+    ),
   };
+}
+
+export type RedeemRefusal = "account_too_old" | "already_paid" | "circular_referral";
+
+/**
+ * Why a referral code may not be redeemed by this caller, or null when it may.
+ * Pure. The route reads the facts; this decides.
+ *
+ * - account_too_old: the account is older than redeem_window_days. A referral
+ *   is for a NEW account; an old one typing a code is buying the signup bonus.
+ * - already_paid: the caller has already bought credits, so the referral did
+ *   not bring them in.
+ * - circular_referral: the code's owner was referred by the caller. A-refers-B
+ *   then B-refers-A pays both sides twice for one pair of accounts.
+ */
+export function redeemRefusal(args: {
+  accountCreatedAt: string | null | undefined;
+  nowMs: number;
+  windowDays: number;
+  hasPaidPurchase: boolean;
+  circular: boolean;
+}): RedeemRefusal | null {
+  if (args.windowDays > 0 && args.accountCreatedAt) {
+    const created = Date.parse(args.accountCreatedAt);
+    if (Number.isFinite(created) && args.nowMs - created > args.windowDays * 86_400_000) {
+      return "account_too_old";
+    }
+  }
+  if (args.hasPaidPurchase) return "already_paid";
+  if (args.circular) return "circular_referral";
+  return null;
 }
 
 // US-1071: tiered/milestone rewards. A referrer earns these one-time BONUS

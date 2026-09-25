@@ -346,11 +346,11 @@ export async function getReferredSignupIncentive(): Promise<ReferredSignupIncent
 export async function applyReferredSignupIncentive(
   eventId: string,
   referredUserId: string,
-): Promise<void> {
+): Promise<number> {
   try {
     const incentive = await getReferredSignupIncentive();
-    if (!incentive.enabled) return;
-    if (incentive.bonus_credits <= 0 && !incentive.free_month_coupon_id) return;
+    if (!incentive.enabled) return 0;
+    if (incentive.bonus_credits <= 0 && !incentive.free_month_coupon_id) return 0;
 
     // CLAIM: stamp the event row only if no incentive was applied yet. The
     // .is("signup_incentive_applied_at", null) guard makes the claim atomic.
@@ -367,11 +367,11 @@ export async function applyReferredSignupIncentive(
       .select("id");
     if (claimErr) {
       console.error("[referrals] signup-incentive claim failed:", claimErr.message);
-      return;
+      return 0;
     }
     if (!claimed || claimed.length === 0) {
       // Already applied by a prior call — nothing to do.
-      return;
+      return 0;
     }
 
     // Free-month coupon: stash it for the next subscription checkout to consume.
@@ -405,7 +405,7 @@ export async function applyReferredSignupIncentive(
             signup_incentive_coupon: null,
           })
           .eq("id", eventId);
-        return;
+        return 0;
       }
 
       await notifyUser(referredUserId, {
@@ -416,11 +416,13 @@ export async function applyReferredSignupIncentive(
         link: "/dashboard/billing",
       }).catch(() => {});
     }
+    return incentive.bonus_credits;
   } catch (err) {
     console.error(
       "[referrals] signup-incentive apply threw:",
       err instanceof Error ? err.message : err,
     );
+    return 0;
   }
 }
 

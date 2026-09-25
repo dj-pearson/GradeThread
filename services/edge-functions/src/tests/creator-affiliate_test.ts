@@ -147,3 +147,22 @@ Deno.test("taxProfileProblem: names the field that is missing", () => {
   assertEquals(taxProfileProblem({ ...FULL_TAX, postal_code: "50309-1234" }), null);
   assertEquals(taxProfileProblem({ ...FULL_TAX, postal_code: "503091234" }), null);
 });
+
+Deno.test("POST /click: returns the new click's id, and no id for an unknown code", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset({ referral_codes: [{ id: "rc", user_id: ME, code: "ABCD2345" }], affiliate_clicks: [] });
+    const res = await post("/click", { code: "abcd2345", source: "whatsapp", path: "/" });
+    assertEquals(res.status, 200);
+    const body = await res.json();
+    assertEquals(body.ok, true);
+    assertEquals(body.click_id, db.tables.affiliate_clicks[0].id);
+    assertEquals(db.tables.affiliate_clicks[0].source, "whatsapp");
+
+    const unknown = await post("/click", { code: "NOPE2345" });
+    assertEquals(await unknown.json(), { ok: true });
+    assertEquals(db.tables.affiliate_clicks.length, 1);
+  } finally {
+    db.restore();
+  }
+});
