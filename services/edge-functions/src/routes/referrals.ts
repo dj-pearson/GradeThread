@@ -24,14 +24,11 @@ import {
   getReferredSignupIncentive,
 } from "../lib/referrals.ts";
 import { certIdFromLandingPath, recordShareSignup } from "../lib/share-to-earn.ts";
+import { validateAlias } from "../lib/leaderboards.ts";
 
 type Env = { Variables: { userId?: string } };
 
 export const referralRoutes = new Hono<Env>();
-
-// Public leaderboard alias: shown on the opt-in top-referrers board. PII-free by
-// construction (no email/name unless the user types it here).
-const MAX_LEADERBOARD_NAME = 40;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -330,8 +327,11 @@ referralRoutes.put("/leaderboard", async (c) => {
 
   let nextName: string | null | undefined;
   if (body.display_name !== undefined) {
-    const dn = typeof body.display_name === "string" ? body.display_name.trim() : "";
-    nextName = dn ? dn.slice(0, MAX_LEADERBOARD_NAME) : null;
+    // The same alias rules as the rewards boards: no reserved words that pass
+    // as the platform, no hidden or bidi characters on an indexable page.
+    const v = validateAlias(body.display_name);
+    if (!v.ok) return c.json({ error: v.error }, 400);
+    nextName = v.alias;
     update.referral_display_name = nextName;
   }
 

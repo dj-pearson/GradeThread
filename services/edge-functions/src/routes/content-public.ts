@@ -85,7 +85,7 @@ import {
   isCardFrameKey,
 } from "../lib/cert-og-template.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
-import { rankReferrers } from "../lib/referral-rewards.ts";
+import { rankReferrers, referrerTotals } from "../lib/referral-rewards.ts";
 import { isBadgeTargetType, recordBadgeClick } from "../lib/badge-analytics.ts";
 import { visitorFingerprint } from "../lib/share-to-earn.ts";
 import { clientIp } from "../middleware/rate-limit.ts";
@@ -117,8 +117,11 @@ import {
   type LeaderboardMetric,
   type LeaderboardMetricKey,
   leaderboardPath,
+  chunk,
+  COHORT_IN_CHUNK,
   parseLeaderboardQuery,
   rankLeaderboard,
+  validateAlias,
 } from "../lib/leaderboards.ts";
 import { boardWindow, loadBoard, loadCohort } from "../lib/leaderboards-data.ts";
 import { loadSeasonTimezone } from "../lib/rewards-seasons.ts";
@@ -2812,6 +2815,8 @@ contentPublicRoutes.get("/sellers/:handle", async (c) => {
 // it ever grows large this should move to a DB-side aggregate (materialized
 // view / RPC).
 const DIRECTORY_STATS_SAMPLE = 50000;
+// Opted-in referrers read for the referral board.
+const REFERRAL_BOARD_USER_CAP = 5000;
 
 // ── GET /sellers.json ─────────────────────────────────────────────
 // Compact list of public seller handles for the sitemap (verified profiles are
@@ -2900,8 +2905,10 @@ contentPublicRoutes.get("/referral-leaderboard.json", async (c) => {
     .select("id, referral_display_name, verified_handle, verified_enabled")
     .eq("referral_leaderboard_enabled", true)
     .not("referral_display_name", "is", null)
-    .limit(5000);
+    .order("id", { ascending: true })
+    .limit(REFERRAL_BOARD_USER_CAP);
   if (error) return publicError(c, error, "leaderboard-users");
+  warnIfCapped("referral-leaderboard users", (optedIn ?? []).length, REFERRAL_BOARD_USER_CAP);
 
   const users = (optedIn ?? []) as Array<{
     id: string;
@@ -2911,38 +2918,45 @@ contentPublicRoutes.get("/referral-leaderboard.json", async (c) => {
     verified_handle: string | null;
     verified_enabled: boolean | null;
   }>;
+  c.header("Cache-Control", "public, max-age=300");
   if (users.length === 0) return c.json({ referrers: [] });
 
-  const ids = users.map((u) => u.id);
-  // Count granted (rewarded) referrals per opted-in referrer.
-  const { data: grantedRows, error: gErr } = await supabaseAdmin
-    .from("referral_events")
-    .select("referrer_user_id")
-    .in("referrer_user_id", ids)
-    .eq("reward_status", "granted")
-    .limit(DIRECTORY_STATS_SAMPLE);
-  if (gErr) return publicError(c, gErr, "leaderboard-counts");
+  // Rewarded referrals and the credits they actually paid, per opted-in
+  // referrer. The id list is chunked: one .in() with a few hundred uuids is a
+  // URL Kong answers with 414, which is how the sibling boards broke.
+  const granted: Array<{ referrer_user_id: string; referrer_reward_credits: number | null }> = [];
+  for (const ids of chunk(users.map((u) => u.id), COHORT_IN_CHUNK)) {
+    const { data: rows, error: gErr } = await supabaseAdmin
+      .from("referral_events")
+      .select("referrer_user_id, referrer_reward_credits")
+      .in("referrer_user_id", ids)
+      .eq("reward_status", "granted")
+      .limit(DIRECTORY_STATS_SAMPLE);
+    if (gErr) return publicError(c, gErr, "leaderboard-counts");
+    warnIfCapped("referral-leaderboard counts", (rows ?? []).length, DIRECTORY_STATS_SAMPLE);
+    granted.push(...((rows ?? []) as typeof granted));
+  }
 
-  const countById = new Map<string, number>();
-  for (const r of (grantedRows ?? []) as Array<{ referrer_user_id: string }>) {
-    countById.set(r.referrer_user_id, (countById.get(r.referrer_user_id) ?? 0) + 1);
+  // Aliases pass the same rules as the rewards boards. A stored name that
+  // fails them (reserved words, hidden or bidi characters) is not published.
+  const eligible: Array<{ id: string; display_name: string; verified_handle: string | null }> = [];
+  for (const u of users) {
+    const v = validateAlias(u.referral_display_name);
+    if (!v.ok || !v.alias) continue;
+    eligible.push({
+      id: u.id,
+      display_name: v.alias,
+      // Link only publicly-verified sellers; others stay alias-only (privacy).
+      verified_handle: u.verified_enabled ? u.verified_handle : null,
+    });
   }
 
   // A leaderboard of zero-referral aliases isn't a leaderboard — rankReferrers
-  // ranks by granted count desc, drops zero-referral rows, and caps the list.
-  const referrers = rankReferrers(
-    users.map((u) => ({
-      id: u.id,
-      display_name: u.referral_display_name as string,
-      // Link only publicly-verified sellers; others stay alias-only (privacy).
-      verified_handle: u.verified_enabled ? u.verified_handle : null,
-    })),
-    countById,
-  );
+  // drops zero-referral rows, ranks with shared ranks for ties, and caps.
+  const referrers = rankReferrers(eligible, referrerTotals(granted));
 
   return c.json({ referrers });
 });
-
 
 // ── GET /buyer-profile/:handle ────────────────────────────────────
 // US-1818: the PUBLIC, opt-in buyer Trust Score profile. Hard-filters to

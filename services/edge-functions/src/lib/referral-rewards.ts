@@ -217,6 +217,10 @@ export function normalizeReferredSignupIncentive(raw: unknown): ReferredSignupIn
 }
 
 export interface ReferrerLeaderboardRow {
+  /** Standard competition rank: tied sellers share it and the next one skips. */
+  rank: number;
+  /** True when another listed seller holds the same rank. */
+  tied: boolean;
   display_name: string;
   referrals: number;
   credits_earned: number;
@@ -226,28 +230,100 @@ export interface ReferrerLeaderboardRow {
   verified_handle?: string | null;
 }
 
-// Pure ranking for the public top-referrers leaderboard (US-864). Takes the
-// opted-in users (alias only — no PII) and a map of referrer-id → granted
-// referral count, and returns the board: rows with at least one rewarded
-// referral, ranked by count desc, capped. Unit-tested.
-export function rankReferrers(
+/** One referrer's rewarded referrals and the credits those actually paid. */
+export interface ReferrerTotals {
+  referrals: number;
+  credits: number;
+}
+
+interface RankedReferrer extends ReferrerLeaderboardRow {
+  userId: string;
+}
+
+// The full ranked set, user ids still attached. Internal: the public board
+// strips the id, and /me uses it to find the caller's own rank.
+function rankAllReferrers(
   users: Array<{ id: string; display_name: string; verified_handle?: string | null }>,
-  grantedCounts: Map<string, number>,
-  limit = 100,
-): ReferrerLeaderboardRow[] {
-  return users
+  totals: Map<string, ReferrerTotals>,
+): RankedReferrer[] {
+  const sorted = users
     .map((u) => {
-      const referrals = grantedCounts.get(u.id) ?? 0;
+      const t = totals.get(u.id);
       return {
+        userId: u.id,
         display_name: u.display_name,
-        referrals,
-        credits_earned: referrals * REFERRER_REWARD_CREDITS,
-        ...(u.verified_handle ? { verified_handle: u.verified_handle } : {}),
+        referrals: t?.referrals ?? 0,
+        credits_earned: t?.credits ?? 0,
+        verified_handle: u.verified_handle ?? null,
       };
     })
     .filter((r) => r.referrals > 0)
-    .sort((a, b) => b.referrals - a.referrals)
-    .slice(0, limit);
+    .sort((a, b) =>
+      b.referrals - a.referrals ||
+      b.credits_earned - a.credits_earned ||
+      (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0)
+    );
+
+  const out: RankedReferrer[] = [];
+  let rank = 0;
+  for (let i = 0; i < sorted.length; i++) {
+    const r = sorted[i]!;
+    const prev = sorted[i - 1];
+    if (!prev || prev.referrals !== r.referrals || prev.credits_earned !== r.credits_earned) {
+      rank = i + 1;
+    }
+    const { verified_handle, ...rest } = r;
+    out.push({
+      ...rest,
+      rank,
+      tied: false,
+      ...(verified_handle ? { verified_handle } : {}),
+    });
+  }
+  const perRank = new Map<number, number>();
+  for (const r of out) perRank.set(r.rank, (perRank.get(r.rank) ?? 0) + 1);
+  for (const r of out) r.tied = (perRank.get(r.rank) ?? 0) > 1;
+  return out;
+}
+
+// Pure ranking for the public top-referrers leaderboard (US-864). Takes the
+// opted-in users (alias only — no PII) and each referrer's rewarded referrals
+// plus the credits those grants really paid, and returns the board: rows with
+// at least one rewarded referral, ranked by referrals, then credits, then user
+// id (so two reads never disagree), with shared ranks for true ties, capped.
+export function rankReferrers(
+  users: Array<{ id: string; display_name: string; verified_handle?: string | null }>,
+  totals: Map<string, ReferrerTotals>,
+  limit = 100,
+): ReferrerLeaderboardRow[] {
+  return rankAllReferrers(users, totals)
+    .slice(0, limit)
+    .map(({ userId: _id, ...row }) => row);
+}
+
+/** The caller's rank over the FULL board, or null when they are not on it. */
+export function referrerRank(
+  users: Array<{ id: string; display_name: string }>,
+  totals: Map<string, ReferrerTotals>,
+  viewerId: string,
+): { rank: number; tied: boolean } | null {
+  const me = rankAllReferrers(users, totals).find((r) => r.userId === viewerId);
+  return me ? { rank: me.rank, tied: me.tied } : null;
+}
+
+/** Sum rewarded referrals and their stored credits per referrer. Pure. */
+export function referrerTotals(
+  rows: ReadonlyArray<{ referrer_user_id: string; referrer_reward_credits: number | null }>,
+): Map<string, ReferrerTotals> {
+  const out = new Map<string, ReferrerTotals>();
+  for (const r of rows) {
+    const t = out.get(r.referrer_user_id) ?? { referrals: 0, credits: 0 };
+    t.referrals += 1;
+    const c = r.referrer_reward_credits;
+    t.credits += typeof c === "number" && Number.isFinite(c) ? Math.max(0, c) : REFERRER_REWARD_CREDITS;
+    out.set(r.referrer_user_id, t);
+  }
+  return out;
 }
 
 // ── What a referrer's rows actually mean ────────────────────────────────────
