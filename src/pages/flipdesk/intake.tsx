@@ -115,11 +115,24 @@ const AI_FILLABLE_FIELDS = [
   "color",
   "material",
   "item_category",
+  "description",
   "condition_notes",
 ] as const;
 
+// Not form fields, but saved from the accepted suggestion (US-1423 grading
+// needs them). Only what the seller left switched on is used.
+const AI_GARMENT_FIELDS = ["garment_type", "garment_category"] as const;
+type AiGarment = { garment_type: string | null; garment_category: string | null };
+const NO_AI_GARMENT: AiGarment = { garment_type: null, garment_category: null };
+
+// What the review panel may offer: exactly what applyAiFields writes.
+const AI_APPLICABLE_FIELDS: readonly string[] = [...AI_FILLABLE_FIELDS, ...AI_GARMENT_FIELDS];
+
 const AI_FIELD_LABELS: Record<string, string> = {
   item_category: "Category",
+  description: "Description",
+  garment_type: "Garment type",
+  garment_category: "Garment category",
   condition_notes: "Internal notes",
 };
 
@@ -249,6 +262,7 @@ export function FlipdeskIntakePage() {
   const aiExtractRuns = useLatestRun();
   const [aiResult, setAiResult] = useState<AiExtractResponse | null>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiGarment, setAiGarment] = useState<AiGarment>(NO_AI_GARMENT);
   // SNAP-13: the snap's condition note is AI-derived and marked as such.
   const [aiFields, setAiFields] = useState<Set<string>>(
     () => new Set(snapIntake?.conditionNote ? ["condition_notes"] : []),
@@ -398,33 +412,40 @@ export function FlipdeskIntakePage() {
   }
 
   function applyAiFields(accepted: AcceptedField[]) {
+    const fillable = accepted.filter((a) =>
+      (AI_FILLABLE_FIELDS as readonly string[]).includes(a.field),
+    );
+    const garment = accepted.filter((a) =>
+      (AI_GARMENT_FIELDS as readonly string[]).includes(a.field),
+    );
     setForm((f) => {
       const next = { ...f } as unknown as Record<string, unknown>;
-      for (const a of accepted) {
-        if ((AI_FILLABLE_FIELDS as readonly string[]).includes(a.field)) {
-          next[a.field] = a.value;
-        }
-      }
+      for (const a of fillable) next[a.field] = a.value;
       return next as unknown as FormState;
     });
+    if (garment.length > 0) {
+      setAiGarment((prev) => {
+        const next = { ...prev };
+        for (const a of garment) next[a.field as keyof AiGarment] = a.value;
+        return next;
+      });
+    }
     setAiFields((prev) => {
       const next = new Set(prev);
-      for (const a of accepted) next.add(a.field);
+      for (const a of fillable) next.add(a.field);
       return next;
     });
     setAiMeta((prev) => {
       const next = { ...prev };
-      for (const a of accepted) {
+      for (const a of fillable) {
         next[a.field] = { source: a.source, confidence: a.confidence };
       }
       return next;
     });
-    if (accepted.length > 0) {
-      toast.success(
-        `Applied ${accepted.length} AI suggestion${
-          accepted.length === 1 ? "" : "s"
-        }.`
-      );
+    // Count what was written, not what the panel returned.
+    const written = fillable.length + garment.length;
+    if (written > 0) {
+      toast.success(`Applied ${written} AI suggestion${written === 1 ? "" : "s"}.`);
     }
   }
 
@@ -436,7 +457,10 @@ export function FlipdeskIntakePage() {
     color: form.color,
     material: form.material,
     item_category: form.item_category,
+    description: form.description,
     condition_notes: form.condition_notes,
+    garment_type: aiGarment.garment_type ?? "",
+    garment_category: aiGarment.garment_category ?? "",
   };
 
   // Reset to add another, keeping source + container + sourced_by (the common
@@ -458,6 +482,7 @@ export function FlipdeskIntakePage() {
     aiExtractRuns.supersede();
     lookupRuns.supersede();
     setAiResult(null);
+    setAiGarment(NO_AI_GARMENT);
     setStagedPhotos([]);
     setMeasurements({});
     setSnapCarry(null);
@@ -509,13 +534,12 @@ export function FlipdeskIntakePage() {
           sourceId,
           aiFields,
           aiMeta,
+          // Only what the seller accepted in the review panel; a suggestion
+          // switched off there must not reach the row.
           aiGarment: {
-            garment_type:
-              aiResult?.suggestions?.garment_type?.value ?? snapCarry?.garment.garment_type ?? null,
+            garment_type: aiGarment.garment_type ?? snapCarry?.garment.garment_type ?? null,
             garment_category:
-              aiResult?.suggestions?.garment_category?.value ??
-              snapCarry?.garment.garment_category ??
-              null,
+              aiGarment.garment_category ?? snapCarry?.garment.garment_category ?? null,
           },
           measurements,
           targetPrice: snapCarry?.targetPrice ?? null,
@@ -1018,7 +1042,10 @@ export function FlipdeskIntakePage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-1">
-            <Label htmlFor="i-description-public-for-listing">Description (public — for listing)</Label>
+            <Label htmlFor="i-description-public-for-listing">
+              Description (public, for listing)
+              {aiFields.has("description") && <AiMark />}
+            </Label>
             <Textarea id="i-description-public-for-listing"
               value={form.description}
               onChange={(e) => patch("description", e.target.value)}
@@ -1134,6 +1161,7 @@ export function FlipdeskIntakePage() {
         result={aiResult}
         currentValues={aiCurrentValues}
         fieldLabels={AI_FIELD_LABELS}
+        applicableFields={AI_APPLICABLE_FIELDS}
         onApply={applyAiFields}
       />
 

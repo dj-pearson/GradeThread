@@ -438,3 +438,35 @@ describe("barcode lookup", () => {
     expect(host.querySelector<HTMLInputElement>("#sku-input")!.value).toBe("ABC-123");
   });
 });
+
+describe("AI review panel on intake", () => {
+  it("writes an accepted description and does not save a garment_type left off", async () => {
+    const insert = insertChain(() => Promise.resolve({ data: { id: "x" }, error: null }));
+    mocks.extract.mockResolvedValue({
+      suggestions: {
+        description: { value: "Soft wool coat.", confidence: 0.9, source: "text" },
+        garment_type: { value: "dress", confidence: 0.9, source: "text" },
+      },
+      conflicts: [],
+    });
+    await renderPage();
+    await typeTitle("Wool coat");
+    await click("AI Fill");
+    const props = mocks.aiPanelProps!;
+    expect(props.applicableFields).toContain("description");
+    expect(props.applicableFields).toContain("garment_type");
+    await act(async () => {
+      (props.onApply as (a: unknown[]) => void)([
+        { field: "description", value: "Soft wool coat.", source: "text", confidence: 0.9 },
+      ]);
+    });
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Applied 1 AI suggestion.");
+    const desc = host.querySelector<HTMLTextAreaElement>("#i-description-public-for-listing")!;
+    expect(desc.value).toBe("Soft wool coat.");
+
+    await click("Save & Add another");
+    const row = insert.mock.calls[0]![0] as { description: string; garment_type: string | null };
+    expect(row.description).toBe("Soft wool coat.");
+    expect(row.garment_type).not.toBe("dress");
+  });
+});

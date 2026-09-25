@@ -91,6 +91,10 @@ export interface AiExtractInput {
 
 interface ApiError extends Error {
   status?: number;
+  /** From the error body. 0 on a 429 means the monthly quota is spent. */
+  actions_remaining?: number;
+  /** Seconds, from a Retry-After header, when the server sent one. */
+  retryAfter?: number;
 }
 
 async function authHeader(): Promise<string> {
@@ -147,13 +151,20 @@ export async function recordAiAcceptance(
   }
 }
 
-function aiErrorToast(err: ApiError): void {
+export function aiErrorToast(err: ApiError): void {
   if (err.status === 403) {
     toastError(err, "AI enrichment is switched off for this account.", {
       nextStep: "Turn it back on in Settings.",
     });
   } else if (err.status === 429) {
-    toastError(err, "Monthly AI limit reached.");
+    // Two different 429s: the monthly quota (actions_remaining 0) and the
+    // per-minute rate limiter. Only the first is a monthly limit.
+    if (err.actions_remaining === 0) {
+      toastError(err, "Monthly AI limit reached.");
+    } else {
+      const wait = err.retryAfter && err.retryAfter > 0 ? `${err.retryAfter} seconds` : "a minute";
+      toast.error(`Too many AI requests. Try again in ${wait}.`);
+    }
   } else if (err.status === 402) {
     // The plan gate answers with a machine code (CAP_REACHED / FEATURE_LOCKED)
     // rather than seller-facing text, so err.message can't be shown here. These
@@ -187,6 +198,9 @@ async function postJson<T>(path: string, input: unknown): Promise<T> {
   if (!res.ok) {
     const err: ApiError = new Error(json.error || "AI request failed.");
     err.status = res.status;
+    if (typeof json.actions_remaining === "number") err.actions_remaining = json.actions_remaining;
+    const retry = Number(res.headers?.get?.("Retry-After"));
+    if (Number.isFinite(retry) && retry > 0) err.retryAfter = retry;
     throw err;
   }
   return json as T;
