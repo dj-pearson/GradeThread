@@ -179,3 +179,32 @@ describe("each row says what the cron did (SD-4)", () => {
     expect(document.body.textContent).toContain("Retrying: attempt 3 of 5. Missing item specific: Brand");
   });
 });
+
+describe("roles without manage_inventory (SD-5)", () => {
+  const drops = () => [drop("a", 48 * 3_600_000), drop("b", 49 * 3_600_000)];
+  const writeButtons = () => [
+    button("Reschedule Drop a"),
+    button("Unschedule Drop a"),
+    button("Reschedule Drop b"),
+    button("Unschedule Drop b"),
+    button("Back 1 day"),
+    button("Back 1 hour"),
+    button("+1 hour"),
+    button("+1 day"),
+  ];
+
+  it("a viewer sees every write disabled and the role note", async () => {
+    state.role = "viewer";
+    await render(drops());
+    for (const b of writeButtons()) expect(b.disabled, b.textContent ?? "").toBe(true);
+    expect(document.body.textContent).toContain(
+      "Only Manager access or higher can change drops.",
+    );
+  });
+
+  it("an owner gets the buttons enabled and no note", async () => {
+    await render(drops());
+    for (const b of writeButtons()) expect(b.disabled, b.textContent ?? "").toBe(false);
+    expect(document.body.textContent).not.toContain("can change drops");
+  });
+});

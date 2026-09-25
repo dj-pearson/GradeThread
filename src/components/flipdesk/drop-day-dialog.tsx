@@ -19,6 +19,8 @@ import {
   useShiftDrops,
 } from "@/hooks/use-scheduled-drops";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { roleNeededNote } from "@/lib/workspace-permissions";
 import {
   assertFutureDrop,
   isoToZonedInput,
@@ -76,6 +78,10 @@ export function DropDayDialog({
   const [timeError, setTimeError] = useState<string | null>(null);
   const confirm = useConfirm();
   const now = Date.now();
+  // SD-5: the listings UPDATE policy needs the owner or a listing manager. A
+  // viewer or member clicking these got a write RLS quietly dropped.
+  const { can } = useWorkspace();
+  const canEdit = can("manage_inventory");
 
   async function saveTime(drop: DayDrop) {
     const iso = zonedInputToIso(draftAt, timeZone);
@@ -144,6 +150,7 @@ export function DropDayDialog({
   }
 
   const busy = reschedule.isPending || cancel.isPending || shift.isPending;
+  const locked = busy || !canEdit;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -156,6 +163,12 @@ export function DropDayDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {!canEdit && (
+          <p className="text-xs text-muted-foreground">
+            {roleNeededNote("manage_inventory", "change drops")}
+          </p>
+        )}
+
         {drops.length > 1 && (
           <div className="flex flex-wrap items-center gap-2 rounded-md border p-2">
             <span className="text-sm font-medium">Shift the whole day</span>
@@ -167,7 +180,7 @@ export function DropDayDialog({
                   size="sm"
                   variant="outline"
                   // Every drop would land in the past: nothing to offer.
-                  disabled={busy || plan.future.length === 0}
+                  disabled={locked || plan.future.length === 0}
                   title={
                     plan.future.length === 0
                       ? "Every drop would land in the past."
@@ -243,7 +256,7 @@ export function DropDayDialog({
                     className="h-8 w-auto text-xs"
                     aria-label={`New date and time for ${d.title}`}
                   />
-                  <Button size="sm" disabled={busy} onClick={() => void saveTime(d)}>
+                  <Button size="sm" disabled={locked} onClick={() => void saveTime(d)}>
                     {reschedule.isPending ? (
                       <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                     ) : null}
@@ -268,7 +281,7 @@ export function DropDayDialog({
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={busy}
+                    disabled={locked}
                     aria-label={`Reschedule ${d.title}`}
                     onClick={() => {
                       setEditing(d.id);
@@ -282,7 +295,7 @@ export function DropDayDialog({
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={busy}
+                    disabled={locked}
                     aria-label={`Unschedule ${d.title}`}
                     onClick={async () => {
                       try {
