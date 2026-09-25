@@ -131,3 +131,74 @@ describe("IMP-11 mapping fixes", () => {
     expect(guessField("Item #")).toBe("sku");
   });
 });
+
+describe("IMP-12 validation summary", () => {
+  it("counts blank titles, bad dates, bad prices and duplicate SKUs with row numbers", async () => {
+    const { buildMapped, buildImportPayload, validateImportRows, importableRows, guessField } =
+      await import("@/lib/import-mapping");
+    const headers = ["Item #", "Title", "Purchase Date", "Price", "Status", "Category"];
+    const mapping = headers.map(guessField);
+    const rows = [
+      ["A1", "Tee", "2026-01-02", "10", "listed", "Shirt"],
+      ["A2", "", "2026-01-02", "10", "", ""],
+      ["A3", "", "", "", "", ""],
+      ["A4", "  ", "", "", "", ""],
+      ["A5", "Jeans", "not a date", "12", "", ""],
+      ["A6", "Hat", "13/45/2026", "abc", "weird", "Vase"],
+      ["A1", "Tee again", "", "", "", ""],
+    ];
+    const mapped = rows.map((r) => buildMapped(r, headers, mapping));
+    const payload = buildImportPayload(mapped, undefined, new Date("2026-06-01T12:00:00Z"));
+    const v = validateImportRows(mapped, payload, mapping);
+    expect(v.total).toBe(7);
+    expect(v.noTitle).toEqual([3, 4, 5]);
+    expect(v.willImport).toBe(4);
+    expect(v.badDate).toEqual([6, 7]);
+    expect(v.badPrice).toEqual([7]);
+    expect(v.unknownStatus).toEqual([7]);
+    expect(v.fellToOther).toEqual([7]);
+    expect(v.duplicateSkus).toEqual([8]);
+    expect(v.overCap).toBe(false);
+    // The button count is what the server will report as total_rows.
+    expect(importableRows(payload)).toHaveLength(v.willImport);
+  });
+
+  it("flags a file over the row cap before any POST, and can take the first 5,000", async () => {
+    const { buildImportPayload, validateImportRows, importableRows, MAX_IMPORT_ROWS } =
+      await import("@/lib/import-mapping");
+    const mapped = Array.from({ length: 6000 }, (_, i) => ({ title: `T${i}` }));
+    const payload = buildImportPayload(mapped);
+    const v = validateImportRows(mapped, payload, ["title"]);
+    expect(v.overCap).toBe(true);
+    expect(importableRows(payload)).toHaveLength(MAX_IMPORT_ROWS);
+  });
+
+  it("warns when two columns map to the same field", async () => {
+    const { validateImportRows } = await import("@/lib/import-mapping");
+    const v = validateImportRows([], [], ["title", "brand", "brand", "skip", "skip"]);
+    expect(v.duplicateFields).toEqual(["brand"]);
+  });
+
+  it("MAX_IMPORT_ROWS matches the edge constant", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { MAX_IMPORT_ROWS } = await import("@/lib/import-mapping");
+    const edge = readFileSync("services/edge-functions/src/lib/inventory-import.ts", "utf8");
+    const m = /export const MAX_IMPORT_ROWS = (\d+);/.exec(edge);
+    expect(Number(m?.[1])).toBe(MAX_IMPORT_ROWS);
+  });
+
+  it("uses per-column hints when building the payload", async () => {
+    const { buildImportPayload } = await import("@/lib/import-mapping");
+    const [a, b] = buildImportPayload(
+      [
+        { title: "A", purchase_price: "12,50", purchase_date: "25/01/2026" },
+        { title: "B", purchase_price: "3,00", purchase_date: "02/03/2026" },
+      ],
+      undefined,
+      new Date("2026-06-01T12:00:00Z"),
+    );
+    expect(a!.acquired_price).toBe(12.5);
+    expect(a!.acquired_date).toBe("2026-01-25");
+    expect(b!.acquired_date).toBe("2026-03-02");
+  });
+});

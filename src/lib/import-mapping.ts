@@ -410,3 +410,254 @@ export function parseDate(
 
   return null;
 }
+
+// ── IMP-12: the payload and the dry run, as pure functions ─────────────────
+//
+// The page used to build these inline, so the only way to learn that three
+// rows had no title or two dates were unreadable was to import and read the
+// error list. The same functions now build what is sent AND the summary shown
+// before anything is saved, so the two cannot disagree.
+
+/** Must equal MAX_IMPORT_ROWS in services/edge-functions/src/lib/inventory-import.ts. */
+export const MAX_IMPORT_ROWS = 5000;
+
+export type MappedRow = Partial<Record<ImportField, string>>;
+
+export function buildMapped(
+  row: readonly string[],
+  headers: readonly string[],
+  mapping: readonly ImportField[],
+): MappedRow {
+  const result: MappedRow = {};
+  for (let i = 0; i < headers.length; i++) {
+    const field = mapping[i];
+    const value = row[i];
+    if (!field || field === "skip" || !value) continue;
+    result[field] = value.trim();
+  }
+  return result;
+}
+
+const PRICE_FIELDS = [
+  "purchase_price",
+  "list_price",
+  "sale_price",
+  "fees",
+  "tax",
+  "shipping_cost",
+  "net_profit",
+  "payout",
+] as const satisfies readonly ImportField[];
+
+const DATE_FIELDS = ["purchase_date", "list_date", "sale_date"] as const satisfies readonly ImportField[];
+
+export interface ImportColumnHints {
+  decimalComma: Partial<Record<ImportField, boolean>>;
+  dayFirst: Partial<Record<ImportField, boolean>>;
+}
+
+/** IMP-11: per-column decimal-comma and day-first hints, read off the data. */
+export function importColumnHints(rows: readonly MappedRow[]): ImportColumnHints {
+  const hints: ImportColumnHints = { decimalComma: {}, dayFirst: {} };
+  for (const f of PRICE_FIELDS) {
+    hints.decimalComma[f] = detectDecimalComma(rows.map((r) => r[f] ?? ""));
+  }
+  for (const f of DATE_FIELDS) {
+    hints.dayFirst[f] = detectDayFirst(rows.map((r) => r[f] ?? ""));
+  }
+  return hints;
+}
+
+export interface ImportPayloadRow {
+  row: number;
+  title: string | null;
+  sku: string | null;
+  container: string | null;
+  description: string | null;
+  brand: string | null;
+  style: string | null;
+  size: string | null;
+  condition_notes: string | null;
+  comps_note: string | null;
+  item_category: ItemCategory | null;
+  status: ItemStatus | null;
+  source_name: string | null;
+  sourced_by: string | null;
+  acquired_price: number | null;
+  acquired_date: string | null;
+  listing: {
+    platform: string | null;
+    listing_price: number | null;
+    listing_url: string | null;
+    listed_at: string | null;
+  } | null;
+  sale: {
+    sale_price: number | null;
+    platform_fees: number | null;
+    tax: number | null;
+    shipping_cost: number | null;
+    net_profit: number | null;
+    payout_amount: number | null;
+    tracking_number: string | null;
+    sold_at: string | null;
+  } | null;
+}
+
+/**
+ * US-2518: the rows the durable worker consumes. The browser owns parsing and
+ * mapping (that is a UI) and hands over resolved values, so the server never
+ * guesses at a date format. `row` is the line in the seller's file (header = 1).
+ */
+export function buildImportPayload(
+  rows: readonly MappedRow[],
+  hints: ImportColumnHints = importColumnHints(rows),
+  referenceDate: Date = new Date(),
+): ImportPayloadRow[] {
+  const price = (m: MappedRow, f: (typeof PRICE_FIELDS)[number]) =>
+    parsePrice(m[f] ?? "", { decimalComma: hints.decimalComma[f] });
+  const date = (m: MappedRow, f: (typeof DATE_FIELDS)[number]) =>
+    m[f] ? parseDate(m[f]!, referenceDate, { dayFirst: hints.dayFirst[f] }) : null;
+  return rows.map((m, i) => {
+    const listPrice = price(m, "list_price");
+    const listDate = date(m, "list_date");
+    const salePrice = price(m, "sale_price");
+    const saleDate = date(m, "sale_date");
+    return {
+      row: i + 2,
+      title: m.title ?? null,
+      sku: m.sku ?? null,
+      container: m.container ?? null,
+      description: m.description ?? null,
+      brand: m.brand ?? null,
+      style: m.style ?? null,
+      size: m.size ?? null,
+      condition_notes: m.condition_notes ?? null,
+      comps_note: m.comps ?? null,
+      item_category: m.item_category ? normalizeCategory(m.item_category) : null,
+      status: m.status ? normalizeStatus(m.status) : null,
+      source_name: m.source ?? null,
+      sourced_by: m.sourced_by ?? null,
+      acquired_price: price(m, "purchase_price"),
+      acquired_date: date(m, "purchase_date"),
+      listing:
+        listPrice !== null || listDate !== null || m.link
+          ? {
+              // IMP-08: null lets the server infer from the URL or use 'other'.
+              platform: m.marketplace ? normalizeMarketplace(m.marketplace) : null,
+              listing_price: listPrice,
+              listing_url: m.link ?? null,
+              listed_at: listDate,
+            }
+          : null,
+      sale:
+        salePrice !== null || saleDate !== null
+          ? {
+              sale_price: salePrice,
+              platform_fees: price(m, "fees"),
+              tax: price(m, "tax"),
+              shipping_cost: price(m, "shipping_cost"),
+              net_profit: price(m, "net_profit"),
+              payout_amount: price(m, "payout"),
+              tracking_number: m.tracking ?? null,
+              sold_at: saleDate,
+            }
+          : null,
+    };
+  });
+}
+
+export interface ImportValidation {
+  total: number;
+  /** Rows the server will accept: every row with a title. */
+  willImport: number;
+  // File row numbers (header = row 1) for each problem.
+  noTitle: number[];
+  badDate: number[];
+  badPrice: number[];
+  unknownStatus: number[];
+  fellToOther: number[];
+  duplicateSkus: number[];
+  overCap: boolean;
+  /** Fields two or more columns map to; only one value can win. */
+  duplicateFields: ImportField[];
+}
+
+/** IMP-12: the dry run. What will import, what will be skipped, and why. */
+export function validateImportRows(
+  mapped: readonly MappedRow[],
+  payload: readonly ImportPayloadRow[],
+  mapping: readonly ImportField[],
+): ImportValidation {
+  const out: ImportValidation = {
+    total: mapped.length,
+    willImport: 0,
+    noTitle: [],
+    badDate: [],
+    badPrice: [],
+    unknownStatus: [],
+    fellToOther: [],
+    duplicateSkus: [],
+    overCap: false,
+    duplicateFields: [],
+  };
+  const seenSku = new Set<string>();
+  for (let i = 0; i < mapped.length; i++) {
+    const m = mapped[i]!;
+    const p = payload[i]!;
+    const rowNo = p.row;
+    if (!m.title?.trim()) {
+      out.noTitle.push(rowNo);
+      continue;
+    }
+    out.willImport++;
+    const dates: Array<[string | undefined, string | null]> = [
+      [m.purchase_date, p.acquired_date],
+      [m.list_date, p.listing?.listed_at ?? null],
+      [m.sale_date, p.sale?.sold_at ?? null],
+    ];
+    if (dates.some(([raw, parsed]) => Boolean(raw) && parsed === null)) out.badDate.push(rowNo);
+    const prices: Array<[string | undefined, number | null]> = [
+      [m.purchase_price, p.acquired_price],
+      [m.list_price, p.listing?.listing_price ?? null],
+      [m.sale_price, p.sale?.sale_price ?? null],
+    ];
+    // Fees and the rest only land with a sale, so they are only read with one.
+    if (p.sale) {
+      prices.push(
+        [m.fees, p.sale.platform_fees],
+        [m.tax, p.sale.tax],
+        [m.shipping_cost, p.sale.shipping_cost],
+        [m.net_profit, p.sale.net_profit],
+        [m.payout, p.sale.payout_amount],
+      );
+    }
+    if (prices.some(([raw, parsed]) => Boolean(raw) && parsed === null)) {
+      out.badPrice.push(rowNo);
+    }
+    if (m.status && p.status === null) out.unknownStatus.push(rowNo);
+    if (m.item_category && p.item_category === "other" && m.item_category.trim().toLowerCase() !== "other") {
+      out.fellToOther.push(rowNo);
+    }
+    const sku = m.sku?.trim();
+    if (sku) {
+      if (seenSku.has(sku)) out.duplicateSkus.push(rowNo);
+      else seenSku.add(sku);
+    }
+  }
+  out.overCap = out.willImport > MAX_IMPORT_ROWS;
+  const counts = new Map<ImportField, number>();
+  for (const f of mapping) {
+    if (!f || f === "skip") continue;
+    counts.set(f, (counts.get(f) ?? 0) + 1);
+  }
+  out.duplicateFields = [...counts].filter(([, n]) => n > 1).map(([f]) => f);
+  return out;
+}
+
+/** The rows to send: titled rows only, and at most `limit` of them. */
+export function importableRows(
+  payload: readonly ImportPayloadRow[],
+  limit = MAX_IMPORT_ROWS,
+): ImportPayloadRow[] {
+  return payload.filter((r) => r.title?.trim()).slice(0, limit);
+}

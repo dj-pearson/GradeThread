@@ -22,23 +22,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -58,21 +41,20 @@ import { useFetchGoogleSheet } from "@/hooks/use-sheet-import";
 import { parseSheet } from "@/lib/csv";
 import { decidePoll, nextPollDelay } from "@/lib/import-poll";
 import {
-  IMPORT_FIELDS,
-  IMPORT_FIELD_LABELS,
+  MAX_IMPORT_ROWS,
+  buildImportPayload,
+  buildMapped,
   guessField,
-  normalizeStatus,
-  normalizeCategory,
-  normalizeMarketplace,
-  parsePrice,
-  parseDate,
+  importableRows,
+  validateImportRows,
   type ImportField,
+  type MappedRow,
 } from "@/lib/import-mapping";
+import { ImportMappingStep, ImportPreview } from "@/components/flipdesk/import-preview";
 import {
   applyImportPreset,
   detectImportPreset,
   getImportPreset,
-  IMPORT_PRESETS,
   type ImportPreset,
 } from "@/lib/import-presets";
 import { PageHelp } from "@/components/help/page-help";
@@ -88,11 +70,6 @@ import {
   type ImportRun,
 } from "@/hooks/use-import-runs";
 import { RecentImportsCard } from "@/components/flipdesk/recent-imports-card";
-
-type ImportRow = {
-  raw: string[];
-  mapped: Partial<Record<ImportField, string>>;
-};
 
 // IMP-07: shown when the server refuses a file for its size or row count.
 type UndoResult = {
@@ -187,25 +164,10 @@ function downloadTemplate(): void {
 }
 
 // US-2518: the fill-only rule (US-1082) and the list of columns a re-import may
-// write now live where the writing happens —
-// services/edge-functions/src/lib/inventory-import.ts. They were here because
-// the import ran in the browser; keeping a second copy would be two sources of
-// truth for which columns a CSV is allowed to touch.
-
-function buildMapped(
-  row: string[],
-  headers: string[],
-  mapping: ImportField[],
-): Partial<Record<ImportField, string>> {
-  const result: Partial<Record<ImportField, string>> = {};
-  for (let i = 0; i < headers.length; i++) {
-    const field = mapping[i];
-    const value = row[i];
-    if (!field || field === "skip" || !value) continue;
-    result[field] = value.trim();
-  }
-  return result;
-}
+// write live where the writing happens:
+// services/edge-functions/src/lib/inventory-import.ts. IMP-12: building the
+// payload and the dry run lives in src/lib/import-mapping.ts, so what the
+// summary promises is exactly what is sent.
 
 export function FlipdeskImportPage() {
   const navigate = useNavigate();
@@ -358,71 +320,33 @@ export function FlipdeskImportPage() {
     }
   }
 
-  const mappedRows: ImportRow[] = useMemo(
-    () =>
-      rows.map((row) => ({
-        raw: row,
-        mapped: buildMapped(row, headers, mapping),
-      })),
+  const mappedRows: MappedRow[] = useMemo(
+    () => rows.map((row) => buildMapped(row, headers, mapping)),
     [rows, headers, mapping],
   );
-
-  const previewRows = mappedRows.slice(0, 10);
+  const payload = useMemo(() => buildImportPayload(mappedRows), [mappedRows]);
+  const validation = useMemo(
+    () => validateImportRows(mappedRows, payload, mapping),
+    [mappedRows, payload, mapping],
+  );
   const titleFieldMapped = mapping.includes("title");
+  const importCount = Math.min(validation.willImport, MAX_IMPORT_ROWS);
 
-  // US-2518 — build the payload the durable worker consumes. The browser still
-  // owns the parsing and the mapping (that is a UI), but it hands over resolved
-  // values so the server never has to guess at a date format.
-  function buildPayload() {
-    return mappedRows.map((r, i) => {
-      const m = r.mapped;
-      const listPrice = parsePrice(m.list_price ?? "");
-      const listDate = m.list_date ? parseDate(m.list_date) : null;
-      const salePrice = parsePrice(m.sale_price ?? "");
-      const saleDate = m.sale_date ? parseDate(m.sale_date) : null;
-      return {
-        row: i + 2,
-        title: m.title ?? null,
-        sku: m.sku ?? null,
-        container: m.container ?? null,
-        description: m.description ?? null,
-        brand: m.brand ?? null,
-        style: m.style ?? null,
-        size: m.size ?? null,
-        condition_notes: m.condition_notes ?? null,
-        comps_note: m.comps ?? null,
-        item_category: m.item_category ? normalizeCategory(m.item_category) : null,
-        status: m.status ? normalizeStatus(m.status) : null,
-        source_name: m.source ?? null,
-        sourced_by: m.sourced_by ?? null,
-        acquired_price: parsePrice(m.purchase_price ?? ""),
-        acquired_date: m.purchase_date ? parseDate(m.purchase_date) : null,
-        listing:
-          listPrice !== null || listDate !== null || m.link
-            ? {
-                // IMP-08: null lets the server infer from the URL or use 'other'.
-                platform: m.marketplace ? normalizeMarketplace(m.marketplace) : null,
-                listing_price: listPrice,
-                listing_url: m.link ?? null,
-                listed_at: listDate,
-              }
-            : null,
-        sale:
-          salePrice !== null || saleDate !== null
-            ? {
-                sale_price: salePrice,
-                platform_fees: parsePrice(m.fees ?? ""),
-                tax: parsePrice(m.tax ?? ""),
-                shipping_cost: parsePrice(m.shipping_cost ?? ""),
-                net_profit: parsePrice(m.net_profit ?? ""),
-                payout_amount: parsePrice(m.payout ?? ""),
-                tracking_number: m.tracking ?? null,
-                sold_at: saleDate,
-              }
-            : null,
-      };
+  const handlePresetChange = useCallback(
+    (v: string) => {
+      const next = getImportPreset(v) ?? null;
+      setPreset(next);
+      setMapping(next ? applyImportPreset(headers, next) : headers.map(guessField));
+    },
+    [headers],
+  );
+  const handleMappingChange = useCallback((index: number, field: ImportField) => {
+    setMapping((prev) => {
+      const next = [...prev];
+      next[index] = field;
+      return next;
     });
-  }
+  }, []);
 
   async function handleImport() {
     if (!user || !workspaceOwnerId) {
@@ -444,7 +368,11 @@ export function FlipdeskImportPage() {
     try {
       const res = await edgeFetch("/api/flipdesk/import/runs", {
         method: "POST",
-        json: { rows: buildPayload(), origin: sheetUrl.trim() ? "sheet" : "csv" },
+        // IMP-12: titled rows only, capped; the count the button showed.
+        json: {
+          rows: importableRows(payload, MAX_IMPORT_ROWS),
+          origin: sheetUrl.trim() ? "sheet" : "csv",
+        },
       });
       const json = (await res.json().catch(() => ({}))) as {
         run_id?: string;
@@ -465,7 +393,7 @@ export function FlipdeskImportPage() {
         id: json.run_id,
         status: "pending",
         origin: sheetUrl.trim() ? "sheet" : "csv",
-        total_rows: json.total_rows ?? mappedRows.length,
+        total_rows: json.total_rows ?? importCount,
         processed_rows: 0,
         inserted_count: 0,
         updated_count: 0,
@@ -827,143 +755,21 @@ A1	GT-0001	Lululemon Align Pant	..."
 
       {/* Step 2: mapping */}
       {headers.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>2. Confirm the mapping</CardTitle>
-            <CardDescription>
-              {rows.length} rows detected. Map each spreadsheet column to a
-              FlipDesk field. Skipped columns aren't imported.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {/* US-9209: a switching seller picks (or is handed) their old tool's
-                preset. "Plain spreadsheet" is the generic guess this page always
-                used; an unverified preset says so rather than promising. */}
-            <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
-              <Label htmlFor="import-preset">Exported from</Label>
-              <Select
-                value={preset?.id ?? "none"}
-                onValueChange={(v) => {
-                  const next = getImportPreset(v) ?? null;
-                  setPreset(next);
-                  setMapping(next ? applyImportPreset(headers, next) : headers.map(guessField));
-                }}
-              >
-                <SelectTrigger id="import-preset" className="w-64" aria-label="Exported from">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Plain spreadsheet</SelectItem>
-                  {IMPORT_PRESETS.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {preset && !preset.verified ? (
-                <span className="text-xs text-muted-foreground">
-                  Mapping the documented columns for {preset.name}. Nobody has
-                  checked it against a real file yet, so look over step 2 before
-                  you import.
-                </span>
-              ) : null}
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {headers.map((header, i) => (
-                <div key={i} className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="font-mono text-xs">
-                      {header || `(col ${i + 1})`}
-                    </Badge>
-                  </div>
-                  {/* One per spreadsheet COLUMN. Named from the column header
-                      — stable source data, not something being edited — with the
-                      position as the fallback for an unnamed column, matching
-                      what the Badge above already shows. */}
-                  <Select
-                    value={mapping[i] ?? "skip"}
-                    onValueChange={(v) => {
-                      const next = [...mapping];
-                      next[i] = v as ImportField;
-                      setMapping(next);
-                    }}
-                  >
-                    <SelectTrigger aria-label={`Map column ${header || i + 1} to`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {IMPORT_FIELDS.map((f) => (
-                        <SelectItem key={f} value={f}>
-                          {IMPORT_FIELD_LABELS[f]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ))}
-            </div>
-            {!titleFieldMapped && (
-              <div className="mt-4 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                <AlertCircle className="h-4 w-4" />
-                One column must map to <strong>Item Title</strong>.
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <ImportMappingStep
+          headers={headers}
+          mapping={mapping}
+          sample={rows[0]}
+          rowCount={rows.length}
+          preset={preset}
+          duplicateFields={validation.duplicateFields}
+          onPresetChange={handlePresetChange}
+          onMappingChange={handleMappingChange}
+        />
       )}
 
-      {/* Step 3: preview */}
-      {previewRows.length > 0 && titleFieldMapped && (
-        <Card>
-          <CardHeader>
-            <CardTitle>3. Preview (first 10 rows)</CardTitle>
-            <CardDescription>
-              How rows will land after mapping. Numbers are parsed; dates
-              normalized to ISO; status normalized to FlipDesk enum.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Brand</TableHead>
-                  <TableHead>Size</TableHead>
-                  <TableHead>Cost</TableHead>
-                  <TableHead>List $</TableHead>
-                  <TableHead>Sold $</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Source</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {previewRows.map((r, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="max-w-xs truncate">
-                      {r.mapped.title ?? <span className="text-destructive">—</span>}
-                    </TableCell>
-                    <TableCell>{r.mapped.brand ?? ""}</TableCell>
-                    <TableCell>{r.mapped.size ?? ""}</TableCell>
-                    <TableCell>{parsePrice(r.mapped.purchase_price ?? "")?.toFixed(2) ?? ""}</TableCell>
-                    <TableCell>{parsePrice(r.mapped.list_price ?? "")?.toFixed(2) ?? ""}</TableCell>
-                    <TableCell>{parsePrice(r.mapped.sale_price ?? "")?.toFixed(2) ?? ""}</TableCell>
-                    <TableCell>
-                      {r.mapped.status ? (
-                        <Badge variant="outline" className="text-xs">
-                          {normalizeStatus(r.mapped.status) ?? r.mapped.status}
-                        </Badge>
-                      ) : (
-                        ""
-                      )}
-                    </TableCell>
-                    <TableCell>{r.mapped.source ?? ""}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+      {/* Step 3: the dry run and preview */}
+      {rows.length > 0 && titleFieldMapped && (
+        <ImportPreview payload={payload} validation={validation} />
       )}
 
       {/* IMP-09: one line saying why Import, Reset and Undo are disabled. */}
@@ -986,9 +792,14 @@ A1	GT-0001	Lululemon Align Pant	..."
           >
             Reset
           </Button>
-          <Button onClick={handleImport} disabled={importing || !canImport}>
+          <Button
+            onClick={handleImport}
+            disabled={importing || !canImport || importCount === 0}
+          >
             {importing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Import {rows.length} items
+            {validation.overCap
+              ? `Import the first ${MAX_IMPORT_ROWS.toLocaleString()}`
+              : `Import ${importCount} item${importCount === 1 ? "" : "s"}`}
           </Button>
         </div>
       )}
