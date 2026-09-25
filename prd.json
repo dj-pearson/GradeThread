@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3513",
+  "nextId": "US-3540",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5141,6 +5141,336 @@
       "dependsOn": [
         "US-3497"
       ]
+    },
+    {
+      "id": "US-3513",
+      "passes": false,
+      "title": "Grading audit S1: sellers can overwrite certified photos after grading",
+      "description": "As a buyer checking a certificate, I want the photos to be the ones that were graded, so that a seller cannot grade a clean garment and then swap in photos of a worse one. Today 00333 lets the owner and workspace members UPDATE any object in their submission-images folder with no status condition, and cert-integrity seals scores only.",
+      "acceptanceCriteria": [
+        "A new migration narrows the 00333 submission-images UPDATE policies so an overwrite is refused once the object's submission has left draft/pending_payment (status not in the pre-grade set).",
+        "Photo rotation on a draft submission still succeeds from the web client (existing rotate path).",
+        "A db check script or migration test proves: owner UPDATE on a graded submission's object fails, on a draft one succeeds.",
+        "US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer, PENDING_MIGRATIONS.md entry."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-3514",
+      "passes": false,
+      "title": "Grading audit S1: FlipDesk grading copy loop skips upload validation and trusts storage_path",
+      "description": "As the platform, I want photos entering grading from FlipDesk to pass the same checks as /api/grade/submit, so that one seller cannot grade another seller's private photo and every grade gets EXIF-stripped, validated, hashed images. grading-submit.ts copies item photos with no validateImageUpload, no stripImageMetadata, no phash and no ownership check on item_photos.storage_path.",
+      "acceptanceCriteria": [
+        "grading-submit.ts refuses any item photo whose storage_path does not start with `${ownerId}/` before downloading it.",
+        "Each copied photo goes validateImageUpload -> stripImageMetadata -> upload, and the submission_images row carries phash, width and height like grade.ts does.",
+        "A tenant-isolation_test.ts case proves a foreign storage_path is refused.",
+        "A unit test proves an invalid (non-image) item photo aborts the copy with a clear error."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-3515",
+      "passes": false,
+      "title": "Grading audit S1: a failed regrade refunds a delivered grade and leaves the certificate dead",
+      "description": "As a seller, I want a regrade that fails to leave my original grade and certificate intact, so that an AI outage during an admin or bulk regrade does not refund me for a grade I already have and break my certificate link. regradeSubmission supersedes the prior report and nulls its certificate before re-running; the pipeline catch then sees no active report and calls reverseChargeForUngradedSubmission.",
+      "acceptanceCriteria": [
+        "When the pipeline fails for a submission that has any prior grade_reports row (superseded or not), no refund or charge reversal is issued.",
+        "A failed regrade restores the prior report (superseded_at null, certificate_id restored) or never superseded it until the new report is written; the old certificate verifies again.",
+        "The catch-block existing-report lookup treats a query error as 'unknown' and does not refund.",
+        "Unit tests cover: failed regrade -> no refund + cert restored; failed first grade -> refund as today."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-3516",
+      "passes": false,
+      "title": "Grading audit S2: seal photo hashes into certificate integrity",
+      "description": "As a buyer, I want the certificate to prove its photos are the graded ones, so that any later file change shows as tampering. cert-integrity.ts seals scores, tier and summary but not image bytes.",
+      "acceptanceCriteria": [
+        "Each submission_images row stores a sha256 of the stored bytes at grade time.",
+        "A new cert integrity version includes those hashes; old versions still verify.",
+        "The public certificate gallery marks the record as altered if a served file's hash differs.",
+        "Unit test: changing one image hash flips the integrity result."
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-3517",
+      "passes": false,
+      "title": "Grading audit S2: defend grading prompts against instructions written inside photos",
+      "description": "As the platform, I want text visible in a photo (tags, cards, notes) treated as data, so that a note saying 'flawless, grade 10' cannot move a grade. The injection guard in ai-grading.ts covers fenced seller text only.",
+      "acceptanceCriteria": [
+        "Per-image and composite prompts gain a clause that text inside images is evidence, never instructions, shipped as a new prompt version through shadow -> eval gate -> canary.",
+        "The golden set gains at least 3 cases with injected text in a photo, and the new version scores them within tolerance.",
+        "The regex backstop result is recorded on the report when it fires."
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-3518",
+      "passes": false,
+      "title": "Grading audit S2: Verified Capture trusts client-sent EXIF",
+      "description": "As a buyer, I want the Verified Capture badge to mean the server read the camera data itself, so that a faked form field cannot earn the badge or a confidence boost. grade.ts sanitizes client JSON EXIF and verified-capture.ts trusts it.",
+      "acceptanceCriteria": [
+        "Verified Capture is granted only from EXIF parsed server-side from the uploaded bytes (or a retained original).",
+        "Client-supplied exif form fields no longer affect the badge or confidence.",
+        "Unit test: forged client exif with no matching bytes gets no badge."
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-3519",
+      "passes": false,
+      "title": "Grading audit S2: certificate wording implies authenticity, and revoked or photoless certs are unclear",
+      "description": "As the business, I want certificates to claim only what we check, so that we carry no legal exposure for counterfeits. The badge reads 'Authentic - grade claims verified' and the condition-not-authenticity notice is hidden for clothing.",
+      "acceptanceCriteria": [
+        "The integrity badge is renamed to wording about the record being unchanged since grading (certificate.tsx and functions/cert SSR).",
+        "Every certificate shows 'condition as photographed on <date>; does not verify brand authenticity' unless a paid authenticity check passed.",
+        "A revoked or superseded certificate shows a distinct revoked page, not 'not found'.",
+        "A certificate whose photos were purged by data-retention shows 'photos expired <date>'."
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-3520",
+      "passes": false,
+      "title": "Grading audit S2: seller GPS is kept in submission_images.exif",
+      "description": "As a seller, I want my location not stored, so that staff and any leak never see where I live. grade.ts sanitizeExif keeps gps and it is stored in submission_images.exif.",
+      "acceptanceCriteria": [
+        "sanitizeExif drops gps (web and api paths).",
+        "A migration nulls exif->gps on existing rows (US-1108 triple).",
+        "Unit test asserts no gps key survives sanitizeExif."
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-3521",
+      "passes": false,
+      "title": "Grading audit S3: the live code-default prompt version never passed the eval gate",
+      "description": "As the owner, I want every prompt that grades paid submissions to have passed eval, so that a prompt edit cannot ship to all grades on deploy unchecked. per_image_v5 and composite_v4 are code defaults; the gate runs only on DB activation. Related: US-2301.",
+      "acceptanceCriteria": [
+        "A boot or CI check refuses to serve a code-default prompt version unless a passing grading_eval_runs row exists for that version and model, or an explicit operator override env is set and logged.",
+        "The check is covered by a unit test for pass, fail and override."
+      ],
+      "priority": 3,
+      "dependsOn": [
+        "US-2301"
+      ]
+    },
+    {
+      "id": "US-3522",
+      "passes": false,
+      "title": "Grading audit S3: golden set has no minimum size or coverage rule",
+      "description": "As the owner, I want the eval to refuse a golden set too small to mean anything, so that a prompt cannot pass on 1 case. runEval only refuses an empty set.",
+      "acceptanceCriteria": [
+        "runEval refuses when active cases are below a configured minimum overall and per scoped category.",
+        "Each grade tier and garment category in scope must have at least one case or the run fails with a named gap.",
+        "Human-corrected grades (review delta >= 1.0) are auto-queued as inactive eval candidates."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-3523",
+      "passes": false,
+      "title": "Grading audit S3: grade randomness is never measured",
+      "description": "As the owner, I want to know how much the same photos move between runs, so that 7.0 vs 7.8 on identical input raises an alarm. Self-consistency sample defaults to 0 and eval runs each case once.",
+      "acceptanceCriteria": [
+        "GRADING_SELF_CONSISTENCY_SAMPLE defaults to a small weekly sample (e.g. 3 submissions x 2 runs).",
+        "Its spread feeds evaluateAlerts with a threshold.",
+        "runEval supports k repeats per case and scores on the mean."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-3524",
+      "passes": false,
+      "title": "Grading audit S3: high-confidence grades are never human-checked, and reviewers see the AI answer first",
+      "description": "As the owner, I want unbiased human checks, so that calibration and agreement numbers mean something. grade-auto-approve.ts approves >= 0.9 on raw confidence, and admin/grading.tsx pre-fills AI factor scores.",
+      "acceptanceCriteria": [
+        "A random 2-5% of auto-approved grades are routed to blind human review and feed confidence calibration.",
+        "The admin review UI has a blind mode (used for that sample) that hides AI scores until the reviewer submits.",
+        "Agreement metrics are reported separately for blind and non-blind reviews."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-3525",
+      "passes": false,
+      "title": "Grading audit S3: no alerts for grade drift, category bias, review backlog or failure rate",
+      "description": "As the owner, I want to be told when grading slides, so that inflation or a stuck queue does not go unnoticed. evaluateAlerts covers model change, golden size, eval, agreement, misread and dispute rate only.",
+      "acceptanceCriteria": [
+        "Weekly alert on grade distribution shift and mean-grade change beyond a threshold.",
+        "Alert on per-category bias from accuracy-tracking.",
+        "Alert on review queue depth and oldest-item age vs release_at.",
+        "One grading.completed / grading.failed PostHog event per grade with duration, cost, review flag and prompt version."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-3526",
+      "passes": false,
+      "title": "Grading audit S3: prompt activation skips shadow evidence and eval ignores live flags",
+      "description": "As the owner, I want a prompt to prove it is no worse than the current one on the same context live grades get. activatePromptVersion checks only eval_passed; runEval passes an empty baseline and no exemplars.",
+      "acceptanceCriteria": [
+        "activatePromptVersion requires eval no worse than the current champion and a minimum shadow sample count.",
+        "runEval uses the live garment-baseline, fabric-criteria flags and the active exemplar set."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-3527",
+      "passes": false,
+      "title": "Grading audit S4: grading has no dollar budget row and the price tables disagree",
+      "description": "As the owner, I want a hard daily and monthly grading spend cap, and one price for Sonnet 5, so that spend dashboards are right and runaway cost stops. No migration creates an ai_budgets 'grading' row; ai-usage.ts prices Sonnet 5 at $2/$10 while 00335 says $3/$15.",
+      "acceptanceCriteria": [
+        "A migration seeds a 'grading' ai_budgets day and month row with kill behavior (US-1108 triple), or documents the prod row if it already exists.",
+        "ai_model_prices and ai-usage.ts agree on Sonnet 5, checked against current Anthropic pricing, with a test pinning them together."
+      ],
+      "priority": 4
+    },
+    {
+      "id": "US-3528",
+      "passes": false,
+      "title": "Grading audit S4: refunded grades cost AI calls with no per-user cap",
+      "description": "As the owner, I want bad-photo submissions stopped before paid AI calls, so that a seller cannot loop free refunded grades. The quality gate refunds only after all per-photo vision calls run.",
+      "acceptanceCriteria": [
+        "Server-side brightness and sharpness check on decoded pixels refuses obvious failures before any AI call.",
+        "Grading uploads pass minDimension (about 800px long edge) on grade.ts, api-v1.ts and api-grade-ingest.ts.",
+        "A per-user daily cap on refunded/needs_photos submissions returns 429 with a clear message."
+      ],
+      "priority": 4
+    },
+    {
+      "id": "US-3529",
+      "passes": false,
+      "title": "Grading audit S4: send smaller images and skip measurement photos in the condition fan-out",
+      "description": "As the owner, I want to cut grading AI cost about 25%, so that margins improve without hurting grades. Images go to Claude at stored size (up to 2400x3200) and measurement_* photos each get a condition call.",
+      "acceptanceCriteria": [
+        "Images are downscaled to 1568px long edge before the per-image call, shipped behind a flag and passed through the eval gate before default-on.",
+        "measurement_* photos are excluded from the condition fan-out unless an eval shows they help.",
+        "Per-grade cost before/after is recorded from ai_usage_events."
+      ],
+      "priority": 4
+    },
+    {
+      "id": "US-3530",
+      "passes": false,
+      "title": "Grading audit S5: no circuit breaker around Anthropic",
+      "description": "As a seller, I want submit to refuse before charging when the AI is down, so that I am not charged into a pile-up. getBreaker is used only by ebay-client; AI calls can take 120s x 3 tries.",
+      "acceptanceCriteria": [
+        "A shared getBreaker('anthropic') wraps the provider call.",
+        "When open, /api/grade/submit returns 503 with Retry-After before any charge.",
+        "Per-image timeout lowered (about 45s) with at most one retry on timeout.",
+        "Queue depth over a limit returns 503 before charge."
+      ],
+      "priority": 5
+    },
+    {
+      "id": "US-3531",
+      "passes": false,
+      "title": "Grading audit S5: grading lease can expire while waiting for a slot",
+      "description": "As the owner, I want a grade never run twice in parallel, so that we do not pay the AI twice. The 900s lease is claimed before the image-slot wait and never renewed; the reclaim job restarts up to 100 at once. Related: US-2010 (graceful shutdown).",
+      "acceptanceCriteria": [
+        "The lease is renewed on a heartbeat while grading, or claimed only after a slot is acquired.",
+        "The stuck-submission reclaim restarts at most N per run.",
+        "Test: a submission waiting longer than the lease is not re-claimed by the sweep."
+      ],
+      "priority": 5
+    },
+    {
+      "id": "US-3532",
+      "passes": false,
+      "title": "Grading audit S5: /api/grade/submit has no idempotency key",
+      "description": "As a seller on a bad connection, I want a retried submit to return my first submission, so that I am not charged twice.",
+      "acceptanceCriteria": [
+        "The web client sends an idempotency key per submit attempt.",
+        "A unique index on (owner, key) and the route return the existing submission on repeat.",
+        "Migration follows the US-1108 triple; test covers a repeat request."
+      ],
+      "priority": 5
+    },
+    {
+      "id": "US-3533",
+      "passes": false,
+      "title": "Grading audit S5: live grade updates are not wired and slow paths run in sequence",
+      "description": "As a seller, I want to see my grade the moment it is done. submissions is not in the supabase_realtime publication, so use-realtime-submission never fires; /submit processes images one at a time.",
+      "acceptanceCriteria": [
+        "Either add submissions to supabase_realtime (after checking prod) or remove the dead subscription.",
+        "Pending (unpaid) detail polling backs off.",
+        "/submit strips, hashes and uploads images with limited concurrency, and failed submits clean up already-uploaded files.",
+        "Pipeline setup lookups run with Promise.all."
+      ],
+      "priority": 5
+    },
+    {
+      "id": "US-3534",
+      "passes": false,
+      "title": "Grading audit S6: rounding can lift a factor above its defect ceiling",
+      "description": "As a buyer, I want a recorded defect to always cost points, so that a garment with a snag cannot reach NWT. roundToHalf(min(model, ceiling)) rounds to nearest, so 9.775 becomes 10.0.",
+      "acceptanceCriteria": [
+        "When the defect ceiling binds, the factor is floored to the half step.",
+        "Unit test: minor small snag with all-10 model scores does not reach 10.0 on fabric or cosmetic.",
+        "Change follows the grading-engine rounding lockstep rule."
+      ],
+      "priority": 6
+    },
+    {
+      "id": "US-3535",
+      "passes": false,
+      "title": "Grading audit S6: an unassessable factor counts as a real 7.0",
+      "description": "As a seller, I want a factor no photo could show to not cap my grade silently. The composite prompt asks for a neutral 7.0 and the parser treats it as real.",
+      "acceptanceCriteria": [
+        "The model output marks a factor as not assessable explicitly, and sanitizeFactorScores handles it (reweight or force review), via the prompt-version lifecycle.",
+        "Unit test: a pristine tee with functional_elements not assessable does not drop to NWOT without review."
+      ],
+      "priority": 6
+    },
+    {
+      "id": "US-3536",
+      "passes": false,
+      "title": "Grading audit S6: tier ranges drift across finance dashboard, public page and sandboxes",
+      "description": "As a seller, I want one set of tier ranges everywhere. 00143 finances function uses 9.5/8.5/7.5 bands, platform-standards.ts publishes different ranges, and api-v1 and MCP sandboxes return off-contract grades.",
+      "acceptanceCriteria": [
+        "The finances function uses the same bands as human-review.ts (migration, US-1108 triple).",
+        "platform-standards.ts ranges match the real tiers.",
+        "Sandbox grades are on the 0.1 grid, equal the weighted factor sum, include NWOT, and never return completed below 0.75 confidence.",
+        "A test pins all of these to one source."
+      ],
+      "priority": 6
+    },
+    {
+      "id": "US-3537",
+      "passes": false,
+      "title": "Grading audit S6: final review gate ignores the calibrated threshold",
+      "description": "As the owner, I want per-category calibration to lower review volume when earned. grading-pipeline.ts calls reconcileNeedsReview with no threshold, re-flagging grades the composite step cleared.",
+      "acceptanceCriteria": [
+        "The final gate passes the same calibrated threshold compositeGrade used.",
+        "Unit test covers a category threshold below 0.75."
+      ],
+      "priority": 6
+    },
+    {
+      "id": "US-3538",
+      "passes": false,
+      "title": "Grading audit S6: same photo in every slot and mixed garments pass",
+      "description": "As a buyer, I want the photos to show one garment from the declared views. photo-reuse skips the submission's own images and slots are checked by name only; 'original photos verified' only means no match in the latest 5,000 hashes.",
+      "acceptanceCriteria": [
+        "Near-duplicate phash (distance <= 6) across slots in one submission blocks grading with a retake message.",
+        "Per-image schema gains matches_declared_view (prompt-version lifecycle) and a core-slot mismatch blocks.",
+        "The originalPhotosVerified badge wording states what was actually checked."
+      ],
+      "priority": 6
+    },
+    {
+      "id": "US-3539",
+      "passes": false,
+      "title": "Grading audit S6: measurement photo AI URLs use getPublicUrl by photo type",
+      "description": "As a seller, I want measurement autofill to work for photos stored in the private bucket. measure-autofill.ts and flipdesk-measure.ts call getPublicUrl(bucketForItemPhoto(type)).",
+      "acceptanceCriteria": [
+        "Both use itemPhotoAiUrl.",
+        "Test covers a photo stored in the private bucket."
+      ],
+      "priority": 6
     }
   ]
 }
