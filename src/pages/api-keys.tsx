@@ -546,8 +546,11 @@ function DevelopersConsole() {
   }
 
   // A failed plan check is not "you are on Free". Paying customers were shown
-  // the upgrade wall whenever the billing read failed.
-  if (usage.isError || !usage.data) {
+  // the upgrade wall whenever the billing read failed. Only a FIRST load that
+  // fails lands here: a background refetch that fails keeps the last answer,
+  // so a window-focus refetch can never unmount an open dialog holding a
+  // shown-once secret.
+  if (!usage.data) {
     return (
       <div className="space-y-6">
         {header}

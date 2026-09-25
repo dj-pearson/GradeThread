@@ -177,6 +177,17 @@ export function WebhookPanel() {
     if (config.data) setUrl(config.data.webhook_url ?? "");
   }, [config.data]);
 
+  // A secret, test result or open delivery belongs to the workspace it came
+  // from. On a workspace switch none of them may stay on screen under the
+  // other workspace's webhook.
+  useEffect(() => {
+    setSecret(null);
+    setTestResult(null);
+    setOpenEvent(null);
+    setConfirm(null);
+    setUrlError(null);
+  }, [tenantKey]);
+
   const saved = config.data?.webhook_url ?? null;
   const pendingCount = (deliveries.data ?? []).filter((d) => IN_FLIGHT.has(d.status)).length;
 

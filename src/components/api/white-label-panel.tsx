@@ -127,7 +127,8 @@ export function WhiteLabelPanel() {
   const [certId, setCertId] = useState("");
   const [copied, setCopied] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
-  const seeded = useRef(false);
+  // The tenant the form was seeded from. Null means not yet seeded.
+  const seededFor = useRef<string | null>(null);
 
   const { data, isLoading, isError, error, isFetching, refetch } = useQuery<Branding>({
     queryKey: ["api-branding", tenantKey],
@@ -141,14 +142,22 @@ export function WhiteLabelPanel() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // DEV-08: seed the form ONCE. Re-seeding on every refetch overwrote whatever
-  // the seller was in the middle of typing.
+  // DEV-08: seed the form ONCE per workspace. Re-seeding on every refetch
+  // overwrote whatever the seller was in the middle of typing. Keying the seed
+  // on the tenant means a workspace switch reloads the form, so workspace A's
+  // branding is never sitting in the fields when Save writes to workspace B.
   useEffect(() => {
-    if (data && !seeded.current) {
-      seeded.current = true;
+    if (!tenantKey) return;
+    if (seededFor.current !== null && seededFor.current !== tenantKey) {
+      seededFor.current = null;
+      setForm({});
+      setShowErrors(false);
+    }
+    if (data && seededFor.current === null) {
+      seededFor.current = tenantKey;
       setForm(data);
     }
-  }, [data]);
+  }, [data, tenantKey]);
 
   const saved: Branding = data ?? {};
   const pending = normalize(form);

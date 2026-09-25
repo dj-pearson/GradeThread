@@ -176,9 +176,11 @@ export function ApiUsagePanel() {
                 { label: "Live errors", value: liveErrors, key: "live-errors" },
                 { label: "Sandbox (free)", value: sandbox, key: "sandbox" },
               ].map((s) => (
-                <div key={s.key} data-stat={s.key}>
-                  <dd className="text-2xl font-bold tabular-nums">{s.value.toLocaleString()}</dd>
+                <div key={s.key} data-stat={s.key} className="flex flex-col-reverse">
+                  {/* dt before dd in the markup, so a screen reader hears the
+                      label first; flex-col-reverse keeps the number on top. */}
                   <dt className="text-xs text-muted-foreground">{s.label}</dt>
+                  <dd className="text-2xl font-bold tabular-nums">{s.value.toLocaleString()}</dd>
                 </div>
               ))}
             </dl>

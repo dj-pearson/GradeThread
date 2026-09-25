@@ -21,7 +21,8 @@ vi.mock("@/hooks/use-workspace", () => ({
   useWorkspace: () => ({ can: () => true, isOwner: true }),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
-vi.mock("@/hooks/use-tenant-key", () => ({ useTenantKey: () => "owner-1" }));
+const tenant = vi.hoisted(() => ({ key: "owner-1" }));
+vi.mock("@/hooks/use-tenant-key", () => ({ useTenantKey: () => tenant.key }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -46,6 +47,7 @@ function ok(data: unknown, status = 200) {
 }
 
 beforeEach(() => {
+  tenant.key = "owner-1";
   calls = [];
   config = { webhook_url: null, has_signing_secret: false, secret_created_at: null, updated_at: null };
   deliveries = [];
@@ -268,6 +270,24 @@ describe("WebhookPanel secret handling (DEV-09)", () => {
     await click("Remove");
     await confirmDialog("Remove webhook");
     expect(document.body.innerHTML).not.toContain("whsec_");
+  });
+
+  it("a workspace switch clears a secret still on screen", async () => {
+    await render();
+    putResponse = {
+      webhook_url: "https://hooks.example.com/gt",
+      has_signing_secret: true,
+      secret_created_at: "2026-09-23T00:00:00Z",
+      updated_at: "2026-09-23T00:00:00Z",
+      signing_secret: "whsec_workspace_a",
+    };
+    typeUrl("https://hooks.example.com/gt");
+    await click("Save");
+    expect(container!.textContent).toContain("whsec_workspace_a");
+    tenant.key = "owner-2";
+    act(() => root!.render(h(QueryClientProvider, { client: lastClient! }, h(WebhookPanel))));
+    await flush();
+    expect(container!.textContent).not.toContain("whsec_workspace_a");
   });
 
   it("I've saved it hides the secret", async () => {

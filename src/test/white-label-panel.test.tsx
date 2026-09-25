@@ -5,9 +5,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ fetch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ fetch: vi.fn(), tenant: "owner-1" }));
 vi.mock("@/lib/edge-fetch", () => ({ edgeFetch: mocks.fetch }));
-vi.mock("@/hooks/use-tenant-key", () => ({ useTenantKey: () => "owner-1" }));
+vi.mock("@/hooks/use-tenant-key", () => ({ useTenantKey: () => mocks.tenant }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { WhiteLabelPanel } from "@/components/api/white-label-panel";
@@ -19,6 +19,7 @@ let puts: unknown[];
 
 beforeEach(() => {
   puts = [];
+  mocks.tenant = "owner-1";
   getResponse = () => new Response(JSON.stringify({ data: { company_name: "Acme", brand_color: "#0F3460" } }), { status: 200 });
   mocks.fetch.mockReset().mockImplementation(async (path: string, opts: { method?: string; json?: unknown } = {}) => {
     if (path === "/api/keys/branding" && (opts.method ?? "GET") === "GET") return getResponse();
@@ -44,11 +45,13 @@ async function flush() {
   }
 }
 
+let qc: QueryClient;
+
 async function render() {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => root!.render(<QueryClientProvider client={qc}><WhiteLabelPanel /></QueryClientProvider>));
   await flush();
 }
@@ -67,6 +70,18 @@ function saveButton(): HTMLButtonElement | undefined {
 }
 
 describe("WhiteLabelPanel (DEV-08)", () => {
+  it("a workspace switch reseeds the form from the new workspace's branding", async () => {
+    await render();
+    const company = () => (container!.querySelector("#brand-company") as HTMLInputElement).value;
+    expect(company()).toBe("Acme");
+    getResponse = () => new Response(JSON.stringify({ data: { company_name: "Beta Co" } }), { status: 200 });
+    mocks.tenant = "owner-2";
+    await act(async () => root!.render(<QueryClientProvider client={qc}><WhiteLabelPanel /></QueryClientProvider>));
+    await flush();
+    expect(company()).toBe("Beta Co");
+    expect(container!.textContent).not.toContain("You have unsaved changes");
+  });
+
   it("a failed GET shows Retry and no Save button", async () => {
     getResponse = () => new Response("{}", { status: 500 });
     await render();

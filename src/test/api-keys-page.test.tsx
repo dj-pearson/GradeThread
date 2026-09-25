@@ -101,11 +101,13 @@ async function flush() {
   }
 }
 
+let qc: QueryClient;
+
 async function render() {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => root!.render(
     <QueryClientProvider client={qc}><MemoryRouter><ApiKeysPage /></MemoryRouter></QueryClientProvider>,
   ));
@@ -281,6 +283,27 @@ describe("shown-once secrets (DEV-02)", () => {
     expect(button("Done").disabled).toBe(true);
     await pressEscape();
     expect(dialog()?.textContent).toContain("new-secret");
+  });
+
+  it("a failed background refetch of the plan does not unmount an unsaved secret", async () => {
+    await render();
+    await click(button("Create Key"));
+    const input = document.getElementById("key-name") as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, "Gamma");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => input.form!.requestSubmit());
+    await flush();
+    expect(dialog()?.textContent).toContain("new-secret");
+    // A window-focus refetch that fails, while the seller is off copying.
+    usageResponse = async () => json({ error: "boom" }, 500);
+    await act(async () => { await qc.refetchQueries({ queryKey: ["api-usage"] }); });
+    await flush();
+    expect(qc.getQueryState(["api-usage", "owner-1"])?.status).toBe("error");
+    expect(dialog()?.textContent).toContain("new-secret");
+    expect(text()).not.toContain("Couldn't check your workspace plan");
   });
 });
 
