@@ -371,3 +371,84 @@ describe("save flow (V10)", () => {
     expect(c.textContent).toContain("Unsaved: /verified/beta");
   });
 });
+
+describe("passport identity tab (V11)", () => {
+  function node(id: string, brand: string) {
+    return {
+      node_id: id,
+      label: `Owner ${id}`,
+      kind: "seller",
+      revealed: false,
+      revealed_at: null,
+      revealed_effective: false,
+      passport_slug: null,
+      sku_class: { brand },
+    };
+  }
+
+  it("shows Retry when the list fails", () => {
+    nodesState.isError = true;
+    const c = render();
+    openTab("passport");
+    expect(c.textContent).toContain("Couldn't load your passports.");
+    const retry = Array.from(c.querySelectorAll("button")).find((b) => b.textContent === "Retry");
+    act(() => retry!.click());
+    expect(nodesState.refetch).toHaveBeenCalled();
+  });
+
+  it("explains an empty list and links to start a grade", () => {
+    nodesState.data = { verified_profile_public: true, verified_handle: "alpha", nodes: [] };
+    const c = render();
+    openTab("passport");
+    expect(c.textContent).toContain("A passport is created when an item you own is graded");
+    expect(c.querySelector('a[href="/dashboard/submissions/new"]')).not.toBeNull();
+  });
+
+  it("keeps each of two quick toggles disabled until its own request settles", async () => {
+    nodesState.data = {
+      verified_profile_public: true,
+      verified_handle: "alpha",
+      nodes: [node("n1", "Levi's"), node("n2", "Carhartt")],
+    };
+    const resolvers: Record<string, () => void> = {};
+    revealMutate.mockImplementation(
+      ({ nodeId }: { nodeId: string }) =>
+        new Promise<void>((r) => {
+          resolvers[nodeId] = r;
+        }),
+    );
+    const c = render();
+    openTab("passport");
+    const sw = (brand: string) =>
+      c.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="Reveal identity on ${brand}"]`)!;
+    act(() => sw("Levi's").click());
+    act(() => sw("Carhartt").click());
+    expect(sw("Levi's").disabled).toBe(true);
+    expect(sw("Carhartt").disabled).toBe(true);
+    await act(async () => {
+      resolvers.n1?.();
+    });
+    expect(sw("Levi's").disabled).toBe(false);
+    expect(sw("Carhartt").disabled).toBe(true);
+    await act(async () => {
+      resolvers.n2?.();
+    });
+    expect(sw("Carhartt").disabled).toBe(false);
+  });
+
+  it("'publish first' sends the seller to the Profile tab", () => {
+    nodesState.data = {
+      verified_profile_public: false,
+      verified_handle: null,
+      nodes: [node("n1", "Levi's")],
+    };
+    const c = render();
+    openTab("passport");
+    const go = Array.from(c.querySelectorAll("button")).find(
+      (b) => b.textContent === "Go to your profile",
+    );
+    expect(go).toBeDefined();
+    act(() => go!.click());
+    expect(c.querySelector("#handle")).not.toBeNull();
+  });
+});

@@ -80,11 +80,18 @@ passportIdentityRoutes.get("/nodes", async (c) => {
   // current garment still lists (it may be a prior hop).
   const nodeIds = nodes.map((n) => n.id);
   const garmentByNode = new Map<string, { slug: string; sku_class: Record<string, unknown> }>();
+  // The node list still answers when this lookup fails, but it says so: a
+  // swallowed error made every hop read as a nameless "Graded garment".
+  let garmentsUnavailable = false;
   if (nodeIds.length > 0) {
-    const { data: garments } = await supabaseAdmin
+    const { data: garments, error: garmentsError } = await supabaseAdmin
       .from("garments")
       .select("public_passport_slug, sku_class, current_owner_node_id")
       .in("current_owner_node_id", nodeIds);
+    if (garmentsError) {
+      console.error("[passport-identity] garment lookup failed:", garmentsError.message);
+      garmentsUnavailable = true;
+    }
     for (
       const g of (garments ?? []) as Array<{
         public_passport_slug: string;
@@ -104,6 +111,7 @@ passportIdentityRoutes.get("/nodes", async (c) => {
     // publish a Verified profile first if not.
     verified_profile_public: profilePublic,
     verified_handle: profilePublic ? verified.verified_handle : null,
+    garments_unavailable: garmentsUnavailable,
     nodes: nodes.map((n) => {
       const g = garmentByNode.get(n.id) ?? null;
       return {
@@ -155,10 +163,13 @@ passportIdentityRoutes.post("/nodes/:nodeId/reveal", async (c) => {
   }
   if (!node) return c.json({ error: "Passport hop not found" }, 404);
 
+  // Read once: it gates a reveal and it computes the effective state echoed
+  // back below.
+  const verified = await loadVerified(userId);
+
   // To REVEAL, the caller must have a public Verified profile (otherwise there's
   // no public handle to show — and consent without a target would be a no-op).
   if (revealed) {
-    const verified = await loadVerified(userId);
     if (!verified.verified_enabled || !verified.verified_handle) {
       return c.json(
         {
@@ -187,7 +198,6 @@ passportIdentityRoutes.post("/nodes/:nodeId/reveal", async (c) => {
   }
 
   // Echo the effective state so the client can reflect it without a refetch.
-  const verified = await loadVerified(userId);
   const effective = effectiveRevealedIdentity(
     { identity_revealed: revealed, linked_user_id: userId },
     verified,

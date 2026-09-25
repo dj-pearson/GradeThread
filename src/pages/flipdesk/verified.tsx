@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import {
   BadgeCheck,
   ExternalLink,
@@ -51,6 +52,9 @@ import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import { PageHelp } from "@/components/help/page-help";
 
+// US-2543: the most-used tab first.
+const DEFAULT_TAB = "profile";
+
 interface FormBaseline {
   handle: string;
   displayName: string;
@@ -77,6 +81,8 @@ export function FlipdeskVerifiedPage() {
   // What the text fields were last loaded or saved as. The form is dirty when
   // it differs from this, and Save is offered only then.
   const [baseline, setBaseline] = useState<FormBaseline | null>(null);
+  // Controlled so the passport tab can send the seller back to Profile.
+  const [tab, setTab] = useState<string>(DEFAULT_TAB);
   const seeded = useRef(false);
   const confirm = useConfirm();
 
@@ -276,7 +282,7 @@ export function FlipdeskVerifiedPage() {
           tabs, most-used first. */}
       <UnsavedChangesDialog guard={guard} noun="profile change" />
 
-      <Tabs defaultValue="profile" className="space-y-6">
+      <Tabs value={tab} onValueChange={setTab} className="space-y-6">
         <TabsList>
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="badges">Badges</TabsTrigger>
@@ -530,7 +536,10 @@ export function FlipdeskVerifiedPage() {
 
         <TabsContent value="passport" className="space-y-6">
       {/* US-1105: opt-in identity reveal on Garment Passports. */}
-      <PassportIdentityCard profilePublic={isLive} />
+      <PassportIdentityCard
+        profilePublic={isLive}
+        onGoToProfile={() => setTab("profile")}
+      />
         </TabsContent>
       </Tabs>
     </div>
@@ -695,29 +704,42 @@ function garmentName(sku: Record<string, unknown>): string {
 
 // Lets the seller reveal their public Verified identity on chosen passport hops.
 // Strictly opt-in, OFF by default, reversible, and per-hop (US-1105). Only
-// meaningful once the Verified profile above is public — otherwise there's no
-// public handle to show, so the toggles are disabled with a prompt.
-function PassportIdentityCard({ profilePublic }: { profilePublic: boolean }) {
-  const { data, isLoading } = usePassportIdentityNodes();
+// meaningful once the Verified profile is public; otherwise there is no public
+// handle to show, so the toggles are disabled with a way back to the Profile
+// tab. An error and an empty list each say what they are, rather than leaving
+// the tab blank.
+function PassportIdentityCard({
+  profilePublic,
+  onGoToProfile,
+}: {
+  profilePublic: boolean;
+  onGoToProfile: () => void;
+}) {
+  const { data, isLoading, isError, refetch, isFetching } = usePassportIdentityNodes();
   const setReveal = useSetPassportReveal();
-  const [pendingId, setPendingId] = useState<string | null>(null);
-
-  // Hide the section entirely when the user owns no claimed passport hops —
-  // there's nothing to reveal and it would only add noise.
-  if (!isLoading && (!data || data.nodes.length === 0)) return null;
+  // One entry per hop with a request in flight, so two quick toggles on two
+  // hops each stay disabled until their own request settles.
+  const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(() => new Set());
 
   async function toggle(node: PassportIdentityNode, next: boolean) {
-    setPendingId(node.node_id);
+    setPendingIds((prev) => new Set(prev).add(node.node_id));
     try {
       await setReveal.mutateAsync({ nodeId: node.node_id, revealed: next });
+    } catch {
+      // The hook rolls the hop back and tells the seller why.
     } finally {
-      setPendingId(null);
+      setPendingIds((prev) => {
+        const out = new Set(prev);
+        out.delete(node.node_id);
+        return out;
+      });
     }
   }
 
   // The server is the source of truth for whether revealing is possible right
   // now; fall back to the locally-known publish state while loading.
   const canReveal = data?.verified_profile_public ?? profilePublic;
+  const nodes = data?.nodes ?? [];
 
   return (
     <Card>
@@ -727,65 +749,101 @@ function PassportIdentityCard({ profilePublic }: { profilePublic: boolean }) {
           Reveal your identity on passports
         </CardTitle>
         <CardDescription>
-          Garment Passports are pseudonymous by default. Opt in — per item — to
-          show your Verified handle on a garment's public history, so buyers can
-          see the items you've owned and graded. You can turn this off any time.
+          A Garment Passport is the public history of one item. Passports hide
+          who owned the item by default. You can choose, item by item, to show
+          your Verified handle on its history, so buyers can see the items
+          you've owned and graded. You can turn this off at any time.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {!canReveal && (
-          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            Publish your Verified profile above first — that's the handle a reveal
-            shows.
-          </div>
-        )}
-
         {isLoading ? (
           <Skeleton className="h-24 w-full" />
+        ) : isError || !data ? (
+          <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
+            <span>Couldn't load your passports.</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={isFetching}
+            >
+              Retry
+            </Button>
+          </div>
+        ) : nodes.length === 0 ? (
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p>
+              You don't have any passports yet. A passport is created when an
+              item you own is graded, and it shows up here after that.
+            </p>
+            <Link
+              to="/dashboard/submissions/new"
+              className="inline-flex font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              Grade an item
+            </Link>
+          </div>
         ) : (
-          <ul className="space-y-3">
-            {(data?.nodes ?? []).map((node) => {
-              const busy = setReveal.isPending && pendingId === node.node_id;
-              return (
-                <li
-                  key={node.node_id}
-                  className="flex items-center justify-between gap-3 rounded-lg border p-4"
-                >
-                  <div className="min-w-0 space-y-0.5">
-                    <p className="truncate font-medium">{garmentName(node.sku_class)}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {node.label}
-                      {node.revealed && !node.revealed_effective && (
-                        <span className="ml-1 text-amber-600 dark:text-amber-400">
-                          · hidden until your profile is public
-                        </span>
+          <>
+            {!canReveal && (
+              <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                <span>Make your Verified profile public first. A reveal shows that handle.</span>
+                <Button type="button" variant="outline" size="sm" onClick={onGoToProfile}>
+                  Go to your profile
+                </Button>
+              </div>
+            )}
+            {data.garments_unavailable && (
+              <p className="text-sm text-amber-700 dark:text-amber-400">
+                Item names couldn't load right now, so some items show a
+                general name.
+              </p>
+            )}
+            <ul className="divide-y">
+              {nodes.map((node) => {
+                const busy = pendingIds.has(node.node_id);
+                return (
+                  <li
+                    key={node.node_id}
+                    className="flex items-center justify-between gap-4 py-3"
+                  >
+                    <div className="min-w-0 space-y-0.5">
+                      <p className="truncate font-medium">{garmentName(node.sku_class)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {node.label}
+                        {node.revealed && !node.revealed_effective && (
+                          <span className="ml-1 text-amber-600 dark:text-amber-400">
+                            · hidden until your profile is public
+                          </span>
+                        )}
+                      </p>
+                      {node.passport_slug && (
+                        <a
+                          href={`/passport/${encodeURIComponent(node.passport_slug)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-brand-navy hover:underline dark:text-foreground"
+                        >
+                          <History className="h-3.5 w-3.5" />
+                          View passport
+                        </a>
                       )}
-                    </p>
-                    {node.passport_slug && (
-                      <a
-                        href={`/passport/${node.passport_slug}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-xs font-medium text-brand-navy hover:underline dark:text-foreground"
-                      >
-                        <History className="h-3.5 w-3.5" />
-                        View passport
-                      </a>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {busy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                    <Switch
-                      checked={node.revealed}
-                      disabled={busy || (!node.revealed && !canReveal)}
-                      onCheckedChange={(next) => toggle(node, next)}
-                      aria-label={`Reveal identity on ${garmentName(node.sku_class)}`}
-                    />
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {busy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                      <Switch
+                        checked={node.revealed}
+                        disabled={busy || (!node.revealed && !canReveal)}
+                        onCheckedChange={(next) => toggle(node, next)}
+                        aria-label={`Reveal identity on ${garmentName(node.sku_class)}`}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
         )}
       </CardContent>
     </Card>
