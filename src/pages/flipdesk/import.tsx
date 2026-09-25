@@ -107,6 +107,9 @@ type ImportRun = {
 };
 
 // IMP-07: shown when the server refuses a file for its size or row count.
+const NO_IMPORT_PERMISSION =
+  "Importing and undoing need inventory access in this workspace. Ask a workspace admin.";
+
 const TOO_BIG_MESSAGE =
   "This file is too big for one import. Split it into files of 5,000 rows or fewer.";
 
@@ -212,6 +215,9 @@ export function FlipdeskImportPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const { workspaceOwnerId, can } = useWorkspace();
+  // IMP-09: the server refuses an import, an undo and a closet read below
+  // listing_manager, so the buttons say so before the click, not after.
+  const canImport = can("manage_inventory");
 
   const [text, setText] = useState("");
   const [sheetUrl, setSheetUrl] = useState("");
@@ -372,8 +378,8 @@ export function FlipdeskImportPage() {
       toast.error("You must be signed in.");
       return;
     }
-    if (!can("manage_inventory")) {
-      toast.error("You don't have permission to import inventory in this workspace.");
+    if (!canImport) {
+      toast.error(NO_IMPORT_PERMISSION);
       return;
     }
     if (!titleFieldMapped) {
@@ -631,7 +637,7 @@ export function FlipdeskImportPage() {
           extension has answered a ping — an install step when it is missing,
           and the free bound stated when the account has no plan. */}
       <ClosetImportCard
-        disabled={importing || !can("manage_inventory")}
+        disabled={importing || !canImport}
         onStarted={handleClosetStarted}
       />
 
@@ -898,12 +904,17 @@ A1	GT-0001	Lululemon Align Pant	..."
         </Card>
       )}
 
+      {/* IMP-09: one line saying why Import, Reset and Undo are disabled. */}
+      {!canImport && (
+        <p className="text-sm text-muted-foreground">{NO_IMPORT_PERMISSION}</p>
+      )}
+
       {/* Step 4: import */}
       {rows.length > 0 && titleFieldMapped && (
         <div className="flex justify-end gap-2">
           <Button
             variant="outline"
-            disabled={importing}
+            disabled={importing || !canImport}
             onClick={() => {
               setText("");
               setHeaders([]);
@@ -914,7 +925,7 @@ A1	GT-0001	Lululemon Align Pant	..."
           >
             Reset
           </Button>
-          <Button onClick={handleImport} disabled={importing}>
+          <Button onClick={handleImport} disabled={importing || !canImport}>
             {importing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Import {rows.length} items
           </Button>
@@ -1001,7 +1012,7 @@ A1	GT-0001	Lululemon Align Pant	..."
                   <Button
                     variant="outline"
                     onClick={handleUndo}
-                    disabled={undoing}
+                    disabled={undoing || !canImport}
                   >
                     {undoing ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />

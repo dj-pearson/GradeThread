@@ -19,3 +19,15 @@ describe("import page: a file too big for one import (IMP-07)", () => {
     expect(src).toMatch(/throw new Error\(TOO_BIG_MESSAGE\)/);
   });
 });
+
+describe("import page: permission (IMP-09)", () => {
+  it("computes canImport once and disables Import, Reset and Undo with a reason", () => {
+    const src = read(PAGE);
+    expect(src).toMatch(/const canImport = can\("manage_inventory"\)/);
+    expect(src.match(/can\("manage_inventory"\)/g)?.length).toBe(1);
+    expect(src).toMatch(/onClick=\{handleImport\} disabled=\{importing \|\| !canImport\}/);
+    expect(src).toMatch(/disabled=\{undoing \|\| !canImport\}/);
+    expect(src).toMatch(/\{!canImport && \(/);
+    expect(src).toContain("Importing and undoing need inventory access in this workspace.");
+  });
+});

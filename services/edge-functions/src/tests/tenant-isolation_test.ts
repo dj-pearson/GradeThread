@@ -11432,3 +11432,53 @@ Deno.test({
     }
   },
 });
+
+// ── IMP-09: import writes need manage_inventory (listing_manager+) ──────────
+//
+// Starting an import, undoing one and starting a closet read create or delete
+// inventory in bulk. The viewer half runs on every CI job (the seed emits a
+// viewer); the member half needs TEST_MEMBER_JWT, which the seed does not yet
+// emit (KNOWN_UNSEEDED). import-role-floor_test.ts drives the member refusal
+// in-process so it is covered either way. A 2xx here is a FAIL.
+const IMPORT_WRITE_PATHS: Array<{ path: string; body: unknown }> = [
+  { path: "/api/flipdesk/import/runs", body: { rows: [{ row: 2, title: "IMP-09 probe" }] } },
+  { path: "/api/flipdesk/import/runs/00000000-0000-4000-8000-000000000000/undo", body: {} },
+  {
+    path: "/api/flipdesk/closet-import/runs",
+    body: { platform: "poshmark", rows: [] },
+  },
+];
+
+for (const { path, body } of IMPORT_WRITE_PATHS) {
+  Deno.test({
+    name: `IMP-09: viewer cannot POST ${path}`,
+    ignore: !VIEWER_READY,
+    fn: async () => {
+      const res = await fetch(`${BASE}${path}`, {
+        method: "POST",
+        headers: viewerHeaders(),
+        body: JSON.stringify(body),
+      });
+      await res.body?.cancel();
+      assertEquals(res.status, 403, `POST ${path} as viewer`);
+    },
+  });
+
+  Deno.test({
+    name: `IMP-09: member cannot POST ${path} (requires listing_manager)`,
+    ignore: !BASE || !WS_OWNER || !MEMBER_JWT,
+    fn: async () => {
+      const res = await fetch(`${BASE}${path}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${MEMBER_JWT}`,
+          "Content-Type": "application/json",
+          "X-Workspace-Owner": WS_OWNER!,
+        },
+        body: JSON.stringify(body),
+      });
+      await res.body?.cancel();
+      assertEquals(res.status, 403, `POST ${path} as member`);
+    },
+  });
+}

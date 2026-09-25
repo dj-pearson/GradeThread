@@ -349,3 +349,21 @@ Deno.test("an Etsy URL row lands as an etsy listing, a bare price as 'other'", a
   const platforms = (db.tables.listings ?? []).map((l) => l.platform).sort();
   assertEquals(platforms, ["etsy", "other"]);
 });
+
+// ── IMP-09 / US-268: B's import never touches A's catalog ──────────────────
+
+Deno.test("B importing a row with A's SKU leaves A's item untouched", async () => {
+  const A = "44444444-4444-4444-8444-444444444444";
+  db.reset({
+    // The run belongs to OWNER (tenant B here); A's item carries the same SKU.
+    flipdesk_import_runs: [runRow([{ row: 2, title: "B tee", sku: "SHARED", brand: "Nike" }])],
+    inventory_items: [{ id: ITEM, user_id: A, sku: "SHARED", title: "A tee", brand: null }],
+  });
+  await processImportRun(RUN);
+  const aItem = db.tables.inventory_items!.find((r) => r.id === ITEM)!;
+  assertEquals(aItem.brand, null);
+  assertEquals(aItem.title, "A tee");
+  const bItems = db.tables.inventory_items!.filter((r) => r.user_id === OWNER);
+  assertEquals(bItems.length, 1);
+  assertEquals(theRun().inserted_count, 1);
+});

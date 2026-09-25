@@ -316,7 +316,11 @@ import {
   apiV1WriteLimit,
 } from "./middleware/api-v1-rate.ts";
 import { apiUsageMiddleware } from "./lib/api-usage-log.ts";
-import { blockViewerWrites, workspaceMiddleware } from "./middleware/workspace.ts";
+import {
+  blockViewerWrites,
+  requireWorkspaceRoleForWrites,
+  workspaceMiddleware,
+} from "./middleware/workspace.ts";
 import { securityHeaders } from "./middleware/security-headers.ts";
 import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
 import {
@@ -833,6 +837,13 @@ app.use("/api/keys/*", workspaceMiddleware);
 // missing or a mutating surface router is mounted outside their coverage.
 app.use("/api/flipdesk/*", blockViewerWrites);
 app.use("/api/grade/*", blockViewerWrites);
+// IMP-09: starting an import, undoing one, and a closet read all create or
+// delete inventory in bulk (a closet read up to 2,000 live listings), which is
+// manage_inventory: listing_manager and up. blockViewerWrites alone let a
+// 'member' do all three. Reads (the progress poll, the runs list) stay open.
+app.use("/api/flipdesk/import/runs", requireWorkspaceRoleForWrites("listing_manager"));
+app.use("/api/flipdesk/import/runs/:id/undo", requireWorkspaceRoleForWrites("listing_manager"));
+app.use("/api/flipdesk/closet-import/runs", requireWorkspaceRoleForWrites("listing_manager"));
 
 // US-584: cron-run ledger. Every /api/jobs/* hit that presents the internal
 // job secret (i.e. a legit scheduled call, not an unauthenticated probe) is

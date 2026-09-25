@@ -123,6 +123,22 @@ export function requireWorkspaceRole(min: WorkspaceRole) {
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 /**
+ * IMP-09: `requireWorkspaceRole(min)` for mutating verbs only, so one mount can
+ * guard a path's writes while its reads (a run's progress poll) stay open to
+ * every member. Must run AFTER workspaceMiddleware.
+ */
+export function requireWorkspaceRoleForWrites(min: WorkspaceRole) {
+  const guard = requireWorkspaceRole(min);
+  return createMiddleware<WorkspaceEnv>(async (c, next) => {
+    if (!MUTATING_METHODS.has(c.req.method)) {
+      await next();
+      return;
+    }
+    return await guard(c, next);
+  });
+}
+
+/**
  * US-1928: baseline write floor for the FlipDesk + grade surface. A `viewer` is
  * a read-only workspace member — the role's whole contract — yet most mutating
  * routes never checked the role, so a viewer could write / spend AI credits in
