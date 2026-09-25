@@ -2,7 +2,6 @@
 // per-key request ledger summary + the account's rate-limit tier from
 // GET /api/keys/usage and renders call volume, success/error/sandbox split,
 // busiest endpoints, and the documented per-minute limits.
-import { useQuery } from "@tanstack/react-query";
 import { Activity, AlertCircle, FlaskConical, Gauge } from "lucide-react";
 import {
   Card,
@@ -20,28 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { edgeFetch } from "@/lib/edge-fetch";
-
-interface UsageSummary {
-  since: string;
-  days: number;
-  total_requests: number;
-  success_requests: number;
-  error_requests: number;
-  sandbox_requests: number;
-  by_endpoint: { endpoint: string; method: string; count: number }[];
-  daily: { day: string; count: number }[];
-}
-
-interface UsageResponse {
-  summary: UsageSummary;
-  plan: string;
-  rate_limits: {
-    read_per_minute: number;
-    write_per_minute: number;
-    window_seconds: number;
-  };
-}
+import { useApiUsage } from "@/hooks/use-api-usage";
 
 function Stat({ label, value, icon: Icon }: { label: string; value: number; icon: typeof Activity }) {
   return (
@@ -58,19 +36,7 @@ function Stat({ label, value, icon: Icon }: { label: string; value: number; icon
 }
 
 export function ApiUsagePanel() {
-  const { data, isLoading } = useQuery<UsageResponse>({
-    queryKey: ["api-usage"],
-    queryFn: async () => {
-      const res = await edgeFetch("/api/keys/usage?days=30");
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Failed to fetch" }));
-        throw new Error(err.error || "Failed to fetch API usage");
-      }
-      const json = await res.json();
-      return json.data as UsageResponse;
-    },
-    staleTime: 60 * 1000,
-  });
+  const { data, isLoading } = useApiUsage();
 
   return (
     <Card>

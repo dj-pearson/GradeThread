@@ -10,7 +10,12 @@ import { customerCreateIdempotencyKey } from "../lib/stripe-customer.ts";
 import { getBuyerPriceIds, getFlipdeskPriceIds } from "../lib/pricing-config.ts";
 import { carriedForwardTrialEnd } from "../lib/trial-carry-forward.ts";
 import { effectiveAiActionsUsed } from "../lib/ai-metering.ts";
-import { API_OVERAGE_PACKS, isApiOveragePackKey } from "../lib/api-overage-packs.ts";
+import {
+  API_OVERAGE_PACKS,
+  apiOverageCheckoutMetadata,
+  isApiOveragePackKey,
+} from "../lib/api-overage-packs.ts";
+import { requireFlipdesk } from "../lib/plan-gate.ts";
 import {
   ACTION_CREDIT_PACK_KEYS,
   ACTION_CREDIT_PACKS,
@@ -40,6 +45,7 @@ type PaymentsEnv = {
     // ownership check + the paid-flip to this, so a member's submissions (stored
     // user_id = ownerId) aren't stranded with a 404.
     workspaceOwnerId?: string;
+    workspaceRole?: "viewer" | "member" | "listing_manager" | "admin" | "owner";
   };
 };
 
@@ -1098,6 +1104,19 @@ paymentRoutes.post("/gradethread/credit-pack", async (c) => {
 // exceeds its monthly quota. Never-expiring, volume-discounted (API_OVERAGE_PACKS).
 paymentRoutes.post("/api-overage/checkout", async (c) => {
   const userId = c.get("userId");
+  // The wallet a key draws down is the workspace OWNER's (api-key-auth debits
+  // the key's user_id, which is the owner). Crediting the buyer's own id meant
+  // an admin paid and the owner's balance did not move.
+  const ownerId = c.get("workspaceOwnerId") ?? userId;
+  const role = c.get("workspaceRole") ?? "owner";
+  if (role !== "owner" && role !== "admin") {
+    return c.json(
+      { error: "Only the workspace owner and admins can buy API overage credits" },
+      403,
+    );
+  }
+  const gate = await requireFlipdesk(c, { feature: "apiAccess", userId: ownerId });
+  if (gate) return gate;
 
   let body: { pack?: unknown };
   try {
@@ -1109,6 +1128,26 @@ paymentRoutes.post("/api-overage/checkout", async (c) => {
   if (!isApiOveragePackKey(packKey)) {
     return c.json({ error: "pack must be one of: 10, 50, 100, 200" }, 400);
   }
+
+  // Overage credits are only ever spent by a key with a monthly_quota, and
+  // nothing sets one yet. Selling a balance nothing can draw down is taking
+  // money for nothing, so refuse until at least one key carries a quota.
+  const { count: quotaKeys, error: quotaError } = await supabaseAdmin
+    .from("api_keys")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", ownerId)
+    .not("monthly_quota", "is", null);
+  if (quotaError) {
+    console.error("API overage quota check failed:", quotaError);
+    return c.json({ error: "Failed to create overage checkout" }, 500);
+  }
+  if ((quotaKeys ?? 0) === 0) {
+    return c.json(
+      { error: "API overage credits are not available yet: your keys have no monthly quota." },
+      409,
+    );
+  }
+
   const pack = API_OVERAGE_PACKS[packKey];
   const priceId = Deno.env.get(pack.priceEnv) || "";
   if (!priceId) {
@@ -1116,25 +1155,19 @@ paymentRoutes.post("/api-overage/checkout", async (c) => {
     return c.json({ error: "Pricing not configured" }, 503);
   }
 
-  const { data: user, error: userError } = await loadUser(userId);
+  const { data: user, error: userError } = await loadUser(ownerId);
   if (userError || !user) return c.json({ error: "User not found" }, 404);
   const stripe = getStripe();
   if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 
   try {
+    const metadata = apiOverageCheckoutMetadata(ownerId, userId, pack);
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode: "payment",
       payment_method_types: ["card"],
       line_items: [{ price: priceId, quantity: 1 }],
-      metadata: {
-        user_id: userId,
-        product: "api_overage",
-        pack: packKey,
-        credits: String(pack.credits),
-      },
-      payment_intent_data: {
-        metadata: { user_id: userId, product: "api_overage", pack: packKey, credits: String(pack.credits) },
-      },
+      metadata,
+      payment_intent_data: { metadata },
       success_url: `${siteUrl()}/dashboard/api-keys?checkout=success&product=api_overage&pack=${packKey}`,
       cancel_url: `${siteUrl()}/dashboard/api-keys?checkout=cancelled`,
       automatic_tax: { enabled: true },
@@ -1145,7 +1178,7 @@ paymentRoutes.post("/api-overage/checkout", async (c) => {
     sessionParams.customer_update = { name: "auto", address: "auto" };
 
     const session = await stripe.checkout.sessions.create(sessionParams, {
-      idempotencyKey: `api-overage:${userId}:${packKey}:${Math.floor(Date.now() / 60000)}`,
+      idempotencyKey: `api-overage:${ownerId}:${packKey}:${Math.floor(Date.now() / 60000)}`,
     });
     return c.json({ sessionId: session.id, url: session.url });
   } catch (err) {

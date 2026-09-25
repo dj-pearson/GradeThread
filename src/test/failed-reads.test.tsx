@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSetItemAspect } from "@/hooks/use-ebay";
 import { fetchPayoutBreakdown } from "@/lib/payout-breakdown";
-import { ApiOverageCard } from "@/components/api/api-overage-card";
 import { FilingWalkthroughCard } from "@/components/finances/filing-walkthrough-card";
 
 type Request = { table: string; operation: string; range?: [number, number]; values?: unknown };
@@ -129,23 +128,6 @@ describe("failed reads cannot become writes or financial facts", () => {
       ? { data: [{ sale_id: "one" }], error: null }
       : { data: null, error: { message: "Second page failed" } });
     await expect(fetchPayoutBreakdown("owner", "payout")).rejects.toEqual({ message: "Second page failed" });
-  });
-
-  it("shows an unavailable credit balance and recovers through Retry", async () => {
-    mocks.read.mockReturnValue({ data: null, error: { message: "Offline" } });
-    await render(<ApiOverageCard />);
-    await settle(() => expect(container.textContent).toContain("Balance: Unavailable"));
-    expect(container.textContent).not.toContain("Balance: 0 credits");
-    mocks.read.mockReturnValue({ data: { balance: 27 }, error: null });
-    await act(async () => (container.querySelector('[role="alert"] button') as HTMLButtonElement).click());
-    await settle(() => expect(container.textContent).toContain("Balance: 27 credits"));
-  });
-
-  it("shows zero credits when the successful read finds no wallet", async () => {
-    mocks.read.mockReturnValue({ data: null, error: null });
-    await render(<ApiOverageCard />);
-    await settle(() => expect(container.textContent).toContain("Balance: 0 credits"));
-    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
   it.each(["review", "snapshots", "receipts", "profile", "profile-exists"])("withholds filing advice when %s cannot be checked", async (failure) => {

@@ -10746,6 +10746,48 @@ Deno.test({
   },
 });
 
+// DEV-01: API overage credits are credited to the workspace OWNER's wallet,
+// because keys debit the owner. A viewer member must not be able to start a
+// checkout at all, and a caller cannot name whose wallet is credited.
+Deno.test({
+  name: "api overage: a viewer member cannot start an overage checkout (requires admin)",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/payments/api-overage/checkout`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ pack: "10" }),
+    });
+    await res.body?.cancel();
+    assertEquals(res.status, 403, "a viewer reached the overage checkout");
+  },
+});
+
+Deno.test({
+  name: "api overage: a checkout cannot name whose wallet to credit",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/payments/api-overage/checkout`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        pack: "10",
+        user_id: "00000000-0000-0000-0000-0000000000aa",
+        userId: "00000000-0000-0000-0000-0000000000aa",
+      }),
+    });
+    // 402 (B lacks apiAccess), 409 (no key carries a quota) or 503 (pricing
+    // not configured) are all refusals before any session. A 200 must not
+    // carry the foreign id.
+    assert(
+      [200, 402, 409, 503].includes(res.status) || DENIED.has(res.status),
+      `unexpected status ${res.status} from an overage checkout carrying a foreign user id`,
+    );
+    const body = await res.text();
+    assertListExcludes(body, "0000000000aa", "api-overage checkout as B");
+  },
+});
+
 Deno.test({
   name: "action credits: the checkout rejects a pack key it does not sell",
   ignore: !CONFIGURED,

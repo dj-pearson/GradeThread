@@ -11,7 +11,7 @@ import {
 import { assertPublicUrl, SsrfError } from "../lib/ssrf.ts";
 import { redactError } from "../lib/log-redact.ts";
 import { generateApiKey, normalizeScopes } from "../lib/api-key.ts";
-import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { featureAllowedForUser, requireFlipdesk } from "../lib/plan-gate.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
 import { API_RATE_TIERS } from "../middleware/api-v1-rate.ts";
 
@@ -105,10 +105,35 @@ apiKeyRoutes.get("/usage", async (c) => {
     return c.json({ error: "Failed to load API usage" }, 500);
   }
 
+  // The page gates on the OWNER's plan, never the viewer's own. Answering it
+  // here means an admin of a Business workspace is not shown an upsell, and a
+  // Business user acting in a Free workspace is not shown a key table the
+  // create route will refuse.
+  const apiAccess = await featureAllowedForUser(userId, "apiAccess");
+
+  // Overage credits are only spent by a key carrying a monthly_quota, and
+  // nothing sets one yet (US-1792 follow-up). The card hides itself until one
+  // exists, so a seller is never offered a balance nothing can draw down.
+  const { count: quotaKeys } = await supabaseAdmin
+    .from("api_keys")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .not("monthly_quota", "is", null);
+  const { data: wallet } = await supabaseAdmin
+    .from("api_credit_wallet")
+    .select("balance")
+    .eq("user_id", userId)
+    .maybeSingle();
+
   return c.json({
     data: {
       summary,
       plan,
+      api_access: apiAccess,
+      overage: {
+        quota_enabled: (quotaKeys ?? 0) > 0,
+        balance: Number((wallet as { balance?: number } | null)?.balance ?? 0),
+      },
       rate_limits: {
         read_per_minute: tier.read,
         write_per_minute: tier.write,
