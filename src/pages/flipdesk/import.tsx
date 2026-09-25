@@ -378,6 +378,22 @@ export function FlipdeskImportPage() {
     }
   }
 
+  // IMP-14: the extension timed out but may still be starting the run. Look
+  // for it a few times, and attach to it so progress and Undo show here.
+  async function attachNewestOpenRun() {
+    for (let i = 0; i < 6; i++) {
+      const { data } = await recentRuns.refetch();
+      const open = data?.find(isOpenRun);
+      if (open) {
+        watchedOpenRef.current = open.id;
+        rememberRun(open.id);
+        setRun(open);
+        return;
+      }
+      await new Promise((r) => window.setTimeout(r, 5_000));
+    }
+  }
+
   // US-9201: a closet import run started by the extension. Same polling, same
   // results card, same undo; only the origin differs.
   function handleClosetStarted(start: ClosetImportStart) {
@@ -599,6 +615,7 @@ export function FlipdeskImportPage() {
       <ClosetImportCard
         disabled={importing || !canImport}
         onStarted={handleClosetStarted}
+        onStillReading={() => void attachNewestOpenRun()}
       />
 
       {/* Step 1: where the data comes from (IMP-13). */}

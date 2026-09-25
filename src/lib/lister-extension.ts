@@ -1125,6 +1125,52 @@ export function sendClosetImport(
  *
  * Returns null when nothing was left behind, so the caller can skip the toast.
  */
+/**
+ * IMP-14: why the extension cannot run a read right now, from what it reported
+ * on the ping, or null when it can. An older build that does not report its
+ * token state reads as unknown, not as fine, so only a definite answer blocks.
+ */
+export function closetImportBlocker(setup: {
+  reachable: boolean;
+  signedIn: boolean;
+  tokenStatus: "none" | "active" | "expiring" | "expired" | null;
+}): { kind: "update" | "reconnect"; text: string } | null {
+  if (!setup.reachable) {
+    return {
+      kind: "update",
+      text: "The extension is installed but did not answer. Update it or turn it back on, then reload this page.",
+    };
+  }
+  if (setup.tokenStatus === "expired") {
+    return {
+      kind: "reconnect",
+      text: "The extension's connection to your account has expired. Reconnect it, then come back here.",
+    };
+  }
+  if (!setup.signedIn) {
+    return {
+      kind: "reconnect",
+      text: "The extension is not connected to your account yet. Connect it, then come back here.",
+    };
+  }
+  return null;
+}
+
+/**
+ * IMP-14: the sentence for a read that stopped before the end of the closet.
+ * Null when the extension read to the end or did not say.
+ */
+export function closetImportCoverageNotice(
+  coverage: { tilesRead: number; reachedEnd: boolean } | null | undefined,
+  platform: ClosetImportPlatform,
+): string | null {
+  if (!coverage || coverage.reachedEnd !== false) return null;
+  const label = MARKETPLACE_LABELS[platform];
+  return `This read stopped before the end of your ${label} closet (${coverage.tilesRead} ` +
+    `listings seen). Scroll to the bottom of your closet tab, then press Import again ` +
+    `to bring in the rest.`;
+}
+
 export function closetImportCapNotice(
   result: {
     free_capped?: boolean;
@@ -1173,7 +1219,10 @@ export function closetImportFailureText(
     case "unsupported":
       return `Closet import supports ${closetImportPlatformSentence()}.`;
     case "seller_locked":
-      return "Closet import is part of a paid FlipDesk plan.";
+      // IMP-14: the extension says this both for an account on Free and for an
+      // install that holds no account token (US-3295), so the sentence names
+      // both rather than telling a paying seller to pay.
+      return "The extension could not confirm a FlipDesk plan. If you have one, reconnect the extension from Marketplaces; if not, closet import beyond the free bound needs one.";
     case "needs_sign_in":
       return "Sign in to GradeThread in the extension first, then press Import again.";
     case "no_tab":

@@ -77,8 +77,10 @@ describe("closet import card", () => {
   });
 
   it("shows the disclosure before the button, from the shared copy", () => {
-    expect(src).toMatch(/closetImportDisclosureFor\(platform\)/);
+    // IMP-14: one disclosure for all platforms, still ahead of the buttons.
+    expect(src).toMatch(/closetImportDisclosureFor\(p\)/);
     expect(src).toMatch(/disclosure\.facts\.map/);
+    expect(src.indexOf("<details")).toBeLessThan(src.indexOf("void run(platform)"));
   });
 
   it("is mounted on the import page and feeds the shared run poller", () => {
