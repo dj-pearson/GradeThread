@@ -7,6 +7,7 @@ import {
   TemplateApiError,
   addStarterTemplates,
   createTemplate,
+  duplicateNameProblem,
   nextSortOrder,
   saveErrorNextStep,
 } from "@/lib/flipdesk-templates";
@@ -86,5 +87,15 @@ describe("nextSortOrder", () => {
   it("is one past the highest, and 0 for an empty list", () => {
     expect(nextSortOrder([])).toBe(0);
     expect(nextSortOrder([{ sort_order: 3 }, { sort_order: 9 }, { sort_order: 1 }])).toBe(10);
+  });
+});
+
+describe("duplicateNameProblem", () => {
+  const list = [{ id: "a", name: "Denim" }, { id: "b", name: "Tees" }];
+  it("matches trimmed and case-insensitive, ignoring the row being edited", () => {
+    expect(duplicateNameProblem("  denim ", list, null)).toContain('"Denim"');
+    expect(duplicateNameProblem("Denim", list, "a")).toBeNull();
+    expect(duplicateNameProblem("Shoes", list, null)).toBeNull();
+    expect(duplicateNameProblem("   ", list, null)).toBeNull();
   });
 });

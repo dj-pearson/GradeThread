@@ -146,6 +146,26 @@ export class TemplateApiError extends Error {
   }
 }
 
+/**
+ * Why a name clashes with another template on the account, or null.
+ *
+ * Trimmed and case-insensitive: the database's unique rule is case-sensitive,
+ * but "Denim" and "denim" read as the same template in every picker, so the
+ * editor refuses the second one before the server is asked.
+ */
+export function duplicateNameProblem(
+  name: string,
+  templates: readonly Pick<ListingTemplate, "id" | "name">[],
+  existingId: string | null,
+): string | null {
+  const want = name.trim().toLowerCase();
+  if (!want) return null;
+  const clash = templates.find(
+    (t) => t.id !== existingId && t.name.trim().toLowerCase() === want,
+  );
+  return clash ? `You already have a template called "${clash.name}". Pick a different name.` : null;
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await edgeFetch(path, init);
   const json = await res.json().catch(() => ({}));

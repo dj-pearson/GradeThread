@@ -32,6 +32,7 @@ import {
   type ListingTemplate,
   type TemplateInput,
   createTemplate,
+  duplicateNameProblem,
   nameProblem,
   normalizeInput,
   saveErrorNextStep,
@@ -143,6 +144,7 @@ export interface TemplateEditorDialogProps {
 export function TemplateEditorDialog({
   open,
   template,
+  templates,
   nextSortOrder,
   onOpenChange,
 }: TemplateEditorDialogProps) {
@@ -227,10 +229,22 @@ export function TemplateEditorDialog({
     return () => form.removeEventListener("keydown", onKey);
   }, [form]);
 
-  const problem = nameProblem(editor.name);
+  // The name error waits until the field was left or a save was tried, so a
+  // fresh "New template" does not open on a red sentence.
+  const [nameTouched, setNameTouched] = useState(false);
+  const nameInput = useRef<HTMLInputElement>(null);
+  const problem =
+    nameProblem(editor.name) ??
+    duplicateNameProblem(editor.name, templates, editor.existing?.id ?? null);
+  const showProblem = nameTouched && problem !== null;
 
   function submit() {
-    if (save.isPending || problem !== null) return;
+    if (save.isPending) return;
+    if (problem !== null) {
+      setNameTouched(true);
+      nameInput.current?.focus();
+      return;
+    }
     save.mutate(editor);
   }
 
@@ -262,6 +276,12 @@ export function TemplateEditorDialog({
             <Label htmlFor="tpl-name">Name</Label>
             <Input
               id="tpl-name"
+              ref={nameInput}
+              // A new template has nothing else to start from.
+              autoFocus={editor.existing === null}
+              aria-invalid={showProblem || undefined}
+              aria-describedby={showProblem ? "tpl-name-error" : undefined}
+              onBlur={() => setNameTouched(true)}
               value={editor.name}
               maxLength={TEMPLATE_NAME_MAX}
               placeholder="e.g. Vintage denim"
@@ -270,7 +290,11 @@ export function TemplateEditorDialog({
                 setEditor((s) => ({ ...s, name }));
               }}
             />
-            {problem && <p className="text-sm text-destructive">{problem}</p>}
+            {showProblem && (
+              <p id="tpl-name-error" className="text-sm text-destructive">
+                {problem}
+              </p>
+            )}
           </div>
 
           <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
@@ -469,7 +493,10 @@ export function TemplateEditorDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={save.isPending || problem !== null}>
+            {/* Enabled even with a name problem: pressing it shows the problem
+                and puts the cursor on the field, which a greyed-out button
+                never explains. */}
+            <Button type="submit" disabled={save.isPending}>
               {save.isPending ? "Saving..." : "Save template"}
             </Button>
           </DialogFooter>

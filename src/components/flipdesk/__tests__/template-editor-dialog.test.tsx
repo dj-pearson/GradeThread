@@ -182,4 +182,44 @@ describe("TemplateEditorDialog", () => {
     await key(field("tpl-desc"), "Enter", { ctrlKey: true });
     expect(api.createTemplate).toHaveBeenCalledTimes(1);
   });
+
+  it("does not open on a red error, and shows it after a blur", async () => {
+    await render();
+    expect(document.getElementById("tpl-name-error")).toBeNull();
+    expect(document.body.textContent).not.toContain("Give the template a name");
+    await act(async () => {
+      field("tpl-name").dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    const err = document.getElementById("tpl-name-error");
+    expect(err?.textContent).toContain("Give the template a name");
+    expect(field("tpl-name").getAttribute("aria-invalid")).toBe("true");
+    expect(field("tpl-name").getAttribute("aria-describedby")).toBe("tpl-name-error");
+  });
+
+  it("catches a case-insensitive duplicate on Save and focuses the field instead of saving", async () => {
+    await render({ templates: [tpl({ id: "other", name: "Denim" })] });
+    await type(field("tpl-name"), "denim");
+    const form = field("tpl-name").closest("form")!;
+    (document.activeElement as HTMLElement | null)?.blur();
+    await act(async () => {
+      form.requestSubmit();
+    });
+    await flush();
+    expect(api.createTemplate).not.toHaveBeenCalled();
+    expect(document.getElementById("tpl-name-error")?.textContent).toContain(
+      'You already have a template called "Denim"',
+    );
+    expect(document.activeElement).toBe(field("tpl-name"));
+  });
+
+  it("editing a row may keep its own name", async () => {
+    api.updateTemplate.mockResolvedValue(tpl());
+    await render({ template: tpl(), templates: [tpl()] });
+    await type(field("tpl-desc"), "Ships fast.");
+    await act(async () => {
+      field("tpl-name").closest("form")!.requestSubmit();
+    });
+    await flush();
+    expect(api.updateTemplate).toHaveBeenCalledTimes(1);
+  });
 });
