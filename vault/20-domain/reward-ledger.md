@@ -24,10 +24,11 @@ code_refs:
   - services/edge-functions/src/lib/leaderboards.ts
   - services/edge-functions/src/lib/leaderboards-data.ts
   - services/edge-functions/src/lib/badge-analytics.ts
+  - services/edge-functions/src/lib/verified-handle.ts
   - services/edge-functions/src/lib/buyer-grade-confirmation.ts
   - src/lib/buyer-rewards-summary.ts
   - src/lib/reward-celebrations.ts
-reviewed: 2026-09-24
+reviewed: 2026-09-25
 tags: [rewards, gamification, buyer, seller, contract]
 summary: There is ONE reward log for both the seller XP track and the buyer Trust Score; every award carries a dedupe key, and an event that consumes AI grading spend earns nothing unless the action was paid. grantReward is the primitive for a single act; the pipeline sweep is the one bulk writer and reproduces its sequence deliberately.
 ---
@@ -434,6 +435,25 @@ All four are server-side, and all four fail CLOSED:
    the shared `rate_limit_counters` store. The per-find ladder is already finite,
    so the milestone cap bounds the OTHER shape: many finds, each pushed over a
    rung by manufactured clicks.
+
+**Gates 1-3 apply to EVERY badge-click source, not only `share`** (2026-09-25).
+Until then `recordBadgeClick` bot-gated, fingerprinted and self-click checked
+share clicks only, so a seller could POST `embed`/`badge`/`qr`/`buyer` clicks on
+their own certificates and collect the `verified_share` award with no buyer in
+the loop. Now any click with no fingerprint, or whose fingerprint matches the
+seller's banked `sharer_hash` (certificate targets), is recorded for the funnel
+and earns nothing. The daily caps and the milestone ladder stay share-only.
+
+**A seller handle is canonical before it is a key.** Seller targets are
+lowercased and must pass `HANDLE_RE` (`lib/verified-handle.ts`, the same rule
+the profile routes claim handles by), then resolve with an exact `.eq`. The old
+`.ilike` on the raw id let `_` and `%` act as wildcards and gave every case
+variant of a handle its own stored `target_id` and its own
+`seller:<handle>:<source>` reward key.
+
+**The seller funnel leaves out self-clicks and fails loudly.**
+`sellerBadgeFunnel` filters `self_click = false`, and both funnel functions
+throw on a failed read rather than reporting zero.
 
 `share_events` is **deny-all** for the same reason `sharer_hash` exists: a client
 that could write a share row against someone else's find would bank a fingerprint

@@ -16,6 +16,7 @@ import { SITE_URL } from "@/lib/seo/site";
 
 export function VerifiedProfilePreview({
   handle,
+  savedHandle = null,
   displayName,
   bio,
   isLive,
@@ -24,6 +25,8 @@ export function VerifiedProfilePreview({
   showListings,
 }: {
   handle: string;
+  /** The handle as last saved. "Live at" names this, never the draft. */
+  savedHandle?: string | null;
   displayName: string;
   bio: string;
   isLive: boolean;
@@ -31,22 +34,31 @@ export function VerifiedProfilePreview({
   averageGrade: number;
   showListings: boolean;
 }) {
-  const name = displayName.trim() || "Your store name";
-  const path = `${SITE_URL.replace("https://", "")}/verified/${handle || "your-handle"}`;
+  // The public page falls back to the handle when no display name is set, so
+  // the preview does too.
+  const name = displayName.trim() || handle || "Your store name";
+  const host = SITE_URL.replace("https://", "");
+  const livePath = `${host}/verified/${savedHandle || handle || "your-handle"}`;
+  const draftDiffers = !!savedHandle && !!handle && handle !== savedHandle;
 
   return (
     <Card>
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base">Preview</CardTitle>
-          {isLive ? (
-            <Badge variant="secondary">Live at {path}</Badge>
-          ) : (
-            <Badge variant="outline" className="gap-1">
-              <EyeOff className="h-3 w-3" />
-              Not published yet
-            </Badge>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {isLive ? (
+              <Badge variant="secondary">Live at {livePath}</Badge>
+            ) : (
+              <Badge variant="outline" className="gap-1">
+                <EyeOff className="h-3 w-3" />
+                Not published yet
+              </Badge>
+            )}
+            {draftDiffers && (
+              <Badge variant="outline">Unsaved: /verified/{handle}</Badge>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent>

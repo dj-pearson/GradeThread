@@ -4,6 +4,7 @@ import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { purgeSellerProfileCache } from "../lib/cloudflare-purge.ts";
 import { loadSellerGradeStats } from "../lib/seller-credentials-job.ts";
 import { sellerBadgeFunnel } from "../lib/badge-analytics.ts";
+import { HANDLE_RE } from "../lib/verified-handle.ts";
 
 // GradeThread Verified — seller-profile management (US: revolutionary-flipping).
 //
@@ -17,9 +18,8 @@ type VerifiedEnv = { Variables: { userId: string } };
 
 export const verifiedRoutes = new Hono<VerifiedEnv>();
 
-// 3–30 chars, lowercase alnum + hyphen, no leading/trailing hyphen. Mirrors the
-// DB CHECK constraint (migration 00057) and the client-side validation.
-const HANDLE_RE = /^[a-z0-9]([a-z0-9-]{1,28})[a-z0-9]$/;
+// HANDLE_RE lives in lib/verified-handle.ts so badge-click attribution resolves
+// handles by exactly the rule used to claim them.
 
 // Handles we never let a seller claim — they'd collide with real routes or
 // impersonate the platform.
@@ -75,11 +75,19 @@ verifiedRoutes.get("/handle-available", async (c) => {
     return c.json({ available: false, reason: parsed.error });
   }
   const userId = c.get("userId");
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("users")
     .select("id")
     .ilike("verified_handle", parsed.handle)
     .maybeSingle();
+  // Fail closed: a DB blip must not read as a green "Available".
+  if (error) {
+    console.error("[verified] handle availability check failed:", error.message);
+    return c.json(
+      { available: false, handle: parsed.handle, reason: "Couldn't check right now. Try again." },
+      503,
+    );
+  }
   // Available if unclaimed, or already claimed by the caller themselves.
   const available = !data || data.id === userId;
   return c.json({
@@ -119,7 +127,11 @@ verifiedRoutes.get("/profile", async (c) => {
   return c.json({
     profile: {
       handle: user?.verified_handle ?? null,
-      display_name: user?.verified_display_name ?? user?.full_name ?? null,
+      // Never pre-filled from the account's full_name: the first Save would
+      // publish the seller's legal name without them choosing it. The account
+      // name travels separately so the UI can OFFER it.
+      display_name: user?.verified_display_name ?? null,
+      account_name: user?.full_name ?? null,
       bio: user?.verified_bio ?? null,
       enabled: user?.verified_enabled ?? false,
       verified_since: user?.verified_since ?? null,

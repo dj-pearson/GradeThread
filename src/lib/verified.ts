@@ -5,7 +5,7 @@
 
 import { SITE_URL } from "@/lib/seo/site";
 
-// Keep in lockstep with the edge (verified.ts) + DB CHECK (migration 00057).
+// Keep in lockstep with the edge (lib/verified-handle.ts) + DB CHECK (migration 00057).
 export const HANDLE_RE = /^[a-z0-9]([a-z0-9-]{1,28})[a-z0-9]$/;
 
 export type HandleValidation = { ok: true } | { ok: false; reason: string };
@@ -14,26 +14,30 @@ export type HandleValidation = { ok: true } | { ok: false; reason: string };
 export function validateHandle(raw: string): HandleValidation {
   const handle = raw.trim().toLowerCase();
   if (handle.length < 3 || handle.length > 30) {
-    return { ok: false, reason: "Handle must be 3–30 characters." };
+    return { ok: false, reason: "Handle must be 3 to 30 characters." };
   }
   if (!HANDLE_RE.test(handle)) {
     return {
       ok: false,
       reason:
-        "Lowercase letters, numbers and hyphens only — no leading or trailing hyphen.",
+        "Use lowercase letters, numbers and hyphens only. No hyphen at the start or end.",
     };
   }
   return { ok: true };
 }
 
 /** Public profile URL for a handle, e.g. https://gradethread.com/verified/jane. */
+// Every builder below reaches a path segment through these few functions, and
+// each one percent-encodes it. A handle, cert id or slug is validated upstream,
+// but a snippet is pasted into someone else's HTML, so it must not be able to
+// close an attribute even if a bad value slipped through.
 export function profileUrl(handle: string): string {
-  return `${SITE_URL}/verified/${handle}`;
+  return `${SITE_URL}/verified/${encodeURIComponent(handle)}`;
 }
 
 /** Certificate URL for a certificate id. */
 export function certificateUrl(certId: string): string {
-  return `${SITE_URL}/cert/${certId}`;
+  return `${SITE_URL}/cert/${encodeURIComponent(certId)}`;
 }
 
 /**
@@ -105,7 +109,7 @@ export const LEVEL_FLAIR_BASIS =
 
 /** Per-listing badge image URL for a certificate id. */
 export function certBadgeUrl(certId: string, variant: BadgeVariant = "plain"): string {
-  const base = `${SITE_URL}/badge/cert/${certId}`;
+  const base = `${SITE_URL}/badge/cert/${encodeURIComponent(certId)}`;
   return variant === "status" ? `${base}?status=1` : base;
 }
 
@@ -134,7 +138,7 @@ export function certBadgeScriptUrl(
   certId: string,
   variant: BadgeVariant = "plain",
 ): string {
-  const base = `${SITE_URL}/embed/cert/${certId}`;
+  const base = `${SITE_URL}/embed/cert/${encodeURIComponent(certId)}`;
   return variant === "status" ? `${base}?status=1` : base;
 }
 
@@ -162,15 +166,18 @@ export function certBadgeScriptEmbed(
  * AC3 forbids — a claim frozen at copy time, correctable only by re-pasting.
  */
 export function certBadgeEmbedText(certId: string): string {
-  return `✓ GradeThread Verified condition grade — verify: ${certificateShareUrl(certId, "embed")}`;
+  return `✓ GradeThread Verified condition grade. Verify it: ${certificateShareUrl(certId, "embed")}`;
 }
 
-/** HTML snippet linking to the seller's whole verified profile. */
+/**
+ * HTML snippet linking to the seller's whole verified profile. The link carries
+ * ?s=embed like every other badge, so its clicks reach the badge funnel.
+ */
 export function profileLinkEmbedHtml(handle: string): string {
-  const href = profileUrl(handle);
+  const href = profileShareUrl(handle, "embed");
   return (
     `<a href="${href}" target="_blank" rel="noopener" ` +
-    `style="display:inline-block;background:#0C1E36;color:#fff;text-decoration:none;` +
+    `style="display:inline-block;background:#0F3460;color:#fff;text-decoration:none;` +
     `padding:8px 16px;border-radius:999px;font:600 14px system-ui,sans-serif">` +
     `✓ GradeThread Verified Seller</a>`
   );
@@ -183,7 +190,7 @@ export function profileLinkEmbedHtml(handle: string): string {
 
 /** Public Garment Passport URL for a slug, e.g. https://gradethread.com/passport/ab12. */
 export function passportUrl(slug: string): string {
-  return `${SITE_URL}/passport/${slug}`;
+  return `${SITE_URL}/passport/${encodeURIComponent(slug)}`;
 }
 
 /** Passport URL carrying a share-source param for attribution (mirrors certificateShareUrl). */
@@ -196,7 +203,7 @@ export function passportBadgeEmbedHtml(slug: string): string {
   const href = passportShareUrl(slug, "embed");
   return (
     `<a href="${href}" target="_blank" rel="noopener" ` +
-    `style="display:inline-block;background:#0C1E36;color:#fff;text-decoration:none;` +
+    `style="display:inline-block;background:#0F3460;color:#fff;text-decoration:none;` +
     `padding:8px 16px;border-radius:999px;font:600 14px system-ui,sans-serif">` +
     `✓ GradeThread Verified history</a>`
   );
@@ -204,7 +211,7 @@ export function passportBadgeEmbedHtml(slug: string): string {
 
 /** Plain-text passport badge (for marketplaces that strip HTML entirely). */
 export function passportBadgeEmbedText(slug: string): string {
-  return `✓ GradeThread Verified history — see the full record: ${passportShareUrl(slug, "embed")}`;
+  return `✓ GradeThread Verified history. See the full record: ${passportShareUrl(slug, "embed")}`;
 }
 
 // ── Verified-seller storefront badge (US-1761) ───────────────────────
@@ -234,7 +241,7 @@ export function verifiedSellerBadgeUrl(
   variant: BadgeVariant = "plain",
 ): string {
   return (
-    `${SITE_URL}/badge/verified/${handle}?format=${format}` +
+    `${SITE_URL}/badge/verified/${encodeURIComponent(handle)}?format=${format}` +
     (variant === "status" ? "&status=1" : "")
   );
 }
@@ -263,7 +270,12 @@ export function verifiedSellerBadgeEmbedHtml(
 
 /** Plain-text storefront badge fallback (for marketplaces that strip HTML). */
 export function verifiedSellerBadgeEmbedText(handle: string): string {
-  return `✓ GradeThread Verified Seller — see my grades: ${profileShareUrl(handle, "embed")}`;
+  return `✓ GradeThread Verified Seller. See my grades: ${profileShareUrl(handle, "embed")}`;
+}
+
+/** The file name for a downloaded profile QR code (V14). */
+export function profileQrFilename(handle: string): string {
+  return `gradethread-verified-${handle}.png`;
 }
 
 /** Profile URL carrying a share-source param (mirrors certificateShareUrl). */
@@ -309,7 +321,7 @@ export const BADGE_FORMATS: BadgeFormat[] = [
   {
     id: "script",
     label: "Script embed",
-    hint: "Auto-injects the live badge. Only where scripts run — not marketplaces.",
+    hint: "Auto-injects the live badge. Only where scripts run, not on marketplaces.",
     worksOn: ["Your website", "Shopify", "Blog"],
   },
   {

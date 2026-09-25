@@ -20,9 +20,11 @@ export interface PassportIdentityNode {
   sku_class: Record<string, unknown>;
 }
 
-interface NodesResponse {
+export interface NodesResponse {
   verified_profile_public: boolean;
   verified_handle: string | null;
+  /** The garment lookup failed, so item names and passport links are missing. */
+  garments_unavailable?: boolean;
   nodes: PassportIdentityNode[];
 }
 
@@ -70,13 +72,48 @@ export function useSetPassportReveal() {
         revealed_effective: data.revealed_effective ?? false,
       };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["passport_identity_nodes", user?.id],
-      });
+    // Patched in place rather than refetched: one toggle used to reload every
+    // hop. The optimistic flip is rolled back if the POST fails, and replaced
+    // by what the server answered if it succeeds.
+    onMutate: async (input) => {
+      const key = ["passport_identity_nodes", user?.id];
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<NodesResponse>(key);
+      queryClient.setQueryData<NodesResponse>(key, (old) =>
+        patchNode(old, input.nodeId, { revealed: input.revealed }),
+      );
+      return { previous };
     },
-    onError: (err: Error) => {
+    onSuccess: (result, input) => {
+      queryClient.setQueryData<NodesResponse>(
+        ["passport_identity_nodes", user?.id],
+        (old) => patchNode(old, input.nodeId, result),
+      );
+    },
+    onError: (err: Error, input, context) => {
+      queryClient.setQueryData<NodesResponse>(
+        ["passport_identity_nodes", user?.id],
+        (old) => {
+          // Put back only this hop, so a concurrent toggle on another hop that
+          // succeeded is not rolled back with it.
+          const before = context?.previous?.nodes.find((n) => n.node_id === input.nodeId);
+          return before ? patchNode(old, input.nodeId, before) : old;
+        },
+      );
       toastError(err);
     },
   });
+}
+
+/** Replace one hop's fields in a cached node list. Pure. */
+export function patchNode(
+  data: NodesResponse | undefined,
+  nodeId: string,
+  patch: Partial<PassportIdentityNode>,
+): NodesResponse | undefined {
+  if (!data) return data;
+  return {
+    ...data,
+    nodes: data.nodes.map((n) => (n.node_id === nodeId ? { ...n, ...patch } : n)),
+  };
 }

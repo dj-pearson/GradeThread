@@ -37,11 +37,13 @@ import { uncheckedReads, uncheckedAuthReads } from "@/lib/__tests__/_supabase-re
 // tried to resolve a TTL out of this paragraph. Prose about a call reading as
 // the call is the same shape as the dashboard_layouts case in US-3256.
 const OPTIONAL_READS: Record<string, string> = {
-  "src/hooks/use-badge-studio.ts|public_passport_links|{ data: linkRaw }": "An optional passport link can be omitted; the verified certificate remains available.",
   "src/pages/certificate.tsx|public_passport_links|{ data: passportLink }": "An optional passport shortcut does not change the loaded certificate or grade.",
   "src/pages/embed-grade.tsx|submissions|{ data: subData }": "Owner-restricted descriptive metadata can be absent on a public embed; the public grade report is checked separately.",
   "src/pages/embed-grade.tsx|public_passport_links|{ data: passportLink }": "An optional passport shortcut does not change the verified embedded grade.",
   "src/components/flipdesk/grade-this-item-card.tsx|public_passport_links|{ data }": "An optional passport shortcut; grading status and certificate come from checked reads.",
+  // V5 (Verified page review): use-badge-studio.ts|public_passport_links now
+  // throws its error, so a failed read shows Retry instead of silently losing
+  // the passport badge. It left this list.
   // SUB-14: garment-passport-panel.tsx|garments now reads its error and shows
   // a retry instead of an endless spinner, so it left this list.
 };
@@ -92,7 +94,7 @@ describe("unchecked database reads", () => {
     `)).toEqual([]);
   });
 
-  it("allows only the five reviewed optional reads; new sites and stale exceptions fail", () => {
+  it("allows only the four reviewed optional reads; new sites and stale exceptions fail", () => {
     const keys: string[] = [];
     for (const file of sourceFiles(["src"])) {
       if (!/\.tsx?$/.test(file) || /(?:^|[/\\])(?:test|__tests__)(?:[/\\]|$)|\.(?:test|spec)\./.test(file)) continue;

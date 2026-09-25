@@ -15,7 +15,7 @@ code_refs:
   - src/test/submission-detail-linked-item-read.test.tsx
   - src/test/submission-detail-photo-read.test.tsx
   - src/test/blocking-read-density.test.ts
-reviewed: 2026-09-24
+reviewed: 2026-09-25
 tags: [data, reliability, finances]
 summary: Failed database reads must not appear as zero balances, empty inventory, completed filing checks, or defaults that can overwrite saved values.
 ---
@@ -123,9 +123,11 @@ failure flag. The command palette's two were fixed by US-3381 and US-2517.
 ## Named optional exceptions
 
 `OPTIONAL_READS` in `src/test/unchecked-read-contract.test.ts` owns the exact
-exception list and each reason: five sites as of 2026-09-24 (this line said
+exception list and each reason: four sites as of 2026-09-25 (this line said
 eight, which was stale before SUB-14 retired the passport panel's `garments`
-read by giving it an error state and a retry). Count the list, not this line. These are optional passport/share
+read by giving it an error state and a retry, then five until the Badge
+Studio's `public_passport_links` read started throwing its error so a failed
+read shows Retry). Count the list, not this line. These are optional passport/share
 links, viewer-limited names and public-embed descriptive metadata. None supplies
 a monetary amount, grading decision or write prerequisite.
 
