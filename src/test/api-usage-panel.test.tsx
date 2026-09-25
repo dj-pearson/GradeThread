@@ -72,7 +72,7 @@ describe("ApiUsagePanel (DEV-14)", () => {
     expect(container!.querySelectorAll("details tbody tr")).toHaveLength(30);
     const filled = zeroFillDaily(USAGE.summary.daily);
     expect(filled.filter((d) => d.count > 0)).toHaveLength(5);
-    expect(filled.at(-1)!.day).toBe(today(0));
+    expect(filled[filled.length - 1]!.day).toBe(today(0));
   });
 
   it("Live success, Live errors and Sandbox sum to the total", async () => {

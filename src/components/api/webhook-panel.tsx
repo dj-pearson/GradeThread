@@ -258,7 +258,7 @@ export function WebhookPanel() {
       if (eventId) {
         try {
           const d = await readJson<WebhookDeliveryDetail>(`/api/keys/webhook/deliveries/${eventId}`);
-          attempt = d?.attempts_log?.at(-1);
+          attempt = d?.attempts_log?.[d.attempts_log.length - 1];
         } catch {
           attempt = undefined;
         }

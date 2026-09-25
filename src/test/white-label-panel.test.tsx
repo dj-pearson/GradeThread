@@ -98,7 +98,7 @@ describe("WhiteLabelPanel (DEV-08)", () => {
     await type("brand-color", "fff");
     await act(async () => saveButton()!.click());
     await flush();
-    expect(puts.at(-1)).toMatchObject({ brand_color: "#ffffff" });
+    expect(puts[puts.length - 1]).toMatchObject({ brand_color: "#ffffff" });
 
     await type("brand-color", "not-a-color");
     const input = container!.querySelector("#brand-color") as HTMLInputElement;
