@@ -21,9 +21,10 @@ import {
   type CreatorCommissionRow,
   crossesTaxThreshold,
   isPastHold,
+  planPayout,
   summarizeCreatorEarnings,
 } from "../lib/affiliate-payout-math.ts";
-import { getAffiliatePayoutConfig } from "../lib/affiliate-payout.ts";
+import { getAffiliatePayoutConfig, loadAffiliateProgram } from "../lib/affiliate-payout.ts";
 import { encryptToken } from "../lib/crypto-aes.ts";
 import { failSafe } from "../lib/http-errors.ts";
 
@@ -284,17 +285,32 @@ affiliateRoutes.get("/connect/status", async (c) => {
   });
 });
 
-// GET /payouts — the affiliate's earnings: accrued (held + payable) vs paid,
-// recent payout ledger, Stripe onboarding state, and the 1099-threshold flag.
+// GET /payouts — the affiliate's earnings: accrued (held + payable), money in
+// transit, money that actually reached them, the payout history, Stripe
+// onboarding state, the tax-form gate and the 1099-threshold flag.
+//
+// Cash is creator-only, so `enabled` is false for everyone else whatever the
+// engine mode says. "Paid" means a transfer that succeeded: commissions are
+// marked paid when they are CLAIMED into a payout, before the transfer, so a
+// failed transfer used to read as money received.
 affiliateRoutes.get("/payouts", async (c) => {
   const userId = c.get("userId");
   if (!userId) return c.json({ error: "Sign-in required" }, 401);
 
   const config = await getAffiliatePayoutConfig();
   const nowMs = Date.now();
-  const yearStart = new Date(new Date().getUTCFullYear(), 0, 1).toISOString();
+  const yearStart = new Date(Date.UTC(new Date(nowMs).getUTCFullYear(), 0, 1)).toISOString();
 
-  const [{ data: commRaw }, { data: payoutsRaw }, { data: acctRaw }] = await Promise.all([
+  const [
+    program,
+    { data: commRaw },
+    { data: payoutsRaw },
+    { data: ledgerRaw },
+    { data: yearRaw },
+    { data: acctRaw },
+    { data: taxRaw },
+  ] = await Promise.all([
+    loadAffiliateProgram(userId),
     supabaseAdmin
       .from("affiliate_commissions")
       .select("amount, status, hold_until")
@@ -305,12 +321,30 @@ affiliateRoutes.get("/payouts", async (c) => {
       .eq("affiliate_user_id", userId)
       .order("created_at", { ascending: false })
       .limit(50),
+    // Totals read every payout, not the 50-row history above.
+    supabaseAdmin
+      .from("affiliate_payouts")
+      .select("amount, status")
+      .eq("affiliate_user_id", userId),
+    supabaseAdmin
+      .from("affiliate_payouts")
+      .select("amount")
+      .eq("affiliate_user_id", userId)
+      .eq("status", "paid")
+      .gte("paid_at", yearStart),
     supabaseAdmin
       .from("affiliate_accounts")
       .select("stripe_connect_account_id, payouts_enabled")
       .eq("user_id", userId)
       .maybeSingle(),
+    supabaseAdmin
+      .from("affiliate_tax_profiles")
+      .select("certified_at")
+      .eq("owner_user_id", userId)
+      .maybeSingle(),
   ]);
+
+  const cents = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v) : 0);
 
   const commissions = (commRaw ?? []) as Array<{
     amount: number | null;
@@ -320,52 +354,65 @@ affiliateRoutes.get("/payouts", async (c) => {
   // amount is INTEGER CENTS since US-1655 — sum in cents, convert at the JSON edge.
   let accruedPayableCents = 0;
   let accruedHeldCents = 0;
-  let paidCents = 0;
   for (const row of commissions) {
-    const amt = typeof row.amount === "number" && Number.isFinite(row.amount)
-      ? Math.round(row.amount)
-      : 0;
-    if (row.status === "paid") {
-      paidCents += amt;
-    } else if (row.status === "accrued") {
-      const holdMs = row.hold_until ? Date.parse(row.hold_until) : null;
-      if (isPastHold(Number.isFinite(holdMs as number) ? (holdMs as number) : null, nowMs)) {
-        accruedPayableCents += amt;
-      } else {
-        accruedHeldCents += amt;
-      }
+    if (row.status !== "accrued") continue;
+    const holdMs = row.hold_until ? Date.parse(row.hold_until) : null;
+    if (isPastHold(Number.isFinite(holdMs as number) ? (holdMs as number) : null, nowMs)) {
+      accruedPayableCents += cents(row.amount);
+    } else {
+      accruedHeldCents += cents(row.amount);
     }
   }
 
-  const payouts = (payoutsRaw ?? []) as Array<{
-    amount: number | null;
-    status: string;
-    paid_at: string | null;
-  }>;
-  // 1099 reporting flag = actually paid out this calendar year (integer cents).
-  const paidThisYearCents = payouts
-    .filter((p) => p.status === "paid" && p.paid_at && p.paid_at >= yearStart)
-    .reduce(
-      (acc, p) => acc + (typeof p.amount === "number" && Number.isFinite(p.amount) ? Math.round(p.amount) : 0),
-      0,
-    );
+  let paidCents = 0;
+  let inTransitCents = 0;
+  for (const p of (ledgerRaw ?? []) as Array<{ amount: number | null; status: string }>) {
+    if (p.status === "paid") paidCents += cents(p.amount);
+    else if (p.status === "pending" || p.status === "processing" || p.status === "failed") {
+      inTransitCents += cents(p.amount);
+    }
+  }
+
+  // 1099 reporting flag = actually paid out this UTC calendar year.
+  const paidThisYearCents = ((yearRaw ?? []) as Array<{ amount: number | null }>)
+    .reduce((acc, p) => acc + cents(p.amount), 0);
 
   const acct = acctRaw as
     | { stripe_connect_account_id: string | null; payouts_enabled: boolean | null }
     | null;
+  const taxCertified = Boolean((taxRaw as { certified_at?: string | null } | null)?.certified_at);
+  const payoutsEnabled = Boolean(acct?.payouts_enabled);
+
+  // What still stands between the payable balance and a transfer, in the order
+  // the sweep checks it. no_balance is not a block, so it reads as null.
+  const plan = planPayout({
+    eligibleBalanceCents: accruedPayableCents,
+    minimum: config.minimum_payout,
+    onboarded: payoutsEnabled,
+    taxProfileComplete: taxCertified,
+  });
+  const blockedReason = plan.action === "skip" && plan.reason !== "no_balance" ? plan.reason : null;
 
   return c.json({
-    enabled: config.mode !== "off",
+    enabled: config.mode !== "off" && program === "creator",
+    program,
+    commission_model: config.commission_model,
+    commission_pct: config.commission_pct,
+    commission_cap_usd: config.commission_cap_usd,
+    commission_window_months: config.commission_window_months,
     rate: config.commission_per_conversion,
     minimum_payout: config.minimum_payout,
     hold_days: config.hold_days,
     onboarding: {
       connected: Boolean(acct?.stripe_connect_account_id),
-      payouts_enabled: Boolean(acct?.payouts_enabled),
+      payouts_enabled: payoutsEnabled,
     },
+    tax_profile_certified: taxCertified,
+    blocked_reason: blockedReason,
     balance: {
       accrued_payable: centsToDollars(accruedPayableCents),
       accrued_held: centsToDollars(accruedHeldCents),
+      in_transit: centsToDollars(inTransitCents),
       paid: centsToDollars(paidCents),
     },
     tax: {
@@ -374,7 +421,7 @@ affiliateRoutes.get("/payouts", async (c) => {
       reaches_1099_threshold: crossesTaxThreshold(paidThisYearCents, config.tax_threshold_usd),
     },
     // amount is stored in integer cents (US-1655); convert to USD dollars for the
-    // client contract (referrals.tsx renders payouts[].amount as currency).
+    // client contract.
     payouts: ((payoutsRaw ?? []) as Array<Record<string, unknown>>).map((p) => ({
       ...p,
       amount: centsToDollars(typeof p.amount === "number" ? p.amount : 0),
@@ -473,6 +520,11 @@ affiliateRoutes.get("/creator", async (c) => {
     program: acct?.program === "creator" ? "creator" : "user",
     code,
     commission_pct: config.commission_pct,
+    // Every number the Creator tab quotes comes from here, not from a copy of
+    // the config baked into the web bundle.
+    cap_usd: config.commission_cap_usd,
+    window_months: config.commission_window_months,
+    hold_days: config.hold_days,
     earnings: {
       clicks: clicks.count ?? 0,
       signups: signups.count ?? 0,

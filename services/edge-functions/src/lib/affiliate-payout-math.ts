@@ -90,7 +90,8 @@ export interface AffiliatePayoutConfig {
   minimum_payout: number;
   // Days a commission is held (refund/clawback window) before it's payable.
   hold_days: number;
-  // 1099 reporting flag threshold (IRS default $600).
+  // 1099-NEC reporting flag threshold. $2,000 for payments made from 2026
+  // (it was $600 before).
   tax_threshold_usd: number;
 }
 
@@ -112,7 +113,7 @@ export const DEFAULT_AFFILIATE_PAYOUT_CONFIG: AffiliatePayoutConfig = {
   commission_window_months: 12,
   minimum_payout: 25,
   hold_days: 30,
-  tax_threshold_usd: 600,
+  tax_threshold_usd: 2000,
 };
 
 /**
