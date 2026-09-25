@@ -82,8 +82,38 @@ export interface NotificationTypeMeta {
 }
 
 // The preference categories users toggle, in display order. `channels` is the
-// authoritative set of channels each category supports.
+// authoritative set of channels each category supports. The marketing umbrella
+// and the two categories it overrides come first, as one group.
 export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
+  {
+    // US-2102: the MASTER marketing umbrella (US-911's MARKETING_MASTER_KEY).
+    // Every marketing send path honors it — growth broadcasts, the trial drip,
+    // journeys and the newsletter — but it was surfaced NOWHERE in the UI, so a
+    // user could only opt out of marketing via an emailed link, never in-app.
+    //
+    // Listed FIRST and worded as an override, because that is what it is: the
+    // granular toggles below gate ADDITIONALLY, so turning this off stops all
+    // marketing regardless of them. A consent control that understates its own
+    // scope is worse than none.
+    key: "marketing",
+    label: "All marketing email",
+    description:
+      "Master switch for every marketing email — newsletter, product announcements, tips and offers. Turning this off stops all of them, whatever the settings below say. Transactional email (receipts, grade results, disputes, security) is never affected.",
+    channels: ["email"],
+  },
+  {
+    key: "weekly_newsletter",
+    label: "Weekly newsletter",
+    description:
+      "Curated grading tips, resale market trends, and product insights — about once a week. Turn off to stop the newsletter while keeping other email.",
+    channels: ["email"],
+  },
+  {
+    key: "product_updates",
+    label: "Product updates",
+    description: "New features and occasional product announcements.",
+    channels: ["email"],
+  },
   {
     key: "grade_complete",
     label: "Grading",
@@ -196,35 +226,6 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     label: "Billing",
     description: "Payment receipts, failed charges, and plan changes.",
     channels: ["email", "in_app"],
-  },
-  {
-    // US-2102: the MASTER marketing umbrella (US-911's MARKETING_MASTER_KEY).
-    // Every marketing send path honors it — growth broadcasts, the trial drip,
-    // journeys and the newsletter — but it was surfaced NOWHERE in the UI, so a
-    // user could only opt out of marketing via an emailed link, never in-app.
-    //
-    // Listed FIRST and worded as an override, because that is what it is: the
-    // granular toggles below gate ADDITIONALLY, so turning this off stops all
-    // marketing regardless of them. A consent control that understates its own
-    // scope is worse than none.
-    key: "marketing",
-    label: "All marketing email",
-    description:
-      "Master switch for every marketing email — newsletter, product announcements, tips and offers. Turning this off stops all of them, whatever the settings below say. Transactional email (receipts, grade results, disputes, security) is never affected.",
-    channels: ["email"],
-  },
-  {
-    key: "weekly_newsletter",
-    label: "Weekly newsletter",
-    description:
-      "Curated grading tips, resale market trends, and product insights — about once a week. Turn off to stop the newsletter while keeping other email.",
-    channels: ["email"],
-  },
-  {
-    key: "product_updates",
-    label: "Product updates",
-    description: "New features and occasional product announcements.",
-    channels: ["email"],
   },
 ];
 
@@ -401,3 +402,33 @@ export const NOTIFICATION_EVENT_CATALOG: NotificationEventMeta[] = [
     prefKey: null,
   },
 ];
+
+// The categories the `marketing` umbrella overrides. While the umbrella is off
+// these send nothing whatever their own switch says, so the settings screen
+// disables them rather than letting a switch look like it does something.
+export const MARKETING_GRANULAR_KEYS: readonly PrefKey[] = [
+  "weekly_newsletter",
+  "product_updates",
+];
+
+// One switch's write, merged into the row as it was JUST read. Only
+// `[typeKey][channel]` changes; every other key is carried over exactly as it
+// is stored, including keys this client does not know and a
+// `marketing.email=false` set by a one-click unsubscribe in another tab. The
+// old Save wrote the whole defaulted object, which re-subscribed exactly that
+// person from a stale tab.
+export function mergePreference(
+  stored: Partial<NotificationPreferences> | null | undefined,
+  typeKey: PrefKey,
+  channel: NotificationChannel,
+  value: boolean,
+): Partial<NotificationPreferences> {
+  const base = (stored && typeof stored === "object" ? stored : {}) as Record<
+    string,
+    Record<string, boolean> | undefined
+  >;
+  return {
+    ...base,
+    [typeKey]: { ...(base[typeKey] ?? {}), [channel]: value },
+  } as Partial<NotificationPreferences>;
+}
