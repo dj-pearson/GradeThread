@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +27,12 @@ export function AiSettingsTab() {
   const { user, profile, refreshProfile } = useAuth();
   const { isPersonal } = useWorkspace();
   const usage = usePlanUsage();
+  const queryClient = useQueryClient();
+  // Until the summary arrives (or when it fails) usePlanUsage hands back a
+  // "free" plan with a 0 / 0 meter. Showing those as the seller's numbers, or
+  // hinting "No effect: your plan already stops at 20" from them, is worse
+  // than saying nothing.
+  const usageKnown = !usage.isLoading && !usage.isError;
 
   const [aiEnabled, setAiEnabled] = useState(
     profile?.ai_enrichment_enabled ?? true
@@ -79,6 +86,9 @@ export function AiSettingsTab() {
         .eq("id", user.id);
       if (error) throw error;
       await refreshProfile();
+      // The meter's limit comes from the billing summary, which would
+      // otherwise show the old cap until its next refetch.
+      void queryClient.invalidateQueries({ queryKey: ["billing_summary"] });
       return true;
     } catch (err) {
       toastError(err, "Failed to save AI settings.");
@@ -145,15 +155,19 @@ export function AiSettingsTab() {
               <span className="text-muted-foreground">
                 {usage.isLoading
                   ? "Loading…"
-                  : aiUnlimited
+                  : usage.isError
+                    ? "Couldn't load usage"
+                    : aiUnlimited
                     ? `${aiUsed} actions used`
                     : `${aiUsed} / ${effectiveAiLimit} actions`}
               </span>
             </div>
-            {!aiUnlimited && !usage.isLoading && <Progress value={aiPct} />}
+            {!aiUnlimited && usageKnown && (
+              <Progress value={aiPct} aria-label="AI actions used this month" />
+            )}
             <p className="text-xs text-muted-foreground">
               Allowance resets on {nextAiResetLabel()} (UTC).
-              {aiUnlimited && " Your plan includes unlimited AI actions."}
+              {usageKnown && aiUnlimited && " Your plan includes unlimited AI actions."}
             </p>
           </div>
 
@@ -205,9 +219,11 @@ export function AiSettingsTab() {
               disabled={readOnly || savingField === "limit"}
               aria-describedby="ai-limit-hint"
               placeholder={
-                planAiLimit < 0
-                  ? "Unlimited (plan default)"
-                  : `${planAiLimit} (plan default)`
+                !usageKnown
+                  ? "Plan default"
+                  : planAiLimit < 0
+                    ? "Unlimited (plan default)"
+                    : `${planAiLimit} (plan default)`
               }
               className="max-w-xs"
             />
@@ -215,7 +231,10 @@ export function AiSettingsTab() {
               {savingField === "limit" && (
                 <Loader2 className="mr-1 inline h-3 w-3 animate-spin" aria-hidden="true" />
               )}
-              {aiCapHint(aiLimit, planAiLimit)} Saves when you leave the field.
+              {usageKnown
+                ? aiCapHint(aiLimit, planAiLimit)
+                : "Optional. A number lowers your monthly AI allowance; blank uses your plan's."}{" "}
+              Saves when you leave the field.
             </p>
           </div>
         </CardContent>

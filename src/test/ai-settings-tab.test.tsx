@@ -13,12 +13,23 @@ vi.mock("@/hooks/use-auth", () => ({
 }));
 let isPersonal = true;
 vi.mock("@/hooks/use-workspace", () => ({ useWorkspace: () => ({ isPersonal }) }));
+let usageError = false;
 vi.mock("@/hooks/use-plan-usage", () => ({
-  usePlanUsage: () => ({
-    plan: "starter",
-    aiActions: { used: 3, limit: 200, pct: 2, unlimited: false },
-    isLoading: false,
-  }),
+  usePlanUsage: () =>
+    usageError
+      ? {
+          // What usePlanUsage hands back when the summary read fails.
+          plan: "free",
+          aiActions: { used: 0, limit: 0, pct: 0, unlimited: false },
+          isLoading: false,
+          isError: true,
+        }
+      : {
+          plan: "starter",
+          aiActions: { used: 3, limit: 200, pct: 2, unlimited: false },
+          isLoading: false,
+          isError: false,
+        },
 }));
 const updates: unknown[] = [];
 vi.mock("@/lib/supabase", () => ({
@@ -41,6 +52,7 @@ let m: Mounted | null = null;
 beforeEach(() => {
   updates.length = 0;
   isPersonal = true;
+  usageError = false;
   // The stale profile counter says 180; the server says 3 after rollover.
   profile = { id: "user-1", ai_actions_used_this_month: 180, ai_action_limit: null, ai_enrichment_enabled: true, flipdesk_plan: "starter" };
 });
@@ -77,6 +89,16 @@ describe("AiSettingsTab", () => {
     });
     await flush();
     expect(updates).toEqual([{ ai_enrichment_enabled: false }]);
+  });
+
+  it("does not present a failed usage read as 0 / 0 on the free plan", () => {
+    usageError = true;
+    m = mount(<AiSettingsTab />);
+    expect(m.container.textContent).toContain("Couldn't load usage");
+    expect(m.container.textContent).not.toContain("0 / 0");
+    const input = m.container.querySelector<HTMLInputElement>("#ai-limit")!;
+    typeInto(input, "500");
+    expect(m.container.querySelector("#ai-limit-hint")!.textContent).not.toMatch(/no effect/i);
   });
 
   it("is read-only inside someone else's workspace", () => {
