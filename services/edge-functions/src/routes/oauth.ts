@@ -617,12 +617,18 @@ export async function handleListOAuthConnections(c: Context): Promise<Response> 
   });
 }
 
+const GRANT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function handleRevokeOAuthConnection(c: Context): Promise<Response> {
   const userId = c.get("userId") as string | undefined;
   if (!userId) return c.json({ error: "UNAUTHENTICATED" }, 401);
 
   const id = c.req.param("id");
   if (!id) return c.json({ error: "A connection id is required." }, 400);
+  // A malformed id reached `.eq("id", id)` and Postgres answered 22P02, which
+  // logged an error and returned 500. Answer it exactly like a foreign or
+  // already-revoked id, without a query, so the response says nothing either.
+  if (!GRANT_ID_RE.test(id)) return c.json({ revoked: true, already: true });
 
   // Scoped by owner_user_id in the UPDATE itself, not by a read-then-write:
   // between those two a caller could not change the owner, but making the

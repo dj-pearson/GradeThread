@@ -8207,6 +8207,49 @@ Deno.test({
   },
 });
 
+// ── Connected OAuth apps (/api/oauth/connections, DEV-05) ──────────
+//
+// Both handlers filter on owner_user_id = the SESSION user. B's list must not
+// carry A's grant, and B's revoke of A's grant id must leave it live. The
+// grant tables are deny-all, so A's own list is the only way to read it back.
+
+Deno.test({
+  name: "B's session cannot list A's OAuth grants (GET /api/oauth/connections)",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_OAUTH_GRANT_ID"),
+  fn: async () => {
+    const grantId = Deno.env.get("TEST_USER_A_OAUTH_GRANT_ID")!;
+    const res = await fetch(`${BASE}/api/oauth/connections`, { headers: authHeaders(B_JWT!) });
+    const body = await res.text();
+    assert(res.status === 200 || DENIED.has(res.status), `unexpected status ${res.status}`);
+    assertListExcludes(body, grantId, "GET /api/oauth/connections as B");
+
+    // Positive control: A sees it, or the exclusion above proves nothing.
+    const mine = await fetch(`${BASE}/api/oauth/connections`, { headers: authHeaders(A_JWT!) });
+    const mineBody = await mine.text();
+    assertEquals(mine.status, 200, `owner read failed: ${mineBody.slice(0, 200)}`);
+    assert(mineBody.includes(grantId), "A's own list did not include A's grant");
+  },
+});
+
+Deno.test({
+  name: "B's session cannot revoke A's OAuth grant (POST /api/oauth/connections/:id/revoke)",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_OAUTH_GRANT_ID"),
+  fn: async () => {
+    const grantId = Deno.env.get("TEST_USER_A_OAUTH_GRANT_ID")!;
+    const res = await fetch(`${BASE}/api/oauth/connections/${grantId}/revoke`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    const body = await res.text();
+    // The route answers a foreign id like an already-revoked one, so the
+    // response cannot say whether the id exists. The proof is A's row.
+    assert(res.status === 200 || DENIED.has(res.status), `unexpected status ${res.status}: ${body}`);
+    const mine = await fetch(`${BASE}/api/oauth/connections`, { headers: authHeaders(A_JWT!) });
+    const mineBody = await mine.text();
+    assert(mineBody.includes(grantId), "B's revoke revoked A's grant (revoked_at is no longer null)");
+  },
+});
+
 // ── MCP connector tools (US-9112) ──────────────────────────────────
 //
 // Every tool in the registry is exercised here as tenant B against tenant A's
