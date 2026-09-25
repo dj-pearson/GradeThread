@@ -5,7 +5,7 @@
 // stubbed so the page renders without auth, Supabase or the edge.
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter } from "react-router";
+import { RouterProvider, createMemoryRouter } from "react-router";
 
 import { SettingsPage } from "@/pages/settings";
 
@@ -35,11 +35,12 @@ vi.mock("@/components/settings/danger-zone-card", () => ({
 }));
 
 function render(url: string): string {
-  return renderToStaticMarkup(
-    <MemoryRouter initialEntries={[url]}>
-      <SettingsPage />
-    </MemoryRouter>,
+  // A data router: SettingsPage guards unsaved changes with useBlocker.
+  const router = createMemoryRouter(
+    [{ path: "*", element: <SettingsPage /> }],
+    { initialEntries: [url] },
   );
+  return renderToStaticMarkup(<RouterProvider router={router} />);
 }
 
 /** The sections actually rendered. Radix renders only the active TabsContent. */

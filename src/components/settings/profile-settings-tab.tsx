@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/use-auth";
+import { useReportSettingsDirty } from "@/hooks/use-settings-dirty";
 import { supabase } from "@/lib/supabase";
 import type { UserUpdate } from "@/types/database";
 import {
@@ -132,6 +133,8 @@ export function ProfileSettingsTab() {
   const businessDirtyRef = useRef(businessDirty);
   businessDirtyRef.current = businessDirty;
   const [savingBusiness, setSavingBusiness] = useState(false);
+  useReportSettingsDirty("profile", nameDirty);
+  useReportSettingsDirty("business", businessDirty);
   // Blank boxes while the read is pending or failed are not the stored values,
   // so nothing may be typed over them or saved from them (US-3237).
   const businessLocked = shippingQuery.isPending || shippingQuery.isError;

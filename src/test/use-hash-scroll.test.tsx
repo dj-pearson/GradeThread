@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { RouterProvider, createMemoryRouter } from "react-router";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -48,11 +48,10 @@ describe("useHashScroll on SettingsPage", () => {
     document.body.appendChild(container);
     act(() => {
       root = createRoot(container!);
-      root.render(
-        <MemoryRouter initialEntries={["/dashboard/settings?tab=notifications#email-preferences"]}>
-          <SettingsPage />
-        </MemoryRouter>,
-      );
+      const router = createMemoryRouter([{ path: "*", element: <SettingsPage /> }], {
+        initialEntries: ["/dashboard/settings?tab=notifications#email-preferences"],
+      });
+      root.render(<RouterProvider router={router} />);
     });
     expect(document.getElementById("email-preferences")).toBeNull();
     // act() holds renders until it returns, so let the late section mount

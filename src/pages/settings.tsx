@@ -1,8 +1,12 @@
+import { useCallback, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { usePageHost } from "@/hooks/use-page-host";
 import { useHashScroll } from "@/hooks/use-hash-scroll";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
+import { SettingsDirtyContext } from "@/hooks/use-settings-dirty";
+import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import { cn } from "@/lib/utils";
 import { ProfileSettingsTab } from "@/components/settings/profile-settings-tab";
 import { SecuritySettingsTab } from "@/components/settings/security-settings-tab";
@@ -20,9 +24,13 @@ import {
 } from "@/lib/settings-tabs";
 
 // Web-growth action 6: each tab's cards, state and save handlers live in their
-// own component under src/components/settings/. This page owns only the tab
-// strip and the ?tab= deep link. Radix unmounts an inactive TabsContent, so a
-// tab's unsaved edits are dropped when you switch away from it.
+// own component under src/components/settings/. This page owns the tab strip,
+// the ?tab= deep link and the unsaved-changes guard. Radix unmounts an
+// inactive TabsContent, so a tab's unsaved typing would be dropped when you
+// switch away from it; sections with a text form report their dirty state
+// (useReportSettingsDirty) and any navigation is held behind a dialog while
+// one is dirty. Tab changes go through setSearchParams, so the same blocker
+// catches inner tabs, outer hub tabs and sidebar links.
 export function SettingsPage() {
   const { embedded } = usePageHost();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -39,6 +47,20 @@ export function SettingsPage() {
   // on the card, which mounts after the browser's own hash jump has fired.
   useHashScroll(activeTab);
 
+  const [dirtySections, setDirtySections] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const setDirty = useCallback((section: string, dirty: boolean) => {
+    setDirtySections((prev) => {
+      if (prev.has(section) === dirty) return prev;
+      const next = new Set(prev);
+      if (dirty) next.add(section);
+      else next.delete(section);
+      return next;
+    });
+  }, []);
+  const guard = useNavigationGuard(dirtySections.size > 0);
+
   function handleTabChange(next: string) {
     setSearchParams(
       (prev) => {
@@ -51,6 +73,7 @@ export function SettingsPage() {
   }
 
   return (
+    <SettingsDirtyContext.Provider value={setDirty}>
     <div className="space-y-6">
       <PageHeader
         title="Settings"
@@ -124,6 +147,8 @@ export function SettingsPage() {
           <DangerZoneCard />
         </TabsContent>
       </Tabs>
+      <UnsavedChangesDialog guard={guard} noun="change" />
     </div>
+    </SettingsDirtyContext.Provider>
   );
 }

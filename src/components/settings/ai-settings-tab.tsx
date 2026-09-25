@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/hooks/use-auth";
+import { useReportSettingsDirty } from "@/hooks/use-settings-dirty";
 import { supabase } from "@/lib/supabase";
 import { FLIPDESK_PLANS, flipdeskPlanForLegacy, type PlanKey } from "@/lib/constants";
 import { effectiveAiLimit as computeEffectiveAiLimit } from "@/lib/ai-limit";
@@ -34,6 +35,11 @@ export function AiSettingsTab() {
     profile?.ai_action_limit != null ? String(profile.ai_action_limit) : ""
   );
   const [savingAi, setSavingAi] = useState(false);
+  const savedEnabled = profile?.ai_enrichment_enabled ?? true;
+  const savedLimit =
+    profile?.ai_action_limit != null ? String(profile.ai_action_limit) : "";
+  const aiDirty = aiEnabled !== savedEnabled || aiLimit.trim() !== savedLimit;
+  useReportSettingsDirty("ai", aiDirty);
 
   // FlipDesk plan drives the AI allowance (US-202). Fall back to the legacy
   // US-2365: the un-backfilled fallback now translates the legacy column
@@ -168,7 +174,7 @@ export function AiSettingsTab() {
             </p>
           </div>
 
-          <Button onClick={handleSaveAiSettings} disabled={savingAi}>
+          <Button onClick={handleSaveAiSettings} disabled={savingAi || !aiDirty}>
             {savingAi && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save AI Settings
           </Button>
