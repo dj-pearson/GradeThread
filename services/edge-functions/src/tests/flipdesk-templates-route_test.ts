@@ -206,3 +206,19 @@ Deno.test("PUT and DELETE on a malformed id return 404 before any query", async 
     db.restore();
   }
 });
+Deno.test("a 400 from validation leaves the default alone", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset(seed());
+    const r = await send("PUT", `/${PLAIN_ID}`, {
+      name: "Tees",
+      is_default: true,
+      condition_description: "x".repeat(1001),
+    });
+    assertEquals(r.status, 400);
+    assertEquals(defaults(db), [DEFAULT_ID]);
+    assertEquals(db.calls.length, 0);
+  } finally {
+    db.restore();
+  }
+});

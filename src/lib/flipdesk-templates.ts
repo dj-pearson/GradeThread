@@ -69,6 +69,18 @@ export interface TemplateInput {
 
 /** Mirrors TEMPLATE_NAME_MAX in the edge's listing-template.ts. */
 export const TEMPLATE_NAME_MAX = 80;
+/**
+ * The rest of the edge's caps, mirrored the same way and pinned by
+ * listing-templates-web-parity.test.ts. The server refuses a longer value with
+ * a 400; the editor uses these to warn before that happens.
+ */
+export const DESCRIPTION_TEMPLATE_MAX = 20000;
+/** eBay's own limit on a condition description. */
+export const CONDITION_NOTE_MAX = 1000;
+export const SPECIFICS_MAX = 45;
+export const SPECIFIC_NAME_MAX = 65;
+export const SPECIFIC_VALUE_MAX = 65;
+export const SORT_ORDER_MAX = 100000;
 
 /** The one query key, so a mutation anywhere refreshes every reader. */
 export const TEMPLATES_QUERY_KEY = ["flipdesk_listing_templates"] as const;

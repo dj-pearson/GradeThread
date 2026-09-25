@@ -2,6 +2,12 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  CONDITION_NOTE_MAX,
+  DESCRIPTION_TEMPLATE_MAX,
+  SORT_ORDER_MAX,
+  SPECIFIC_NAME_MAX,
+  SPECIFIC_VALUE_MAX,
+  SPECIFICS_MAX,
   TEMPLATE_NAME_MAX,
   nameProblem,
   normalizeInput,
@@ -137,6 +143,20 @@ describe("three clients, one row shape (US-2877 AC1)", () => {
     const m = edgeSrc.match(/TEMPLATE_NAME_MAX = (\d+)/);
     expect(m, "the edge no longer declares TEMPLATE_NAME_MAX").not.toBeNull();
     expect(TEMPLATE_NAME_MAX).toBe(Number(m![1]));
+  });
+
+  it.each([
+    ["DESCRIPTION_TEMPLATE_MAX", DESCRIPTION_TEMPLATE_MAX],
+    ["CONDITION_NOTE_MAX", CONDITION_NOTE_MAX],
+    ["SPECIFICS_MAX", SPECIFICS_MAX],
+    ["SPECIFIC_NAME_MAX", SPECIFIC_NAME_MAX],
+    ["SPECIFIC_VALUE_MAX", SPECIFIC_VALUE_MAX],
+    ["SORT_ORDER_MAX", SORT_ORDER_MAX],
+  ])("%s is the server's number", (name, value) => {
+    const edgeSrc = stripComments(read(EDGE_LIB));
+    const m = edgeSrc.match(new RegExp(`export const ${name} = (\\d+)`));
+    expect(m, `the edge no longer declares ${name}`).not.toBeNull();
+    expect(value).toBe(Number(m![1]));
   });
 });
 
