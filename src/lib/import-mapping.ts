@@ -1,6 +1,7 @@
 import type { ItemStatus, ItemCategory } from "@/types/database";
 import { ITEM_CATEGORIES } from "@/lib/constants";
 import { toLocalDate } from "@/lib/local-date";
+import { escapeCsvCell } from "@/lib/items-csv";
 
 // FlipDesk fields the user can map a CSV column TO. "skip" excludes a column.
 export const IMPORT_FIELDS = [
@@ -660,4 +661,33 @@ export function importableRows(
   limit = MAX_IMPORT_ROWS,
 ): ImportPayloadRow[] {
   return payload.filter((r) => r.title?.trim()).slice(0, limit);
+}
+
+/**
+ * IMP-15: the rows an import could not save, as a file the seller can fix and
+ * import again. Their original columns, plus an Error column saying why. Fill
+ * by SKU makes re-importing it safe: rows that did land are not touched again.
+ * Cells go through the shared escaper, which also neutralizes a formula.
+ */
+export function failedRowsCsv(
+  headers: readonly string[],
+  rows: readonly (readonly string[])[],
+  errors: ReadonlyArray<{ row: number; message: string }>,
+): { csv: string; count: number } {
+  const byRow = new Map<number, string>();
+  for (const e of errors) {
+    // Row 0 is a file-wide problem (a source that could not be created).
+    if (e.row < 2) continue;
+    byRow.set(e.row, byRow.has(e.row) ? `${byRow.get(e.row)}; ${e.message}` : e.message);
+  }
+  const lines = [[...headers, "Error"].map(escapeCsvCell).join(",")];
+  let count = 0;
+  for (const [rowNo, message] of [...byRow].sort((a, b) => a[0] - b[0])) {
+    const row = rows[rowNo - 2];
+    if (!row) continue;
+    const cells = headers.map((_, i) => row[i] ?? "");
+    lines.push([...cells, message].map(escapeCsvCell).join(","));
+    count++;
+  }
+  return { csv: lines.join("\r\n"), count };
 }

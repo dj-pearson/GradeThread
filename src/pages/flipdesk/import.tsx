@@ -7,6 +7,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Undo2,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -40,6 +41,7 @@ import {
   buildImportPayload,
   buildMapped,
   guessField,
+  failedRowsCsv,
   importableRows,
   validateImportRows,
   type ImportField,
@@ -58,6 +60,8 @@ import {
   type ClosetImportStart,
 } from "@/components/flipdesk/closet-import-card";
 import { track } from "@/lib/analytics";
+import { escapeCsvCell } from "@/lib/items-csv";
+import { csvBlob, downloadBlob } from "@/lib/download";
 import {
   IMPORT_RUNS_KEY,
   isOpenRun,
@@ -145,22 +149,14 @@ const TEMPLATE_EXAMPLE = [
   "",
 ];
 
-function csvCell(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
+// IMP-15: the shared CSV writer (formula-safe) and the shared download,
+// which appends the anchor and revokes the URL only after the browser has read
+// it. The old inline version revoked it on the same tick.
 function downloadTemplate(): void {
   const csv = [TEMPLATE_HEADERS, TEMPLATE_EXAMPLE]
-    .map((row) => row.map(csvCell).join(","))
+    .map((row) => row.map(escapeCsvCell).join(","))
     .join("\r\n");
-  const url = URL.createObjectURL(
-    new Blob([csv], { type: "text/csv;charset=utf-8" }),
-  );
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "gradethread-inventory-template.csv";
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(csvBlob(csv), "gradethread-inventory-template.csv");
 }
 
 // US-2518: the fill-only rule (US-1082) and the list of columns a re-import may
@@ -210,6 +206,9 @@ export function FlipdeskImportPage() {
   const watchedOpenRef = useRef<string | null>(null);
   const [undoingId, setUndoingId] = useState<string | null>(null);
   const [lastUndo, setLastUndo] = useState<UndoResult | null>(null);
+  // IMP-15: the file a run was started from, so its failed rows can be handed
+  // back. Only the run this page started from a file has one.
+  const runSourceRef = useRef<{ runId: string; headers: string[]; rows: string[][]; name: string } | null>(null);
   const runOpen = isOpenRun(run);
   // IMP-02: set when polling stops because the run can no longer be read.
   const [pollError, setPollError] = useState<string | null>(null);
@@ -359,6 +358,12 @@ export function FlipdeskImportPage() {
         throw new Error(json.error || "Could not start the import.");
       }
       watchedOpenRef.current = json.run_id;
+      runSourceRef.current = {
+        runId: json.run_id,
+        headers,
+        rows,
+        name: loaded?.name ?? "import",
+      };
       rememberRun(json.run_id);
       setRun({
         id: json.run_id,
@@ -542,6 +547,20 @@ export function FlipdeskImportPage() {
       if (timer !== null) window.clearTimeout(timer);
     };
   }, [run?.id, run?.status, recordClosetCompletion, queryClient]);
+
+  const failedDownload = useMemo(() => {
+    const src = runSourceRef.current;
+    if (!run || !src || src.runId !== run.id || isOpenRun(run)) return null;
+    return failedRowsCsv(src.headers, src.rows, run.errors ?? []);
+    // runSourceRef is written in the same render pass that sets `run`.
+  }, [run]);
+
+  function downloadFailedRows() {
+    const src = runSourceRef.current;
+    if (!failedDownload || !src) return;
+    const base = src.name.replace(/\.(csv|tsv|txt)$/i, "");
+    downloadBlob(csvBlob(failedDownload.csv), `${base}-failed-rows.csv`);
+  }
 
   // US-2518 — put the catalog back. Items the run created are deleted, columns
   // it filled are restored to what they held, and anything since published to a
@@ -731,7 +750,7 @@ export function FlipdeskImportPage() {
                   ? "Import stopped"
                   : "Import complete"}
             </CardTitle>
-            <CardDescription>
+            <CardDescription role="status" aria-live="polite">
               {run.inserted_count} new · {run.updated_count} filled ·{" "}
               {run.skipped_count} unchanged · {run.failed_count} failed
             </CardDescription>
@@ -741,18 +760,33 @@ export function FlipdeskImportPage() {
               <p className="text-sm text-destructive">{run.error}</p>
             )}
             {(run.errors ?? []).length > 0 && (
-              <div className="max-h-64 overflow-y-auto rounded-md border bg-muted/30 p-3 text-xs">
+              <div className="max-h-64 overflow-y-auto rounded-md bg-muted/30 p-3 text-xs">
                 {(run.errors ?? []).map((e, i) => (
-                  <div key={i} className="font-mono">
-                    Row {e.row}: {e.message}
+                  <div key={i}>
+                    {e.row > 0 ? `Row ${e.row}: ` : ""}
+                    {e.message}
                   </div>
                 ))}
               </div>
+            )}
+            {run.failed_count > (run.errors ?? []).length && (
+              <p className="text-xs text-muted-foreground">
+                Showing the first {(run.errors ?? []).length} of {run.failed_count} problems.
+              </p>
             )}
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => navigate("/dashboard/flipdesk/items")}>
                 View items
               </Button>
+              {/* IMP-15: hand the failed rows back as a file to fix and
+                  re-import. Fill by SKU makes the re-import safe. */}
+              {failedDownload && failedDownload.count > 0 && (
+                <Button variant="outline" onClick={downloadFailedRows}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Download the {failedDownload.count} row
+                  {failedDownload.count === 1 ? "" : "s"} that failed
+                </Button>
+              )}
               {/* US-2518: a wrong column mapping used to be permanent. */}
               {run.status !== "undone" &&
                 run.inserted_count + run.updated_count > 0 && (

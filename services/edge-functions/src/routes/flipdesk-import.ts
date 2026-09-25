@@ -50,6 +50,10 @@ interface RunRow {
 /** Progress is flushed to the run row every this many processed rows. */
 const HEARTBEAT_EVERY = 10;
 
+// IMP-15: a run id is a uuid. Anything else is "not found" here rather than a
+// 500 from Postgres rejecting the cast.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // ── POST /runs — accept a mapped file and start working on it ─────────────
 flipdeskImportRoutes.post("/runs", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
@@ -133,6 +137,7 @@ flipdeskImportRoutes.get("/runs", async (c) => {
 // ── GET /runs/:id — progress polling ─────────────────────────────────────
 flipdeskImportRoutes.get("/runs/:id", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!UUID_RE.test(c.req.param("id"))) return c.json({ error: "Import not found" }, 404);
   const { data, error } = await supabaseAdmin
     .from("flipdesk_import_runs")
     .select(
@@ -163,6 +168,7 @@ flipdeskImportRoutes.get("/runs/:id", async (c) => {
 flipdeskImportRoutes.post("/runs/:id/undo", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const runId = c.req.param("id");
+  if (!UUID_RE.test(runId)) return c.json({ error: "Import not found" }, 404);
 
   const { data: run, error: runErr } = await supabaseAdmin
     .from("flipdesk_import_runs")

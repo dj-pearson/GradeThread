@@ -367,3 +367,14 @@ Deno.test("B importing a row with A's SKU leaves A's item untouched", async () =
   assertEquals(bItems.length, 1);
   assertEquals(theRun().inserted_count, 1);
 });
+
+// ── IMP-15: plain answers for bad input ─────────────────────────────────────
+
+Deno.test("a non-uuid run id is a 404 on read and on undo", async () => {
+  db.reset({});
+  const a = app();
+  assertEquals((await a.request("/runs/not-a-uuid")).status, 404);
+  assertEquals((await a.request("/runs/not-a-uuid/undo", { method: "POST" })).status, 404);
+  // Nothing reached the database.
+  assertEquals(db.calls.length, 0);
+});

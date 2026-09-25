@@ -192,3 +192,15 @@ Deno.test("no import code path writes 'ebay' as a default platform", async () =>
   const src = await Deno.readTextFile(new URL("../routes/flipdesk-import.ts", import.meta.url));
   assert(!/platform:\s*"ebay"/.test(src));
 });
+
+Deno.test("IMP-15: a date with the right shape but no such day is dropped", () => {
+  const [r] = normalizeImportRows([{
+    title: "A",
+    acquired_date: "2026-13-45",
+    sale: { sale_price: 5, sold_at: "2026-02-30" },
+    listing: { listing_price: 5, listed_at: "2026-02-28" },
+  }]);
+  assertEquals(r!.acquired_date, null);
+  assertEquals(r!.sale?.sold_at, null);
+  assertEquals(r!.listing?.listed_at, "2026-02-28");
+});

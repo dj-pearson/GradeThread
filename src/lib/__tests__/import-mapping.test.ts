@@ -202,3 +202,31 @@ describe("IMP-12 validation summary", () => {
     expect(b!.acquired_date).toBe("2026-03-02");
   });
 });
+
+describe("failed rows download (IMP-15)", () => {
+  it("holds exactly the failed rows, their original columns, and an Error column", async () => {
+    const { failedRowsCsv } = await import("@/lib/import-mapping");
+    const headers = ["Item #", "Title", "Price"];
+    const rows = [
+      ["A1", "Tee", "10"],
+      ["A2", "Jeans", "12"],
+      ["A3", "Hat", "x"],
+      ["A4", "=HYPERLINK(1)", "4"],
+      ["A5", "Coat", "9"],
+    ];
+    const { csv, count } = failedRowsCsv(headers, rows, [
+      { row: 0, message: 'Could not create the source "Goodwill".' },
+      { row: 4, message: "A number in this row couldn't be read." },
+      { row: 3, message: "The date isn't a real date." },
+      { row: 5, message: "This row couldn't be saved." },
+    ]);
+    expect(count).toBe(3);
+    const lines = csv.split("\r\n");
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toBe("Item #,Title,Price,Error");
+    expect(lines[1]).toBe("A2,Jeans,12,The date isn't a real date.");
+    expect(lines[2]).toBe("A3,Hat,x,A number in this row couldn't be read.");
+    // A formula cell is neutralized on the way out.
+    expect(lines[3]).toContain("'=HYPERLINK(1)");
+  });
+});

@@ -58,7 +58,9 @@ describe("the import no longer runs in the browser (US-2518)", () => {
     expect(read("src/components/flipdesk/import-source-picker.tsx")).toContain(
       "Download the CSV template",
     );
-    expect(src).toMatch(/a\.download = "gradethread-inventory-template\.csv"/);
+    // IMP-15: through the shared download, which revokes the URL after the
+    // browser has read it.
+    expect(src).toMatch(/downloadBlob\(csvBlob\(csv\), "gradethread-inventory-template\.csv"\)/);
     // The template's headers have to be ones guessField() recognises, or it
     // hands the seller a file that maps to nothing.
     // IMP-11: asked of guessField itself rather than grepped out of its table,

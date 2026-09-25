@@ -209,6 +209,11 @@ function isoDate(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+  // IMP-15: 2026-13-45 has the right shape and is not a date. Postgres would
+  // refuse it with a raw 22008 error; drop it here instead, like any other
+  // unreadable value.
+  const d = new Date(`${t}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== t) return null;
   return t;
 }
 
