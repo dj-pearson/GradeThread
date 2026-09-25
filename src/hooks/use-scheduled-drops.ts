@@ -108,21 +108,45 @@ function useInvalidateDrops() {
   };
 }
 
+/**
+ * SD-1: an UPDATE that matched no row. PostgREST answers a filtered update that
+ * hits nothing with 200 and no error, so without `.select()` a drop the cron
+ * already published, or a row RLS hides from a viewer or member, read as
+ * "moved" when nothing was written.
+ */
+export class DropNotChangedError extends Error {
+  constructor(message = "This drop already went live, or you cannot edit it.") {
+    super(message);
+    this.name = "DropNotChangedError";
+  }
+}
+
+/**
+ * Write one row's schedule and say whether it changed. Only a draft is
+ * schedulable, so a published listing that somehow still carried a schedule
+ * must not be moved by this surface.
+ */
+async function writeDropTime(id: string, at: string | null): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("listings")
+    .update({ scheduled_publish_at: at } as never)
+    .eq("id", id)
+    .eq("listing_status", "draft")
+    .select("id");
+  if (error) throw error;
+  return Array.isArray(data) && data.length > 0;
+}
+
 /** Move one drop to a new instant. */
 export function useRescheduleDrop() {
   const invalidate = useInvalidateDrops();
   return useMutation({
     mutationFn: async ({ id, at }: { id: string; at: string }) => {
-      const { error } = await supabase
-        .from("listings")
-        .update({ scheduled_publish_at: at } as never)
-        .eq("id", id)
-        // Only a draft is schedulable. A published listing that somehow still
-        // carried a schedule must not be moved by this surface.
-        .eq("listing_status", "draft");
-      if (error) throw error;
+      if (!(await writeDropTime(id, at))) throw new DropNotChangedError();
     },
-    onSuccess: invalidate,
+    // onSettled, not onSuccess: a rejected write still means the rows on
+    // screen may be stale (the cron published it, for one).
+    onSettled: invalidate,
   });
 }
 
@@ -131,15 +155,19 @@ export function useCancelDrop() {
   const invalidate = useInvalidateDrops();
   return useMutation({
     mutationFn: async ({ id }: { id: string }) => {
-      const { error } = await supabase
-        .from("listings")
-        .update({ scheduled_publish_at: null } as never)
-        .eq("id", id)
-        .eq("listing_status", "draft");
-      if (error) throw error;
+      if (!(await writeDropTime(id, null))) throw new DropNotChangedError();
     },
-    onSuccess: invalidate,
+    onSettled: invalidate,
   });
+}
+
+/** What a multi-row write actually did, row by row. */
+export interface DropBatchResult {
+  moved: number;
+  unchanged: number;
+  failed: number;
+  /** The ids that really moved, so an undo touches only those. */
+  movedIds: string[];
 }
 
 /**
@@ -156,22 +184,29 @@ export function useShiftDrops() {
     }: {
       drops: { id: string; scheduled_publish_at: string }[];
       minutes: number;
-    }) => {
+    }): Promise<DropBatchResult> => {
       // One UPDATE per row: they all move to DIFFERENT times, so there is no
-      // single-statement version of this. Sequential rather than parallel —
-      // a burst of writes on the same table is what the rate limiter is for.
+      // single-statement version of this. These are direct PostgREST writes
+      // under the caller's RLS; they never pass through the edge rate limiter.
+      // Sequential so a partial failure leaves a readable count behind.
+      const result: DropBatchResult = { moved: 0, unchanged: 0, failed: 0, movedIds: [] };
       for (const d of drops) {
         const next = new Date(
           new Date(d.scheduled_publish_at).getTime() + minutes * 60_000,
         ).toISOString();
-        const { error } = await supabase
-          .from("listings")
-          .update({ scheduled_publish_at: next } as never)
-          .eq("id", d.id)
-          .eq("listing_status", "draft");
-        if (error) throw error;
+        try {
+          if (await writeDropTime(d.id, next)) {
+            result.moved += 1;
+            result.movedIds.push(d.id);
+          } else {
+            result.unchanged += 1;
+          }
+        } catch {
+          result.failed += 1;
+        }
       }
+      return result;
     },
-    onSuccess: invalidate,
+    onSettled: invalidate,
   });
 }

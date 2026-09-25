@@ -77,10 +77,19 @@ export function DropDayDialog({
 
   async function shiftAll(minutes: number) {
     try {
-      await shift.mutateAsync({ drops, minutes });
-      toast.success(
-        `${drops.length} drop${drops.length === 1 ? "" : "s"} shifted.`,
-      );
+      const r = await shift.mutateAsync({ drops, minutes });
+      const missed = r.unchanged + r.failed;
+      if (r.moved === 0) {
+        toast.error(
+          "No drops moved. They already went live, or you cannot edit them.",
+        );
+      } else if (missed > 0) {
+        toast.warning(
+          `Shifted ${r.moved} of ${drops.length}. ${missed} already went live or could not be edited.`,
+        );
+      } else {
+        toast.success(`${r.moved} drop${r.moved === 1 ? "" : "s"} shifted.`);
+      }
     } catch (err) {
       toastError(err, "Could not shift the day.");
     }

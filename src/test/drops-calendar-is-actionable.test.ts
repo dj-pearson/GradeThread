@@ -39,7 +39,7 @@ describe("a drop can be changed from the calendar (US-2522)", () => {
 
   it("unscheduling clears the time and leaves the draft alone", () => {
     const src = read(HOOK);
-    expect(src).toMatch(/scheduled_publish_at: null/);
+    expect(src).toMatch(/writeDropTime\(id, null\)/);
     // Only a draft is schedulable, so only a draft may be moved from here.
     expect(src).toMatch(/\.eq\("listing_status", "draft"\)/);
     // US-1552: `.or()` on a mutation is rejected by the production PostgREST
