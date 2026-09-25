@@ -22,7 +22,12 @@ enum PushContract {
 
     struct Category: Decodable {
         let id: String
-        let kind: String
+        /// `nil` for a category sent outside `transactional-push.ts` with no
+        /// `kind` stamp: the growth campaign (`marketing`) from
+        /// `routes/admin-growth.ts`. A non-optional String made the whole
+        /// artefact undecodable, and every test reading it died in
+        /// `fatalError`.
+        let kind: String?
         let sender: String
         let payloadKeys: [String]
     }

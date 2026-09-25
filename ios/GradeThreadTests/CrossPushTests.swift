@@ -159,13 +159,14 @@ final class CrossPushTests: XCTestCase {
     }
 
     func test_anUnselectableChannelIsNeverPushed() {
-        // Depop's connector is built and unapproved; Whatnot has no integration
-        // at all. Pushing either would fail at the marketplace with an error the
-        // seller cannot act on, so the split drops them even if something
-        // managed to select them.
+        // Whatnot has no integration at all. Pushing it would fail at the
+        // marketplace with an error the seller cannot act on, so the split drops
+        // it even if something managed to select it. Depop is no longer the
+        // example: since US-3462 it is an extension channel and is queued.
         let split = CrossListingRegistry.partition(selected: ["depop", "whatnot", "shopify"])
         XCTAssertEqual(split.api.map(\.id), ["shopify"])
-        XCTAssertTrue(split.extensionQueued.isEmpty)
+        XCTAssertEqual(split.extensionQueued.map(\.id), ["depop"])
+        XCTAssertFalse((split.api + split.extensionQueued).contains { $0.id == "whatnot" })
     }
 
     func test_ebayIsNotACrossPushTarget() {
