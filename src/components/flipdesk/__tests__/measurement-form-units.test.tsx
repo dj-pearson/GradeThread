@@ -68,7 +68,7 @@ describe("MeasurementForm in cm", () => {
       setter.call(input, "56");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    const stored = Object.values(emitted.at(-1)!)[0];
+    const stored = Object.values(emitted[emitted.length - 1]!)[0];
     expect(stored).toBeCloseTo(22.05, 2);
     // Still reads what was typed while the field has focus.
     expect(firstInput().value).toBe("56");
