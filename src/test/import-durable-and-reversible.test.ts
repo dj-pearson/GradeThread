@@ -53,7 +53,11 @@ describe("the import no longer runs in the browser (US-2518)", () => {
 
   it("a CSV template is offered next to the upload control", () => {
     const src = read(PAGE);
-    expect(src).toContain("Download the CSV template");
+    // IMP-13: the button moved into the source picker; the file is still
+    // built on the page.
+    expect(read("src/components/flipdesk/import-source-picker.tsx")).toContain(
+      "Download the CSV template",
+    );
     expect(src).toMatch(/a\.download = "gradethread-inventory-template\.csv"/);
     // The template's headers have to be ones guessField() recognises, or it
     // hands the seller a file that maps to nothing.

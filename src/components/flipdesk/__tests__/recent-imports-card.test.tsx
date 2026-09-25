@@ -88,9 +88,11 @@ describe("the import page resumes and keeps runs (IMP-10)", () => {
   });
 
   it("loading a file or pressing Reset never clears the last run", () => {
-    const detect = src.slice(src.indexOf("function detectFromText("), src.indexOf("function handleDetect("));
+    const detect = src.slice(src.indexOf("function detectFromText("), src.indexOf("const mappedRows"));
     expect(detect).not.toContain("setRun(null)");
-    const reset = src.slice(src.indexOf('setText("");'), src.indexOf('setText("");') + 200);
+    const at = src.indexOf("setLoaded(null);");
+    expect(at).toBeGreaterThan(0);
+    const reset = src.slice(at, at + 200);
     expect(reset).not.toContain("setRun(null)");
   });
 

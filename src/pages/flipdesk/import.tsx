@@ -6,8 +6,6 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle2,
-  Link2,
-  Download,
   Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -21,8 +19,6 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
-import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
@@ -37,7 +33,6 @@ import {
   type ExistingListingsAnswer,
 } from "@/lib/existing-listings";
 import { useWorkspace } from "@/hooks/use-workspace";
-import { useFetchGoogleSheet } from "@/hooks/use-sheet-import";
 import { parseSheet } from "@/lib/csv";
 import { decidePoll, nextPollDelay } from "@/lib/import-poll";
 import {
@@ -70,6 +65,11 @@ import {
   type ImportRun,
 } from "@/hooks/use-import-runs";
 import { RecentImportsCard } from "@/components/flipdesk/recent-imports-card";
+import {
+  ImportSourcePicker,
+  type ImportSource,
+  type LoadedSource,
+} from "@/components/flipdesk/import-source-picker";
 
 // IMP-07: shown when the server refuses a file for its size or row count.
 type UndoResult = {
@@ -177,8 +177,11 @@ export function FlipdeskImportPage() {
   // listing_manager, so the buttons say so before the click, not after.
   const canImport = can("manage_inventory");
 
-  const [text, setText] = useState("");
-  const [sheetUrl, setSheetUrl] = useState("");
+  // IMP-13: what is loaded and where it came from (sent as the run's origin).
+  // The file's text is parsed, not held in a controlled textarea.
+  const [loaded, setLoaded] = useState<LoadedSource | null>(null);
+  // Bumped by Reset to remount the picker, which clears its link and paste.
+  const [pickerKey, setPickerKey] = useState(0);
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<ImportField[]>([]);
@@ -214,7 +217,6 @@ export function FlipdeskImportPage() {
   // completion event can carry install-to-first-imported-item. A duration
   // only; the timestamp itself is never sent.
   const closetInstalledAtRef = useRef<string | null>(null);
-  const fetchSheet = useFetchGoogleSheet();
 
   // IMP-10: the open run lives in the URL, so a refresh resumes it.
   function rememberRun(id: string) {
@@ -260,33 +262,17 @@ export function FlipdeskImportPage() {
     setImporting(runOpen);
   }, [runOpen]);
 
-  async function handleFetchSheet() {
-    if (!sheetUrl.trim()) return;
-    // US-3262: the Fetch button is disabled while a read is in flight; the
-    // Enter key on the input was not, so a second press started a second read
-    // of the same sheet. Both land in setText/detectFromText, so the slower
-    // reply overwrites the faster one's headers and mapping. Guarded here
-    // rather than on the keydown, so the next caller inherits it.
-    if (fetchSheet.isPending) return;
-    try {
-      const { csv } = await fetchSheet.mutateAsync({ url: sheetUrl.trim() });
-      setText(csv);
-      detectFromText(csv);
-    } catch (err) {
-      toastError(err, "Could not read that file.", { duration: 12_000 });
-    }
-  }
-
-  function detectFromText(raw: string) {
+  function detectFromText(raw: string, from: ImportSource, name: string): number | null {
     if (!raw.trim()) {
       toast.error("No data found.");
-      return;
+      return null;
     }
     const { headers: h, rows: r } = parseSheet(raw);
     if (h.length === 0) {
       toast.error("Could not detect headers — first row appears empty.");
-      return;
+      return null;
     }
+    setLoaded({ from, name, rows: r.length });
     setHeaders(h);
     setRows(r);
     // The file itself is the better evidence, so detection wins. The signup
@@ -302,22 +288,7 @@ export function FlipdeskImportPage() {
         ? `Looks like a ${found.name}. ${h.length} columns mapped, ${r.length} rows.`
         : `Detected ${h.length} columns, ${r.length} rows.`,
     );
-  }
-
-  function handleDetect() {
-    detectFromText(text);
-  }
-
-  async function handleFile(file: File | null) {
-    if (!file) return;
-    try {
-      const raw = await file.text();
-      setText(raw);
-      detectFromText(raw);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`Failed to read file: ${msg}`);
-    }
+    return r.length;
   }
 
   const mappedRows: MappedRow[] = useMemo(
@@ -371,7 +342,7 @@ export function FlipdeskImportPage() {
         // IMP-12: titled rows only, capped; the count the button showed.
         json: {
           rows: importableRows(payload, MAX_IMPORT_ROWS),
-          origin: sheetUrl.trim() ? "sheet" : "csv",
+          origin: loaded?.from ?? "csv",
         },
       });
       const json = (await res.json().catch(() => ({}))) as {
@@ -392,7 +363,7 @@ export function FlipdeskImportPage() {
       setRun({
         id: json.run_id,
         status: "pending",
-        origin: sheetUrl.trim() ? "sheet" : "csv",
+        origin: loaded?.from ?? "csv",
         total_rows: json.total_rows ?? importCount,
         processed_rows: 0,
         inserted_count: 0,
@@ -630,128 +601,14 @@ export function FlipdeskImportPage() {
         onStarted={handleClosetStarted}
       />
 
-      {/* Step 1: input — upload OR paste */}
-      <Card>
-        <CardHeader>
-          <CardTitle>1. Load your data</CardTitle>
-          <CardDescription>
-            Upload a CSV file (recommended for 200+ rows — more reliable than
-            paste), or paste from Google Sheets (handles tabs or commas).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Google Sheet link — paste a share URL and we pull it directly */}
-          <div className="rounded-md border bg-muted/30 p-4">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Link2 className="h-4 w-4" />
-              Connect a Google Sheet
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Paste a share link. The sheet must be shared with{" "}
-              <strong>Anyone with the link</strong> (Viewer). We pull the first
-              tab — add <code>#gid=…</code> to target a specific tab.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Input
-                aria-label="Google Sheet share link"
-                value={sheetUrl}
-                onChange={(e) => setSheetUrl(e.target.value)}
-                placeholder="https://docs.google.com/spreadsheets/d/…"
-                className="min-w-[260px] flex-1 text-xs"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleFetchSheet();
-                }}
-              />
-              <Button
-                variant="outline"
-                onClick={handleFetchSheet}
-                disabled={!sheetUrl.trim() || fetchSheet.isPending || runOpen}
-              >
-                {fetchSheet.isPending ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Link2 className="mr-2 h-4 w-4" />
-                )}
-                Fetch sheet
-              </Button>
-            </div>
-          </div>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs">
-              <span className="bg-card px-2 text-muted-foreground">
-                or upload a file
-              </span>
-            </div>
-          </div>
-
-          <div className="rounded-md border-2 border-dashed border-muted-foreground/30 p-4 text-center">
-            <input
-              type="file"
-              accept=".csv,.tsv,text/csv,text/tab-separated-values,text/plain"
-              onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
-              disabled={runOpen}
-              className="hidden"
-              id="csv-file-input"
-            />
-            <label
-              htmlFor="csv-file-input"
-              className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-brand-navy px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy/90"
-            >
-              <Upload className="h-4 w-4" />
-              Choose CSV file
-            </label>
-            <p className="mt-2 text-xs text-muted-foreground">
-              In Google Sheets: File → Download → Comma-separated values (.csv)
-            </p>
-            {/* US-2518: a seller with no spreadsheet yet had nothing to start
-                from, and had to guess at column names. These headers are the
-                ones guessField() recognises, so a file built on this maps
-                itself. */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mt-2"
-              onClick={downloadTemplate}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              Download the CSV template
-            </Button>
-          </div>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs">
-              <span className="bg-card px-2 text-muted-foreground">
-                or paste
-              </span>
-            </div>
-          </div>
-
-          {/* US-2335: the only text near this is a divider reading "or paste",
-              and its placeholder is a sample table that stops being announced on
-              the first keystroke. */}
-          <Textarea
-            aria-label="Paste rows to import"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={6}
-            placeholder="Container	Item #	Item Title	...
-A1	GT-0001	Lululemon Align Pant	..."
-            className="font-mono text-xs"
-          />
-          <div className="flex justify-end">
-            <Button onClick={handleDetect} disabled={!text.trim() || runOpen}>
-              Detect columns
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Step 1: where the data comes from (IMP-13). */}
+      <ImportSourcePicker
+        key={pickerKey}
+        disabled={runOpen}
+        loaded={loaded}
+        onLoad={detectFromText}
+        onDownloadTemplate={downloadTemplate}
+      />
 
       {/* Step 2: mapping */}
       {headers.length > 0 && (
@@ -784,7 +641,8 @@ A1	GT-0001	Lululemon Align Pant	..."
             variant="outline"
             disabled={importing || !canImport}
             onClick={() => {
-              setText("");
+              setLoaded(null);
+              setPickerKey((k) => k + 1);
               setHeaders([]);
               setRows([]);
               setMapping([]);

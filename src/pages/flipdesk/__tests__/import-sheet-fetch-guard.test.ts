@@ -17,7 +17,8 @@ import { resolve } from "node:path";
 // function is the thing that must be safe to call twice -- guarding one caller
 // leaves the next caller to rediscover this.
 
-const PAGE = "src/pages/flipdesk/import.tsx";
+// IMP-13: the sheet fetch moved into the source picker with its guards.
+const PAGE = "src/components/flipdesk/import-source-picker.tsx";
 
 function read(rel: string): string {
   return readFileSync(resolve(process.cwd(), rel), "utf8");
