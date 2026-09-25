@@ -43,6 +43,7 @@ interface Op {
   table: string;
   op: string;
   values?: unknown;
+  options?: unknown;
   filters: Array<[string, unknown]>;
 }
 
@@ -53,11 +54,18 @@ function recordingDb(rows: Record<string, unknown[]> = {}) {
     from(table: string) {
       const op: Op = { table, op: "select", filters: [] };
       ops.push(op);
-      const result = () => ({ data: rows[table] ?? [], error: null });
+      // An upsert answers with the row it wrote, unless the fixture says the
+      // conflict already existed (`upsert:<table>` = [] models ignoreDuplicates
+      // skipping the row).
+      const result = () =>
+        op.op === "upsert"
+          ? { data: rows[`upsert:${table}`] ?? [op.values], error: null }
+          : { data: rows[table] ?? [], error: null };
       // deno-lint-ignore no-explicit-any
       const b: any = {
         select: () => b,
         insert: (v: unknown) => ((op.op = "insert"), (op.values = v), b),
+        upsert: (v: unknown, o?: unknown) => ((op.op = "upsert"), (op.values = v), (op.options = o), b),
         update: (v: unknown) => ((op.op = "update"), (op.values = v), b),
         delete: () => ((op.op = "delete"), b),
         eq: (col: string, val: unknown) => (op.filters.push([col, val]), b),
@@ -76,7 +84,7 @@ function recordingDb(rows: Record<string, unknown[]> = {}) {
 function assertAllScoped(ops: Op[]) {
   assert(ops.length > 0, "no queries recorded");
   for (const op of ops) {
-    if (op.op === "insert") {
+    if (op.op === "insert" || op.op === "upsert") {
       assertEquals((op.values as { user_id?: string }).user_id, OWNER, `${op.table} insert not owned`);
       continue;
     }
@@ -105,7 +113,8 @@ Deno.test("creating the endpoint returns a whsec_ secret once; changing the URL 
   const created = recordingDb();
   const first = await setWebhookUrl(OWNER, "https://hooks.example.com/a", created.db);
   assertMatch(first.signing_secret ?? "", /^whsec_/);
-  const insert = created.ops.find((o) => o.op === "insert")!;
+  const insert = created.ops.find((o) => o.op === "upsert")!;
+  assertEquals(insert.options, { onConflict: "user_id", ignoreDuplicates: true });
   const stored = (insert.values as { secret_ciphertext: string }).secret_ciphertext;
   assert(!stored.includes(first.signing_secret!.slice(6)), "the secret was stored in plain text");
 
@@ -253,4 +262,24 @@ Deno.test("no endpoint: nothing is recorded or sent", async () => {
   assertEquals(await sendTestWebhook(OWNER, h.deps), null);
   assertEquals(h.rows.length, 0);
   assertEquals(h.sent.length, 0);
+});
+
+// DEV-11: two first-time saves race past the existence read. The one whose
+// upsert wrote the row returns the secret; the one whose upsert was ignored
+// on the user_id conflict falls through to a URL update, with no error and
+// no secret it did not store.
+Deno.test("concurrent first saves: the loser gets no secret and no error", async () => {
+  const winner = recordingDb();
+  const loser = recordingDb({ "upsert:api_webhook_endpoints": [] });
+  const [a, b] = await Promise.all([
+    setWebhookUrl(OWNER, "https://hooks.example.com/a", winner.db),
+    setWebhookUrl(OWNER, "https://hooks.example.com/b", loser.db),
+  ]);
+  assertMatch(a.signing_secret ?? "", /^whsec_/);
+  assert(a.secret_created_at);
+  assertEquals(b.signing_secret, null);
+  assertEquals(b.secret_created_at, null);
+  const update = loser.ops.find((o) => o.table === "api_webhook_endpoints" && o.op === "update")!;
+  assertEquals(update.values, { url: "https://hooks.example.com/b" });
+  assertAllScoped(loser.ops);
 });

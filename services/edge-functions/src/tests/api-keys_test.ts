@@ -200,3 +200,36 @@ Deno.test("branding: clear:true is the one way to empty stored branding", async 
     db.restore();
   }
 });
+
+// DEV-11: the PUT that creates the endpoint answers from what it wrote. With
+// the follow-up config read failing, the minted secret still comes back.
+Deno.test("webhook PUT: a failing follow-up read cannot swallow the minted secret", async () => {
+  if (!Deno.env.get("EDGE_ENCRYPTION_KEY")) {
+    Deno.env.set("EDGE_ENCRYPTION_KEY", btoa("0123456789abcdef0123456789abcdef"));
+  }
+  let endpointReads = 0;
+  const db = install((op) => {
+    if (op.table === "users") return { data: superAdminUser };
+    if (op.table === "api_webhook_endpoints" && op.op === "select") {
+      endpointReads++;
+      // First read: no endpoint yet. Any later read (the old re-read) fails.
+      return endpointReads === 1 ? { data: null } : { error: { message: "read failed" } };
+    }
+    if (op.table === "api_webhook_endpoints" && op.op === "upsert") return { data: [{ user_id: OWNER }] };
+    return { data: null };
+  });
+  try {
+    const res = await app("owner").request("/webhook", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "https://93.184.216.34/hook" }),
+    });
+    assertEquals(res.status, 200);
+    const { data } = await res.json();
+    assert(String(data.signing_secret).startsWith("whsec_"), "the minted secret was not returned");
+    assertEquals(data.has_signing_secret, true);
+    assertEquals(data.webhook_url, "https://93.184.216.34/hook");
+  } finally {
+    db.restore();
+  }
+});

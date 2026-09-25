@@ -62,8 +62,9 @@ export async function setWebhookUrl(
   ownerId: string,
   url: string | null,
   db: WebhookDb = supabaseAdmin,
-): Promise<{ signing_secret: string | null }> {
+): Promise<{ signing_secret: string | null; secret_created_at: string | null }> {
   let signingSecret: string | null = null;
+  let secretCreatedAt: string | null = null;
   if (url === null) {
     const { error } = await db.from("api_webhook_endpoints").delete().eq("user_id", ownerId); // US-268
     if (error) throw new AccountWebhookError(`webhook clear failed: ${error.message}`);
@@ -74,18 +75,36 @@ export async function setWebhookUrl(
       .eq("user_id", ownerId) // US-268
       .maybeSingle();
     if (readError) throw new AccountWebhookError(`webhook read failed: ${readError.message}`);
-    if (existing) {
+    // DEV-11: the create is an upsert that ignores a conflict on user_id, so
+    // two first-time saves racing past the read above cannot collide on the
+    // primary key with a 500. Only the save whose row came back minted the
+    // stored secret; the other falls through to a plain URL update.
+    let created = false;
+    if (!existing) {
+      const secret = generateWebhookSecret();
+      const createdAt = new Date().toISOString();
+      const { data: inserted, error } = await db
+        .from("api_webhook_endpoints")
+        .upsert(
+          {
+            user_id: ownerId,
+            url,
+            secret_ciphertext: await encryptWebhookSecret(secret, ownerId),
+            secret_created_at: createdAt,
+          },
+          { onConflict: "user_id", ignoreDuplicates: true },
+        )
+        .select("user_id");
+      if (error) throw new AccountWebhookError(`webhook create failed: ${error.message}`);
+      if (Array.isArray(inserted) && inserted.length > 0) {
+        created = true;
+        signingSecret = secret;
+        secretCreatedAt = createdAt;
+      }
+    }
+    if (!created) {
       const { error } = await db.from("api_webhook_endpoints").update({ url }).eq("user_id", ownerId); // US-268
       if (error) throw new AccountWebhookError(`webhook update failed: ${error.message}`);
-    } else {
-      signingSecret = generateWebhookSecret();
-      const { error } = await db.from("api_webhook_endpoints").insert({
-        user_id: ownerId,
-        url,
-        secret_ciphertext: await encryptWebhookSecret(signingSecret, ownerId),
-        secret_created_at: new Date().toISOString(),
-      });
-      if (error) throw new AccountWebhookError(`webhook create failed: ${error.message}`);
     }
   }
 
@@ -99,7 +118,7 @@ export async function setWebhookUrl(
   if (mirrorError) {
     console.error(`[account-webhook] mirror onto api_keys failed: ${mirrorError.message}`);
   }
-  return { signing_secret: signingSecret };
+  return { signing_secret: signingSecret, secret_created_at: secretCreatedAt };
 }
 
 /** Mint a new secret. Null when the account has no endpoint to rotate. */

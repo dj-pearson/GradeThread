@@ -324,12 +324,40 @@ apiKeyRoutes.put("/webhook", async (c) => {
     }
   }
 
+  let saved: Awaited<ReturnType<typeof setWebhookUrl>>;
   try {
-    const { signing_secret } = await setWebhookUrl(who.ownerId, url);
-    return c.json({ data: { ...(await getWebhookConfig(who.ownerId)), signing_secret } });
+    saved = await setWebhookUrl(who.ownerId, url);
   } catch (err) {
     console.error("Failed to save webhook:", redactError(err));
     return c.json({ error: "Failed to save webhook" }, 500);
+  }
+  // DEV-11: a freshly minted secret exists nowhere else. The answer is built
+  // from what was just written rather than a re-read, so a failing follow-up
+  // read can never swallow the one copy the seller will ever see.
+  if (saved.signing_secret) {
+    return c.json({
+      data: {
+        webhook_url: url,
+        has_signing_secret: true,
+        secret_created_at: saved.secret_created_at,
+        updated_at: saved.secret_created_at,
+        signing_secret: saved.signing_secret,
+      },
+    });
+  }
+  try {
+    return c.json({ data: { ...(await getWebhookConfig(who.ownerId)), signing_secret: null } });
+  } catch (err) {
+    console.error("Webhook saved but the re-read failed:", redactError(err));
+    return c.json({
+      data: {
+        webhook_url: url,
+        has_signing_secret: null,
+        secret_created_at: null,
+        updated_at: null,
+        signing_secret: null,
+      },
+    });
   }
 });
 
