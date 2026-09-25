@@ -319,7 +319,7 @@ function bareOkReturns() {
 }
 
 describe("US-3409 AC3: the rest of the bare `if (!res.ok) return` family", () => {
-  it("TIER 1 — an action that silently does nothing: 5 left, all named", () => {
+  it("TIER 1 — an action that silently does nothing: 4 left, all named", () => {
     // listing-kit.tsx is absent from this list because THIS story fixed it.
     expect(bareOkReturns().tier1).toEqual({
       // A measurement-overlay rebuild that did not happen: the caches are left
@@ -330,8 +330,8 @@ describe("US-3409 AC3: the rest of the bare `if (!res.ok) return` family", () =>
       // The suggested eBay ad rate never seeds. Cosmetic, and the seller has
       // their own box.
       "src/pages/flipdesk/composer.tsx": 1,
-      // The import poller stops updating; the run looks stuck at "running".
-      "src/pages/flipdesk/import.tsx": 1,
+      // src/pages/flipdesk/import.tsx left this list with IMP-02: a failed
+      // poll now retries, honors Retry-After, or stops and says why.
       // A retake's reusable photo is dropped from the seeded slots. A raw
       // fetch of a signed URL, not edgeFetch.
       "src/pages/new-submission.tsx": 1,
