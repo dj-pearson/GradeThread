@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
@@ -34,7 +35,16 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
-import { COMMON_TIMEZONES, detectTimezone, formatInZone } from "@/lib/scheduling";
+import {
+  COMMON_TIMEZONES,
+  detectTimezone,
+  dropHealth,
+  dropHealthNote,
+  dropNeedsAttention,
+  formatInZone,
+  type DropHealth,
+} from "@/lib/scheduling";
+import { DropHealthTag } from "@/components/flipdesk/drop-health-tag";
 import { cn } from "@/lib/utils";
 import { DropDayDialog } from "@/components/flipdesk/drop-day-dialog";
 import { PageHelp } from "@/components/help/page-help";
@@ -76,6 +86,13 @@ function zoneYmd(iso: string, timeZone: string): { y: number; m: number; d: numb
   return { y: Number(parts[0]), m: Number(parts[1]), d: Number(parts[2]) };
 }
 
+/** ", 1 overdue, 2 retrying" for a day cell's accessible name (SD-4). */
+function healthSummary(states: DropHealth[]): string {
+  const counts = new Map<DropHealth, number>();
+  for (const h of states) if (h !== "scheduled") counts.set(h, (counts.get(h) ?? 0) + 1);
+  return Array.from(counts, ([h, n]) => `, ${n} ${h}`).join("");
+}
+
 function fmtMoney(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "—";
   return `$${n.toFixed(2)}`;
@@ -110,6 +127,31 @@ export function FlipdeskScheduledDropsPage() {
   // Memoized so the `?? []` fallback does not mint a new array each render —
   // several useMemos below take it as a dependency.
   const drops = useMemo<ScheduledDropRow[]>(() => dropsRead?.rows ?? [], [dropsRead]);
+
+  // SD-3/SD-4: what the cron has done with each drop, read once per refresh.
+  // `now` is taken with the rows so a row's state and the Past-due split agree.
+  const { healthById, now } = useMemo(() => {
+    const at = Date.now();
+    const map = new Map<string, DropHealth>();
+    for (const d of drops) map.set(d.id, dropHealth(d, at));
+    return { healthById: map, now: at };
+  }, [drops]);
+  const healthOf = (d: ScheduledDropRow): DropHealth =>
+    healthById.get(d.id) ?? "scheduled";
+  const needsAttention = useMemo(
+    () => drops.filter((d) => dropNeedsAttention(healthById.get(d.id) ?? "scheduled")),
+    [drops, healthById],
+  );
+  // Past due (or mid-publish) and still to come, split on the clock rather
+  // than listing a stuck drop under "Upcoming".
+  const pastDrops = useMemo(
+    () => drops.filter((d) => Date.parse(d.scheduled_publish_at) <= now),
+    [drops, now],
+  );
+  const upcomingDrops = useMemo(
+    () => drops.filter((d) => !(Date.parse(d.scheduled_publish_at) <= now)),
+    [drops, now],
+  );
 
   // Titles fall back to the inventory item when listing_title is blank.
   const itemIds = useMemo(
@@ -234,8 +276,10 @@ export function FlipdeskScheduledDropsPage() {
       title:
         d.listing_title?.trim() || titles[d.inventory_item_id] || "Untitled draft",
       promoted: !d.promo_opt_out && (d.promo_rate_pct ?? 0) > 0,
+      health: healthById.get(d.id) ?? "scheduled",
+      healthNote: dropHealthNote(d, healthById.get(d.id) ?? "scheduled"),
     }));
-  }, [openDayNum, view, dropsByDay, titles]);
+  }, [openDayNum, view, dropsByDay, titles, healthById]);
 
   const shiftMonth = (delta: number) => {
     setView((v) => {
@@ -251,6 +295,29 @@ export function FlipdeskScheduledDropsPage() {
         return y === view.y && m === view.m + 1;
       }).length,
     [drops, timeZone, view],
+  );
+
+  // One row of the Past-due and Upcoming lists.
+  const dropListRow = (d: ScheduledDropRow) => (
+    <Link
+      key={d.id}
+      to={`/dashboard/flipdesk/items/${d.inventory_item_id}/draft`}
+      className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm hover:bg-muted/50"
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <DropHealthTag health={healthOf(d)} className="text-xs" />
+        <span className="truncate font-medium">{titleOf(d)}</span>
+        {isPromoted(d) && (
+          <Badge variant="outline" className="shrink-0 gap-1 text-[10px]">
+            <Megaphone className="h-3 w-3" />
+            {d.promo_rate_pct}% ad
+          </Badge>
+        )}
+      </span>
+      <span className="shrink-0 text-xs text-muted-foreground">
+        {formatInZone(d.scheduled_publish_at, timeZone)}
+      </span>
+    </Link>
   );
 
   const tzOptions = COMMON_TIMEZONES.some((t) => t.id === timeZone)
@@ -369,6 +436,44 @@ export function FlipdeskScheduledDropsPage() {
             />
           ) : (
             <>
+              {/* SD-4: stuck drops lead the page instead of hiding among
+                  healthy chips until they vanish. */}
+              {needsAttention.length > 0 && (
+                <section
+                  aria-labelledby="drops-attention-heading"
+                  className="mb-4 rounded-lg border border-brand-red/40 p-3"
+                >
+                  <h2
+                    id="drops-attention-heading"
+                    className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-brand-red-text"
+                  >
+                    <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                    Needs attention ({needsAttention.length})
+                  </h2>
+                  <ul className="space-y-1.5" data-testid="drops-attention-list">
+                    {needsAttention.map((d) => (
+                      <li key={d.id} className="text-sm">
+                        <Link
+                          to={`/dashboard/flipdesk/items/${d.inventory_item_id}/draft`}
+                          className="flex flex-wrap items-baseline gap-x-2 hover:underline"
+                        >
+                          <DropHealthTag health={healthOf(d)} className="text-xs" />
+                          <span className="font-medium">{titleOf(d)}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatInZone(d.scheduled_publish_at, timeZone)}
+                          </span>
+                        </Link>
+                        {dropHealthNote(d, healthOf(d)) && (
+                          <p className="text-xs text-muted-foreground">
+                            {dropHealthNote(d, healthOf(d))}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
               {/* US-2522: a real grid — announced as one, traversable with
                   the arrow keys, and every day cell opens its own drops rather
                   than only linking away to a draft. */}
@@ -411,7 +516,7 @@ export function FlipdeskScheduledDropsPage() {
                     <div
                       key={cell.key}
                       role="gridcell"
-                      aria-label={`${MONTH_NAMES[view.m]} ${cell.day}: ${dayDrops.length} drop${dayDrops.length === 1 ? "" : "s"}`}
+                      aria-label={`${MONTH_NAMES[view.m]} ${cell.day}: ${dayDrops.length} drop${dayDrops.length === 1 ? "" : "s"}${healthSummary(dayDrops.map(healthOf))}`}
                       data-day={cell.day}
                       tabIndex={cell.day === focusedDay ? 0 : -1}
                       ref={(el) => {
@@ -442,9 +547,16 @@ export function FlipdeskScheduledDropsPage() {
                         {shown.map((d) => (
                           <div
                             key={d.id}
-                            className="rounded bg-brand-navy/5 px-1.5 py-1 text-[11px] leading-tight"
+                            data-health={healthOf(d)}
+                            className={cn(
+                              "rounded px-1.5 py-1 text-[11px] leading-tight",
+                              dropNeedsAttention(healthOf(d))
+                                ? "bg-brand-red/10"
+                                : "bg-brand-navy/5",
+                            )}
                             title={titleOf(d)}
                           >
+                            <DropHealthTag health={healthOf(d)} className="block" />
                             <span className="flex items-center gap-1 font-medium text-brand-navy dark:text-blue-300">
                               {isPromoted(d) && (
                                 <Megaphone className="h-3 w-3 shrink-0 text-brand-red-text" />
@@ -476,34 +588,29 @@ export function FlipdeskScheduledDropsPage() {
               </div>
 
 
-              {/* Upcoming list — a chronological companion to the grid. */}
+              {/* SD-4: past-due and mid-publish drops get their own heading,
+                  so "Upcoming" means what it says. */}
+              {pastDrops.length > 0 && (
+                <div className="mt-6">
+                  <h2 className="mb-2 text-sm font-semibold">Past due / publishing</h2>
+                  <div className="space-y-1.5" data-testid="drops-past-list">
+                    {pastDrops.map(dropListRow)}
+                  </div>
+                </div>
+              )}
+
+              {/* Upcoming list, a chronological companion to the grid. */}
               <div className="mt-6">
                 <h2 className="mb-2 text-sm font-semibold">Upcoming</h2>
-                <div className="space-y-1.5">
-                  {(showAllUpcoming ? drops : drops.slice(0, UPCOMING_PREVIEW)).map((d) => (
-                    <Link
-                      key={d.id}
-                      to={`/dashboard/flipdesk/items/${d.inventory_item_id}/draft`}
-                      className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm hover:bg-muted/50"
-                    >
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate font-medium">{titleOf(d)}</span>
-                        {isPromoted(d) && (
-                          <Badge variant="outline" className="shrink-0 gap-1 text-[10px]">
-                            <Megaphone className="h-3 w-3" />
-                            {d.promo_rate_pct}% ad
-                          </Badge>
-                        )}
-                      </span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatInZone(d.scheduled_publish_at, timeZone)}
-                      </span>
-                    </Link>
-                  ))}
+                {upcomingDrops.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Nothing else queued.</p>
+                )}
+                <div className="space-y-1.5" data-testid="drops-upcoming-list">
+                  {(showAllUpcoming ? upcomingDrops : upcomingDrops.slice(0, UPCOMING_PREVIEW)).map(dropListRow)}
                 </div>
                 {/* US-2522: the list stopped dead at 12 with nothing saying
                     so, on the surface whose job is telling you what is queued. */}
-                {drops.length > UPCOMING_PREVIEW && (
+                {upcomingDrops.length > UPCOMING_PREVIEW && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -512,7 +619,7 @@ export function FlipdeskScheduledDropsPage() {
                   >
                     {showAllUpcoming
                       ? "Show fewer"
-                      : `Show all ${drops.length}`}
+                      : `Show all ${upcomingDrops.length}`}
                   </Button>
                 )}
               </div>

@@ -22,9 +22,12 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   assertFutureDrop,
   isoToZonedInput,
+  dropNeedsAttention,
   MIN_DROP_LEAD_MS,
   zonedInputToIso,
+  type DropHealth,
 } from "@/lib/scheduling";
+import { DropHealthTag } from "@/components/flipdesk/drop-health-tag";
 
 // US-2522: everything the calendar could not do. One day's drops, each
 // reschedulable and cancellable in place, plus a shift that moves the whole day
@@ -37,6 +40,10 @@ export interface DayDrop {
   listing_price: number | null;
   title: string;
   promoted: boolean;
+  /** SD-4: what the publish cron has done with this drop. */
+  health: DropHealth;
+  /** One line explaining a non-scheduled state, or null. */
+  healthNote: string | null;
 }
 
 /** Offered shifts, in minutes. A day slips by an hour far more often than by five. */
@@ -185,6 +192,7 @@ export function DropDayDialog({
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <span className="flex items-center gap-1.5 font-medium">
+                    <DropHealthTag health={d.health} className="text-xs" />
                     {d.promoted && (
                       <Megaphone className="h-3.5 w-3.5 shrink-0 text-brand-red-text" />
                     )}
@@ -198,6 +206,17 @@ export function DropDayDialog({
                     }).format(new Date(d.scheduled_publish_at))}
                     {d.listing_price != null && ` · $${d.listing_price.toFixed(2)}`}
                   </span>
+                  {d.healthNote && (
+                    <p
+                      className={
+                        dropNeedsAttention(d.health)
+                          ? "text-xs text-brand-red-text"
+                          : "text-xs text-muted-foreground"
+                      }
+                    >
+                      {d.healthNote}
+                    </p>
+                  )}
                 </div>
                 <Link
                   to={`/dashboard/flipdesk/items/${d.inventory_item_id}/draft`}

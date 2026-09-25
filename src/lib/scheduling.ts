@@ -275,3 +275,39 @@ export function dropHealth(row: DropHealthInput, now: number = Date.now()): Drop
 export function dropNeedsAttention(health: DropHealth): boolean {
   return health === "overdue" || health === "retrying" || health === "blocked";
 }
+
+/** Short words for each health state; paired with an icon, never color alone. */
+export const DROP_HEALTH_LABEL: Record<DropHealth, string> = {
+  scheduled: "Scheduled",
+  publishing: "Publishing",
+  retrying: "Retrying",
+  overdue: "Overdue",
+  blocked: "Blocked",
+};
+
+/**
+ * One line telling the seller what happened to a drop, or null when nothing
+ * has (a plain scheduled drop needs no note).
+ */
+export function dropHealthNote(
+  row: DropHealthInput,
+  health: DropHealth,
+): string | null {
+  const err = row.publish_error?.trim();
+  const attempts = Number(row.publish_attempts ?? 0) || 0;
+  switch (health) {
+    case "publishing":
+      return "Publishing now.";
+    case "retrying":
+      return `Retrying: attempt ${attempts} of ${MAX_SCHEDULED_PUBLISH_ATTEMPTS}.${err ? ` ${err}` : ""}`;
+    case "overdue":
+      return `Overdue. Did not publish.${err ? ` ${err}` : ""}`;
+    case "blocked":
+      if (row.synced_to_ebay_at != null) {
+        return "Already on eBay, so this schedule will not run.";
+      }
+      return `Stopped after ${MAX_SCHEDULED_PUBLISH_ATTEMPTS} attempts.${err ? ` ${err}` : ""}`;
+    default:
+      return null;
+  }
+}

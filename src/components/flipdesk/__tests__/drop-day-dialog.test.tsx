@@ -97,10 +97,9 @@ function drop(id: string, msFromNow: number, extra: Partial<DayDrop> = {}): DayD
     title: `Drop ${id}`,
     promoted: false,
     health: "scheduled",
-    publish_error: null,
-    publish_attempts: 0,
+    healthNote: null,
     ...extra,
-  } as DayDrop;
+  };
 }
 
 async function render(drops: DayDrop[], props: Record<string, unknown> = {}) {
@@ -166,5 +165,17 @@ describe("shifts that would publish early (SD-2)", () => {
     await click(button("Save"));
     expect(state.reschedule).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain("That time has passed. Pick a later time.");
+  });
+});
+
+describe("each row says what the cron did (SD-4)", () => {
+  it("shows the retry note on a retrying drop", async () => {
+    await render([
+      drop("a", 3_600_000, {
+        health: "retrying",
+        healthNote: "Retrying: attempt 3 of 5. Missing item specific: Brand",
+      }),
+    ]);
+    expect(document.body.textContent).toContain("Retrying: attempt 3 of 5. Missing item specific: Brand");
   });
 });

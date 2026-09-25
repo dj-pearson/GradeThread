@@ -87,8 +87,8 @@ describe("the calendar reads as a calendar (US-2522)", () => {
   it("Upcoming is no longer a silent cap at 12", () => {
     const src = read(PAGE);
     expect(src).not.toMatch(/drops\.slice\(0, 12\)/);
-    expect(src).toMatch(/showAllUpcoming \? drops : drops\.slice\(0, UPCOMING_PREVIEW\)/);
-    expect(src).toContain("Show all ${drops.length}");
+    expect(src).toMatch(/showAllUpcoming \? upcomingDrops : upcomingDrops\.slice\(0, UPCOMING_PREVIEW\)/);
+    expect(src).toContain("Show all ${upcomingDrops.length}");
   });
 });
 
