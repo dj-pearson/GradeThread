@@ -107,6 +107,25 @@ apiKeyRoutes.get("/usage", async (c) => {
     return c.json({ error: "Failed to load API usage" }, 500);
   }
 
+  // DEV-14: success_requests and error_requests both include sandbox calls, so
+  // the tiles never added up. One count of LIVE successes lets the panel show
+  // live success + live errors + sandbox = total exactly (live errors are
+  // every other live call, including ones that never got a status code).
+  const sinceIso = (summary as { since?: string } | null)?.since ??
+    new Date(Date.now() - days * 86_400_000).toISOString();
+  const { count: liveSuccess, error: liveError } = await supabaseAdmin
+    .from("api_usage_events")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("sandbox", false)
+    .gte("created_at", sinceIso)
+    .gt("status_code", 0)
+    .lt("status_code", 400);
+  if (liveError) {
+    console.error("Failed to count live API successes:", liveError);
+    return c.json({ error: "Failed to load API usage" }, 500);
+  }
+
   // The page gates on the OWNER's plan, never the viewer's own. Answering it
   // here means an admin of a Business workspace is not shown an upsell, and a
   // Business user acting in a Free workspace is not shown a key table the
@@ -130,6 +149,7 @@ apiKeyRoutes.get("/usage", async (c) => {
   return c.json({
     data: {
       summary,
+      live_success_requests: liveSuccess ?? 0,
       plan,
       api_access: apiAccess,
       overage: {

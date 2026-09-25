@@ -50,6 +50,9 @@ function install(respond: Responder) {
       delete: () => ((op.op = "delete"), b),
       eq: (col: string, val: unknown) => (op.filters.push(["eq", col, val]), b),
       not: (col: string, o: string, val: unknown) => (op.filters.push([`not.${o}`, col, val]), b),
+      gt: (col: string, val: unknown) => (op.filters.push(["gt", col, val]), b),
+      gte: (col: string, val: unknown) => (op.filters.push(["gte", col, val]), b),
+      lt: (col: string, val: unknown) => (op.filters.push(["lt", col, val]), b),
       order: () => b,
       limit: () => b,
       single: () => Promise.resolve(answer()),
@@ -127,6 +130,7 @@ Deno.test("usage: api_access and overage are read for the workspace OWNER", asyn
     if (op.table === "users") return { data: superAdminUser };
     if (op.table === "api_keys") return { count: 0 };
     if (op.table === "api_credit_wallet") return { data: { balance: 42 } };
+    if (op.table === "api_usage_events") return { count: 7 };
     return { data: null };
   });
   try {
@@ -136,6 +140,9 @@ Deno.test("usage: api_access and overage are read for the workspace OWNER", asyn
     const { data } = await res.json();
     assertEquals(data.api_access, true);
     assertEquals(data.overage, { quota_enabled: false, balance: 42 });
+    assertEquals(data.live_success_requests, 7);
+    const live = db.ops.find((o) => o.table === "api_usage_events")!;
+    assert(live.filters.some(([k, col, v]) => k === "eq" && col === "sandbox" && v === false));
     for (const op of db.ops) {
       const scoped = op.filters.some(([, col, v]) => (col === "user_id" || col === "id") && v === OWNER);
       assert(scoped, `${op.table} was not scoped to the owner`);

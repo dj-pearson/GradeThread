@@ -21,6 +21,8 @@ export interface ApiUsageSummary {
 
 export interface ApiUsageResponse {
   summary: ApiUsageSummary;
+  /** Live (non-sandbox) calls that got a 1xx-3xx answer. */
+  live_success_requests?: number;
   plan: string;
   api_access: boolean;
   overage: { quota_enabled: boolean; balance: number };
