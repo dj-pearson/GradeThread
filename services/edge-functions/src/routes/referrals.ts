@@ -34,6 +34,10 @@ type Env = { Variables: { userId?: string } };
 
 export const referralRoutes = new Hono<Env>();
 
+// How far back a click without a click_id may still attribute the affiliate
+// channel. Matches the browser's 30-day last-touch window for a stored ?ref=.
+const FALLBACK_CLICK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const REDEEM_REFUSAL_COPY: Record<RedeemRefusal, string> = {
@@ -238,27 +242,43 @@ referralRoutes.get("/me/events", async (c) => {
   const userId = c.get("userId");
   if (!userId) return c.json({ error: "Sign-in required" }, 401);
 
-  const [{ data, error }, rewardConfig] = await Promise.all([
-    supabaseAdmin
-      .from("referral_events")
-      .select("reward_status, referrer_reward_credits, created_at, qualified_at")
-      .eq("referrer_user_id", userId)
-      .order("created_at", { ascending: true })
-      .limit(EVENTS_LIMIT),
-    getReferralRewardConfig(),
-  ]);
-  if (error) {
-    console.error("[referrals] events read failed:", error.message);
+  // The NEWEST rows, so a seller with more than the limit still sees the
+  // referrals that can still pay. The total and the granted count are read
+  // over every row: labels stay "Seller #N" in join order, and the cap test
+  // uses the same granted count /me does.
+  const [{ data, error, count: totalCount }, { count: grantedTotal, error: gErr }, rewardConfig] =
+    await Promise.all([
+      supabaseAdmin
+        .from("referral_events")
+        .select("reward_status, referrer_reward_credits, created_at, qualified_at", {
+          count: "exact",
+        })
+        .eq("referrer_user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(EVENTS_LIMIT),
+      supabaseAdmin
+        .from("referral_events")
+        .select("id", { count: "exact", head: true })
+        .eq("referrer_user_id", userId)
+        .eq("reward_status", "granted"),
+      getReferralRewardConfig(),
+    ]);
+  if (error || gErr) {
+    console.error("[referrals] events read failed:", (error ?? gErr)?.message);
     return c.json({ error: "Couldn't load your referrals." }, 500);
   }
 
-  const rows = (data ?? []) as ReferralLedgerRow[];
-  const grantedCount = rows.filter((r) => r.reward_status === "granted").length;
+  const rows = ((data ?? []) as ReferralLedgerRow[]).slice().reverse();
+  const total = typeof totalCount === "number" ? totalCount : rows.length;
+  const grantedCount = typeof grantedTotal === "number"
+    ? grantedTotal
+    : rows.filter((r) => r.reward_status === "granted").length;
+  const firstNumber = total - rows.length + 1;
   const nowMs = Date.now();
   const events = rows.map((row, i) => {
     const k = classifyReferralRow(row, rewardConfig, grantedCount, nowMs);
     return {
-      label: `Seller #${i + 1}`,
+      label: `Seller #${firstNumber + i}`,
       joined_at: row.created_at,
       status: k.status,
       reason: k.reason,
@@ -267,7 +287,7 @@ referralRoutes.get("/me/events", async (c) => {
     };
   });
 
-  return c.json({ events, truncated: rows.length >= EVENTS_LIMIT });
+  return c.json({ events, truncated: total > rows.length, total });
 });
 
 // US-1071: redeem a named campaign / promo code for bonus grade credits. Unlike
@@ -554,10 +574,15 @@ referralRoutes.post("/redeem", async (c) => {
     if (click) {
       attributionSource = "affiliate";
     } else {
+      // Only a recent click nobody has converted yet: one old click, or one
+      // another signup already claimed, must not turn every later typed-in
+      // redeem of this code into a cash conversion.
       const { data: anyClick } = await supabaseAdmin
         .from("affiliate_clicks")
         .select("id")
         .eq("code", code)
+        .is("converted_user_id", null)
+        .gte("created_at", new Date(Date.now() - FALLBACK_CLICK_WINDOW_MS).toISOString())
         .lt("created_at", nowIso)
         .limit(1);
       if ((anyClick ?? []).length > 0) attributionSource = "affiliate";

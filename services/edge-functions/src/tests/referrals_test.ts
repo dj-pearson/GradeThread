@@ -181,6 +181,36 @@ Deno.test("redeem: with no click_id, no click is stamped at all", async () => {
   }
 });
 
+Deno.test("redeem: an old or already-converted click does not make a typed code affiliate", async () => {
+  const db = installFakePostgrest();
+  try {
+    db.reset(seed({
+      affiliate_clicks: [
+        {
+          id: "44444444-4444-4444-8444-444444444444",
+          code: CODE,
+          landing_path: "/",
+          converted_user_id: null,
+          created_at: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+        },
+        {
+          id: "55555555-5555-4555-8555-555555555555",
+          code: CODE,
+          landing_path: "/",
+          converted_user_id: OWNER,
+          created_at: new Date(Date.now() - 60_000).toISOString(),
+        },
+      ],
+    }));
+    const res = await redeem({ source: "affiliate" });
+    assertEquals(res.status, 200);
+    const ev = db.tables.referral_events.find((r) => r.referred_user_id === NEWBIE);
+    assertEquals(ev?.attribution_source, "direct");
+  } finally {
+    db.restore();
+  }
+});
+
 Deno.test("redeemRefusal: a zero window never refuses on age", () => {
   const base = { nowMs: Date.now(), hasPaidPurchase: false, circular: false };
   assertEquals(
@@ -334,6 +364,38 @@ Deno.test("GET /me/events: only the caller's referrals, masked, and they add up 
 
     const other = (await (await app(OTHER).request("/me/events")).json()).events;
     assertEquals(other.length, 1);
+  } finally {
+    db.restore();
+  }
+});
+
+Deno.test("GET /me/events: past the limit it keeps the newest rows, numbered in join order", async () => {
+  const db = installFakePostgrest();
+  try {
+    const rows = Array.from({ length: 102 }, (_, i) => ({
+      id: `e${i}`,
+      referrer_user_id: OWNER,
+      referred_user_id: `x${i}`,
+      // The oldest two are the only granted ones, so the cap test has to see
+      // rows the page does not return.
+      reward_status: i < 2 ? "granted" : "qualified",
+      referrer_reward_credits: i < 2 ? 5 : null,
+      created_at: iso((200 - i) * 60_000),
+      qualified_at: iso((199 - i) * 60_000),
+    }));
+    db.reset(seed({
+      system_settings: [{ id: "s1", key: "referral.reward_config", value: { per_referrer_cap: 2 } }],
+      referral_events: rows,
+      referral_milestone_grants: [],
+    }));
+    const body = await (await app(OWNER).request("/me/events")).json();
+    assertEquals(body.events.length, 100);
+    assertEquals(body.truncated, true);
+    assertEquals(body.total, 102);
+    assertEquals(body.events[0].label, "Seller #3");
+    assertEquals(body.events[99].label, "Seller #102");
+    // Two granted rows exist beyond the page, so every qualified row is over the cap.
+    assertEquals(body.events.every((e: { reason: string | null }) => e.reason === "over_cap"), true);
   } finally {
     db.restore();
   }
