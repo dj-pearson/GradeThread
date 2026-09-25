@@ -27,6 +27,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyField } from "@/components/verified/copy-field";
 import { VerifiedProfilePreview } from "@/components/verified/profile-preview";
 import { BadgeStudio } from "@/components/verified/badge-studio";
+import { ReadinessStrip } from "@/components/verified/readiness-strip";
+import { readinessSteps, type ReadinessStepId } from "@/lib/verified-readiness";
 import {
   useVerifiedProfile,
   useUpdateVerifiedProfile,
@@ -70,6 +72,7 @@ type Availability =
 export function FlipdeskVerifiedPage() {
   const { data, isLoading, isError, refetch, isFetching } = useVerifiedProfile();
   const update = useUpdateVerifiedProfile();
+  const funnel = useBadgeFunnel();
 
   const [handle, setHandle] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -259,6 +262,32 @@ export function FlipdeskVerifiedPage() {
   }
 
   const isLive = enabled && !!savedHandle;
+
+  const steps = readinessSteps({
+    handle: savedHandle,
+    bio: data.profile.bio,
+    enabled,
+    embedInListings,
+    graded: data.stats.total_graded,
+    badgeClicks: funnel.data?.totalClicks ?? null,
+  });
+
+  function goToStep(id: ReadinessStepId) {
+    if (id === "click") {
+      setTab("badges");
+      return;
+    }
+    setTab("profile");
+    const target: Record<string, string> = {
+      handle: "#handle",
+      bio: "#bio",
+      public: '[aria-labelledby="public-switch-label"]',
+      listings: '[aria-labelledby="embed-switch-label"]',
+    };
+    const el = document.querySelector<HTMLElement>(target[id] ?? "");
+    el?.scrollIntoView?.({ block: "center" });
+    el?.focus();
+  }
   const liveUrl = savedHandle ? profileUrl(savedHandle) : null;
 
   return (
@@ -290,6 +319,8 @@ export function FlipdeskVerifiedPage() {
         </TabsList>
 
         <TabsContent value="profile" className="space-y-6">
+      <ReadinessStrip steps={steps} onStep={goToStep} />
+
       {/* US-2543 AC4: what the handle, name and bio you are typing actually
           look like. The standalone stats grid that used to sit here is inside
           it: the same two numbers, shown where they appear to a buyer. */}

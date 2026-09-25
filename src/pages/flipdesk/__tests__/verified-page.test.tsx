@@ -484,3 +484,22 @@ describe("switch rows and form accessibility (V12)", () => {
     expect(readFileSync("src/pages/flipdesk/verified.tsx", "utf8")).not.toContain("—");
   });
 });
+
+describe("readiness strip (V13)", () => {
+  it("counts what is done and takes the seller to the next control", () => {
+    setProfile(profile({ handle: "alpha", bio: "Denim.", enabled: false }), 0);
+    const c = render();
+    expect(c.textContent).toContain("Setup: 2 of 6 done");
+    const btn = byText("button", "Make profile public");
+    expect(btn).toBeDefined();
+    act(() => btn!.click());
+    expect(document.activeElement).toBe(switchByLabel("public-switch-label"));
+  });
+
+  it("links 'Grade your first item' to a new grade", () => {
+    setProfile(profile(), 0);
+    const c = render();
+    const link = Array.from(c.querySelectorAll("a")).find((a) => a.textContent === "Grade your first item");
+    expect(link?.getAttribute("href")).toBe("/dashboard/submissions/new");
+  });
+});
