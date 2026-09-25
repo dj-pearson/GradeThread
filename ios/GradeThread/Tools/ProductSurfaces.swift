@@ -130,8 +130,8 @@ extension ProductSurface {
             id: "reconcile-intake",
             route: "reconcileIntake",
             label: "Reconcile photo dump",
-            summary: "Send a batch of photos straight to a reconcile session.",
-            webLink: "/dashboard/flipdesk/intake"
+            summary: "Sort a pile of phone photos into items.",
+            webLink: "/dashboard/flipdesk/money?view=reconcile&tab=photos"
         ),
         ProductSurface(
             id: "community-insights",

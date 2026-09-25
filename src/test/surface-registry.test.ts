@@ -10,6 +10,7 @@ import {
   routePathOf,
   type Surface,
 } from "@/lib/surfaces";
+import { RECONCILE_TABS } from "@/lib/reconcile-tabs";
 
 // US-2876. The registry is only worth having if something fails when reality
 // walks away from it. Three things can:
@@ -273,6 +274,32 @@ describe("the generated Swift mirrors are current (US-2876 AC2)", () => {
     const src = read("ios/GradeThread/Tools/ProductSurfaces.swift");
     expect(src).toContain("scripts/generate-swift-mirrors.mjs");
     expect(src).toContain("Do not hand-edit");
+  });
+});
+
+describe("reconcile deep links open a real tab", () => {
+  // A bare ?view=reconcile opens on payouts. The iOS "Reconcile photo dump"
+  // link once pointed at the Add item form, which cannot open a session at
+  // all, and a path-only check let it through.
+  const PINNED: Record<string, string> = { "reconcile-intake": "tab=photos" };
+
+  it("every ?view=reconcile link names a tab the page has", () => {
+    for (const s of ALL_SURFACES) {
+      if (!s.web || !s.web.includes("view=reconcile")) continue;
+      if (s.id === "reconciliation") continue; // the area itself; its default tab is intended
+      const tab = new URL(s.web, "https://x.test").searchParams.get("tab");
+      expect(tab, `${s.id}: ${s.web} has no ?tab=`).not.toBeNull();
+      expect(RECONCILE_TABS as readonly string[], `${s.id}: unknown tab ${tab}`).toContain(tab);
+    }
+  });
+
+  it("pinned surfaces land on their board", () => {
+    for (const [id, want] of Object.entries(PINNED)) {
+      const s = ALL_SURFACES.find((x) => x.id === id);
+      expect(s, `${id} missing from the registry`).toBeDefined();
+      expect(s!.web ?? "", `${id} should open ${want}`).toContain("view=reconcile");
+      expect(s!.web ?? "", `${id} should open ${want}`).toContain(want);
+    }
   });
 });
 

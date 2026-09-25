@@ -391,8 +391,10 @@ export const SURFACES = [
   {
     id: "reconcile-intake",
     label: "Reconcile photo dump",
-    description: "Send a batch of photos straight to a reconcile session.",
-    web: "/dashboard/flipdesk/intake",
+    description: "Sort a pile of phone photos into items.",
+    // The photo board, not the Add item form: a bare ?view=reconcile opens
+    // on payouts, and intake cannot open a reconcile session at all.
+    web: "/dashboard/flipdesk/money?view=reconcile&tab=photos",
     nav: null,
     ios: "reconcileIntake",
   },
@@ -508,6 +510,13 @@ export const CONTEXTUAL_ROUTES: readonly { path: string; why: string }[] = [
       "US-3417 SKU numbering, reached from the SKU box in Add item and Bulk " +
       "intake and from the inventory header. A seller decides how their SKUs " +
       "are shaped while looking at the field that asks for one, not from nav.",
+  },
+  {
+    path: "/dashboard/flipdesk/intake",
+    why:
+      "Add item (single, Snap and Bulk modes), reached from the Items header, " +
+      "the dashboard and the command palette. It used to be the reconcile-intake " +
+      "surface's route by mistake; that surface now opens the photo board.",
   },
   {
     path: "/dashboard/example",
