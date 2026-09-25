@@ -25,6 +25,7 @@ import {
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { EbayCategorySearch } from "@/components/flipdesk/ebay-category-search";
 import { PolicySelectRow } from "@/components/flipdesk/composer/policies-card";
+import { TemplateGradePreview } from "@/components/flipdesk/template-grade-preview";
 import {
   useEbayCategoryAspects,
   useEbayCategoryConditions,
@@ -756,6 +757,11 @@ export function TemplateEditorDialog({
             </Button>
           </div>
 
+          <TemplateGradePreview
+            ebayCondition={editor.ebayCondition}
+            conditionDescription={editor.conditionDescription}
+            descriptionTemplate={editor.descriptionTemplate}
+          />
           </fieldset>
 
           <DialogFooter>

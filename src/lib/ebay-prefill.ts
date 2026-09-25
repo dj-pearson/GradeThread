@@ -762,3 +762,54 @@ export function mapEbayCondition(
   }
   return isNwt ? "NEW" : "USED_EXCELLENT";
 }
+
+// Grade → apparel pre-loved condition. Mirror of mapGradeToApparelCondition
+// and APPAREL_CONDITION_BANDS in the edge's publish-preflight.ts, which is what
+// publish uses on a clothing leaf; template-grade-preview.test.tsx pins the
+// bands. Label hints (NWT, defects) are left out: the template preview asks
+// only what a GRADE would pick.
+export const APPAREL_CONDITION_BANDS = {
+  NEW_MIN: 9.75,
+  NEW_OTHER_MIN: 9.0,
+  PRE_OWNED_EXCELLENT_MIN: 7.5,
+  PRE_OWNED_GOOD_MIN: 5.0,
+} as const;
+
+export function mapGradeToApparelCondition(grade: number): string {
+  if (grade >= APPAREL_CONDITION_BANDS.NEW_MIN) return "NEW";
+  if (grade >= APPAREL_CONDITION_BANDS.NEW_OTHER_MIN) return "NEW_OTHER";
+  if (grade >= APPAREL_CONDITION_BANDS.PRE_OWNED_EXCELLENT_MIN) return "PRE_OWNED_EXCELLENT";
+  if (grade >= APPAREL_CONDITION_BANDS.PRE_OWNED_GOOD_MIN) return "USED_EXCELLENT";
+  return "PRE_OWNED_FAIR";
+}
+
+// Best to worst on the apparel ladder. Legacy values are placed by MEANING,
+// the same translation publish-preflight's LEGACY_TO_APPAREL_CONDITION makes:
+// comparing raw conditionIds across the two families would rank a legacy
+// "Very good" (4000) below "Pre-owned - Fair" (3010).
+const APPAREL_RANK: Record<string, number> = {
+  NEW: 0,
+  NEW_OTHER: 1,
+  NEW_WITH_DEFECTS: 2,
+  LIKE_NEW: 3,
+  PRE_OWNED_EXCELLENT: 3,
+  USED_EXCELLENT: 4,
+  USED_VERY_GOOD: 4,
+  USED_GOOD: 4,
+  PRE_OWNED_FAIR: 5,
+  USED_ACCEPTABLE: 5,
+  FOR_PARTS_OR_NOT_WORKING: 6,
+};
+
+/**
+ * True when a template's fixed condition claims a BETTER condition than the
+ * grade would. That is the case that fights the grade: the buyer is promised
+ * more than the certificate says. A template that undersells the grade is the
+ * conservative direction and is not flagged.
+ */
+export function conditionOverstatesGrade(templateCondition: string, grade: number): boolean {
+  const fixed = APPAREL_RANK[templateCondition];
+  const byGrade = APPAREL_RANK[mapGradeToApparelCondition(grade)];
+  if (fixed === undefined || byGrade === undefined) return false;
+  return fixed < byGrade;
+}
