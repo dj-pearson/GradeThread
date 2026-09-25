@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { captureException } from "./observability.ts";
-import { deleteCertImages } from "./cloudflare-purge.ts";
+import { deleteCertImages, purgeCertificateCache } from "./cloudflare-purge.ts";
 import {
   analyzeImage,
   compositeGrade,
@@ -812,7 +812,21 @@ export function secondOpinionComposite(
 export async function reverseChargeForUngradedSubmission(
   submissionId: string,
   reason: string,
-): Promise<void> {
+): Promise<boolean> {
+  // US-3515: a submission that already delivered a grade is not "ungraded".
+  // A regrade supersedes the prior report before re-running, so when the
+  // re-run fails or abstains the seller would be refunded for a grade they
+  // have, and their certificate would stay dead. Put the prior grade back
+  // instead, and refund nothing. When we cannot tell, refund nothing either:
+  // a missed refund is recoverable by an operator, a refund of a delivered
+  // grade is not.
+  const prior = await restorePriorGradeInsteadOfRefund(submissionId);
+  if (prior !== "none") {
+    console.warn(
+      `[Pipeline] NOT refunding submission ${submissionId} (${reason}): prior grade ${prior}`,
+    );
+    return false;
+  }
   try {
     const { data: refundResult, error: refundError } = await supabaseAdmin.rpc(
       "refund_grade",
@@ -839,7 +853,112 @@ export async function reverseChargeForUngradedSubmission(
       refundErr instanceof Error ? refundErr.message : String(refundErr),
     );
   }
+  return true;
 }
+
+/**
+ * US-3515: what a failed or abstained grade run should do about a grade the
+ * submission ALREADY has.
+ *
+ *   "graded"   - an active report exists; nothing to refund, nothing to restore
+ *   "restored" - a regrade had superseded the prior report; it is live again
+ *   "none"     - no report of any kind; this really is an ungraded submission
+ *   "unknown"  - a read or write failed; the caller must not refund
+ */
+export type PriorGradeOutcome = "graded" | "restored" | "none" | "unknown";
+
+export interface PriorGradeStore {
+  /** Throws on a read error. */
+  hasActiveReport: (submissionId: string) => Promise<boolean>;
+  /** Most recently superseded report and the certificate it carried. Throws on a read error. */
+  latestSuperseded: (
+    submissionId: string,
+  ) => Promise<{ reportId: string; certificateId: string | null } | null>;
+  /** Un-supersede the report and give its certificate back. Throws on failure. */
+  reactivate: (reportId: string, certificateId: string | null) => Promise<void>;
+  /** Re-assert the terminal state for the now-active report. */
+  finalize: (submissionId: string) => Promise<void>;
+}
+
+export async function restorePriorGradeInsteadOfRefund(
+  submissionId: string,
+  store: PriorGradeStore = defaultPriorGradeStore,
+): Promise<PriorGradeOutcome> {
+  try {
+    if (await store.hasActiveReport(submissionId)) return "graded";
+    const prior = await store.latestSuperseded(submissionId);
+    if (!prior) return "none";
+    await store.reactivate(prior.reportId, prior.certificateId);
+    await store.finalize(submissionId);
+    console.warn(
+      `[Pipeline] restored prior grade report ${prior.reportId} for submission ${submissionId} after a failed regrade`,
+    );
+    return "restored";
+  } catch (err) {
+    console.error(
+      `[Pipeline] could not check or restore the prior grade for ${submissionId}; not refunding, manual review needed:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    captureException(err, {
+      route: "grading.restorePriorGrade",
+      extra: { submissionId },
+    });
+    return "unknown";
+  }
+}
+
+export const defaultPriorGradeStore: PriorGradeStore = {
+  hasActiveReport: async (submissionId) => {
+    const { data, error } = await supabaseAdmin
+      .from("grade_reports")
+      .select("id")
+      .eq("submission_id", submissionId)
+      .is("superseded_at", null)
+      .limit(1);
+    if (error) throw new Error(`active report read failed: ${error.message}`);
+    return (data ?? []).length > 0;
+  },
+  latestSuperseded: async (submissionId) => {
+    const { data, error } = await supabaseAdmin
+      .from("grade_reports")
+      .select("id")
+      .eq("submission_id", submissionId)
+      .not("superseded_at", "is", null)
+      .order("superseded_at", { ascending: false })
+      .limit(1);
+    if (error) throw new Error(`superseded report read failed: ${error.message}`);
+    const row = (data ?? [])[0] as { id: string } | undefined;
+    if (!row) return null;
+    // supersedePriorReports nulls certificate_id but records it here first
+    // (US-2569), so the certificate a buyer already holds comes back unchanged.
+    const { data: rev, error: revErr } = await supabaseAdmin
+      .from("grade_report_revisions")
+      .select("superseded_certificate_id")
+      .eq("superseded_report_id", row.id)
+      .maybeSingle();
+    if (revErr) throw new Error(`revision read failed: ${revErr.message}`);
+    return {
+      reportId: row.id,
+      certificateId:
+        (rev as { superseded_certificate_id: string | null } | null)
+          ?.superseded_certificate_id ?? null,
+    };
+  },
+  reactivate: async (reportId, certificateId) => {
+    const { error } = await supabaseAdmin
+      .from("grade_reports")
+      .update({ superseded_at: null, certificate_id: certificateId })
+      .eq("id", reportId);
+    if (error) throw new Error(`reactivate failed: ${error.message}`);
+    if (certificateId) {
+      // The retired certificate may be cached as a "revised" page.
+      purgeCertificateCache(certificateId).catch(() => {});
+    }
+  },
+  finalize: async (submissionId) => {
+    await finalizeIfAlreadyGraded(submissionId);
+  },
+};
 
 // US-569: grading durability knobs.
 //
@@ -2581,10 +2700,15 @@ export async function processSubmission(submissionId: string) {
       // AC #4: abstention must not consume a paid grade. Reverse the charge
       // taken at submit (included grade returned / credits re-granted; a
       // Stripe per-grade payment is flagged for manual refund).
-      await reverseChargeForUngradedSubmission(submissionId, "quality abstention");
+      const reversed = await reverseChargeForUngradedSubmission(
+        submissionId,
+        "quality abstention",
+      );
       // US-1056: tell the seller the grade was withheld for clearer photos
       // (not silently stuck). Best-effort — never blocks the abstention.
-      void notifyGradingIncomplete(
+      // US-3515: skipped when a regrade abstained and the prior grade was put
+      // back, since the seller still has that grade.
+      if (reversed) void notifyGradingIncomplete(
         submission.user_id,
         submission.title,
         qualityGate.summary,
@@ -4195,13 +4319,19 @@ export async function processSubmission(submissionId: string) {
     // wrong — they'd create a "refunded + graded" / "failed + graded" state
     // nothing reconciles. The grade stands; just log the side-effect error and
     // rethrow so the caller/reaper still sees it.
-    const { data: existingReport } = await supabaseAdmin
-      .from("grade_reports")
-      .select("id")
-      .eq("submission_id", submissionId)
-      .is("superseded_at", null)
-      .maybeSingle();
-    if (existingReport) {
+    // US-3515: this read decides whether we refund, so a failed read must not
+    // be taken as "no report". It also covers a failed REGRADE: the prior
+    // report was superseded before the re-run, so it is put back here and the
+    // seller keeps the grade and certificate they already had.
+    const prior = await restorePriorGradeInsteadOfRefund(submissionId);
+    if (prior === "unknown" || prior === "restored") {
+      console.warn(
+        `[Pipeline] submission ${submissionId} failed; prior grade ${prior} -- ` +
+          `NOT marking failed, reversing charge, or notifying failure. error=${errorMessage}`,
+      );
+      throw error;
+    }
+    if (prior === "graded") {
       console.warn(
         `[Pipeline] submission ${submissionId} failed AFTER its grade report was inserted — ` +
           `grade stands; NOT marking failed, reversing charge, or notifying failure. error=${errorMessage}`,

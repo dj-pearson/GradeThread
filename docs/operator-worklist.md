@@ -1,6 +1,6 @@
 # What the backlog is waiting on you for
 
-Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 172 of 295 open stories carry at least one OPERATOR criterion — a step only you can take.
+Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 174 of 336 open stories carry at least one OPERATOR criterion — a step only you can take.
 
 This is not a list of blocked work. Most of these stories have buildable criteria before the operator step, and several were finished this session right up to it. It is a list of the last mile.
 
@@ -8,7 +8,13 @@ This is not a list of blocked work. Most of these stories have buildable criteri
 
 Computed from supabase/held-migrations.json and the criteria below, so it is right on the day you read it. Everything under this heading is two sittings, and it is the two that move the most stories.
 
-**1. Redeploy the edge on Coolify.** Its boot guard expects the schema version the migrations above just set, so this follows them rather than leading. That one deploy is the precondition for **7 stories** whose remaining step is a measurement taken afterwards, not separate work: US-3457, US-3146, US-3149, US-3147, US-3148, US-3472, US-3028.
+**1. Apply the 1 held migration, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
+
+- `00837_lock_submission_photos.sql` — US-3513 — sellers could overwrite certified photos after grading
+
+   Applying them and flipping each heading to `## ✅ APPLIED:` with a date is also what clears `node scripts/held-migration-gate.mjs --ci`, which CI runs first and which fails on any branch carrying a held migration. Until then a pull request from a branch that has one cannot go green, however good the rest of it is.
+
+**2. Redeploy the edge on Coolify.** Its boot guard expects the schema version the migrations above just set, so this follows them rather than leading. That one deploy is the precondition for **7 stories** whose remaining step is a measurement taken afterwards, not separate work: US-3457, US-3146, US-3149, US-3147, US-3148, US-3472, US-3028.
 
 ---
 
@@ -17,8 +23,8 @@ Computed from supabase/held-migrations.json and the criteria below, so it is rig
 Most of these are not separate sittings. Grouped by what you need open:
 
 - **Somewhere else (read the step)** — 63 steps
-- **Coolify, or a deploy + env change** — 30 steps
-- **Production database (psql or the Supabase SQL editor)** — 28 steps
+- **Coolify, or a deploy + env change** — 31 steps
+- **Production database (psql or the Supabase SQL editor)** — 29 steps
 - **A marketplace account, logged in** — 27 steps
 - **A lawyer** — 11 steps
 - **A grading run that costs real money** — 8 steps
@@ -594,6 +600,12 @@ priority unranked
 
 after edge redeploy, the old INR case and closed return leave the open lists
 
+### US-3504 — Stripe account.updated webhook for consignor and affiliate Connect accounts
+
+priority unranked
+
+vault/10-ops/env-reference.md and vault/10-ops/edge-container-settings.md name the new secret; OPERATOR: add the endpoint in the Stripe dashboard and the secret in Coolify.
+
 ## Production database (psql or the Supabase SQL editor)
 
 ### US-3112 — eBay compliance: extension attribution, and stop calling APIs we cannot use
@@ -763,6 +775,12 @@ run scripts/aspect-value-coverage.ts against prod once the cache is warm, and fo
 priority unranked
 
 apply 00823 with npm run migrate:prod, then run the eBay full history sync; the Ship tab count drops from 208
+
+### US-3507 — Help: per-user vote dedupe, rate limits on help POSTs, and a stored-body sanitize backfill
+
+priority unranked
+
+scripts/sanitize-help-bodies.mjs runs --dry-run by default and --apply rewrites body_html through the same sanitizer the edge uses, then lists /help/* paths to purge; OPERATOR: run it against prod once.
 
 ## A marketplace account, logged in
 

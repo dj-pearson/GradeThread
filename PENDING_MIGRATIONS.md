@@ -71,6 +71,25 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00837_lock_submission_photos.sql (US-3513 - sellers could overwrite certified photos after grading)
+
+**What it does.** Adds `public.is_submission_photo_path(name)` (SECURITY
+DEFINER, true when the second folder segment of a storage path is a
+`submissions.id`) and re-creates the five client-facing write policies on the
+`submission-images` bucket with `AND NOT public.is_submission_photo_path(name)`:
+owner INSERT and DELETE (00001), member INSERT (00042), owner and member UPDATE
+(00333). Grading photos at `{owner}/{submissionId}/...` become read-only to
+clients. Item photos at `{owner}/{itemId}/...` (iOS/Android/web sensitive
+slots, US-979) stay writable, so 00333's rotation fix still works.
+
+**Risk: low.** No client writes into a submission folder; every grading upload
+goes through the edge with the service role, which bypasses these policies.
+The owner policies now use `(select auth.uid())` (initplan form) instead of a
+bare `auth.uid()`, same result.
+
+**Apply order.** Any time. No code depends on it. `NOTIFY pgrst, 'reload schema';`
+after.
+
 ## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00836_analytics_owner_scope.sql (INV-D1 - Analytics numbers blended every workspace, and a member saw their own figures as the workspace's)
 
 **What it does.** Gives every RPC behind `/dashboard/flipdesk/analytics` a

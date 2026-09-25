@@ -20,6 +20,10 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { downloadItemPhoto } from "./item-photo-storage.ts";
+import { validateImageUpload } from "./upload-validation.ts";
+import { stripImageMetadata } from "./image-metadata.ts";
+import { computePhashFromImage } from "./perceptual-hash.ts";
+import { isOwnedStoragePath } from "./storage-path-ownership.ts";
 import { processSubmission } from "./grading-pipeline.ts";
 import { REQUIRED_IMAGE_TYPES } from "./image-quality.ts";
 import { GRADE_IMAGE_TYPES } from "./api-grade-ingest.ts";
@@ -80,8 +84,10 @@ export type SubmitResult =
      * matching on the sentence is how a copy edit silently turns one into the
      * other. `missing_photos` (US-2304): a required photo is not among the
      * ones the submission would copy, refused before any charge.
+     * `photo_not_owned` (US-3514): a photo's storage path is outside the
+     * owner's folder, refused before any charge.
      */
-    code?: "already_submitted" | "missing_photos";
+    code?: "already_submitted" | "missing_photos" | "photo_not_owned";
   };
 
 /**
@@ -932,6 +938,25 @@ export async function submitItemsForGrading(
         continue;
       }
 
+      // US-3514: item_photos.storage_path is client-writable, and the copy
+      // below reads it with the service-role client from EITHER bucket. A path
+      // outside the owner's folder would let one seller grade another seller's
+      // private photo, so refuse it here, before the submissions row, the lock
+      // and the charge.
+      const foreign = eligible.find((p) => !isOwnedStoragePath(p.storage_path, ownerId));
+      if (foreign) {
+        console.warn(
+          `[flipdesk-grading] refused item ${it.id}: photo path outside owner folder`,
+        );
+        results.push({
+          ok: false,
+          inventory_item_id: item.inventory_item_id,
+          error: "One of this item's photos could not be used. Re-upload it and try again.",
+          code: "photo_not_owned",
+        });
+        continue;
+      }
+
       // 1. Create submissions row (keyed on workspace owner so all members see it).
       const { data: subInsert, error: subErr } = await supabaseAdmin
         .from("submissions")
@@ -1035,6 +1060,9 @@ export async function submitItemsForGrading(
         image_role: string | null;
         storage_path: string;
         display_order: number;
+        phash: string | null;
+        width: number | null;
+        height: number | null;
       }> = [];
       for (let i = 0; i < eligible.length; i++) {
         const photo = eligible[i]!;
@@ -1045,16 +1073,26 @@ export async function submitItemsForGrading(
         if ("error" in dl) {
           throw new Error(`Failed to copy photo for grading: ${dl.error}`);
         }
-        const blob = dl.blob;
-        const arrayBuf = await blob.arrayBuffer();
-        const ext =
-          photo.storage_path.split(".").pop()?.toLowerCase() || "webp";
-        const newPath = `${ownerId}/${submissionId}/${photo.grading.imageType}_${i}.${ext}`;
+        // US-3514 / US-276: the same intake as /api/grade/submit. Sniff the
+        // real bytes (never the stored extension), strip EXIF/GPS, and hash
+        // what we store so reuse detection covers FlipDesk grades too.
+        const rawBytes = new Uint8Array(await dl.blob.arrayBuffer());
+        const verdict = validateImageUpload(rawBytes, {
+          allow: ["jpeg", "png", "webp"],
+        });
+        if (!verdict.ok) {
+          throw new Error(
+            `Photo ${photo.photo_type} can't be graded: ${verdict.reason}`,
+          );
+        }
+        const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
+        const phash = await computePhashFromImage(cleanBytes, verdict.format);
+        const newPath = `${ownerId}/${submissionId}/${photo.grading.imageType}_${i}.${verdict.ext}`;
         const { error: upErr } = await supabaseAdmin.storage
           .from("submission-images")
-          .upload(newPath, new Uint8Array(arrayBuf), {
+          .upload(newPath, cleanBytes, {
             upsert: false,
-            contentType: blob.type || "image/webp",
+            contentType: verdict.contentType,
           });
         if (upErr) {
           throw new Error(
@@ -1067,6 +1105,9 @@ export async function submitItemsForGrading(
           image_role: photo.grading.imageRole,
           storage_path: newPath,
           display_order: i,
+          phash,
+          width: verdict.width,
+          height: verdict.height,
         });
       }
 

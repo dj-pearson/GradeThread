@@ -10,7 +10,15 @@
     "scripts/held-migrations-registry.test.mjs fails when this file and the HELD headings",
     "in PENDING_MIGRATIONS.md disagree, in either direction."
   ],
-  "held": [],
+  "held": [
+    {
+      "version": "00837",
+      "file": "00837_lock_submission_photos.sql",
+      "story": "US-3513",
+      "held_since": "2026-09-25",
+      "what": "sellers could overwrite certified photos after grading"
+    }
+  ],
   "parked": [
     {
       "version": "00794",

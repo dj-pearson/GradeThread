@@ -78,7 +78,11 @@ export async function failUngradedSubmission(
     .maybeSingle();
   if (!claimed) return false;
 
-  await reverseChargeForUngradedSubmission(submissionId, reason);
+  // US-3515: false when the submission still has a grade (a regrade whose
+  // prior report was put back). That path has already re-finalized the
+  // FlipDesk link, so it must not be marked failed here.
+  const reversed = await reverseChargeForUngradedSubmission(submissionId, reason);
+  if (!reversed) return true;
   await supabaseAdmin
     .from("flipdesk_grading_submissions")
     .update({ status: "failed", error: flipdeskNote.slice(0, 500) })

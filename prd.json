@@ -5153,33 +5153,8 @@
         "A db check script or migration test proves: owner UPDATE on a graded submission's object fails, on a draft one succeeds.",
         "US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer, PENDING_MIGRATIONS.md entry."
       ],
-      "priority": 1
-    },
-    {
-      "id": "US-3514",
-      "passes": false,
-      "title": "Grading audit S1: FlipDesk grading copy loop skips upload validation and trusts storage_path",
-      "description": "As the platform, I want photos entering grading from FlipDesk to pass the same checks as /api/grade/submit, so that one seller cannot grade another seller's private photo and every grade gets EXIF-stripped, validated, hashed images. grading-submit.ts copies item photos with no validateImageUpload, no stripImageMetadata, no phash and no ownership check on item_photos.storage_path.",
-      "acceptanceCriteria": [
-        "grading-submit.ts refuses any item photo whose storage_path does not start with `${ownerId}/` before downloading it.",
-        "Each copied photo goes validateImageUpload -> stripImageMetadata -> upload, and the submission_images row carries phash, width and height like grade.ts does.",
-        "A tenant-isolation_test.ts case proves a foreign storage_path is refused.",
-        "A unit test proves an invalid (non-image) item photo aborts the copy with a clear error."
-      ],
-      "priority": 1
-    },
-    {
-      "id": "US-3515",
-      "passes": false,
-      "title": "Grading audit S1: a failed regrade refunds a delivered grade and leaves the certificate dead",
-      "description": "As a seller, I want a regrade that fails to leave my original grade and certificate intact, so that an AI outage during an admin or bulk regrade does not refund me for a grade I already have and break my certificate link. regradeSubmission supersedes the prior report and nulls its certificate before re-running; the pipeline catch then sees no active report and calls reverseChargeForUngradedSubmission.",
-      "acceptanceCriteria": [
-        "When the pipeline fails for a submission that has any prior grade_reports row (superseded or not), no refund or charge reversal is issued.",
-        "A failed regrade restores the prior report (superseded_at null, certificate_id restored) or never superseded it until the new report is written; the old certificate verifies again.",
-        "The catch-block existing-report lookup treats a query error as 'unknown' and does not refund.",
-        "Unit tests cover: failed regrade -> no refund + cert restored; failed first grade -> refund as today."
-      ],
-      "priority": 1
+      "priority": 1,
+      "notes": "2026-09-25: 00837_lock_submission_photos.sql written and HELD. Adds public.is_submission_photo_path(name) and re-creates the five client write policies on submission-images (owner INSERT/DELETE from 00001, member INSERT from 00042, owner/member UPDATE from 00333) with NOT is_submission_photo_path. Measured on a throwaway PG16 with stub auth/storage schemas: before, owner and member could update, insert into and delete from a graded submission folder; after, update touches 0 rows, insert is refused, delete touches 0 rows, and item-photo paths in the same bucket are still writable (rotation, US-979). Applied twice with no error. Stays open until the owner applies it to prod; the photo-hash seal is US-3516."
     },
     {
       "id": "US-3516",

@@ -49588,6 +49588,34 @@
         "A vitest render test covers aal1-with-factor -> code screen, aal2 -> dashboard, and no-factor -> dashboard."
       ],
       "notes": "2026-09-25: ProtectedRoute wraps signed-in routes in MfaSignInGate (src/components/auth/mfa-sign-in-gate.tsx). AAL1 + nextLevel aal2 holds on a code screen in place (URL and ?next= kept) until challengeAndVerifyTotp lifts the session to aal2; no factor passes with no screen and no request; unreadable level fails closed; sign-out on every state. Recovery code on the same screen reuses the existing POST /api/account/mfa/recovery-codes/consume (US-374: conditional update on user_id + code_hash + used_at is null, 400 on no row, then removes factors), then refreshSession. No edge change, no migration. MfaCard copy now says the website asks for a code at every password sign-in. Test: src/components/auth/__tests__/mfa-sign-in-gate.test.tsx, 12 cases through the real ProtectedRoute + router; sabotage (decideSignInGate always pass, and gate removed from the route) turned 7 red each. Checks: tsc -b 0, lint 0 errors/38 warnings (pre-existing), vitest 13123 passed/120 skipped/0 failed across 1116 files, ui:check OK, vault:lint OK, held-migration-gate OK. OPEN, not in scope: the edge does not refuse AAL1 tokens from users with a factor outside admin and the workspace policy, so a stolen password can still call edge routes directly; recorded in vault/10-ops/mfa.md. Follow-up for the edge half filed as US-3512."
+    },
+    {
+      "id": "US-3515",
+      "passes": true,
+      "title": "Grading audit S1: a failed regrade refunds a delivered grade and leaves the certificate dead",
+      "description": "As a seller, I want a regrade that fails to leave my original grade and certificate intact, so that an AI outage during an admin or bulk regrade does not refund me for a grade I already have and break my certificate link. regradeSubmission supersedes the prior report and nulls its certificate before re-running; the pipeline catch then sees no active report and calls reverseChargeForUngradedSubmission.",
+      "acceptanceCriteria": [
+        "When the pipeline fails for a submission that has any prior grade_reports row (superseded or not), no refund or charge reversal is issued.",
+        "A failed regrade restores the prior report (superseded_at null, certificate_id restored) or never superseded it until the new report is written; the old certificate verifies again.",
+        "The catch-block existing-report lookup treats a query error as 'unknown' and does not refund.",
+        "Unit tests cover: failed regrade -> no refund + cert restored; failed first grade -> refund as today."
+      ],
+      "priority": 1,
+      "notes": "Done 2026-09-25. reverseChargeForUngradedSubmission now calls restorePriorGradeInsteadOfRefund first: an active report answers graded, a superseded one is un-superseded with the certificate id read back from grade_report_revisions and re-finalized via finalizeIfAlreadyGraded, and any read or write error answers unknown, which never refunds. The pipeline catch uses the same check before marking failed, so a failed regrade no longer marks failed, syncs FlipDesk to failed or sends the failure notice. Reaper (stuck-submissions.ts) and admin cancel read the new boolean. Quality abstention skips the incomplete notice when a grade was restored. Proof: src/tests/regrade-failure-restore_test.ts, 8 cases, sabotaging the guard turns it red; regrade/admin-plan/cert-number suites still green. Not covered: rendered cert-assets deleted at supersede are re-rendered on demand, and the Cloudflare cache is purged on restore."
+    },
+    {
+      "id": "US-3514",
+      "passes": true,
+      "title": "Grading audit S1: FlipDesk grading copy loop skips upload validation and trusts storage_path",
+      "description": "As the platform, I want photos entering grading from FlipDesk to pass the same checks as /api/grade/submit, so that one seller cannot grade another seller's private photo and every grade gets EXIF-stripped, validated, hashed images. grading-submit.ts copies item photos with no validateImageUpload, no stripImageMetadata, no phash and no ownership check on item_photos.storage_path.",
+      "acceptanceCriteria": [
+        "grading-submit.ts refuses any item photo whose storage_path does not start with `${ownerId}/` before downloading it.",
+        "Each copied photo goes validateImageUpload -> stripImageMetadata -> upload, and the submission_images row carries phash, width and height like grade.ts does.",
+        "A tenant-isolation_test.ts case proves a foreign storage_path is refused.",
+        "A unit test proves an invalid (non-image) item photo aborts the copy with a clear error."
+      ],
+      "priority": 1,
+      "notes": "Done 2026-09-25. grading-submit.ts refuses any item photo whose storage_path is outside the owner folder (isOwnedStoragePath in the new pure lib/storage-path-ownership.ts, also refuses traversal) BEFORE the submissions row, the lock and the charge, with code photo_not_owned. The copy loop now runs validateImageUpload (jpeg/png/webp) -> stripImageMetadata -> computePhashFromImage -> upload of the stripped bytes, and writes phash, width and height to submission_images. Proof: src/tests/flipdesk-grading-photo-intake_test.ts (path cases + ordering guard), sabotage turns it red. DEVIATION: the AC asked for a tenant-isolation_test.ts integration case; that suite needs the seeded stack and GoTrue, which this session cannot run, so the refusal is proven at the unit and source-order level instead."
     }
   ]
 }
