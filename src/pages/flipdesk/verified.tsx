@@ -456,7 +456,9 @@ export function FlipdeskVerifiedPage() {
 
       {/* US-1759/1761: badge studio — storefront (when public), per-item cert
           and passport snippets. */}
-      <BadgeStudio handle={isLive ? savedHandle : null} />
+      <div id="badge-studio" className="scroll-mt-6">
+        <BadgeStudio handle={isLive ? savedHandle : null} />
+      </div>
         </TabsContent>
 
         <TabsContent value="passport" className="space-y-6">
@@ -471,49 +473,122 @@ export function FlipdeskVerifiedPage() {
 // US-1760: the seller's badge funnel — how much traffic + signups their embedded
 // badges drove. Clicks are attributed from the ?s= source when a buyer lands on a
 // certificate or this profile from an off-platform badge; conversions reuse the
-// referral ledger. Hidden until there's data so it never shows an empty shell.
+// referral ledger. The card is always shown once the profile is live: an error
+// says so with Retry, and no clicks yet is an explained empty state rather than
+// a card that silently is not there.
+const SOURCE_LABELS: Record<string, string> = {
+  embed: "Listing embeds",
+  badge: "Profile badge",
+  qr: "QR code scans",
+  buyer: "GradeThread buyer tools",
+  share: "Shared links",
+};
+
+function badgeSourceLabel(src: string): string {
+  return SOURCE_LABELS[src] ?? src;
+}
+
 function BadgePerformanceCard() {
-  const { data, isLoading } = useBadgeFunnel();
+  const { data, isLoading, isError, refetch, isFetching } = useBadgeFunnel();
   if (isLoading) return <Skeleton className="h-32 w-full" />;
-  if (!data || (data.totalClicks === 0 && data.conversions === 0)) return null;
+
+  const header = (
+    <CardHeader>
+      <CardTitle className="flex items-center gap-2 text-base">
+        <BadgeCheck className="h-5 w-5 text-brand-navy dark:text-foreground" />
+        Badge performance
+      </CardTitle>
+      {data && (
+        <CardDescription>
+          Traffic and signups your embedded badges drove in the last {data.windowDays} days.
+          Your own clicks are not counted.
+        </CardDescription>
+      )}
+    </CardHeader>
+  );
+
+  if (isError || !data) {
+    return (
+      <Card>
+        {header}
+        <CardContent>
+          <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
+            <span>Couldn't load badge stats.</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={isFetching}
+            >
+              Retry
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (data.totalClicks === 0 && data.conversions === 0) {
+    return (
+      <Card>
+        {header}
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            No badge clicks yet. Paste a badge from{" "}
+            <a
+              href="#badge-studio"
+              className="font-medium text-brand-navy underline dark:text-foreground"
+            >
+              Badge Studio below
+            </a>{" "}
+            into a listing and clicks show up here.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const sources = Object.entries(data.clicksBySource).sort((a, b) => b[1] - a[1]);
   const variants = data.clicksByVariant ?? null;
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <BadgeCheck className="h-5 w-5 text-brand-navy dark:text-foreground" />
-          Badge performance
-        </CardTitle>
-        <CardDescription>
-          Traffic and signups your embedded badges drove in the last {data.windowDays} days.
-        </CardDescription>
-      </CardHeader>
+      {header}
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
-          <div className="rounded-lg border p-4">
+          <div>
             <div className="text-3xl font-extrabold text-brand-navy dark:text-foreground">
               {data.totalClicks}
             </div>
             <p className="text-sm text-muted-foreground">badge clicks</p>
           </div>
-          <div className="rounded-lg border p-4">
+          <div>
             <div className="text-3xl font-extrabold text-brand-navy dark:text-foreground">
               {data.conversions}
             </div>
-            <p className="text-sm text-muted-foreground">referred signups</p>
+            <p className="text-sm text-muted-foreground">Referral signups (all channels)</p>
           </div>
         </div>
         {sources.length > 0 && (
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <p className="text-sm font-medium text-muted-foreground">Clicks by source</p>
-            {sources.map(([src, n]) => (
-              <div key={src} className="flex items-center justify-between text-sm">
-                <span className="capitalize">{src}</span>
-                <span className="font-medium tabular-nums">{n}</span>
-              </div>
-            ))}
+            {sources.map(([src, n]) => {
+              const share = data.totalClicks > 0 ? Math.round((n / data.totalClicks) * 100) : 0;
+              return (
+                <div key={src} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span>{badgeSourceLabel(src)}</span>
+                    <span className="font-medium tabular-nums">{n}</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-muted" aria-hidden="true">
+                    <div
+                      className="h-1.5 rounded-full bg-brand-navy dark:bg-foreground"
+                      style={{ width: `${share}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
         {/* US-1913 AC5: the A/B a seller actually wants — does putting my

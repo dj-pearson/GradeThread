@@ -228,24 +228,32 @@ function sinceIso(windowDays: number): string {
   return new Date(Date.now() - windowDays * 86_400_000).toISOString();
 }
 
-/** The badge funnel for ONE seller — owner-scoped (US-268). */
+/**
+ * The badge funnel for ONE seller — owner-scoped (US-268). Throws on a failed
+ * read: a failure used to come back as zero clicks, which the page could not
+ * tell apart from a seller whose badges nobody has clicked. The seller's own
+ * clicks are left out, since they are not traffic their badges drove.
+ */
 export async function sellerBadgeFunnel(ownerUserId: string, windowDays = 30): Promise<BadgeFunnel> {
   const since = sinceIso(windowDays);
-  const { data: clickRows } = await supabaseAdmin
+  const { data: clickRows, error: clickError } = await supabaseAdmin
     .from("badge_click_events")
     .select("source, badge_variant")
     .eq("owner_user_id", ownerUserId)
+    .eq("self_click", false)
     .gte("created_at", since);
+  if (clickError) throw clickError;
   const rows = (clickRows ?? []) as Array<{ source: string; badge_variant?: string | null }>;
   const { clicksBySource, totalClicks } = aggregateClicksBySource(rows);
   const clicksByVariant = aggregateClicksByVariant(rows);
 
   // Conversions = referral signups this seller drove (reuses the referral ledger).
-  const { count } = await supabaseAdmin
+  const { count, error: countError } = await supabaseAdmin
     .from("referral_events")
     .select("referred_user_id", { count: "exact", head: true })
     .eq("referrer_user_id", ownerUserId)
     .gte("created_at", since);
+  if (countError) throw countError;
 
   return { clicksBySource, clicksByVariant, totalClicks, conversions: count ?? 0, windowDays };
 }
@@ -258,11 +266,12 @@ export interface PlatformBadgeFunnel extends BadgeFunnel {
 /** Platform-wide badge funnel for the admin dashboard. */
 export async function platformBadgeFunnel(windowDays = 30): Promise<PlatformBadgeFunnel> {
   const since = sinceIso(windowDays);
-  const { data: clickRows } = await supabaseAdmin
+  const { data: clickRows, error: clickError } = await supabaseAdmin
     .from("badge_click_events")
     .select("source, owner_user_id, badge_variant")
     .gte("created_at", since)
     .limit(50_000);
+  if (clickError) throw clickError;
   const rows = (clickRows ?? []) as Array<
     { source: string; owner_user_id: string; badge_variant?: string | null }
   >;
@@ -270,10 +279,11 @@ export async function platformBadgeFunnel(windowDays = 30): Promise<PlatformBadg
   const clicksByVariant = aggregateClicksByVariant(rows);
   const activeSellers = new Set(rows.map((r) => r.owner_user_id)).size;
 
-  const { count } = await supabaseAdmin
+  const { count, error: countError } = await supabaseAdmin
     .from("referral_events")
     .select("referred_user_id", { count: "exact", head: true })
     .gte("created_at", since);
+  if (countError) throw countError;
 
   return {
     clicksBySource,

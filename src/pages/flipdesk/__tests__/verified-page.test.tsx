@@ -141,6 +141,16 @@ function switchByLabel(labelId: string): HTMLButtonElement {
   return el;
 }
 
+function openTab(value: string) {
+  const trigger = Array.from(container!.querySelectorAll<HTMLElement>('[role="tab"]')).find(
+    (t) => t.getAttribute("aria-controls")?.endsWith(`-content-${value}`),
+  );
+  if (!trigger) throw new Error(`no tab ${value}`);
+  act(() => {
+    trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+  });
+}
+
 async function flush() {
   await act(async () => {
     await Promise.resolve();
@@ -243,5 +253,46 @@ describe("handle availability fails closed (V7)", () => {
     expect(c.textContent).toContain("Couldn't check that handle. Try again.");
     const save = byText("button", "Save profile") as HTMLButtonElement;
     expect(save.disabled).toBe(true);
+  });
+});
+
+describe("badge performance card (V8)", () => {
+  function live() {
+    setProfile(profile({ enabled: true }));
+  }
+
+  it("shows Retry on an error instead of disappearing", () => {
+    live();
+    funnelState.isError = true;
+    const c = render();
+    openTab("badges");
+    expect(c.textContent).toContain("Couldn't load badge stats.");
+    const retry = Array.from(c.querySelectorAll("button")).find((b) => b.textContent === "Retry");
+    act(() => retry!.click());
+    expect(funnelState.refetch).toHaveBeenCalled();
+  });
+
+  it("explains the empty state and links to Badge Studio", () => {
+    live();
+    funnelState.data = { clicksBySource: {}, totalClicks: 0, conversions: 0, windowDays: 30 };
+    const c = render();
+    openTab("badges");
+    expect(c.textContent).toContain("No badge clicks yet.");
+    expect(c.querySelector('a[href="#badge-studio"]')).not.toBeNull();
+  });
+
+  it("names sources in plain words", () => {
+    live();
+    funnelState.data = {
+      clicksBySource: { qr: 3, embed: 1 },
+      totalClicks: 4,
+      conversions: 2,
+      windowDays: 30,
+    };
+    const c = render();
+    openTab("badges");
+    expect(c.textContent).toContain("QR code scans");
+    expect(c.textContent).toContain("Listing embeds");
+    expect(c.textContent).toContain("Referral signups (all channels)");
   });
 });

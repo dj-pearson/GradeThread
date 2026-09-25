@@ -2,7 +2,7 @@
 // record/funnel fns need a live stack; the source gating + by-source aggregation
 // are pure and tested here.
 import "./_env.ts";
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { installFakePostgrest } from "./_fake-postgrest.ts";
 
 const db = installFakePostgrest();
@@ -12,6 +12,7 @@ const {
   isBadgeTargetType,
   BADGE_CLICK_SOURCES,
   recordBadgeClick,
+  sellerBadgeFunnel,
 } = await import("../lib/badge-analytics.ts");
 
 Deno.test("aggregateClicksBySource: counts per source + total", () => {
@@ -164,4 +165,25 @@ Deno.test("V6: a bot user agent on a qr click records nothing", async () => {
   });
   assertEquals(out.recorded, false);
   assertEquals(storedTargets(), []);
+});
+
+// ── V8: the funnel surfaces its errors and leaves out self-clicks ─────────────
+
+Deno.test("V8: a failed click read rejects instead of reading as zero", async () => {
+  seed();
+  db.failNext("badge_click_events", "GET");
+  await assertRejects(() => sellerBadgeFunnel(SELLER));
+});
+
+Deno.test("V8: the seller's own clicks are not counted", async () => {
+  seed();
+  const now = new Date().toISOString();
+  db.tables.badge_click_events = [
+    { id: "c1", owner_user_id: SELLER, source: "embed", self_click: false, created_at: now },
+    { id: "c2", owner_user_id: SELLER, source: "embed", self_click: true, created_at: now },
+    { id: "c3", owner_user_id: SELLER, source: "qr", self_click: false, created_at: now },
+  ];
+  const funnel = await sellerBadgeFunnel(SELLER);
+  assertEquals(funnel.totalClicks, 2);
+  assertEquals(funnel.clicksBySource, { embed: 1, qr: 1 });
 });
