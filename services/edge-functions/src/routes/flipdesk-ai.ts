@@ -250,6 +250,9 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     if (!inline.ok) return c.json({ error: inline.error }, 400);
     photos.push(...inline.photos);
     for (const p of body.photos) {
+      // An inline entry was taken above; a stray url on it must not add a
+      // second, fetched copy of the same photo.
+      if (p && typeof p === "object" && typeof (p as { data?: unknown }).data === "string") continue;
       if (p && typeof p === "object" && typeof (p as ExtractPhoto).url === "string") {
         photos.push({
           url: (p as ExtractPhoto).url,
