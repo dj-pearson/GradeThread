@@ -59,6 +59,8 @@ export interface HelpArticleRow {
   published_at: string | null;
   reviewed_at: string | null;
   review_interval_days: number;
+  /** Bumped by a trigger on every body/title change (00605). */
+  content_version?: number;
   created_at: string;
   updated_at: string;
 }

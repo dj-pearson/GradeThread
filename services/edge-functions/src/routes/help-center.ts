@@ -228,6 +228,30 @@ helpPublicRoutes.get("/search", async (c) => {
 });
 
 /**
+ * The narrow read a vote needs: which version the voter read, behind the same
+ * visibility and status wall as loadArticle. ARTICLE_COLUMNS never carried
+ * content_version, so every vote used to be recorded against version 1.
+ */
+async function loadFeedbackTarget(
+  viewer: HelpViewer,
+  slug: string,
+): Promise<{ slug: string; content_version: number } | null> {
+  const { data, error } = await supabaseAdmin
+    .from("help_articles")
+    .select("slug, visibility, status, content_version")
+    .eq("slug", slug)
+    .in("visibility", visibilitiesFor(viewer))
+    .in("status", readableStatusesFor(viewer))
+    .maybeSingle();
+  if (error) throw error;
+  const row = data as
+    | { slug: string; visibility: HelpVisibility; status: HelpArticleStatus; content_version: number | null }
+    | null;
+  if (!row || !canView(viewer, row)) return null;
+  return { slug: row.slug, content_version: row.content_version ?? 1 };
+}
+
+/**
  * US-2591: was this article any good?
  *
  * Anonymous on purpose. The articles are public, so requiring a signed-in
@@ -257,7 +281,7 @@ async function handleFeedback(
   // Only an article THIS viewer may read can be voted on. Otherwise the table
   // becomes a write surface for arbitrary strings, and the 404 for an article
   // above the viewer's tier is the same 404 a made-up slug gets.
-  const article = await loadArticle(viewer, slug);
+  const article = await loadFeedbackTarget(viewer, slug);
   if (!article) return c.json({ error: "Not found" }, 404);
 
   const ct = c.req.header("content-type") ?? "";
@@ -279,7 +303,7 @@ async function handleFeedback(
     article_slug: slug,
     // Recorded against the wording they actually read, so a rewrite starts a
     // clean record rather than inheriting the previous version's score.
-    content_version: (article as unknown as { content_version?: number }).content_version ?? 1,
+    content_version: article.content_version,
     helpful,
     comment: comment || null,
     viewer_tier: viewer,
@@ -629,15 +653,32 @@ helpAdminRoutes.get("/freshness", async (c) => {
     return failSafe(c, 500, "Couldn't load feedback.", voteErr, "help.admin.freshness");
   }
 
+  // The stale view does not expose content_version, so read it on its own.
+  const { data: versions, error: versionErr } = await supabaseAdmin
+    .from("help_articles")
+    .select("slug, content_version");
+  if (versionErr) {
+    return failSafe(c, 500, "Couldn't load freshness.", versionErr, "help.admin.freshness");
+  }
+  const currentVersion = new Map(
+    ((versions ?? []) as Array<{ slug: string; content_version: number | null }>).map(
+      (v) => [v.slug, v.content_version ?? 1],
+    ),
+  );
+
   // Tally per article. Deliberately NOT a stored score: a rewrite bumps
   // content_version, and a rolled-up average across versions would let an
-  // article's old wording keep dragging its new wording down.
+  // article's old wording keep dragging its new wording down. So only votes
+  // cast against the CURRENT version count.
   const tally = new Map<string, { helpful: number; unhelpful: number; comments: string[] }>();
   for (const v of (votes ?? []) as Array<{
     article_slug: string;
+    content_version: number | null;
     helpful: boolean;
     comment: string | null;
   }>) {
+    const current = currentVersion.get(v.article_slug);
+    if (current !== undefined && (v.content_version ?? 1) !== current) continue;
     const t = tally.get(v.article_slug) ?? { helpful: 0, unhelpful: 0, comments: [] };
     if (v.helpful) t.helpful += 1;
     else t.unhelpful += 1;
