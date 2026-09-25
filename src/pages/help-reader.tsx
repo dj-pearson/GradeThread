@@ -432,7 +432,10 @@ function HelpReaderIndexPage() {
         />
       )}
 
-      {!active.isLoading && !active.isError && rows.length === 0 && (
+      {/* Not while stale: the rows on screen belong to the PREVIOUS query, so
+          a previous zero-result search would otherwise announce "Nothing
+          matched" for the query still running. */}
+      {!active.isLoading && !active.isError && !stale && rows.length === 0 && (
         <EmptyState
           icon={searching ? Search : LifeBuoy}
           title={
@@ -502,7 +505,9 @@ function HelpReaderIndexPage() {
           <Card>
             <CardContent className="pt-6">
               <p className="text-sm text-muted-foreground" role="status">
-                {rows.length} {rows.length === 1 ? "result" : "results"} for "{query.trim()}"
+                {rows.length} {rows.length === 1 ? "result" : "results"} for "
+                {/* The query these rows answer, which lags the box while stale. */}
+                {search.data?.query ?? query.trim()}"
               </p>
               <ul className="mt-3 space-y-3">
                 {rows.map((a) => (

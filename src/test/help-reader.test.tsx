@@ -282,6 +282,38 @@ describe("H7: search states follow the active query", () => {
     expect(buttonByText(container, /Retry|Try again/)).toBeTruthy();
   });
 
+  it("a zero-result search does not announce 'Nothing matched' for the next query while it runs", async () => {
+    handler = (path) => {
+      if (path.startsWith("/api/help/search?q=zzz")) return res({ query: "zzz", hits: [], viewer: "member" });
+      if (path.startsWith("/api/help/search")) return new Promise<Response>(() => {});
+      return defaultIndex();
+    };
+    render("/dashboard/help?q=zzz");
+    await settle(20);
+    expect(text()).toContain('Nothing matched "zzz"');
+    await go("/dashboard/help?q=refunds");
+    await settle(20);
+    expect(text()).not.toContain("Nothing matched");
+    expect(buttonByText(container, /Open a support ticket/)).toBeFalsy();
+  });
+
+  it("the result count names the query its rows answer while the next one runs", async () => {
+    handler = (path) => {
+      if (path.startsWith("/api/help/search?q=returns")) {
+        return res({ query: "returns", hits: [hit("refunds", "billing")], viewer: "member" });
+      }
+      if (path.startsWith("/api/help/search")) return new Promise<Response>(() => {});
+      return defaultIndex();
+    };
+    render("/dashboard/help?q=returns");
+    await settle(20);
+    expect(text()).toContain('1 result for "returns"');
+    await go("/dashboard/help?q=shipping");
+    await settle(20);
+    expect(text()).toContain('1 result for "returns"');
+    expect(text()).not.toContain('result for "shipping"');
+  });
+
   it("an index error does not sit above working search results", async () => {
     handler = (path) => {
       if (path.startsWith("/api/help/search")) {
