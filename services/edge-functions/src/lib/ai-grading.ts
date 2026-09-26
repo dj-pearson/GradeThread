@@ -19,6 +19,7 @@ import {
 import { supabaseAdmin } from "./supabase.ts";
 import { applyScaleReferenceWording } from "./scale-reference.ts";
 import { applyLegibleWording } from "./label-legibility.ts";
+import { applyImageTextGuard } from "./image-text-guard.ts";
 import {
   anchorLabel,
   REFERENCE_ANCHORS_ADDENDUM,
@@ -1575,8 +1576,14 @@ export async function analyzeImage(
   // Flag-gated (GRADING_SCALE_REFERENCE); identical text when off, and the
   // "+scale" stamp only when the sizing phrase was actually found and replaced.
   const perImageScale = applyScaleReferenceWording(perImageClean.text);
+  // US-3517: text inside a photo is evidence, not instructions. Flag-gated
+  // (GRADING_IMAGE_TEXT_GUARD); identical text when off, "+imgtext" when on.
+  const perImageTextGuard = applyImageTextGuard(
+    perImageScale.text,
+    UNTRUSTED_INPUT_GUARD,
+  );
   const systemBlock: AiSystemBlock = {
-    text: perImageScale.text,
+    text: perImageTextGuard.text,
     cache: gradingCachingEnabled(),
   };
 
@@ -1800,7 +1807,7 @@ export async function analyzeImage(
         perImageClean.applied ? "+clean2" : ""
       }${tailInSystem ? "+sysschema" : ""}${perImageScale.applied ? "+scale" : ""}${
         legibleWording.applied ? "+legible2" : ""
-      }`,
+      }${perImageTextGuard.applied ? "+imgtext" : ""}`,
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;
@@ -2805,6 +2812,9 @@ export function promptVersionSuffix(
     // the v2 "legible" definition (GRADING_LEGIBLE_V2). Read off the per-image
     // stamps, like scale, because the clause is in the per-image Rules block.
     legible2?: boolean;
+    // US-3517. Optional and appended last: the image-text guard clause was in
+    // the system prompt (GRADING_IMAGE_TEXT_GUARD).
+    imageTextGuard?: boolean;
   },
 ): string {
   return (blocks.baseline ? "+baseline" : "") +
@@ -2818,7 +2828,8 @@ export function promptVersionSuffix(
     (blocks.scale ? "+scale" : "") +
     (blocks.anchors ? "+anchors" : "") +
     (blocks.fabricZoom ? "+fabriczoom" : "") +
-    (blocks.legible2 ? "+legible2" : "");
+    (blocks.legible2 ? "+legible2" : "") +
+    (blocks.imageTextGuard ? "+imgtext" : "");
 }
 
 /**
@@ -3231,6 +3242,13 @@ export async function compositeGrade(
   // US-3329: visible-cleanliness wording on the system prompt and on the
   // factor-weights sentence, flag-gated. Off = both untouched, no suffix.
   const compositeClean = applyCleanlinessWording(prompt.text);
+  // US-3517: same clause and flag as the per-image prompt.
+  const compositeTextGuard = applyImageTextGuard(
+    compositeClean.text,
+    UNTRUSTED_INPUT_GUARD,
+  );
+  const imageTextGuard = compositeTextGuard.applied ||
+    perImageResults.some((r) => /\+imgtext(?:\+|$)/.test(r.prompt_version ?? ""));
   const weightsText = compositeBlocks.composite_factor_weights?.text ??
     COMPOSITE_FACTOR_WEIGHTS;
   const weightsClean = applyCleanlinessWording(weightsText);
@@ -3263,6 +3281,7 @@ export async function compositeGrade(
     anchors: referenceAnchors.length > 0,
     fabricZoom,
     legible2,
+    imageTextGuard,
   });
 
   // US-2432: the other half of the attribution. promptVersion names the SYSTEM
@@ -3279,7 +3298,7 @@ export async function compositeGrade(
   // corrected precedents. Empty string when no set is active → grading unchanged.
   // An override path (eval / dry-run / shadow) measures the prompt itself, so the
   // block is never auto-appended there.
-  let systemText = compositeClean.text;
+  let systemText = compositeTextGuard.text;
   if (
     shouldAppendActiveExemplars(promptOverride !== undefined, suppressExemplars)
   ) {
