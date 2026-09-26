@@ -138,6 +138,12 @@ import {
 import { withImageBufferSlot } from "./grading-capacity.ts";
 import { grantReward, hasFullGradeCoverage } from "./rewards-engine.ts";
 import { mediaTypeForVision, uint8ToBase64 } from "./grading-image-encoding.ts";
+import {
+  isMeasurementImage,
+  shrinkForVision,
+  skipMeasurementFanout,
+  visionLongEdge,
+} from "./vision-input-shaping.ts";
 // Re-exported because grading-media-type_test.ts imports it from here and the
 // function is the same function; moving the home should not move the test.
 export { mediaTypeForVision };
@@ -577,8 +583,14 @@ async function escalateGrade(
     partialSuccess: boolean;
   } | null
 > {
+  // US-3529: the escalation sees the same shaped input as the first pass.
+  const visionEdge = visionLongEdge();
+  const skipMeasurement = skipMeasurementFanout();
+  const shapedImages = skipMeasurement
+    ? images.filter((image) => !isMeasurementImage(image.image_type))
+    : images;
   const settled = await withImageBufferSlot(async () => {
-    const imageDataPromises = images.map(async (image) => {
+    const imageDataPromises = shapedImages.map(async (image) => {
       const { data: fileData, error: downloadError } = await supabaseAdmin.storage
         .from("submission-images")
         .download(image.storage_path);
@@ -586,12 +598,19 @@ async function escalateGrade(
         throw new Error(`Failed to download image: ${image.storage_path}`);
       }
       const arrayBuffer = await fileData.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
+      let bytes: Uint8Array = new Uint8Array(arrayBuffer);
+      let shrunk = false;
+      if (visionEdge !== null) {
+        const sh = await shrinkForVision(bytes, visionEdge);
+        bytes = sh.bytes;
+        shrunk = sh.shrunk;
+      }
       const base64 = uint8ToBase64(bytes);
       const mediaType = mediaTypeForVision(bytes, image.storage_path);
       return {
         imageType: image.image_type,
         dataUri: `data:${mediaType};base64,${base64}`,
+        shrunk,
       };
     });
 
@@ -615,7 +634,15 @@ async function escalateGrade(
           undefined,
           undefined,
           onFirstToken,
-        ),
+        ).then((r) => {
+          // US-3529: same era stamps as the first pass.
+          const a = r as { prompt_version?: string };
+          if (a && typeof a.prompt_version === "string") {
+            if (img.shrunk) a.prompt_version += `+ds${visionEdge}`;
+            if (skipMeasurement) a.prompt_version += "+nomeasure";
+          }
+          return r;
+        }),
       gradingCacheStaggerEnabled(),
     ).promises;
     const results = await Promise.allSettled(perImagePromises);
@@ -2069,6 +2096,9 @@ export async function processSubmission(submissionId: string) {
     // bounds how many submissions buffer multi-MB image data at once and is
     // what keeps concurrent grading from OOM-ing the container. The closure
     // scopes `imageData` so the base64 is GC-eligible the moment it returns.
+    // US-3529: vision input shaping, read once per grade.
+    const visionEdge = visionLongEdge();
+    const skipMeasurement = skipMeasurementFanout();
     const bufferResult = await withImageBufferSlot(async () => {
       // --- Step 3: Download images from storage and convert to base64 ---
       const imageDataPromises = images.map(async (image) => {
@@ -2082,7 +2112,15 @@ export async function processSubmission(submissionId: string) {
 
         // Convert Blob to base64
         const arrayBuffer = await fileData.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
+        let bytes: Uint8Array = new Uint8Array(arrayBuffer);
+        // US-3529: optional downscale before the vision calls (flag, default
+        // off; unchanged bytes when off).
+        let shrunk = false;
+        if (visionEdge !== null) {
+          const s = await shrinkForVision(bytes, visionEdge);
+          bytes = s.bytes;
+          shrunk = s.shrunk;
+        }
         const base64 = uint8ToBase64(bytes);
 
         // Determine media type from the actual bytes, not the (possibly lying)
@@ -2102,10 +2140,16 @@ export async function processSubmission(submissionId: string) {
           // cap on the macro frames' MEASURED sharpness rather than on the mere
           // presence of a file in the slot. Null on any pre-00568 row.
           qualityScore: typeof image.quality_score === "number" ? image.quality_score : null,
+          shrunk,
         };
       });
 
       const imageData = await Promise.all(imageDataPromises);
+      // US-3529: measurement photos can be left out of the CONDITION fan-out
+      // (flag, default off). They stay in imageData for everything else.
+      const conditionImages = skipMeasurement
+        ? imageData.filter((img) => !isMeasurementImage(img.imageType))
+        : imageData;
 
       // --- Step 4: Run analyzeImage() on each image in parallel ---
       console.log(`[Pipeline] Running per-image analysis for ${imageData.length} images`);
@@ -2139,11 +2183,11 @@ export async function processSubmission(submissionId: string) {
       // log rather than an ai_usage_events column because grading records usage
       // through recordAiUsage (the pre-US-894 path), whose rows leave
       // latency_ms null.
-      const perImageMs: number[] = new Array(imageData.length).fill(-1);
+      const perImageMs: number[] = new Array(conditionImages.length).fill(-1);
       const fanOutStartedAt = Date.now();
       const staggered = gradingCacheStaggerEnabled();
       const fanOut = staggerFirstCall(
-        imageData,
+        conditionImages,
         (img, perImageIndex, onFirstToken) => {
           const callStartedAt = Date.now();
           return analyzeImage(
@@ -2163,7 +2207,17 @@ export async function processSubmission(submissionId: string) {
             undefined,
             img.imageRole,
             onFirstToken,
-          ).finally(() => {
+          ).then((r) => {
+            // US-3529: stamp the era so accuracy tracking can split it.
+            if (r && typeof r === "object") {
+              const a = r as { prompt_version?: string };
+              if (typeof a.prompt_version === "string") {
+                if (img.shrunk) a.prompt_version += `+ds${visionEdge}`;
+                if (skipMeasurement) a.prompt_version += "+nomeasure";
+              }
+            }
+            return r;
+          }).finally(() => {
             perImageMs[perImageIndex] = Date.now() - callStartedAt;
           });
         },
@@ -2271,8 +2325,9 @@ export async function processSubmission(submissionId: string) {
           tagPromise,
           sizePromise,
         ]);
+      // US-3529: the fan-out ran over conditionImages, so index into that.
       const results: SettledImage[] = settled.map((s, i) => ({
-        imageType: imageData[i].imageType,
+        imageType: conditionImages[i].imageType,
         result: s.status === "fulfilled" ? s.value : null,
       }));
       // US-3345 AC2, measured on every real grade from here on. With the

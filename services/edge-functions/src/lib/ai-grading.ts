@@ -2815,6 +2815,9 @@ export function promptVersionSuffix(
     // US-3517. Optional and appended last: the image-text guard clause was in
     // the system prompt (GRADING_IMAGE_TEXT_GUARD).
     imageTextGuard?: boolean;
+    // US-3529. Optional and appended last: read off the per-image stamps.
+    downscaled?: boolean;
+    noMeasure?: boolean;
   },
 ): string {
   return (blocks.baseline ? "+baseline" : "") +
@@ -2829,7 +2832,9 @@ export function promptVersionSuffix(
     (blocks.anchors ? "+anchors" : "") +
     (blocks.fabricZoom ? "+fabriczoom" : "") +
     (blocks.legible2 ? "+legible2" : "") +
-    (blocks.imageTextGuard ? "+imgtext" : "");
+    (blocks.imageTextGuard ? "+imgtext" : "") +
+    (blocks.downscaled ? "+ds" : "") +
+    (blocks.noMeasure ? "+nomeasure" : "");
 }
 
 /**
@@ -3282,6 +3287,8 @@ export async function compositeGrade(
     fabricZoom,
     legible2,
     imageTextGuard,
+    downscaled: perImageResults.some((r) => /\+ds\d+(?:\+|$)/.test(r.prompt_version ?? "")),
+    noMeasure: perImageResults.some((r) => /\+nomeasure(?:\+|$)/.test(r.prompt_version ?? "")),
   });
 
   // US-2432: the other half of the attribution. promptVersion names the SYSTEM
