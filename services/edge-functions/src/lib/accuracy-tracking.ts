@@ -83,6 +83,9 @@ export interface AccuracySummary {
   flaws_only: FlawsOnlyComparison;
   // Reviewed GRADES counted (one per grade report, send-backs excluded).
   total_reviews: number;
+  // US-3524: the same numbers over BLIND spot checks only. Every other review
+  // is anchored to the AI's answer, so this is the unbiased read.
+  blind: { count: number; mean_absolute_error: number; agreement_rate: number; mean_signed_error: number };
   generated_at: string;
 }
 
@@ -390,6 +393,7 @@ export async function computeAccuracySummary(
     category_accuracies: [],
     flaws_only: compareFlawsOnly([], new Map()),
     total_reviews: 0,
+    blind: blindSummary([]),
     generated_at: new Date().toISOString(),
   };
 
@@ -523,7 +527,22 @@ export async function computeAccuracySummary(
     category_accuracies: categoryBreakdown(allPairs),
     flaws_only: compareFlawsOnly(allPairs, flawsByReport),
     total_reviews: allPairs.length,
+    blind: blindSummary(allPairs.map((p) => p.grade)),
     generated_at: new Date().toISOString(),
+  };
+}
+
+/** US-3524: accuracy over blind spot checks only. Pure. */
+export function blindSummary(
+  grades: ReadonlyArray<{ blind: boolean; aiOverall: number; humanOverall: number }>,
+): AccuracySummary["blind"] {
+  const signed = grades.filter((g) => g.blind).map((g) => g.humanOverall - g.aiOverall);
+  const abs = signed.map((e) => Math.abs(e));
+  return {
+    count: signed.length,
+    mean_absolute_error: mean(abs),
+    mean_signed_error: mean(signed),
+    agreement_rate: abs.length > 0 ? abs.filter((e) => e <= 0.5).length / abs.length : 0,
   };
 }
 

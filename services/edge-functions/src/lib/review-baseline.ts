@@ -96,6 +96,11 @@ export interface ReviewedGrade<R extends ReviewBaselineRow = ReviewBaselineRow> 
   earliest: R;
   /** Review rows counted for this grade (send-backs excluded). */
   reviewCount: number;
+  /**
+   * US-3524: the human answer came from a BLIND spot check, scored without
+   * seeing the AI. Reported separately, because every other review is anchored.
+   */
+  blind: boolean;
 }
 
 function num(v: unknown): number | null {
@@ -107,6 +112,11 @@ function num(v: unknown): number | null {
 function reviewTime(r: ReviewBaselineRow): number {
   const t = r.reviewed_at ? Date.parse(r.reviewed_at) : NaN;
   return Number.isFinite(t) ? t : 0;
+}
+
+/** US-3524: a blind score of an auto-approved grade. */
+export function isSpotCheck(r: ReviewBaselineRow): boolean {
+  return r.review_action === "spot_check";
 }
 
 /** True for a review that is not a grading verdict at all. */
@@ -169,8 +179,15 @@ export function buildReviewedGrades<R extends ReviewBaselineRow>(
     const latest = sorted[sorted.length - 1];
 
     const aiOverall = num(earliest.original_score);
-    const humanOverall = num(report.overall_score) ??
-      num(latest.adjusted_score) ?? num(latest.original_score);
+    // US-3524: a spot check does not change the published grade, so the
+    // report still holds the AI's number. The human's answer is the blind
+    // score on the row. Reading the report here would score every spot check
+    // as perfect agreement.
+    const blind = isSpotCheck(latest);
+    const humanOverall = blind
+      ? num(latest.adjusted_score)
+      : num(report.overall_score) ?? num(latest.adjusted_score) ??
+        num(latest.original_score);
     if (aiOverall === null || humanOverall === null) continue;
 
     const everAdjusted = sorted.some((r) => num(r.adjusted_score) !== null);
@@ -184,11 +201,13 @@ export function buildReviewedGrades<R extends ReviewBaselineRow>(
       aiOverall,
       humanOverall,
       aiFactors,
-      humanFactors: current,
+      // A blind check's factors are on the row, not the report; unknown here.
+      humanFactors: blind ? null : current,
       everAdjusted,
       latest,
       earliest,
       reviewCount: sorted.length,
+      blind,
     });
   }
   return out;

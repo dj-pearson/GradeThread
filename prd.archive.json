@@ -49697,6 +49697,19 @@
       ],
       "priority": 3,
       "notes": "Done 2026-09-26. goldenSetGaps (grading-eval.ts) runs in runEval after the cases load and before any vision call: unscoped needs GRADING_EVAL_MIN_CASES (default 20) and one case in every tier NWT..Poor; scoped needs GRADING_EVAL_MIN_SCOPED_CASES (default 5); the thrown error names each gap. autoQueueEvalCandidate queues an INACTIVE candidate via promoteGradeReportToEvalCase whenever a review adjustment (admin-grading) or dispute resolution (admin-disputes) moves the grade by >= 1.0 or flags an intentional misread; it never throws into the review. Proof: golden-set-growth_test.ts (8 cases); grading-eval-gate_test.ts still 4/4. vault/20-domain/grading-eval-gate.md updated. Effect in prod today: the golden set is believed empty, so nothing changes until corrections accumulate; the minimums stop a handful of candidates from being enough to activate a prompt."
+    },
+    {
+      "id": "US-3524",
+      "passes": true,
+      "title": "Grading audit S3: high-confidence grades are never human-checked, and reviewers see the AI answer first",
+      "description": "As the owner, I want unbiased human checks, so that calibration and agreement numbers mean something. grade-auto-approve.ts approves >= 0.9 on raw confidence, and admin/grading.tsx pre-fills AI factor scores.",
+      "acceptanceCriteria": [
+        "A random 2-5% of auto-approved grades are routed to blind human review and feed confidence calibration.",
+        "The admin review UI has a blind mode (used for that sample) that hides AI scores until the reviewer submits.",
+        "Agreement metrics are reported separately for blind and non-blind reviews."
+      ],
+      "priority": 3,
+      "notes": "Done 2026-09-26. HELD 00840 adds grade_reports.spot_check_requested_at/spot_check_done_at and allows human_reviews.review_action 'spot_check' (measured on PG16: applies twice; spot_check accepted, junk refused). The pipeline flags GRADING_SPOT_CHECK_RATE (default 0.03, 0 off) of auto-approved grades (lib/spot-check.ts). GET /api/admin/grading/spot-checks lists open checks with photos and garment facts only (a test asserts the handler never reads score, tier, confidence, summary or defects); POST /spot-checks/:id records the blind factors as a spot_check review with the AI snapshot and only then returns the AI grade and the gap. The published grade is not changed. review-baseline.ts reads a spot check's adjusted_score as the human answer (the report still holds the AI's), marks it blind, and every reader (accuracy, calibration, exemplars, defect accuracy) picks it up; AccuracySummary gains blind {count, MAE, agreement, signed}. New SpotCheckCard on /admin/grading. Proof: spot-check_test.ts (5), spot-check-card.test.tsx (3), review-baseline and review-snapshot-write guards extended to a fifth insert path. Not done: the blind accuracy numbers are in the API summary but not yet drawn on a dashboard."
     }
   ]
 }

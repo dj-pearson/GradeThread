@@ -199,6 +199,12 @@ globalThis.fetch = ((input: Request | URL | string, init?: RequestInit) => {
     }
     return json(wantsObject ? currentRow : currentRow ? [currentRow] : []);
   }
+  // US-3526: activation reads the candidate's latest passing eval run.
+  if (url.includes("/rest/v1/grading_eval_runs")) {
+    const run = { mean_absolute_error: 0.3, agreement_rate: 0.9 };
+    const wantsObject = (new Headers(init?.headers).get("Accept") ?? "").includes("object");
+    return json(wantsObject ? run : [run]);
+  }
   return json([], method === "GET" ? 200 : 201);
 }) as typeof fetch;
 
@@ -324,7 +330,15 @@ Deno.test("activatePromptVersion clears is_shadow on the promoted row", async ()
     qualified_model: servingModelForStage("per_image"),
   } as ShadowToggleRow & { id: string };
   writes.length = 0;
-  const result = await activatePromptVersion("pv-1");
+  // US-3526: live shadow/canary evidence is a separate rule with its own
+  // tests (golden-set-growth_test.ts); waive it here to test the flag.
+  Deno.env.set("GRADING_ACTIVATION_MIN_LIVE_SAMPLES", "0");
+  let result;
+  try {
+    result = await activatePromptVersion("pv-1");
+  } finally {
+    Deno.env.delete("GRADING_ACTIVATION_MIN_LIVE_SAMPLES");
+  }
   assertEquals(result, { ok: true });
   const promote = writes.find((w) => w.is_active === true);
   assert(promote, `no activating write in ${JSON.stringify(writes)}`);

@@ -143,6 +143,7 @@ import { mediaTypeForVision, uint8ToBase64 } from "./grading-image-encoding.ts";
 export { mediaTypeForVision };
 import { captureServer } from "./posthog.ts";
 import { emitGradingOutcome } from "./grading-outcome-event.ts";
+import { requestSpotCheck, shouldSpotCheck } from "./spot-check.ts";
 import { emitEvent, firstOccurrenceKey } from "./user-events.ts";
 import { autoRefundPaidStripe } from "./grade-refund.ts";
 import {
@@ -4274,6 +4275,9 @@ export async function processSubmission(submissionId: string) {
       // wiring AND the seller's "now official" email + in-app notice run inside
       // finalizeGradeReview, so there's no preliminary/admin notification.
       await finalizeGradeReview(gradeReport.id, { reviewerId: null, modified: false });
+      // US-3524: a small random share of auto-approved grades gets a blind
+      // human spot check, so confidence is measured where it is highest.
+      if (shouldSpotCheck()) void requestSpotCheck(gradeReport.id);
       console.log(
         `[Pipeline] AUTO-APPROVED grade for submission ${submissionId} | ` +
           `overall_score=${compositeResult.overall_score} | grade_tier=${compositeResult.grade_tier} | ` +

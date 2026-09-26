@@ -5,6 +5,7 @@ import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { ReviewPhotos } from "@/components/admin/review-photos";
 import { HeldGradesCard } from "@/components/admin/held-grades-card";
+import { SpotCheckCard } from "@/components/admin/spot-check-card";
 import { ReferenceGalleryCard } from "@/components/admin/reference-gallery-card";
 import { GRADE_FACTORS } from "@/lib/constants";
 import {
@@ -953,6 +954,9 @@ export function AdminGradingQueuePage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* US-3524: blind scores of auto-approved grades. */}
+      <SpotCheckCard />
 
       {/* US-3327: grades held for their paid turnaround, and early release. */}
       <HeldGradesCard isSuperAdmin={profile?.role === "super_admin"} />

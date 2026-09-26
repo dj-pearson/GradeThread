@@ -31,6 +31,13 @@
       "story": "US-3516",
       "held_since": "2026-09-26",
       "what": "record each graded photo's hash so certificates seal their photos"
+    },
+    {
+      "version": "00840",
+      "file": "00840_blind_spot_checks.sql",
+      "story": "US-3524",
+      "held_since": "2026-09-26",
+      "what": "blind spot checks on auto-approved grades"
     }
   ],
   "parked": [

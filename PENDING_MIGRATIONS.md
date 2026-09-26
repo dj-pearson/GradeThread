@@ -71,6 +71,24 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00840_blind_spot_checks.sql (US-3524 - blind spot checks on auto-approved grades)
+
+**What it does.** Adds `grade_reports.spot_check_requested_at` and
+`spot_check_done_at` (nullable timestamptz) with a partial index on open spot
+checks, and re-creates `human_reviews_review_action_chk` to also allow
+`'spot_check'`. Column comment updated.
+
+**⚠ APPLY BEFORE THE EDGE DEPLOYS.** The pipeline in the same commit writes
+`spot_check_requested_at` on about 3% of auto-approved grades
+(`GRADING_SPOT_CHECK_RATE`, 0 turns it off), and the admin route inserts
+`review_action = 'spot_check'`, which the old CHECK refuses. The write in the
+pipeline is best-effort and logs rather than failing a grade, but the admin
+route would 500. The schema-version boot guard (00840) holds the edge back.
+
+**Risk: low.** Two nullable columns, one partial index, one CHECK widened.
+The DROP/ADD of the CHECK validates existing rows, which all satisfy the old,
+narrower list.
+
 ## HELD: 00839_submission_image_content_sha256.sql (US-3516 - record each graded photo's hash so certificates seal their photos)
 
 **What it does.** `ALTER TABLE submission_images ADD COLUMN IF NOT EXISTS

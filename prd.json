@@ -5199,18 +5199,6 @@
       "notes": "2026-09-26 PARTIAL. AC3 done: runEval grades each case GRADING_EVAL_REPEATS times (default 1, cap 5) and scores the mean on the 0.1 grid (meanOfRuns); per-case run_scores are kept when > 1. Proof: 3 cases in golden-set-growth_test.ts. AC1 NOT done on purpose: turning GRADING_SELF_CONSISTENCY_SAMPLE on by default reverses US-2035's recorded rule ('a default-on measurement job is a bill nobody approved'), pinned by grading-self-consistency-job_test.ts. At 3 x 2 runs x 4 images it is at most 24 vision calls a week; that is the owner's call and was put to them. AC2 is already true: the job emits the ops event grading_self_consistency_divergence when the report fails, which is the alert path, so no evaluateAlerts rule was added."
     },
     {
-      "id": "US-3524",
-      "passes": false,
-      "title": "Grading audit S3: high-confidence grades are never human-checked, and reviewers see the AI answer first",
-      "description": "As the owner, I want unbiased human checks, so that calibration and agreement numbers mean something. grade-auto-approve.ts approves >= 0.9 on raw confidence, and admin/grading.tsx pre-fills AI factor scores.",
-      "acceptanceCriteria": [
-        "A random 2-5% of auto-approved grades are routed to blind human review and feed confidence calibration.",
-        "The admin review UI has a blind mode (used for that sample) that hides AI scores until the reviewer submits.",
-        "Agreement metrics are reported separately for blind and non-blind reviews."
-      ],
-      "priority": 3
-    },
-    {
       "id": "US-3526",
       "passes": false,
       "title": "Grading audit S3: prompt activation skips shadow evidence and eval ignores live flags",
