@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3540",
+  "nextId": "US-3541",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5182,19 +5182,6 @@
       "priority": 2
     },
     {
-      "id": "US-3519",
-      "passes": false,
-      "title": "Grading audit S2: certificate wording implies authenticity, and revoked or photoless certs are unclear",
-      "description": "As the business, I want certificates to claim only what we check, so that we carry no legal exposure for counterfeits. The badge reads 'Authentic - grade claims verified' and the condition-not-authenticity notice is hidden for clothing.",
-      "acceptanceCriteria": [
-        "The integrity badge is renamed to wording about the record being unchanged since grading (certificate.tsx and functions/cert SSR).",
-        "Every certificate shows 'condition as photographed on <date>; does not verify brand authenticity' unless a paid authenticity check passed.",
-        "A revoked or superseded certificate shows a distinct revoked page, not 'not found'.",
-        "A certificate whose photos were purged by data-retention shows 'photos expired <date>'."
-      ],
-      "priority": 2
-    },
-    {
       "id": "US-3521",
       "passes": false,
       "title": "Grading audit S3: the live code-default prompt version never passed the eval gate",
@@ -5422,6 +5409,19 @@
         "Test covers a photo stored in the private bucket."
       ],
       "priority": 6
+    },
+    {
+      "id": "US-3540",
+      "passes": false,
+      "title": "Grading audit S2: a refunded certificate reads as 'not found', and a photoless one still verifies",
+      "description": "As a buyer, I want a withdrawn certificate to say it was withdrawn, and an old one to say its photos expired, so that I can tell a revoked grade from a fake and do not trust a certificate with nothing behind it. Split from US-3519. webhooks.ts per-grade refund nulls certificate_id with no grade_report_revisions row, so /cert and /verify answer the branded 404; data-retention.ts deletes photos after 730 days and leaves the certificate live.",
+      "acceptanceCriteria": [
+        "A per-grade refund (webhooks.ts) writes a grade_report_revisions row with reason 'refund' before nulling certificate_id.",
+        "cert-revision.ts resolves a chain ending in a refund to a new status 'revoked' (not 'pending'); content-public.ts returns it, and both functions/cert/[id].ts and src/pages/certificate.tsx render 'This certificate was withdrawn on <date>' instead of not-found.",
+        "When data-retention purges a submission's photos, the certificate renders 'Photos expired <date>' in place of the gallery on both surfaces.",
+        "Unit tests cover the revoked resolution and both renderers."
+      ],
+      "priority": 2
     }
   ]
 }

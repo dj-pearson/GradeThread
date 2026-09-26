@@ -49642,6 +49642,20 @@
       ],
       "priority": 2,
       "notes": "Done 2026-09-26. sanitizeExif (moved to lib/exif-read.ts) drops gps; the server reader never reads the GPS IFD; the web parser in src/lib/image-utils.ts no longer reads GPS and ImageExifMetadata has no gps field. HELD 00838_drop_submission_image_gps.sql removes the stored key (NULL when GPS was the only key), measured on seeded rows and re-run with no change. Nothing in edge, web or SQL read the stored GPS (grepped)."
+    },
+    {
+      "id": "US-3519",
+      "passes": true,
+      "title": "Grading audit S2: certificate wording implies authenticity, and revoked or photoless certs are unclear",
+      "description": "As the business, I want certificates to claim only what we check, so that we carry no legal exposure for counterfeits. The badge reads 'Authentic - grade claims verified' and the condition-not-authenticity notice is hidden for clothing.",
+      "acceptanceCriteria": [
+        "The integrity badge is renamed to wording about the record being unchanged since grading (certificate.tsx and functions/cert SSR).",
+        "Every certificate shows 'condition as photographed on <date>; does not verify brand authenticity' unless a paid authenticity check passed.",
+        "A revoked or superseded certificate shows a distinct revoked page, not 'not found'.",
+        "A certificate whose photos were purged by data-retention shows 'photos expired <date>'."
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-26 for wording and the notice; the revoked and photos-expired pages were split to US-3540 because they touch the webhook, the revision resolver, the public route and both renderers. The integrity badge now reads 'Record unchanged since grading' (was 'Authentic — grade claims verified'); the photo check reads 'Photo check passed / routed for review' and says it checks photos, not authenticity. needsAuthenticitySeparation returns true for every rubric on both the SPA (src/lib/rubrics.ts) and the SSR page (functions/_shared/condition-authenticity.ts), so 'This is a condition grade only. It is not an opinion on whether this item is authentic.' shows on every certificate. This reverses US-2225's deliberate 'clothing unchanged' choice. The AC's '<date>' wording was not added: the existing constant is pinned string-for-string across SPA and SSR. src/test/cert-condition-authenticity.test.ts updated and extended; 190 certificate tests pass, ui:check clean."
     }
   ]
 }

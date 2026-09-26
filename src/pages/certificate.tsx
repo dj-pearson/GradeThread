@@ -196,7 +196,7 @@ function IntegrityPanel({
       <div className="rounded-lg border border-green-600/30 bg-green-50 px-4 py-3 text-sm dark:bg-green-950/30">
         <div className="flex items-center gap-2 font-medium text-green-700 dark:text-green-400">
           <ShieldCheck className="h-5 w-5" />
-          Authentic — grade claims verified
+          Record unchanged since grading
         </div>
         <p className="mt-1 text-xs text-green-800/80 dark:text-green-300/80">
           The certified grade claims — overall score, tier, the five factor
@@ -1040,7 +1040,11 @@ export function CertificatePage() {
             <CardTitle className="text-base">Factor Breakdown</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* US-2225 AC3. On a handbag the condition grade and the
+            {/* US-3519: shown on EVERY certificate now, not only handbags. A
+                green "verified" badge beside a brand name reads as an
+                authenticity verdict on any item, and counterfeit clothing is
+                common. Original note follows.
+                US-2225 AC3. On a handbag the condition grade and the
                 authenticity add-on land on the same certificate — every tell
                 pack we hold is a bag brand — so a number beside a luxury logo
                 reads as a verdict on the logo unless this says otherwise. It
@@ -1244,7 +1248,7 @@ export function CertificatePage() {
                   <ShieldAlert className="mt-0.5 h-5 w-5 flex-shrink-0 text-yellow-600 dark:text-yellow-400" />
                   <div>
                     <p className="text-sm font-medium">
-                      Authenticity check: routed for review
+                      Photo check: routed for review
                     </p>
                     <p className="text-xs text-muted-foreground">
                       Our photo-authenticity check flagged this submission, so it
@@ -1258,10 +1262,12 @@ export function CertificatePage() {
                   <ShieldCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600 dark:text-green-400" />
                   <div>
                     <p className="text-sm font-medium">
-                      Authenticity check passed
+                      Photo check passed
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      No signs of photo manipulation or reused/screenshot images.
+                      No signs of photo manipulation or reused/screenshot
+                      images. This checks the photos, not whether the item is
+                      authentic.
                     </p>
                   </div>
                 </div>

@@ -53,8 +53,15 @@ export const CONDITION_NOT_AUTHENTICITY_DISCLOSURE =
   "This is a condition grade only. It is not an opinion on whether this item is authentic.";
 
 /** Does this rubric need the condition-vs-authenticity separation shown? */
-export function needsAuthenticitySeparation(rubricKey: string | null | undefined): boolean {
-  return !!rubricKey && AUTHENTICITY_ADJACENT_RUBRIC_KEYS.includes(rubricKey);
+export function needsAuthenticitySeparation(_rubricKey: string | null | undefined): boolean {
+  // US-3519: every certificate. The separation used to be keyed on the
+  // handbag rubric (US-2225) so clothing certificates stayed byte-identical,
+  // but a condition grade reads as an authenticity verdict on any branded item,
+  // and the certificate's own integrity badge used to say "Authentic".
+  // AUTHENTICITY_ADJACENT_RUBRIC_KEYS still names where the authenticity add-on
+  // runs; it no longer decides who sees this line.
+  void _rubricKey;
+  return true;
 }
 
 // Clothing = the existing 5 factors, derived from GRADE_FACTORS (zero drift).
