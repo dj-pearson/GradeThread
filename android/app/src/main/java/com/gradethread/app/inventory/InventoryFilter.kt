@@ -169,6 +169,7 @@ object InventoryFilter {
      * @param serverSearchIds ids the server FTS matched, or null when the
      * server search didn't run (query too short, offline, or it failed).
      */
+    @Suppress("LongParameterList") // the same nine inputs InventoryDerivation.filtered keys on
     fun apply(
         items: List<InventoryItemEntity>,
         stage: InventoryStage,

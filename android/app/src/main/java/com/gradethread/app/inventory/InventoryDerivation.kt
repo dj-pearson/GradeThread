@@ -39,6 +39,9 @@ class InventoryDerivation {
     var facetsPassCount: Int = 0
         private set
 
+    // Nine inputs because the pipeline reads nine things, each a separate memo key;
+    // a wrapper object would only move the same list one level down.
+    @Suppress("LongParameterList")
     fun filtered(
         items: List<InventoryItemEntity>,
         stage: InventoryStage,

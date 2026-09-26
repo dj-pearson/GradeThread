@@ -375,7 +375,7 @@ internal fun InventoryListContent(
             }
         }
 
-        SortRow(options = stage.sortOptions, current = sort, onSelect = actions.onSetSort)
+        SortRow(stage = stage, current = sort, onSelect = actions.onSetSort)
 
         refreshError?.let { message ->
             Row(
@@ -471,12 +471,14 @@ internal fun InventoryListContent(
 }
 
 @Composable
-private fun SortRow(options: List<SortOption>, current: SortOption, onSelect: (SortOption) -> Unit) {
+private fun SortRow(stage: InventoryStage, current: SortOption, onSelect: (SortOption) -> Unit) {
     LazyRow(
         modifier = Modifier.fillMaxWidth().padding(Spacing.xs),
         horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        items(options) { option ->
+        // US-3543: the stage, not a List, crosses the composable boundary; a List
+        // parameter is unstable and would recompose this row on every pass.
+        items(stage.sortOptions) { option ->
             FilterChip(
                 selected = option == current,
                 onClick = { onSelect(option) },
