@@ -5115,18 +5115,6 @@
       ]
     },
     {
-      "id": "US-3510",
-      "passes": false,
-      "title": "iOS CI is red on main: push-contract category with null kind and extension-queue rules",
-      "description": "As a developer, I want iOS CI green on main, so that a real iOS regression is visible instead of hidden behind four known failures.",
-      "acceptanceCriteria": [
-        "contracts/push-contract.json category index 8 (marketing) has a non-null kind, or the Swift decoder accepts a nullable kind; test_category_allCases_listsAll and test_deepLink_everyKnownCategory_resolvesToARoute pass.",
-        "ExtensionQueueService offers no lifecycle actions for depop and never pushes an unselectable channel; test_ebayAndShopifyOfferNothingHere and test_anUnselectableChannelIsNeverPushed pass.",
-        "iOS CI 'Build + test' is green on main after the fix."
-      ],
-      "notes": "2026-09-25: test fixes committed (PushContract kind optional; allCases 20; marketing excluded from the deep-link sweep as in noDestination; Depop expectations moved to US-3462's extension channel). No app code changed. Left open until iOS CI Build + test is green on main, which is AC3."
-    },
-    {
       "id": "US-3512",
       "passes": false,
       "title": "Edge refuses password-only (AAL1) tokens from users who have 2FA on",

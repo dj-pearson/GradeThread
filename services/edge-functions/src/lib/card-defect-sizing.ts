@@ -23,7 +23,7 @@
 // The flaw is assumed to lie on the card's plane, which is how a flat-lay
 // defect shot is taken; a card propped at an angle fails the residual gate.
 
-import { Image } from "imagescript";
+import { decodeToImage } from "./image-decode.ts";
 import type { DetectedIssue, PerImageAnalysis } from "./ai-grading.ts";
 import type { SizeBucket } from "./defect-weighting.ts";
 import { calibrateAdaptive, rescaleCalibration } from "./measure-calibrate.ts";
@@ -143,7 +143,7 @@ export async function fitCardInImage(dataUri: string): Promise<CardFit | null> {
     const comma = dataUri.indexOf(",");
     if (comma < 0) return null;
     const bytes = Uint8Array.from(atob(dataUri.slice(comma + 1)), (c) => c.charCodeAt(0));
-    const img = (await Image.decode(bytes)) as Image;
+    const img = await decodeToImage(bytes);
     const { result, scale } = calibrateAdaptive(img, MEASURE_CARD_VERSIONS, {
       evidenceOnly: true,
     });

@@ -124,7 +124,10 @@ Deno.test("MC-12: the route validates the upload and stores nothing", () => {
   assert(at > -1, "POST /card-test is missing");
   const body = ROUTE.slice(at, ROUTE.indexOf("\n});", at));
   assert(body.includes("validateImageUpload(bytes"));
-  assert(body.indexOf("validateImageUpload(") < body.indexOf("Image.decode("));
+  // The decode moved to decodeToImage (image-decode.ts) so WebP works; the
+  // validation must still come first.
+  assert(body.includes("decodeToImage("), "card-test no longer decodes via decodeToImage");
+  assert(body.indexOf("validateImageUpload(") < body.indexOf("decodeToImage("));
   for (const forbidden of ["supabaseAdmin", ".upload(", "withAiAction", "storage"]) {
     assert(!body.includes(forbidden), `card-test must not touch ${forbidden}`);
   }

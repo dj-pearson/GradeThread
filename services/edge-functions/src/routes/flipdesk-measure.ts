@@ -17,8 +17,9 @@
 // storage read — a foreign photo_id 404s without touching the blob.
 
 import { Hono } from "hono";
-import { Image } from "imagescript";
+import type { Image } from "imagescript";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { decodeToImage } from "../lib/image-decode.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { encryptMeasureCardAddress } from "../lib/measure-card-pii.ts";
 import { downloadItemPhoto, itemPhotoAiUrl } from "../lib/item-photo-storage.ts";
@@ -149,7 +150,7 @@ flipdeskMeasureRoutes.post("/calibrate", async (c) => {
   let decoded: Image;
   try {
     const bytes = new Uint8Array(await dl.blob.arrayBuffer());
-    decoded = (await Image.decode(bytes)) as Image;
+    decoded = await decodeToImage(bytes);
   } catch {
     return c.json({ error: "Could not decode the image." }, 422);
   }
@@ -306,9 +307,7 @@ flipdeskMeasureRoutes.post("/extract", async (c) => {
   }
   let decoded: Image;
   try {
-    decoded = (await Image.decode(
-      new Uint8Array(await dl.blob.arrayBuffer()),
-    )) as Image;
+    decoded = await decodeToImage(new Uint8Array(await dl.blob.arrayBuffer()));
   } catch {
     return c.json({ error: "Could not decode the image." }, 422);
   }
@@ -580,9 +579,7 @@ flipdeskMeasureRoutes.post("/overlay", async (c) => {
   }
   let decoded: Image;
   try {
-    decoded = (await Image.decode(
-      new Uint8Array(await dl.blob.arrayBuffer()),
-    )) as Image;
+    decoded = await decodeToImage(new Uint8Array(await dl.blob.arrayBuffer()));
   } catch {
     return c.json({ error: "Could not decode the image." }, 422);
   }
@@ -1210,12 +1207,12 @@ flipdeskMeasureRoutes.post("/card-test", async (c) => {
     return c.json({ error: "Add a photo of your card." }, 400);
   }
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const verdict = validateImageUpload(bytes, { allow: ["jpeg", "png"] });
+  const verdict = validateImageUpload(bytes, { allow: ["jpeg", "png", "webp"] });
   if (!verdict.ok) return c.json({ error: verdict.reason }, 400);
 
   let decoded: Image;
   try {
-    decoded = (await Image.decode(bytes)) as Image;
+    decoded = await decodeToImage(bytes);
   } catch {
     return c.json({ error: "Could not read that image." }, 422);
   }
