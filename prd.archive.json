@@ -49789,6 +49789,19 @@
       ],
       "priority": 5,
       "notes": "Done 2026-09-26. New lib/grading-lease-heartbeat.ts: processSubmission starts it right after a successful claim and stops it in a finally around the whole run; every leaseSeconds/3 (5 min at the 900s default) it sets grading_lease_until = now + lease on the row while status = 'processing' (plain .eq filters, no .or on the mutation). The updated_at trigger moves with it, so the reaper's staleness clock sees a live run. A dead container stops renewing, so recovery is unchanged. The reaper resumes at most STUCK_SUBMISSION_MAX_RESUMES (default 12) per sweep and reports the rest as deferred; poison rows are still failed and refunded. Proof: grading-lease-heartbeat_test.ts (4, incl. a 30-row backlog resuming 12 and deferring 18). Related US-2010 (graceful shutdown) is still open."
+    },
+    {
+      "id": "US-3532",
+      "passes": true,
+      "title": "Grading audit S5: /api/grade/submit has no idempotency key",
+      "description": "As a seller on a bad connection, I want a retried submit to return my first submission, so that I am not charged twice.",
+      "acceptanceCriteria": [
+        "The web client sends an idempotency key per submit attempt.",
+        "A unique index on (owner, key) and the route return the existing submission on repeat.",
+        "Migration follows the US-1108 triple; test covers a repeat request."
+      ],
+      "priority": 5,
+      "notes": "Done 2026-09-26 for the web client. HELD 00842 adds submissions.idempotency_key with a partial unique index per owner (measured on PG16: same owner + key refused; other owner and NULLs fine; applies twice). new-submission.tsx sends Idempotency-Key from a ref created per attempt and replaced only after a successful submit; main.ts CORS allows the header. /api/grade/submit looks the key up before any upload or charge and answers 200 {submissionId, status, replayed:true}; the insert stores the key, and a 23505 on that index (two retries racing) reads the winner back. lib/submit-idempotency.ts + submit-idempotency_test.ts (4). 195 new-submission web tests pass. main.ts deno check has the same 7 pre-existing Stripe/webhooks errors with and without this change. Not done: iOS, Android and bulk-submission do not send the key yet; the server treats a missing key exactly as before."
     }
   ]
 }

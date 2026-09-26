@@ -71,6 +71,20 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00842_submission_idempotency_key.sql (US-3532 - a retried grade submit returns the first submission)
+
+**What it does.** Adds nullable `submissions.idempotency_key` and a partial
+unique index `submissions_owner_idempotency_key` on `(user_id,
+idempotency_key) WHERE idempotency_key IS NOT NULL`.
+
+**⚠ APPLY BEFORE THE EDGE DEPLOYS.** `/api/grade/submit` in the same commit
+reads and writes the column; the boot guard (00842) holds the edge back. The
+web client sends the `Idempotency-Key` header, and the edge CORS list allows
+it in the same commit.
+
+**Risk: low.** Measured on PG16: a second owner may reuse a key, NULLs never
+collide, and the same owner + key is refused by the index. Applies twice.
+
 ## HELD: 00841_grading_budget_and_sonnet5_price.sql (US-3527 - a dollar cap on grading, and one price for Sonnet 5)
 
 **What it does.** (1) Inserts `ai_budgets` rows for `grading`: day $150

@@ -1,5 +1,11 @@
 import { Hono } from "hono";
 import {
+  findSubmissionByKey,
+  isIdempotencyConflict,
+  parseIdempotencyKey,
+  replayBody,
+} from "../lib/submit-idempotency.ts";
+import {
   currentGradingUnavailableReason,
   GRADING_BUSY_RETRY_AFTER_SECONDS,
   gradingUnavailableBody,
@@ -339,6 +345,13 @@ gradeRoutes.post("/submit", async (c) => {
       c.header("Retry-After", String(GRADING_BUSY_RETRY_AFTER_SECONDS));
       return c.json(gradingUnavailableBody(busy), 503);
     }
+  }
+  // US-3532: a retry of a submit that already landed answers with the first
+  // submission; nothing below runs, so nothing is created or charged twice.
+  const idempotencyKey = parseIdempotencyKey(c.req.header("Idempotency-Key"));
+  if (idempotencyKey) {
+    const existing = await findSubmissionByKey(ownerId, idempotencyKey);
+    if (existing) return c.json(replayBody(existing), 200);
   }
   // US-3528: refunded grades cost us the AI calls. Cap them per owner per day.
   if (await refundedGradeCapReached(ownerId)) {
@@ -877,6 +890,8 @@ gradeRoutes.post("/submit", async (c) => {
       buyer_video_grade: buyerVideoDebit !== null,
       buyer_credit_source: buyerVideoDebit,
       closet_item_id: closetItemId,
+      // US-3532: null when the client sent no usable key (older clients).
+      idempotency_key: idempotencyKey,
       // The requested grade-speed tier drives the review SLA + queue priority
       // (express > premium > standard) once the AI grade lands in human review.
       service_tier: tier,
@@ -892,6 +907,11 @@ gradeRoutes.post("/submit", async (c) => {
     // there is no submission for refund_grade to find, so hand it back here.
     if (buyerVideoDebit) {
       await refundBuyerMeterSource(ownerId, VIDEO_GRADE_BUYER_METER, buyerVideoDebit);
+    }
+    // US-3532: two retries raced and the other one won. Answer with its row.
+    if (idempotencyKey && isIdempotencyConflict(submissionError)) {
+      const existing = await findSubmissionByKey(ownerId, idempotencyKey);
+      if (existing) return c.json(replayBody(existing), 200);
     }
     return c.json({ error: "Failed to create submission" }, 500);
   }

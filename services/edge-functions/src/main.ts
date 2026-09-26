@@ -357,6 +357,8 @@ const ALLOWED_HEADERS = [
   "X-Workspace-Owner",
   // US-1754: per-extension-instance quota key sent by the extension.
   "X-GT-Extension-Id",
+  // US-3532: the web client's per-submit key for /api/grade/submit.
+  "Idempotency-Key",
 ];
 
 // Re-apply the Access-Control-Allow-Origin (+ Vary) headers for an allowed
