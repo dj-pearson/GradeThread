@@ -71,6 +71,24 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## ⏳ HELD: 00847_reseller_swap.sql (US-3541 - Reseller Swap opt-in settings and tip dismissals)
+
+**What it does.** Adds two new tables. `reseller_swap_settings` holds each
+seller's two opt-ins (share my stale eBay listings / show me tips) and their
+"stale after" day count, both opt-ins OFF by default. `reseller_swap_dismissals`
+records "hide this tip". Both have RLS on with an owner-only SELECT policy; the
+edge writes them with the service role. Nothing existing is altered.
+
+**Risk: low.** New tables only, no backfill, no change to any existing table or
+policy. Idempotent: `IF NOT EXISTS`, and every trigger and policy is dropped
+before it is created.
+
+**Apply order. Before the edge that carries US-3541 deploys.** The edge boot
+guard expects 00847. The web client calls `/api/flipdesk/swap/*` from the Radar
+page, so the frontend must not reach main before the edge does, or the Reseller
+Swap card shows a load error (the rest of the page is unaffected). After apply:
+`NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
+
 ## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00846_submission_photo_path_invoker.sql (US-3540 follow-up - remove an anon database-crash entry point)
 
 **What it does.** Re-creates `public.is_submission_photo_path(text)` as

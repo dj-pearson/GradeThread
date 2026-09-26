@@ -19,6 +19,7 @@ import {
   type RouteStartOption,
 } from "@/components/flipdesk/radar-route-planner";
 import { RadarVenuePanel } from "@/components/flipdesk/radar-venue-panel";
+import { ResellerSwapCard } from "@/components/flipdesk/reseller-swap-card";
 import {
   RADAR_WINDOW_PHRASES,
   RADAR_WINDOWS,
@@ -461,6 +462,8 @@ export function FlipdeskRadarPage() {
           )}
         </div>
       </div>
+
+      <ResellerSwapCard />
     </div>
   );
 }

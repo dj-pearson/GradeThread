@@ -11934,3 +11934,42 @@ for (const { path, body } of IMPORT_WRITE_PATHS) {
     },
   });
 }
+
+// ── US-3541: Reseller Swap ──────────────────────────────────────────────────
+//
+// The tips route crosses tenants on purpose, but only to sellers who opted in
+// to sharing. A's seeded item is not shared (the fixture never turns the opt-in
+// on), so B dismissing it must 404 exactly like an unknown id, and B's tip list
+// must never carry it.
+Deno.test({
+  name: "US-3541: B cannot dismiss A's item when A does not share",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/swap/tips/${itemId}/dismiss`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: "{}",
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "swap dismiss of A's unshared item");
+  },
+});
+
+Deno.test({
+  name: "US-3541: B's swap tips never carry A's unshared item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const put = await fetch(`${BASE}/api/flipdesk/swap/settings`, {
+      method: "PUT",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ receive_tips: true }),
+    });
+    await put.body?.cancel();
+    const res = await fetch(`${BASE}/api/flipdesk/swap/tips`, { headers: authHeaders(B_JWT!) });
+    const body = await res.text();
+    assertEquals(res.status, 200, "swap tips");
+    assert(!body.includes(itemId), "B's swap tips carried A's unshared item");
+  },
+});

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3541",
+  "nextId": "US-3542",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5157,6 +5157,23 @@
       ],
       "priority": 4,
       "notes": "2026-09-26 SHIPPED INERT. New lib/vision-input-shaping.ts. GRADING_VISION_LONG_EDGE=<px> (>=512, unset = off) downscales each grading photo to that long edge as JPEG q88 before the per-image, authenticity and label calls, in the first pass and the escalation re-grade; defect and fabric zoom still crop the stored original. GRADING_SKIP_MEASUREMENT_FANOUT=1 leaves measurement_* photos out of the condition fan-out (both passes); settled results now index conditionImages, not imageData. Per-image reads are stamped +ds<px> / +nomeasure and the grade suffix gains +ds / +nomeasure, appended last. Off is byte-identical. Proof: vision-input-shaping_test.ts (6, incl. a real 1200x2400 JPEG shrunk to 784x1568 and undecodable bytes passing through). AC3 (cost before/after) is answerable from the grading.completed event's cost_usd (US-3525) split by prompt_version. Open: shadow and eval with each flag on, then switch on."
+    },
+    {
+      "id": "US-3541",
+      "passes": false,
+      "title": "Reseller Swap: stale eBay listings shown to sellers who move that brand fast, with eBay Partner Network links",
+      "description": "Seller A's eBay listing that has sat past A's own stale line is shown as a tip to seller B, whose own sales say B sells that brand fast. The tip links to A's existing eBay listing, so the sale, payment, tax and disputes stay on eBay and GradeThread is never a party to it. Both sides opt in; off by default. When EBAY_EPN_CAMPAIGN_ID is set, tip links carry eBay Partner Network tracking. Contract: vault/20-domain/reseller-swap.md.",
+      "acceptanceCriteria": [
+        "Migration 00847 adds reseller_swap_settings (share_stale, receive_tips, stale_after_days 14-365) and reseller_swap_dismissals, both owner-read RLS, service-role writes",
+        "GET/PUT /api/flipdesk/swap/settings, GET /api/flipdesk/swap/tips, POST /api/flipdesk/swap/tips/:itemId/dismiss; settings writes need admin or owner",
+        "A tip carries only public listing fields and the viewer's own fit numbers, never the sharer's id, cost or sales; pinned by reseller-swap_test.ts",
+        "Dismiss accepts only a live shared tip and 404s anything else; tenant-isolation_test.ts cases for dismiss and for tips not leaking an unshared item",
+        "Tip links are real ebay.com /itm/ URLs only, with EPN tracking only when EBAY_EPN_CAMPAIGN_ID is a valid 10-digit id",
+        "Radar page shows both switches, the tip list and a plain commission disclosure; links use rel=sponsored",
+        "OPERATOR: apply 00847 to prod (npm run migrate:prod), then redeploy the edge",
+        "OPERATOR: join eBay Partner Network, create a campaign, set EBAY_EPN_CAMPAIGN_ID on the Coolify edge",
+        "OPERATOR: have counsel read the Terms of Service section for Reseller Swap before turning it on for users"
+      ]
     }
   ]
 }
