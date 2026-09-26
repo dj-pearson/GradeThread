@@ -1374,11 +1374,13 @@ export function CertificatePage() {
               <div className="flex items-start gap-3">
                 <ImageIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600 dark:text-green-400" />
                 <div>
-                  <p className="text-sm font-medium">Original photos verified</p>
+                  <p className="text-sm font-medium">No reused photos found</p>
                   <p className="text-xs text-muted-foreground">
-                    These images were checked against our database and don&apos;t
-                    match photos from any other seller — they&apos;re the
-                    seller&apos;s own, not stock or reused listing photos.
+                    {/* US-3538: say what was checked. A match only against our
+                        own recent uploads cannot prove a photo is not stock. */}
+                    We checked these photos against other sellers&apos; recent
+                    uploads on GradeThread and found no match. This does not
+                    check photos found elsewhere online.
                   </p>
                 </div>
               </div>

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { duplicateCorePhoto, duplicatePhotoMessage } from "../lib/duplicate-photo-guard.ts";
 import {
   findSubmissionByKey,
   isIdempotencyConflict,
@@ -988,6 +989,16 @@ gradeRoutes.post("/submit", async (c) => {
       await discardUploadedPhotos();
       await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
       return c.json({ error: exposure, code: "PHOTO_EXPOSURE" }, 400);
+    }
+    // US-3538: the same picture uploaded into two slots, one of them core.
+    const dup = duplicateCorePhoto([
+      ...imageRecords.map((r) => ({ imageType: r.image_type, phash: r.phash })),
+      { imageType, phash: serverPhash },
+    ]);
+    if (dup) {
+      await discardUploadedPhotos();
+      await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+      return c.json({ error: duplicatePhotoMessage(dup), code: "PHOTO_DUPLICATE" }, 400);
     }
     const storagePath =
       `${ownerId}/${submissionId}/${imageType}_${timestamp}.${verdict.ext}`;

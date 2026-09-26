@@ -5218,7 +5218,8 @@
         "Per-image schema gains matches_declared_view (prompt-version lifecycle) and a core-slot mismatch blocks.",
         "The originalPhotosVerified badge wording states what was actually checked."
       ],
-      "priority": 6
+      "priority": 6,
+      "notes": "2026-09-26 PARTIAL. AC1 done: lib/duplicate-photo-guard.ts refuses (400 PHOTO_DUPLICATE, retake message) a front, back or label photo within 6 bits of any other photo in the same submission, before the charge on /api/grade/submit and in api-v1, api-grade-ingest and the FlipDesk copy (which charges first, so it throws into the item's refund). Two detail shots are not compared. AC3 done: the badge reads 'No reused photos found' and says it checked other sellers' recent GradeThread uploads, not photos elsewhere online (certificate.tsx and functions/cert SSR). Proof: duplicate-photo-guard_test.ts (4); 152 certificate web tests pass. OPEN: AC2 (matches_declared_view in the per-image schema) changes the model's output schema and every per-image parse, so it ships through shadow/eval/canary and is not done here."
     },
     {
       "id": "US-3540",

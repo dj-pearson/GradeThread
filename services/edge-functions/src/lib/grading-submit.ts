@@ -18,6 +18,7 @@
 // (the stranded-paid re-kick that covers the case the catch block cannot) and
 // US-2564 (per-item idempotency keys) before changing a line of the loop.
 
+import { duplicateCorePhoto, duplicatePhotoMessage } from "./duplicate-photo-guard.ts";
 import { currentGradingUnavailableReason, gradingUnavailableBody } from "./grading-availability.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { downloadItemPhoto } from "./item-photo-storage.ts";
@@ -1110,6 +1111,12 @@ export async function submitItemsForGrading(
         // the item's catch, which refunds it; what it saves is the AI calls.
         const exposure = exposureVerdict(photo.grading.imageType, meanLuma);
         if (exposure) throw new Error(exposure);
+        // US-3538: the same picture copied into two slots, one of them core.
+        const dup = duplicateCorePhoto([
+          ...imageRecords.map((r) => ({ imageType: r.image_type, phash: r.phash })),
+          { imageType: photo.grading.imageType, phash },
+        ]);
+        if (dup) throw new Error(duplicatePhotoMessage(dup));
         const newPath = `${ownerId}/${submissionId}/${photo.grading.imageType}_${i}.${verdict.ext}`;
         const { error: upErr } = await supabaseAdmin.storage
           .from("submission-images")

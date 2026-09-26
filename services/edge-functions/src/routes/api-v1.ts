@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { duplicateCorePhoto, duplicatePhotoMessage } from "../lib/duplicate-photo-guard.ts";
 import { computeWeightedOverall, scoreToGradeTier } from "../lib/human-review.ts";
 import {
   currentGradingUnavailableReason,
@@ -453,6 +454,18 @@ apiV1Routes.post("/grades", async (c) => {
       }
       await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
       return imageProcessingError(c, "image_invalid", exposure, 400);
+    }
+    // US-3538: the same picture uploaded into two slots, one of them core.
+    const dup = duplicateCorePhoto([
+      ...imageRecords.map((r) => ({ imageType: r.image_type, phash: r.phash })),
+      { imageType: img.image_type, phash: serverPhash },
+    ]);
+    if (dup) {
+      for (const record of imageRecords) {
+        await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
+      }
+      await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+      return imageProcessingError(c, "image_invalid", duplicatePhotoMessage(dup), 400);
     }
     const storagePath = `${userId}/${submissionId}/${img.image_type}_${timestamp}.${verdict.ext}`;
 

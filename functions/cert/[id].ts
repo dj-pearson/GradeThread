@@ -332,7 +332,8 @@ export async function renderCertificate(context: Ctx): Promise<Response> {
     );
   }
   if (cert.original_photos_verified) {
-    badges.push('<span class="cert-badge cert-badge--verify">&#10003; Original photos verified</span>');
+    // US-3538: name what was checked (other sellers' recent GradeThread uploads).
+    badges.push('<span class="cert-badge cert-badge--verify">&#10003; No reused photos found</span>');
   }
   const badgesHtml = badges.length > 0 ? `<div class="cert-badges">${badges.join("")}</div>` : "";
 

@@ -8,6 +8,7 @@
 // It NEVER deletes the submission row (the caller owns that lifecycle, since the
 // single path 400s the request while the batch path fails just that job).
 
+import { duplicateCorePhoto, duplicatePhotoMessage } from "./duplicate-photo-guard.ts";
 import { sha256OfBytes } from "./cert-photo-seal.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { decodeBase64Image } from "./validation.ts";
@@ -231,6 +232,15 @@ export async function ingestGradeImages(
     if (exposure) {
       await cleanup(imageRecords);
       return { ok: false, code: "image_invalid", detail: exposure, status: 400 };
+    }
+    // US-3538: the same picture uploaded into two slots, one of them core.
+    const dup = duplicateCorePhoto([
+      ...imageRecords.map((r) => ({ imageType: r.image_type, phash: r.phash })),
+      { imageType: img.image_type, phash: serverPhash },
+    ]);
+    if (dup) {
+      await cleanup(imageRecords);
+      return { ok: false, code: "image_invalid", detail: duplicatePhotoMessage(dup), status: 400 };
     }
     const storagePath = `${userId}/${submissionId}/${img.image_type}_${timestamp}.${verdict.ext}`;
 
