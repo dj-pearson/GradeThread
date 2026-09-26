@@ -478,8 +478,9 @@ adminJobsRoutes.post("/cancel", async (c) => {
         break;
       }
       // Refund the pre-charge for the now-ungraded submission (idempotent).
-      await reverseChargeForUngradedSubmission(id, "admin cancelled grade");
-      result = { ok: true, detail: { refunded: true } };
+      // US-3515: false when a prior grade was restored instead of refunded.
+      const refunded = await reverseChargeForUngradedSubmission(id, "admin cancelled grade");
+      result = { ok: true, detail: { refunded } };
       break;
     }
     case "email": {

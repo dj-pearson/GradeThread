@@ -1,4 +1,12 @@
 import { Hono } from "hono";
+import { duplicateCorePhoto, duplicatePhotoMessage } from "../lib/duplicate-photo-guard.ts";
+import { computeWeightedOverall, scoreToGradeTier } from "../lib/human-review.ts";
+import {
+  currentGradingUnavailableReason,
+  GRADING_BUSY_RETRY_AFTER_SECONDS,
+  gradingUnavailableBody,
+} from "../lib/grading-availability.ts";
+import { sha256OfBytes } from "../lib/cert-photo-seal.ts";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { billingMonthStartIso, computeQuotaState } from "../lib/api-quota.ts";
@@ -13,7 +21,13 @@ import { decodeBase64Image } from "../lib/validation.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { REQUIRED_IMAGE_TYPES } from "../lib/image-quality.ts";
-import { computePhashFromImage } from "../lib/perceptual-hash.ts";
+import { computePhashAndLuma } from "../lib/perceptual-hash.ts";
+import {
+  exposureVerdict,
+  gradingMinImageEdge,
+  REFUND_CAP_MESSAGE,
+  refundedGradeCapReached,
+} from "../lib/refund-loop-guard.ts";
 import { assertPublicUrl, safeFetch, SsrfError } from "../lib/ssrf.ts";
 import {
   deliveryLimit,
@@ -161,6 +175,26 @@ apiV1Routes.post("/grades", async (c) => {
       error: { message: "Grading is temporarily unavailable. Please try again shortly.", code: "GRADING_UNAVAILABLE", details: [] },
       meta: null,
     }, 503);
+  }
+  // US-3530: the AI provider is failing, or the grading queue is full.
+  {
+    const busy = currentGradingUnavailableReason();
+    if (busy) {
+      c.header("Retry-After", String(GRADING_BUSY_RETRY_AFTER_SECONDS));
+      return c.json({
+        data: null,
+        error: { message: gradingUnavailableBody(busy).error, code: gradingUnavailableBody(busy).code, details: [] },
+        meta: null,
+      }, 503);
+    }
+  }
+  // US-3528: refunded grades cost us the AI calls. Cap them per owner per day.
+  if (await refundedGradeCapReached(userId)) {
+    return c.json({
+      data: null,
+      error: { message: REFUND_CAP_MESSAGE, code: "REFUND_CAP_REACHED", details: [] },
+      meta: null,
+    }, 429);
   }
 
   let body: {
@@ -337,6 +371,7 @@ apiV1Routes.post("/grades", async (c) => {
     storage_path: string;
     display_order: number;
     phash: string | null;
+    content_sha256: string | null;
   }> = [];
 
   for (let i = 0; i < images!.length; i++) {
@@ -391,6 +426,8 @@ apiV1Routes.post("/grades", async (c) => {
     const rawBytes = new Uint8Array(imageData);
     const verdict = validateImageUpload(rawBytes, {
       allow: ["jpeg", "png", "webp"],
+      // US-3528
+      minDimension: gradingMinImageEdge(),
     });
     if (!verdict.ok) {
       for (const record of imageRecords) {
@@ -408,7 +445,28 @@ apiV1Routes.post("/grades", async (c) => {
     const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
     // US-480: server-side reuse hash from the stored bytes (never the client),
     // so public-API submissions are covered by photo-reuse detection too.
-    const serverPhash = await computePhashFromImage(cleanBytes, verdict.format);
+    const { phash: serverPhash, meanLuma } = await computePhashAndLuma(cleanBytes, verdict.format);
+    // US-3528: a black or blown-out core photo is refused before any charge.
+    const exposure = exposureVerdict(img.image_type, meanLuma);
+    if (exposure) {
+      for (const record of imageRecords) {
+        await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
+      }
+      await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+      return imageProcessingError(c, "image_invalid", exposure, 400);
+    }
+    // US-3538: the same picture uploaded into two slots, one of them core.
+    const dup = duplicateCorePhoto([
+      ...imageRecords.map((r) => ({ imageType: r.image_type, phash: r.phash })),
+      { imageType: img.image_type, phash: serverPhash },
+    ]);
+    if (dup) {
+      for (const record of imageRecords) {
+        await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
+      }
+      await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+      return imageProcessingError(c, "image_invalid", duplicatePhotoMessage(dup), 400);
+    }
     const storagePath = `${userId}/${submissionId}/${img.image_type}_${timestamp}.${verdict.ext}`;
 
     const { error: uploadError } = await supabaseAdmin.storage
@@ -432,6 +490,8 @@ apiV1Routes.post("/grades", async (c) => {
       storage_path: storagePath,
       display_order: i,
       phash: serverPhash,
+      // US-3516: sealed into the certificate (integrity v5).
+      content_sha256: await sha256OfBytes(cleanBytes),
     });
   }
 
@@ -557,6 +617,26 @@ apiV1Routes.post("/grades/batch", async (c) => {
       error: { message: "Grading is temporarily unavailable. Please try again shortly.", code: "GRADING_UNAVAILABLE", details: [] },
       meta: null,
     }, 503);
+  }
+  // US-3530: the AI provider is failing, or the grading queue is full.
+  {
+    const busy = currentGradingUnavailableReason();
+    if (busy) {
+      c.header("Retry-After", String(GRADING_BUSY_RETRY_AFTER_SECONDS));
+      return c.json({
+        data: null,
+        error: { message: gradingUnavailableBody(busy).error, code: gradingUnavailableBody(busy).code, details: [] },
+        meta: null,
+      }, 503);
+    }
+  }
+  // US-3528: refunded grades cost us the AI calls. Cap them per owner per day.
+  if (await refundedGradeCapReached(userId)) {
+    return c.json({
+      data: null,
+      error: { message: REFUND_CAP_MESSAGE, code: "REFUND_CAP_REACHED", details: [] },
+      meta: null,
+    }, 429);
   }
 
   let body: { garments?: GradeGarmentInput[] };
@@ -782,14 +862,6 @@ function sandboxSeed(input: string): number {
   return ((h >>> 0) % 1000) / 1000;
 }
 
-const SANDBOX_TIERS: Array<{ min: number; tier: string }> = [
-  { min: 9.5, tier: "NWT" },
-  { min: 8.5, tier: "Excellent" },
-  { min: 7, tier: "Very Good" },
-  { min: 6, tier: "Good" },
-  { min: 5, tier: "Fair" },
-  { min: 0, tier: "Poor" },
-];
 
 function sandboxGrade(
   seedInput: string,
@@ -802,10 +874,21 @@ function sandboxGrade(
   } = {},
 ) {
   const s = sandboxSeed(seedInput || "sample");
-  const round = (n: number) => Math.round(n * 2) / 2; // half-point scale
-  const overall = round(5 + s * 4.5); // 5.0 – 9.5
-  const jitter = (k: string) => round(Math.max(1, Math.min(10, overall + (sandboxSeed(seedInput + k) - 0.5) * 2)));
-  const tier = SANDBOX_TIERS.find((t) => overall >= t.min)?.tier ?? "Good";
+  const round = (n: number) => Math.round(n * 2) / 2; // half-point factor scale
+  const base = 5 + s * 4.5;
+  const jitter = (k: string) => round(Math.max(1, Math.min(10, base + (sandboxSeed(seedInput + k) - 0.5) * 2)));
+  // US-3536: the same contract as a real grade: the overall is the weighted
+  // factor sum on the 0.1 grid and the tier comes from the real bands (this
+  // table used to skip NWOT and put Excellent at 8.5).
+  const factors = {
+    fabric_condition_score: jitter("fabric"),
+    structural_integrity_score: jitter("structural"),
+    cosmetic_appearance_score: jitter("cosmetic"),
+    functional_elements_score: jitter("functional"),
+    odor_cleanliness_score: jitter("odor"),
+  };
+  const overall = computeWeightedOverall(factors);
+  const tier = scoreToGradeTier(overall);
   return {
     id: `sandbox_${Math.floor(s * 1e9).toString(36)}`,
     status: "completed" as const,
@@ -819,11 +902,7 @@ function sandboxGrade(
       id: `sandbox_report_${Math.floor(s * 1e9).toString(36)}`,
       overall_score: overall,
       grade_tier: tier,
-      fabric_condition_score: jitter("fabric"),
-      structural_integrity_score: jitter("structural"),
-      cosmetic_appearance_score: jitter("cosmetic"),
-      functional_elements_score: jitter("functional"),
-      odor_cleanliness_score: jitter("odor"),
+      ...factors,
       confidence_score: Math.round((0.8 + s * 0.18) * 100) / 100, // 0.80–0.98
       ai_summary:
         "Sandbox grade. This is a deterministic sample response for integration testing — no real grading was performed and no credits were spent.",

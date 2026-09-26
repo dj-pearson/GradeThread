@@ -88,7 +88,7 @@ Deno.test("every human_reviews insert records which review path wrote it", () =>
     for (const m of inserts) {
       const body = src.slice(m.index!, m.index! + 1200);
       assert(
-        /review_action:\s*"(approve|adjust|send_back|dispute)"/.test(body),
+        /review_action:\s*"(approve|adjust|send_back|dispute|spot_check)"/.test(body),
         `${path}: a human_reviews insert near offset ${m.index} has no ` +
           `review_action. Without it a send-back counts as "the AI was right".`,
       );

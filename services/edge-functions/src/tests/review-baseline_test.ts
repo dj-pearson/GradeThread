@@ -190,11 +190,12 @@ Deno.test("every human_reviews insert records the snapshot and the review path",
       inserts++;
       const body = m[1];
       assert(body.includes("...reviewSnapshot(report)"), `${f}: an insert without the AI snapshot`);
-      assert(/review_action: "(approve|adjust|send_back|dispute)"/.test(body), `${f}: an insert without review_action`);
+      assert(/review_action: "(approve|adjust|send_back|dispute|spot_check)"/.test(body), `${f}: an insert without review_action`);
     }
   }
-  // approve, adjust, send-back, dispute. A fifth path must be added here on purpose.
-  assertEquals(inserts, 4);
+  // approve, adjust, send-back, dispute, and US-3524's blind spot check. A
+  // sixth path must be added here on purpose.
+  assertEquals(inserts, 5);
 });
 
 Deno.test("no accuracy reader compares the report's CURRENT score with the human's", () => {

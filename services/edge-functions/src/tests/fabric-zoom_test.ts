@@ -196,7 +196,9 @@ Deno.test("+fabriczoom is appended last in the grade suffix chain", () => {
   const src = Deno.readTextFileSync(new URL("../lib/ai-grading.ts", import.meta.url)).replace(/\r\n/g, "\n");
   assert(src.includes("const fabricZoom = perImageResults.some((r) =>\n    /\\+fabriczoom(?:\\+|$)/.test(r.prompt_version ?? \"\")\n  );"));
   // US-3321 appended legible2 after it; still passed, still in order.
-  assert(src.includes("    fabricZoom,\n    legible2,\n  });"));
+  // US-3517 appended imageTextGuard after legible2.
+  // US-3529 appended downscaled/noMeasure after imageTextGuard.
+  assert(src.includes("    fabricZoom,\n    legible2,\n    imageTextGuard,\n    downscaled:"));
 });
 
 // ── Forensic is unchanged, and the pass is metered ──────────────────────────

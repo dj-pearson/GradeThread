@@ -1,4 +1,17 @@
 import { Hono } from "hono";
+import { duplicateCorePhoto, duplicatePhotoMessage } from "../lib/duplicate-photo-guard.ts";
+import {
+  findSubmissionByKey,
+  isIdempotencyConflict,
+  parseIdempotencyKey,
+  replayBody,
+} from "../lib/submit-idempotency.ts";
+import {
+  currentGradingUnavailableReason,
+  GRADING_BUSY_RETRY_AFTER_SECONDS,
+  gradingUnavailableBody,
+} from "../lib/grading-availability.ts";
+import { sha256OfBytes } from "../lib/cert-photo-seal.ts";
 import type { Context } from "hono";
 import {
   notifyAdminsDisputeFiled,
@@ -15,6 +28,7 @@ import {
 } from "../lib/verified-capture.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { readExifFromBytes, sanitizeExif } from "../lib/exif-read.ts";
 import { REQUIRED_IMAGE_TYPES } from "../lib/image-quality.ts";
 import { validateVideoUpload } from "../lib/video-validation.ts";
 import {
@@ -39,7 +53,13 @@ import {
   debitBuyerMeter,
   refundBuyerMeterSource,
 } from "../lib/buyer-metering.ts";
-import { computePhashFromImage } from "../lib/perceptual-hash.ts";
+import { computePhashAndLuma, computePhashFromImage } from "../lib/perceptual-hash.ts";
+import {
+  exposureVerdict,
+  gradingMinImageEdge,
+  REFUND_CAP_MESSAGE,
+  refundedGradeCapReached,
+} from "../lib/refund-loop-guard.ts";
 import {
   GRADE_TIERS,
   type GradeTier,
@@ -204,54 +224,6 @@ type ImageType = (typeof IMAGE_TYPES)[number];
 const RETAIN_ORIGINAL_IMAGES =
   (Deno.env.get("RETAIN_ORIGINAL_IMAGES") ?? "").toLowerCase() === "true";
 
-// Sanitize + bound the client-supplied EXIF blob (US-339). Never trust the
-// client: keep only known fields, cap string lengths, and validate GPS ranges.
-// Returns null when nothing usable remains (the common case).
-function sanitizeExif(
-  raw: FormDataEntryValue | undefined,
-): Record<string, unknown> | null {
-  if (typeof raw !== "string" || raw.trim() === "") return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return null;
-  }
-  const src = parsed as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  const copyStr = (k: string) => {
-    const v = src[k];
-    if (typeof v === "string" && v.trim()) out[k] = v.trim().slice(0, 256);
-  };
-  copyStr("make");
-  copyStr("model");
-  copyStr("software");
-  copyStr("lensModel");
-  copyStr("dateTime");
-  copyStr("dateTimeOriginal");
-  if (typeof src.orientation === "number" && Number.isFinite(src.orientation)) {
-    const o = Math.trunc(src.orientation);
-    if (o >= 1 && o <= 8) out.orientation = o;
-  }
-  const gps = src.gps;
-  if (gps && typeof gps === "object" && !Array.isArray(gps)) {
-    const lat = (gps as Record<string, unknown>).latitude;
-    const lon = (gps as Record<string, unknown>).longitude;
-    if (
-      typeof lat === "number" && Number.isFinite(lat) && lat >= -90 &&
-      lat <= 90 &&
-      typeof lon === "number" && Number.isFinite(lon) && lon >= -180 &&
-      lon <= 180
-    ) {
-      out.gps = { latitude: lat, longitude: lon };
-    }
-  }
-  return Object.keys(out).length > 0 ? out : null;
-}
-
 export const gradeRoutes = new Hono<GradeEnv>();
 
 // Payment precedence (included → credits → checkout) now lives in
@@ -366,6 +338,25 @@ gradeRoutes.post("/submit", async (c) => {
   // payment/credit reservation so an over-budget breach never charges the user.
   if (await isAiBudgetExhausted("grading")) {
     return c.json(aiBudgetExceededBody("grading"), 503);
+  }
+  // US-3530: the AI provider is failing, or the grading queue is full.
+  {
+    const busy = currentGradingUnavailableReason();
+    if (busy) {
+      c.header("Retry-After", String(GRADING_BUSY_RETRY_AFTER_SECONDS));
+      return c.json(gradingUnavailableBody(busy), 503);
+    }
+  }
+  // US-3532: a retry of a submit that already landed answers with the first
+  // submission; nothing below runs, so nothing is created or charged twice.
+  const idempotencyKey = parseIdempotencyKey(c.req.header("Idempotency-Key"));
+  if (idempotencyKey) {
+    const existing = await findSubmissionByKey(ownerId, idempotencyKey);
+    if (existing) return c.json(replayBody(existing), 200);
+  }
+  // US-3528: refunded grades cost us the AI calls. Cap them per owner per day.
+  if (await refundedGradeCapReached(ownerId)) {
+    return c.json({ error: REFUND_CAP_MESSAGE, code: "REFUND_CAP_REACHED" }, 429);
   }
 
   // Member must have at least 'member' role in the workspace to submit a grade.
@@ -900,6 +891,8 @@ gradeRoutes.post("/submit", async (c) => {
       buyer_video_grade: buyerVideoDebit !== null,
       buyer_credit_source: buyerVideoDebit,
       closet_item_id: closetItemId,
+      // US-3532: null when the client sent no usable key (older clients).
+      idempotency_key: idempotencyKey,
       // The requested grade-speed tier drives the review SLA + queue priority
       // (express > premium > standard) once the AI grade lands in human review.
       service_tier: tier,
@@ -916,6 +909,11 @@ gradeRoutes.post("/submit", async (c) => {
     if (buyerVideoDebit) {
       await refundBuyerMeterSource(ownerId, VIDEO_GRADE_BUYER_METER, buyerVideoDebit);
     }
+    // US-3532: two retries raced and the other one won. Answer with its row.
+    if (idempotencyKey && isIdempotencyConflict(submissionError)) {
+      const existing = await findSubmissionByKey(ownerId, idempotencyKey);
+      if (existing) return c.json(replayBody(existing), 200);
+    }
     return c.json({ error: "Failed to create submission" }, 500);
   }
 
@@ -928,6 +926,7 @@ gradeRoutes.post("/submit", async (c) => {
     storage_path: string;
     display_order: number;
     phash: string | null;
+    content_sha256: string | null;
     exif: Record<string, unknown> | null;
     original_storage_path: string | null;
     capture_source: string | null;
@@ -935,6 +934,20 @@ gradeRoutes.post("/submit", async (c) => {
     width: number | null;
     height: number | null;
   }> = [];
+
+  // US-3533: a photo refused partway through left the earlier photos in the
+  // private bucket with no submission row pointing at them. Remove them (and
+  // any retained originals) before the row is deleted. Best effort.
+  const discardUploadedPhotos = async () => {
+    const paths = imageRecords.flatMap((r) =>
+      r.original_storage_path ? [r.storage_path, r.original_storage_path] : [r.storage_path]
+    );
+    if (paths.length === 0) return;
+    await supabaseAdmin.storage.from("submission-images").remove(paths).then(
+      undefined,
+      () => {},
+    );
+  };
 
   for (let i = 0; i < imageFiles.length; i++) {
     const file = imageFiles[i];
@@ -947,19 +960,46 @@ gradeRoutes.post("/submit", async (c) => {
     const rawBytes = new Uint8Array(await file.arrayBuffer());
     const verdict = validateImageUpload(rawBytes, {
       allow: ["jpeg", "png", "webp"],
+      // US-3528: a photo too small to show condition still costs a vision call.
+      minDimension: gradingMinImageEdge(),
     });
     if (!verdict.ok) {
+      await discardUploadedPhotos();
       await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
       return c.json(
         { error: `Invalid image (${imageType}): ${verdict.reason}` },
         400,
       );
     }
+    // US-3518: read provenance EXIF from the bytes BEFORE stripping them. A
+    // browser re-encode usually leaves none, which is fine: the retained
+    // original (below) is read too, and absence is never a penalty.
+    const uploadedExif = readExifFromBytes(rawBytes);
     const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
     // US-480: recompute the reuse-detection hash from the bytes we actually
     // store (never the client). null on a decode/hash failure → image is simply
     // skipped by reuse detection, never blocked.
-    const serverPhash = await computePhashFromImage(cleanBytes, verdict.format);
+    const { phash: serverPhash, meanLuma } = await computePhashAndLuma(
+      cleanBytes,
+      verdict.format,
+    );
+    // US-3528: refuse a black or blown-out core photo before any charge.
+    const exposure = exposureVerdict(imageType, meanLuma);
+    if (exposure) {
+      await discardUploadedPhotos();
+      await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+      return c.json({ error: exposure, code: "PHOTO_EXPOSURE" }, 400);
+    }
+    // US-3538: the same picture uploaded into two slots, one of them core.
+    const dup = duplicateCorePhoto([
+      ...imageRecords.map((r) => ({ imageType: r.image_type, phash: r.phash })),
+      { imageType, phash: serverPhash },
+    ]);
+    if (dup) {
+      await discardUploadedPhotos();
+      await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+      return c.json({ error: duplicatePhotoMessage(dup), code: "PHOTO_DUPLICATE" }, 400);
+    }
     const storagePath =
       `${ownerId}/${submissionId}/${imageType}_${timestamp}.${verdict.ext}`;
 
@@ -972,6 +1012,7 @@ gradeRoutes.post("/submit", async (c) => {
 
     if (uploadError) {
       console.error(`Failed to upload image ${i}:`, uploadError);
+      await discardUploadedPhotos();
       await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
       return c.json({ error: `Failed to upload image: ${imageType}` }, 500);
     }
@@ -983,6 +1024,7 @@ gradeRoutes.post("/submit", async (c) => {
     // the whole point. Validation still runs (sniff + size/dim cap). Best
     // effort: a failed original upload never fails the submission.
     let originalStoragePath: string | null = null;
+    let originalExif: ReturnType<typeof readExifFromBytes> = null;
     if (retainOriginals) {
       const orig = allOriginals[i];
       if (orig instanceof File && orig.size > 0) {
@@ -1004,6 +1046,7 @@ gradeRoutes.post("/submit", async (c) => {
               console.error(`Failed to upload original ${i}:`, origErr);
             } else {
               originalStoragePath = origPath;
+              originalExif = readExifFromBytes(origBytes);
             }
           }
         } catch (err) {
@@ -1018,7 +1061,10 @@ gradeRoutes.post("/submit", async (c) => {
       storage_path: storagePath,
       display_order: i,
       phash: serverPhash,
-      exif: imageExif[i] ?? null,
+      // US-3516: sealed into the certificate (integrity v5).
+      content_sha256: await sha256OfBytes(cleanBytes),
+      // US-3518: server-read EXIF wins; the client's copy is informational.
+      exif: originalExif ?? uploadedExif ?? imageExif[i] ?? null,
       original_storage_path: originalStoragePath,
       capture_source: imageCaptureSource[i] ?? null,
       quality_score: imageQualityScore[i] ?? null,
@@ -1164,6 +1210,8 @@ gradeRoutes.post("/submit", async (c) => {
         // lifted from someone else's listing video is still caught by reuse
         // detection (US-480) — and can still cost the clip its badge.
         phash: await computePhashFromImage(cleanBytes, verdict.format),
+        // US-3516: sealed into the certificate (integrity v5).
+        content_sha256: await sha256OfBytes(cleanBytes),
         // A frame carries no EXIF: it was never a file on a camera. The
         // provenance claim here is video_capture, not device metadata.
         exif: null,

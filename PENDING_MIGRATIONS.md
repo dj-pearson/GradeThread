@@ -71,6 +71,170 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00846_submission_photo_path_invoker.sql (US-3540 follow-up - remove an anon database-crash entry point)
+
+**What it does.** Re-creates `public.is_submission_photo_path(text)` as
+SECURITY INVOKER (was DEFINER in 00837) and grants EXECUTE back to PUBLIC.
+00837 revoked EXECUTE from PUBLIC and anon, and on this Postgres image a
+permission-denied error for a role in `supautils.hint_roles` segfaults the
+backend (US-2403). The storage INSERT and DELETE policies that call the function
+have no TO clause, so an anonymous upload attempt to `submission-images` can
+restart the database. As INVOKER the function reads submissions through the
+existing SELECT policies, which show the owner and workspace members exactly the
+rows it needs.
+
+**Risk: low, and the risk of waiting is higher.** Measured on the PG16 cluster
+with all 845 prior migrations: applied twice; `prosecdef = f`; anon and
+authenticated both hold EXECUTE; the owner gets `true` for their own submission
+folder and `false` for a staging folder; a different user gets `false`; anon
+gets `false` with no error.
+
+**Apply order. Any time, and soon.** No code depends on it. 00837 is already on
+prod, so the crash entry point is live until this applies.
+
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00845_photos_purged_seals.sql (US-3540 - certificates keep their photo seal after retention deletes the photos)
+
+**What it does.** Adds two columns to `public.submissions`:
+`photos_purged_at timestamptz` and `purged_photo_seals jsonb not null default '{}'`.
+Data retention now copies each deleted photo's `image_type:sha256` seal entry
+there before it deletes the file and row, so an integrity-v5 certificate still
+verifies after its photos expire and can say "Photos expired <date>".
+
+**Risk: low.** Additive columns with a constant default. Measured: applied twice
+on the PG16 cluster that holds all 844 prior migrations (second run is a no-op).
+
+**Apply order. BEFORE the edge deploy.** The new edge reads and writes these
+columns in the retention cron and the public verify endpoint. Without them the
+nightly retention job fails, and the verify endpoint answers "unverifiable" for
+v5 certificates.
+
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00844_finances_tier_bands.sql (US-3536 - Finances dashboard uses the real grade tier bands)
+
+**What it does.** Re-creates `public.finances_dashboard(timestamptz)` from 00143
+with ONE change: the per-sale `grade_tier` CASE uses floors 10 / 9 / 8 / 7 / 6 /
+5 instead of 9.5 / 8.5 / 7.5 / 6.5 / 5.5 / 4.5. `diff` against 00143 shows only
+that CASE. `CREATE OR REPLACE` keeps the existing grants; still SECURITY INVOKER.
+
+**Risk: low.** Tier profit stats on /dashboard/flipdesk finances will re-bucket
+(an 8.7 moves from NWOT to Excellent). Measured: all 843 prior migrations
+applied from zero on a PG16 cluster with auth/storage stubs (0 failures), then
+00844 applied twice and `finances_dashboard(null)` ran.
+
+**Apply order.** Any time. No code depends on it.
+
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00843_realtime_submissions.sql (US-3533 - live grade-complete updates on submissions)
+
+**What it does.** Adds `public.submissions` to the `supabase_realtime`
+publication, guarded like 00007 (no-op if already a member, or if the
+publication does not exist). `use-realtime-submission.ts` has subscribed to
+this table for months and received nothing; the detail page polled instead.
+
+**Risk: low to medium.** Every UPDATE on `submissions` now goes through
+Realtime's WAL decoding. Delivery respects RLS (owner / workspace member).
+Watch Realtime CPU after applying; to undo,
+`ALTER PUBLICATION supabase_realtime DROP TABLE public.submissions;`.
+Measured on PG16: no publication is a clean no-op; with one, it adds the
+table once and a second run changes nothing.
+
+**Apply order.** Any time. No edge code depends on it.
+
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00842_submission_idempotency_key.sql (US-3532 - a retried grade submit returns the first submission)
+
+**What it does.** Adds nullable `submissions.idempotency_key` and a partial
+unique index `submissions_owner_idempotency_key` on `(user_id,
+idempotency_key) WHERE idempotency_key IS NOT NULL`.
+
+**⚠ APPLY BEFORE THE EDGE DEPLOYS.** `/api/grade/submit` in the same commit
+reads and writes the column; the boot guard (00842) holds the edge back. The
+web client sends the `Idempotency-Key` header, and the edge CORS list allows
+it in the same commit.
+
+**Risk: low.** Measured on PG16: a second owner may reuse a key, NULLs never
+collide, and the same owner + key is refused by the index. Applies twice.
+
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00841_grading_budget_and_sonnet5_price.sql (US-3527 - a dollar cap on grading, and one price for Sonnet 5)
+
+**What it does.** (1) Inserts `ai_budgets` rows for `grading`: day $150
+`throttle` (alerts only) and month $3,000 `kill` (hard stop; `grade.ts` and
+`api-v1.ts` return 503 while it is breached). `ON CONFLICT DO NOTHING`, so a
+budget an operator already set is untouched. (2) Sets
+`system_settings.ai_model_prices['claude-sonnet-5']` to input 2 / output 10 /
+cache_write 2.5 / cache_read 0.2 in both `value` and `default_value`,
+matching `ai-usage.ts`. Other models untouched.
+
+**⚠ Check the month cap against real volume before applying.** At about $0.16
+of AI per standard grade, $3,000 is roughly 18,000 grades a month. If prod runs
+near that, raise it in admin (or edit the row) first, or grading stops for the
+rest of the month when it is crossed.
+
+**Risk: low.** Measured on seeded rows: an existing day row kept its values,
+the month row was added, the Sonnet 5 price changed and Haiku did not, and a
+second run changed nothing. Any time; `NOTIFY pgrst, 'reload schema';` after.
+
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00840_blind_spot_checks.sql (US-3524 - blind spot checks on auto-approved grades)
+
+**What it does.** Adds `grade_reports.spot_check_requested_at` and
+`spot_check_done_at` (nullable timestamptz) with a partial index on open spot
+checks, and re-creates `human_reviews_review_action_chk` to also allow
+`'spot_check'`. Column comment updated.
+
+**⚠ APPLY BEFORE THE EDGE DEPLOYS.** The pipeline in the same commit writes
+`spot_check_requested_at` on about 3% of auto-approved grades
+(`GRADING_SPOT_CHECK_RATE`, 0 turns it off), and the admin route inserts
+`review_action = 'spot_check'`, which the old CHECK refuses. The write in the
+pipeline is best-effort and logs rather than failing a grade, but the admin
+route would 500. The schema-version boot guard (00840) holds the edge back.
+
+**Risk: low.** Two nullable columns, one partial index, one CHECK widened.
+The DROP/ADD of the CHECK validates existing rows, which all satisfy the old,
+narrower list.
+
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00839_submission_image_content_sha256.sql (US-3516 - record each graded photo's hash so certificates seal their photos)
+
+**What it does.** `ALTER TABLE submission_images ADD COLUMN IF NOT EXISTS
+content_sha256 text` plus a column comment. Additive, no backfill.
+
+**⚠ APPLY BEFORE THE EDGE DEPLOYS.** Every edge upload path in the same commit
+writes `content_sha256` on insert (grade.ts, api-v1.ts, api-grade-ingest.ts,
+grading-submit.ts). An edge running before the column exists would fail every
+grade upload. The schema-version boot guard (EXPECTED_SCHEMA_VERSION = 00839)
+is what stops that, so apply this, then redeploy the edge.
+
+**Risk: low.** Nullable column, no default, no rewrite.
+
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00838_drop_submission_image_gps.sql (US-3520 - seller GPS was stored in submission_images.exif)
+
+**What it does.** `UPDATE public.submission_images SET exif = NULLIF(exif - 'gps', '{}')
+WHERE exif ? 'gps'`. Removes the stored GPS key from every row; a row whose
+only EXIF was GPS becomes NULL. Nothing reads that key.
+
+**Risk: low, but it rewrites rows.** It is data removal and cannot be undone
+except from a backup, which `npm run migrate:prod -- --apply` takes first.
+Measured on seeded rows: GPS removed, other keys kept, GPS-only row becomes
+NULL, and a second run changes nothing.
+
+**Apply order.** Any time. The edge in the same commit already stops storing
+GPS, so it does not depend on this. `NOTIFY pgrst, 'reload schema';` after.
+
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00837_lock_submission_photos.sql (US-3513 - sellers could overwrite certified photos after grading)
+
+**What it does.** Adds `public.is_submission_photo_path(name)` (SECURITY
+DEFINER, true when the second folder segment of a storage path is a
+`submissions.id`) and re-creates the five client-facing write policies on the
+`submission-images` bucket with `AND NOT public.is_submission_photo_path(name)`:
+owner INSERT and DELETE (00001), member INSERT (00042), owner and member UPDATE
+(00333). Grading photos at `{owner}/{submissionId}/...` become read-only to
+clients. Item photos at `{owner}/{itemId}/...` (iOS/Android/web sensitive
+slots, US-979) stay writable, so 00333's rotation fix still works.
+
+**Risk: low.** No client writes into a submission folder; every grading upload
+goes through the edge with the service role, which bypasses these policies.
+The owner policies now use `(select auth.uid())` (initplan form) instead of a
+bare `auth.uid()`, same result.
+
+**Apply order.** Any time. No code depends on it. `NOTIFY pgrst, 'reload schema';`
+after.
+
 ## ✅ APPLIED 2026-09-24 (owner, reported applied in session): 00836_analytics_owner_scope.sql (INV-D1 - Analytics numbers blended every workspace, and a member saw their own figures as the workspace's)
 
 **What it does.** Gives every RPC behind `/dashboard/flipdesk/analytics` a

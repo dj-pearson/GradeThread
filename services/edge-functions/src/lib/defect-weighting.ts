@@ -243,6 +243,14 @@ export interface DefectWeightingResult {
   penaltyByFactor: FactorScores;
   /** min(modelScore, ceiling) per factor — the blended grade input. */
   blendedFactors: FactorScores;
+  /**
+   * US-3534: the blended factor on the 0.5 grid the grade uses. Where a defect
+   * ceiling binds it is FLOORED to the half step, so a recorded defect always
+   * costs something; nearest-rounding lifted a 9.775 ceiling back to 10.0 and a
+   * snagged garment could reach NWT. Where the model's own read binds, it is
+   * rounded to nearest as before.
+   */
+  settledFactors: FactorScores;
   /** max |modelScore − ceiling| across factors (calibration/own-review signal). */
   divergence: number;
   /** Per-defect explanation, for disclosure/admin. */
@@ -274,6 +282,16 @@ function emptyFactors(): FactorScores {
     functional_elements: 0,
     odor_cleanliness: 0,
   };
+}
+
+/**
+ * US-3534: one factor on the 0.5 grid. A binding defect ceiling floors (the
+ * 1e-9 absorbs float error such as 9.5 arriving as 9.4999999); otherwise the
+ * model's read rounds to nearest. Never below 1.
+ */
+export function settleFactor(model: number, ceiling: number): number {
+  if (ceiling < model) return Math.max(1, Math.floor(ceiling * 2 + 1e-9) / 2);
+  return Math.max(1, Math.round(model * 2) / 2);
 }
 
 /**
@@ -326,12 +344,14 @@ export function applyDefectWeighting(
 
   const ceilingByFactor = emptyFactors();
   const blendedFactors = emptyFactors();
+  const settledFactors = emptyFactors();
   let divergence = 0;
   for (const f of FACTOR_KEYS) {
     const ceiling = clampFactor(10 - penaltyByFactor[f]);
     ceilingByFactor[f] = ceiling;
     const model = clampFactor(modelFactors[f]);
     blendedFactors[f] = Math.min(model, ceiling);
+    settledFactors[f] = settleFactor(model, ceiling);
     divergence = Math.max(divergence, Math.abs(model - ceiling));
   }
 
@@ -339,6 +359,7 @@ export function applyDefectWeighting(
     ceilingByFactor,
     penaltyByFactor,
     blendedFactors,
+    settledFactors,
     divergence: Number(divergence.toFixed(2)),
     appliedDefects,
     weightsVersion: DEFECT_WEIGHTS_VERSION,

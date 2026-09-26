@@ -57,6 +57,11 @@ export function withImageBufferSlot<T>(fn: () => Promise<T>): Promise<T> {
   return imageBufferSemaphore().run(fn);
 }
 
+/** US-3530: submissions parked waiting for an image-buffer slot. 0 before first use. */
+export function gradingQueueWaiting(): number {
+  return semaphore ? semaphore.waiting : 0;
+}
+
 // ── Memory accounting (drives /health/metrics + the load-test gate) ──────────
 
 // Sustained RSS above this % of the container memory limit is the scale-out

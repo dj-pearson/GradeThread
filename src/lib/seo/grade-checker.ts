@@ -40,7 +40,7 @@ export const GRADE_CHECKER_META = {
     },
     {
       q: "What is a good condition grade for used clothes?",
-      a: "On the 1.0–10.0 scale, roughly 7.5+ is Excellent, 6.0–7.0 is Very Good, and 4.5–5.5 is Good. Higher grades sell faster and hold value; the grade checker gives you a rough band so you know where an item sits before you price it.",
+      a: "On the 1.0–10.0 scale, 8.0 to 8.9 is Excellent, 7.0 to 7.9 is Very Good, and 6.0 to 6.9 is Good. Higher grades sell faster and hold value; the grade checker gives you a rough band so you know where an item sits before you price it.",
     },
     {
       q: "How much is my used clothing worth?",

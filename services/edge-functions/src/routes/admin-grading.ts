@@ -26,6 +26,7 @@ import {
 } from "../lib/accuracy-tracking.ts";
 import {
   activatePromptVersion,
+  autoQueueEvalCandidate,
   promoteGradeReportToEvalCase,
   promoteHighSignalEvalCandidates,
   runEval,
@@ -3569,6 +3570,19 @@ adminGradingRoutes.post("/review/:id/adjust", async (c) => {
     );
   }
 
+  // US-3522: a big correction is exactly the case the golden set is missing.
+  // Queue it as an inactive candidate now; an admin still approves it.
+  void autoQueueEvalCandidate(
+    {
+      grade_report_id: report.id,
+      original_score: Number(report.overall_score),
+      adjusted_score: overall,
+      intentional_misread: body.intentional_misread === true,
+    },
+    "human_review",
+    adminId,
+  );
+
   await auditLog(c, "grading.review_adjusted", "grade_report", report.id, {
     submission_id: report.submission_id,
     original_score: report.overall_score,
@@ -3579,6 +3593,147 @@ adminGradingRoutes.post("/review/:id/adjust", async (c) => {
     notes,
   });
   return c.json({ ok: true, overall_score: overall, grade_tier: tier, resealed });
+});
+
+// ── US-3524: blind spot checks on auto-approved grades ──────────────
+//
+// GET lists open spot checks with photos and garment facts ONLY: no score,
+// tier, confidence, summary or defects, because the point is a human answer
+// the AI did not anchor. POST records the blind score as a human_reviews row
+// (review_action 'spot_check') and only THEN returns the AI's grade and the
+// difference. The published grade is not changed.
+
+const SPOT_CHECK_LIST_LIMIT = 50;
+
+adminGradingRoutes.get("/spot-checks", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, submission_id, spot_check_requested_at")
+    .not("spot_check_requested_at", "is", null)
+    .is("spot_check_done_at", null)
+    .is("superseded_at", null)
+    .order("spot_check_requested_at", { ascending: true })
+    .limit(SPOT_CHECK_LIST_LIMIT);
+  if (error) return failSafe(c, 500, "Couldn't load spot checks.", error, "admin.grading.spot.list");
+  const rows = (data ?? []) as Array<{ id: string; submission_id: string; spot_check_requested_at: string }>;
+  if (rows.length === 0) return c.json({ data: [] });
+
+  const subIds = rows.map((r) => r.submission_id);
+  const [{ data: subs }, { data: imgs }] = await Promise.all([
+    supabaseAdmin
+      .from("submissions")
+      .select("id, title, brand, garment_type, garment_category")
+      .in("id", subIds),
+    supabaseAdmin
+      .from("submission_images")
+      .select("id, submission_id, image_type, storage_path, display_order")
+      .in("submission_id", subIds)
+      .order("display_order", { ascending: true }),
+  ]);
+  const images = (imgs ?? []) as Array<{
+    id: string;
+    submission_id: string;
+    image_type: string;
+    storage_path: string;
+    display_order: number;
+  }>;
+  let signed: Record<string, string> = {};
+  if (images.length > 0) {
+    const { data: urls } = await supabaseAdmin.storage
+      .from("submission-images")
+      .createSignedUrls(images.map((i) => i.storage_path), REVIEW_IMAGE_TTL);
+    signed = Object.fromEntries(
+      (urls ?? [])
+        .map((u, idx) => [images[idx].id, u.signedUrl] as const)
+        .filter(([, url]) => Boolean(url)),
+    );
+  }
+  const subById = new Map(((subs ?? []) as Array<Record<string, unknown> & { id: string }>).map((s) => [s.id, s]));
+  return c.json({
+    data: rows.map((r) => ({
+      report_id: r.id,
+      requested_at: r.spot_check_requested_at,
+      submission: subById.get(r.submission_id) ?? null,
+      images: images
+        .filter((i) => i.submission_id === r.submission_id)
+        .map((i) => ({ ...i, signed_url: signed[i.id] ?? null })),
+    })),
+  });
+});
+
+adminGradingRoutes.post("/spot-checks/:id", async (c) => {
+  const adminId = c.get("userId");
+  const reportId = c.req.param("id");
+  let body: { factors?: Partial<Record<keyof FactorScores, unknown>>; notes?: unknown };
+  try { body = await c.req.json(); } catch { return c.json({ error: "Invalid JSON body" }, 400); }
+
+  const f = body.factors ?? {};
+  const keys: (keyof FactorScores)[] = [
+    "fabric_condition_score",
+    "structural_integrity_score",
+    "cosmetic_appearance_score",
+    "functional_elements_score",
+    "odor_cleanliness_score",
+  ];
+  const factors = {} as FactorScores;
+  for (const k of keys) {
+    const n = Number(f[k]);
+    if (!Number.isFinite(n)) return c.json({ error: `Missing/invalid score: ${k}` }, 400);
+    factors[k] = clampScore(n);
+  }
+  const notes = typeof body.notes === "string" ? body.notes.trim().slice(0, 1000) : "";
+
+  const report = await loadReportForReview(reportId);
+  if (!report) return c.json({ error: "Report not found" }, 404);
+  const { data: open } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id")
+    .eq("id", reportId)
+    .not("spot_check_requested_at", "is", null)
+    .is("spot_check_done_at", null)
+    .maybeSingle();
+  if (!open) return c.json({ error: "No open spot check for this grade" }, 409);
+
+  const blindOverall = computeWeightedOverall(factors);
+  const { error: revErr } = await supabaseAdmin.from("human_reviews").insert({
+    grade_report_id: report.id,
+    reviewer_id: adminId,
+    original_score: report.overall_score,
+    ...reviewSnapshot(report),
+    review_action: "spot_check",
+    adjusted_score: blindOverall,
+    adjusted_fabric_condition: factors.fabric_condition_score,
+    adjusted_structural_integrity: factors.structural_integrity_score,
+    adjusted_cosmetic_appearance: factors.cosmetic_appearance_score,
+    adjusted_functional_elements: factors.functional_elements_score,
+    adjusted_odor_cleanliness: factors.odor_cleanliness_score,
+    review_notes: notes ? `Blind spot check: ${notes}` : "Blind spot check",
+  });
+  if (revErr) {
+    console.error("[admin-grading] spot check: human_reviews insert failed:", revErr);
+    return c.json({ error: "Failed to record spot check" }, 500);
+  }
+  await supabaseAdmin
+    .from("grade_reports")
+    .update({ spot_check_done_at: new Date().toISOString() })
+    .eq("id", reportId);
+
+  await auditLog(c, "grading.spot_check", "grade_report", report.id, {
+    ai_overall: report.overall_score,
+    blind_overall: blindOverall,
+  });
+  // Only now is the AI's answer shown.
+  return c.json({
+    ok: true,
+    blind_overall: blindOverall,
+    blind_tier: scoreToGradeTier(blindOverall),
+    ai_overall: Number(report.overall_score),
+    ai_tier: report.grade_tier,
+    ai_factors: Object.fromEntries(
+      keys.map((k) => [k, Number((report as unknown as Record<string, unknown>)[k])]),
+    ),
+    difference: Number((blindOverall - Number(report.overall_score)).toFixed(1)),
+  });
 });
 
 // ── US-3327: held grades (US-3326) — list, and release early ─────────

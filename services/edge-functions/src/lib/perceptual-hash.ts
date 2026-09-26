@@ -90,3 +90,30 @@ export async function computePhashFromImage(
   if (!decoded) return null;
   return dHashFromRgba(decoded.rgba, decoded.width, decoded.height);
 }
+
+/**
+ * US-3528: the hash and the mean luma (0..255) from ONE decode, so the upload
+ * path can refuse a black or blown-out photo without decoding twice. Luma is
+ * sampled on a stride so a 12 MP photo costs well under a millisecond extra.
+ */
+export async function computePhashAndLuma(
+  bytes: Uint8Array,
+  format: ImageFormat,
+): Promise<{ phash: string | null; meanLuma: number | null }> {
+  const decoded = await decodeToRgba(bytes, format);
+  if (!decoded) return { phash: null, meanLuma: null };
+  const { rgba, width, height } = decoded;
+  const px = width * height;
+  const step = Math.max(1, Math.floor(px / 40000));
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < px; i += step) {
+    const o = i * 4;
+    sum += 0.299 * (rgba[o] ?? 0) + 0.587 * (rgba[o + 1] ?? 0) + 0.114 * (rgba[o + 2] ?? 0);
+    n++;
+  }
+  return {
+    phash: dHashFromRgba(rgba, width, height),
+    meanLuma: n > 0 ? sum / n : null,
+  };
+}

@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { captureException } from "./observability.ts";
-import { deleteCertImages } from "./cloudflare-purge.ts";
+import { deleteCertImages, purgeCertificateCache } from "./cloudflare-purge.ts";
 import {
   analyzeImage,
   compositeGrade,
@@ -123,6 +123,7 @@ import {
   verifiedCaptureBoost,
 } from "./verified-capture.ts";
 import { buildCertIntegrity } from "./cert-integrity.ts";
+import { loadSealedPhotoHashes } from "./cert-photo-seal.ts";
 import {
   fuseTamperSignals,
   runForensicPass,
@@ -137,10 +138,19 @@ import {
 import { withImageBufferSlot } from "./grading-capacity.ts";
 import { grantReward, hasFullGradeCoverage } from "./rewards-engine.ts";
 import { mediaTypeForVision, uint8ToBase64 } from "./grading-image-encoding.ts";
+import {
+  isMeasurementImage,
+  shrinkForVision,
+  skipMeasurementFanout,
+  visionLongEdge,
+} from "./vision-input-shaping.ts";
 // Re-exported because grading-media-type_test.ts imports it from here and the
 // function is the same function; moving the home should not move the test.
 export { mediaTypeForVision };
 import { captureServer } from "./posthog.ts";
+import { emitGradingOutcome } from "./grading-outcome-event.ts";
+import { startLeaseHeartbeat } from "./grading-lease-heartbeat.ts";
+import { requestSpotCheck, shouldSpotCheck } from "./spot-check.ts";
 import { emitEvent, firstOccurrenceKey } from "./user-events.ts";
 import { autoRefundPaidStripe } from "./grade-refund.ts";
 import {
@@ -574,8 +584,14 @@ async function escalateGrade(
     partialSuccess: boolean;
   } | null
 > {
+  // US-3529: the escalation sees the same shaped input as the first pass.
+  const visionEdge = visionLongEdge();
+  const skipMeasurement = skipMeasurementFanout();
+  const shapedImages = skipMeasurement
+    ? images.filter((image) => !isMeasurementImage(image.image_type))
+    : images;
   const settled = await withImageBufferSlot(async () => {
-    const imageDataPromises = images.map(async (image) => {
+    const imageDataPromises = shapedImages.map(async (image) => {
       const { data: fileData, error: downloadError } = await supabaseAdmin.storage
         .from("submission-images")
         .download(image.storage_path);
@@ -583,12 +599,19 @@ async function escalateGrade(
         throw new Error(`Failed to download image: ${image.storage_path}`);
       }
       const arrayBuffer = await fileData.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
+      let bytes: Uint8Array = new Uint8Array(arrayBuffer);
+      let shrunk = false;
+      if (visionEdge !== null) {
+        const sh = await shrinkForVision(bytes, visionEdge);
+        bytes = sh.bytes;
+        shrunk = sh.shrunk;
+      }
       const base64 = uint8ToBase64(bytes);
       const mediaType = mediaTypeForVision(bytes, image.storage_path);
       return {
         imageType: image.image_type,
         dataUri: `data:${mediaType};base64,${base64}`,
+        shrunk,
       };
     });
 
@@ -612,7 +635,15 @@ async function escalateGrade(
           undefined,
           undefined,
           onFirstToken,
-        ),
+        ).then((r) => {
+          // US-3529: same era stamps as the first pass.
+          const a = r as { prompt_version?: string };
+          if (a && typeof a.prompt_version === "string") {
+            if (img.shrunk) a.prompt_version += `+ds${visionEdge}`;
+            if (skipMeasurement) a.prompt_version += "+nomeasure";
+          }
+          return r;
+        }),
       gradingCacheStaggerEnabled(),
     ).promises;
     const results = await Promise.allSettled(perImagePromises);
@@ -812,7 +843,21 @@ export function secondOpinionComposite(
 export async function reverseChargeForUngradedSubmission(
   submissionId: string,
   reason: string,
-): Promise<void> {
+): Promise<boolean> {
+  // US-3515: a submission that already delivered a grade is not "ungraded".
+  // A regrade supersedes the prior report before re-running, so when the
+  // re-run fails or abstains the seller would be refunded for a grade they
+  // have, and their certificate would stay dead. Put the prior grade back
+  // instead, and refund nothing. When we cannot tell, refund nothing either:
+  // a missed refund is recoverable by an operator, a refund of a delivered
+  // grade is not.
+  const prior = await restorePriorGradeInsteadOfRefund(submissionId);
+  if (prior !== "none") {
+    console.warn(
+      `[Pipeline] NOT refunding submission ${submissionId} (${reason}): prior grade ${prior}`,
+    );
+    return false;
+  }
   try {
     const { data: refundResult, error: refundError } = await supabaseAdmin.rpc(
       "refund_grade",
@@ -839,7 +884,112 @@ export async function reverseChargeForUngradedSubmission(
       refundErr instanceof Error ? refundErr.message : String(refundErr),
     );
   }
+  return true;
 }
+
+/**
+ * US-3515: what a failed or abstained grade run should do about a grade the
+ * submission ALREADY has.
+ *
+ *   "graded"   - an active report exists; nothing to refund, nothing to restore
+ *   "restored" - a regrade had superseded the prior report; it is live again
+ *   "none"     - no report of any kind; this really is an ungraded submission
+ *   "unknown"  - a read or write failed; the caller must not refund
+ */
+export type PriorGradeOutcome = "graded" | "restored" | "none" | "unknown";
+
+export interface PriorGradeStore {
+  /** Throws on a read error. */
+  hasActiveReport: (submissionId: string) => Promise<boolean>;
+  /** Most recently superseded report and the certificate it carried. Throws on a read error. */
+  latestSuperseded: (
+    submissionId: string,
+  ) => Promise<{ reportId: string; certificateId: string | null } | null>;
+  /** Un-supersede the report and give its certificate back. Throws on failure. */
+  reactivate: (reportId: string, certificateId: string | null) => Promise<void>;
+  /** Re-assert the terminal state for the now-active report. */
+  finalize: (submissionId: string) => Promise<void>;
+}
+
+export async function restorePriorGradeInsteadOfRefund(
+  submissionId: string,
+  store: PriorGradeStore = defaultPriorGradeStore,
+): Promise<PriorGradeOutcome> {
+  try {
+    if (await store.hasActiveReport(submissionId)) return "graded";
+    const prior = await store.latestSuperseded(submissionId);
+    if (!prior) return "none";
+    await store.reactivate(prior.reportId, prior.certificateId);
+    await store.finalize(submissionId);
+    console.warn(
+      `[Pipeline] restored prior grade report ${prior.reportId} for submission ${submissionId} after a failed regrade`,
+    );
+    return "restored";
+  } catch (err) {
+    console.error(
+      `[Pipeline] could not check or restore the prior grade for ${submissionId}; not refunding, manual review needed:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    captureException(err, {
+      route: "grading.restorePriorGrade",
+      extra: { submissionId },
+    });
+    return "unknown";
+  }
+}
+
+export const defaultPriorGradeStore: PriorGradeStore = {
+  hasActiveReport: async (submissionId) => {
+    const { data, error } = await supabaseAdmin
+      .from("grade_reports")
+      .select("id")
+      .eq("submission_id", submissionId)
+      .is("superseded_at", null)
+      .limit(1);
+    if (error) throw new Error(`active report read failed: ${error.message}`);
+    return (data ?? []).length > 0;
+  },
+  latestSuperseded: async (submissionId) => {
+    const { data, error } = await supabaseAdmin
+      .from("grade_reports")
+      .select("id")
+      .eq("submission_id", submissionId)
+      .not("superseded_at", "is", null)
+      .order("superseded_at", { ascending: false })
+      .limit(1);
+    if (error) throw new Error(`superseded report read failed: ${error.message}`);
+    const row = (data ?? [])[0] as { id: string } | undefined;
+    if (!row) return null;
+    // supersedePriorReports nulls certificate_id but records it here first
+    // (US-2569), so the certificate a buyer already holds comes back unchanged.
+    const { data: rev, error: revErr } = await supabaseAdmin
+      .from("grade_report_revisions")
+      .select("superseded_certificate_id")
+      .eq("superseded_report_id", row.id)
+      .maybeSingle();
+    if (revErr) throw new Error(`revision read failed: ${revErr.message}`);
+    return {
+      reportId: row.id,
+      certificateId:
+        (rev as { superseded_certificate_id: string | null } | null)
+          ?.superseded_certificate_id ?? null,
+    };
+  },
+  reactivate: async (reportId, certificateId) => {
+    const { error } = await supabaseAdmin
+      .from("grade_reports")
+      .update({ superseded_at: null, certificate_id: certificateId })
+      .eq("id", reportId);
+    if (error) throw new Error(`reactivate failed: ${error.message}`);
+    if (certificateId) {
+      // The retired certificate may be cached as a "revised" page.
+      purgeCertificateCache(certificateId).catch(() => {});
+    }
+  },
+  finalize: async (submissionId) => {
+    await finalizeIfAlreadyGraded(submissionId);
+  },
+};
 
 // US-569: grading durability knobs.
 //
@@ -1758,6 +1908,10 @@ export async function processSubmission(submissionId: string) {
     return;
   }
 
+  // US-3531: renew the lease while this run is alive, so a grade waiting for
+  // an image slot is not resumed a second time by the reaper.
+  const stopHeartbeat = startLeaseHeartbeat(submissionId, gradingLeaseSeconds());
+
   try {
     // --- Step 1: Fetch submission record ---
     const { data: submission, error: submissionError } = await supabaseAdmin
@@ -1819,7 +1973,32 @@ export async function processSubmission(submissionId: string) {
     // system_settings, off by default), grade the first pass on the cheap model
     // and escalate to the stronger model only when confidence is low / the item
     // is high-value. `firstPassModel` undefined ⇒ default single-model behavior.
-    const cascade = await getCascadeConfig();
+    // US-3533: these setup reads do not depend on each other, and ran one after
+    // another on every grade. Start them together and await each where it was
+    // used. The no-op catches only mark a rejection as handled while it waits
+    // its turn; awaiting the original still throws exactly as before.
+    const wantAuthenticitySetup =
+      (submission as { authenticity_addon?: boolean }).authenticity_addon === true;
+    const cascadeP = getCascadeConfig();
+    const tellsP = wantAuthenticitySetup
+      ? getEffectiveTellsForBrand(submission.brand).catch(() => [])
+      : Promise.resolve([]);
+    const referencesP = wantAuthenticitySetup
+      ? getAuthenticityReferences(brandKey(submission.brand ?? "")).catch(() => [])
+      : Promise.resolve([]);
+    const baselineP = getGarmentBaseline({
+      brand: submission.brand,
+      garmentCategory: submission.garment_category,
+    });
+    const visualSettingP = getSetting<{ enabled?: boolean; maxImages?: number }>(
+      "grading_composite_visual",
+      {},
+    );
+    for (const p of [cascadeP, baselineP, visualSettingP] as Promise<unknown>[]) {
+      p.catch(() => {});
+    }
+
+    const cascade = await cascadeP;
     const firstPassModel = cascade.enabled ? cascade.firstPassModel : undefined;
 
     // US-601: premium authenticity / counterfeit-confidence add-on. Only runs
@@ -1849,17 +2028,11 @@ export async function processSubmission(submissionId: string) {
     // Best-effort + only when the add-on was purchased — a miss (or an
     // unrecognizable brand) yields empty tells, keeping the assessment on the
     // byte-identical ungrounded v1 prompt.
-    const authenticityTells = wantAuthenticity
-      ? await getEffectiveTellsForBrand(submission.brand).catch(() => [])
-      : [];
+    const authenticityTells = await tellsP;
     // US-2218: the known-genuine references we hold for this brand. Empty on a
     // miss or a failure, which marks every visual tell unverifiable — widening
     // the disclosed limitations and capping confidence, never raising risk.
-    const authenticityReferences = wantAuthenticity
-      ? await getAuthenticityReferences(brandKey(submission.brand ?? "")).catch(
-        () => [],
-      )
-      : [];
+    const authenticityReferences = await referencesP;
 
     // US-2210: read the garment's OWN label as trusted identity context. Gated
     // on GRADING_TAG_OCR (default OFF — the composite prompt changes, so it goes
@@ -1920,12 +2093,7 @@ export async function processSubmission(submissionId: string) {
     // cache-first with lazy generation). Fetched ONCE before the memory-gated
     // closure so both the per-image calls and the composite share it. Strictly
     // additive — a null baseline leaves every prompt byte-identical.
-    const baselineBlock = baselineReferenceBlock(
-      (await getGarmentBaseline({
-        brand: submission.brand,
-        garmentCategory: submission.garment_category,
-      })) ?? "",
-    );
+    const baselineBlock = baselineReferenceBlock((await baselineP) ?? "");
 
     // US-1537: composite visual verification config (default OFF — canary
     // rollout; adds image tokens to the composite call). When on, the buffer
@@ -1934,10 +2102,7 @@ export async function processSubmission(submissionId: string) {
     const visualCfg = {
       enabled: false,
       maxImages: 4,
-      ...(await getSetting<{ enabled?: boolean; maxImages?: number }>(
-        "grading_composite_visual",
-        {},
-      )),
+      ...(await visualSettingP),
     };
     const verificationImages: VerificationImage[] = [];
 
@@ -1947,6 +2112,9 @@ export async function processSubmission(submissionId: string) {
     // bounds how many submissions buffer multi-MB image data at once and is
     // what keeps concurrent grading from OOM-ing the container. The closure
     // scopes `imageData` so the base64 is GC-eligible the moment it returns.
+    // US-3529: vision input shaping, read once per grade.
+    const visionEdge = visionLongEdge();
+    const skipMeasurement = skipMeasurementFanout();
     const bufferResult = await withImageBufferSlot(async () => {
       // --- Step 3: Download images from storage and convert to base64 ---
       const imageDataPromises = images.map(async (image) => {
@@ -1960,7 +2128,15 @@ export async function processSubmission(submissionId: string) {
 
         // Convert Blob to base64
         const arrayBuffer = await fileData.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
+        let bytes: Uint8Array = new Uint8Array(arrayBuffer);
+        // US-3529: optional downscale before the vision calls (flag, default
+        // off; unchanged bytes when off).
+        let shrunk = false;
+        if (visionEdge !== null) {
+          const s = await shrinkForVision(bytes, visionEdge);
+          bytes = s.bytes;
+          shrunk = s.shrunk;
+        }
         const base64 = uint8ToBase64(bytes);
 
         // Determine media type from the actual bytes, not the (possibly lying)
@@ -1980,10 +2156,16 @@ export async function processSubmission(submissionId: string) {
           // cap on the macro frames' MEASURED sharpness rather than on the mere
           // presence of a file in the slot. Null on any pre-00568 row.
           qualityScore: typeof image.quality_score === "number" ? image.quality_score : null,
+          shrunk,
         };
       });
 
       const imageData = await Promise.all(imageDataPromises);
+      // US-3529: measurement photos can be left out of the CONDITION fan-out
+      // (flag, default off). They stay in imageData for everything else.
+      const conditionImages = skipMeasurement
+        ? imageData.filter((img) => !isMeasurementImage(img.imageType))
+        : imageData;
 
       // --- Step 4: Run analyzeImage() on each image in parallel ---
       console.log(`[Pipeline] Running per-image analysis for ${imageData.length} images`);
@@ -2017,11 +2199,11 @@ export async function processSubmission(submissionId: string) {
       // log rather than an ai_usage_events column because grading records usage
       // through recordAiUsage (the pre-US-894 path), whose rows leave
       // latency_ms null.
-      const perImageMs: number[] = new Array(imageData.length).fill(-1);
+      const perImageMs: number[] = new Array(conditionImages.length).fill(-1);
       const fanOutStartedAt = Date.now();
       const staggered = gradingCacheStaggerEnabled();
       const fanOut = staggerFirstCall(
-        imageData,
+        conditionImages,
         (img, perImageIndex, onFirstToken) => {
           const callStartedAt = Date.now();
           return analyzeImage(
@@ -2041,7 +2223,17 @@ export async function processSubmission(submissionId: string) {
             undefined,
             img.imageRole,
             onFirstToken,
-          ).finally(() => {
+          ).then((r) => {
+            // US-3529: stamp the era so accuracy tracking can split it.
+            if (r && typeof r === "object") {
+              const a = r as { prompt_version?: string };
+              if (typeof a.prompt_version === "string") {
+                if (img.shrunk) a.prompt_version += `+ds${visionEdge}`;
+                if (skipMeasurement) a.prompt_version += "+nomeasure";
+              }
+            }
+            return r;
+          }).finally(() => {
             perImageMs[perImageIndex] = Date.now() - callStartedAt;
           });
         },
@@ -2149,8 +2341,9 @@ export async function processSubmission(submissionId: string) {
           tagPromise,
           sizePromise,
         ]);
+      // US-3529: the fan-out ran over conditionImages, so index into that.
       const results: SettledImage[] = settled.map((s, i) => ({
-        imageType: imageData[i].imageType,
+        imageType: conditionImages[i].imageType,
         result: s.status === "fulfilled" ? s.value : null,
       }));
       // US-3345 AC2, measured on every real grade from here on. With the
@@ -2581,10 +2774,15 @@ export async function processSubmission(submissionId: string) {
       // AC #4: abstention must not consume a paid grade. Reverse the charge
       // taken at submit (included grade returned / credits re-granted; a
       // Stripe per-grade payment is flagged for manual refund).
-      await reverseChargeForUngradedSubmission(submissionId, "quality abstention");
+      const reversed = await reverseChargeForUngradedSubmission(
+        submissionId,
+        "quality abstention",
+      );
       // US-1056: tell the seller the grade was withheld for clearer photos
       // (not silently stuck). Best-effort — never blocks the abstention.
-      void notifyGradingIncomplete(
+      // US-3515: skipped when a regrade abstained and the prior grade was put
+      // back, since the seller still has that grade.
+      if (reversed) void notifyGradingIncomplete(
         submission.user_id,
         submission.title,
         qualityGate.summary,
@@ -3503,6 +3701,9 @@ export async function processSubmission(submissionId: string) {
     compositeResult.needs_human_review = reconcileNeedsReview(
       compositeResult.needs_human_review,
       compositeResult.confidence_score,
+      // US-3537: the same threshold compositeGrade used (calibrated when
+      // enforced); undefined falls back to the flat one, as before.
+      compositeResult.review_threshold,
     );
 
     // US-333 + US-1279: tamper-evident integrity. Hash the canonical
@@ -3536,6 +3737,9 @@ export async function processSubmission(submissionId: string) {
       // empty verdict, not a missing key.
       authenticity_verdict: authenticityAssessment?.verdict ?? null,
       authenticity_verdict_confidence: authenticityAssessment?.verdict_confidence ?? null,
+      // US-3516: seal the graded photo bytes (v5). A read failure seals v4
+      // rather than failing a paid grade.
+      photo_hashes: await loadSealedPhotoHashes(submissionId).catch(() => undefined),
     });
 
     // US-2570: a certificate-number collision must not fail a PAID grade.
@@ -4126,11 +4330,28 @@ export async function processSubmission(submissionId: string) {
     );
     const totalMs = Date.now() - startTime;
 
+    // US-3525: one event per grade with the numbers the monitor and dashboards
+    // need. Fire-and-forget.
+    void emitGradingOutcome({
+      outcome: "completed",
+      submissionId,
+      durationMs: totalMs,
+      promptVersion: compositeResult.prompt_version,
+      overallScore: compositeResult.overall_score,
+      confidenceScore: compositeResult.confidence_score,
+      needsHumanReview: compositeResult.needs_human_review,
+      autoApproved: autoApprove,
+      garmentCategory: submission.garment_category ?? null,
+    });
+
     if (autoApprove) {
       // Finalize now (reviewerId null = auto-approved, no human). All the go-live
       // wiring AND the seller's "now official" email + in-app notice run inside
       // finalizeGradeReview, so there's no preliminary/admin notification.
       await finalizeGradeReview(gradeReport.id, { reviewerId: null, modified: false });
+      // US-3524: a small random share of auto-approved grades gets a blind
+      // human spot check, so confidence is measured where it is highest.
+      if (shouldSpotCheck()) void requestSpotCheck(gradeReport.id);
       console.log(
         `[Pipeline] AUTO-APPROVED grade for submission ${submissionId} | ` +
           `overall_score=${compositeResult.overall_score} | grade_tier=${compositeResult.grade_tier} | ` +
@@ -4195,19 +4416,33 @@ export async function processSubmission(submissionId: string) {
     // wrong — they'd create a "refunded + graded" / "failed + graded" state
     // nothing reconciles. The grade stands; just log the side-effect error and
     // rethrow so the caller/reaper still sees it.
-    const { data: existingReport } = await supabaseAdmin
-      .from("grade_reports")
-      .select("id")
-      .eq("submission_id", submissionId)
-      .is("superseded_at", null)
-      .maybeSingle();
-    if (existingReport) {
+    // US-3515: this read decides whether we refund, so a failed read must not
+    // be taken as "no report". It also covers a failed REGRADE: the prior
+    // report was superseded before the re-run, so it is put back here and the
+    // seller keeps the grade and certificate they already had.
+    const prior = await restorePriorGradeInsteadOfRefund(submissionId);
+    if (prior === "unknown" || prior === "restored") {
+      console.warn(
+        `[Pipeline] submission ${submissionId} failed; prior grade ${prior} -- ` +
+          `NOT marking failed, reversing charge, or notifying failure. error=${errorMessage}`,
+      );
+      throw error;
+    }
+    if (prior === "graded") {
       console.warn(
         `[Pipeline] submission ${submissionId} failed AFTER its grade report was inserted — ` +
           `grade stands; NOT marking failed, reversing charge, or notifying failure. error=${errorMessage}`,
       );
       throw error;
     }
+
+    // US-3525: a real failure (no grade stands), after the restore check.
+    void emitGradingOutcome({
+      outcome: "failed",
+      submissionId,
+      durationMs: totalMs,
+      error: errorMessage,
+    });
 
     // Update submission status to 'failed'
     try {
@@ -4265,5 +4500,7 @@ export async function processSubmission(submissionId: string) {
     }
 
     throw error;
+  } finally {
+    stopHeartbeat();
   }
 }

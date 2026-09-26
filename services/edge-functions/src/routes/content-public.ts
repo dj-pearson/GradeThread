@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { verifyCertificateWithPhotos } from "../lib/cert-photo-seal.ts";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { decodeTagCode } from "../lib/brand-decoders.ts";
@@ -39,7 +40,6 @@ import {
 import { parseRegisteredNumber, registeredNumberKey } from "../lib/registered-numbers.ts";
 import { filterListablePhotos } from "../lib/item-photo-storage.ts";
 import { verifyPreviewToken } from "../lib/preview-token.ts";
-import { verifyCertIntegrity } from "../lib/cert-integrity.ts";
 import {
   isCertificateWithheld,
   indexableCertificates,
@@ -1356,7 +1356,7 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
       // user_id is read for the US-1912 seller-integrity lookup below and is
       // NEVER put on the response — the fields below are picked one by one, so
       // it cannot ride along by accident the way a spread would let it.
-      "user_id, title, brand, garment_type, garment_category, description, flagged, moderation_status, status, seller_statements",
+      "user_id, title, brand, garment_type, garment_category, description, flagged, moderation_status, status, seller_statements, photos_purged_at",
     )
     .eq("id", rep.submission_id)
     .maybeSingle();
@@ -1557,6 +1557,10 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
       // the page uncacheable when it sees this. False is the ordinary answer and
       // means the gallery is exactly what it says it is.
       photos_unavailable: photosUnavailable,
+      // US-3540: when data retention deleted the photos. Both certificate
+      // pages say "Photos expired <date>" where the gallery was.
+      photos_expired_at:
+        (submission as { photos_purged_at?: string | null } | null)?.photos_purged_at ?? null,
       // US-1413: full ordered gallery (signed URLs) for the SPA photo grid +
       // defect callouts. The SSR path ignores this and uses hero_image_url only.
       images: galleryImages,
@@ -2206,7 +2210,8 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  const result = await verifyCertIntegrity(
+  // US-3516: v5 rows also seal and re-hash the graded photos.
+  const result = await verifyCertificateWithPhotos(
     {
       certificate_id: r.certificate_id,
       overall_score: r.overall_score,
@@ -2233,6 +2238,7 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
     r.content_hash,
     r.content_signature,
     r.integrity_version,
+    r.submission_id,
   );
 
   // US-1465: this fires on every public certificate view, so let a CDN absorb
@@ -2252,6 +2258,11 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
     integrity_version: result.integrity_version,
     content_hash: result.content_hash,
     issued_at: r.created_at,
+    // US-3516: how many sealed photos were re-hashed, and which no longer match.
+    photos_checked: result.photos_checked,
+    photos_altered: result.photos_altered,
+    // US-3540: when data retention deleted the photos. The grade stays sealed.
+    photos_expired_at: result.photos_expired_at,
   });
 });
 

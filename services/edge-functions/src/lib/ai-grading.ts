@@ -19,6 +19,7 @@ import {
 import { supabaseAdmin } from "./supabase.ts";
 import { applyScaleReferenceWording } from "./scale-reference.ts";
 import { applyLegibleWording } from "./label-legibility.ts";
+import { applyImageTextGuard } from "./image-text-guard.ts";
 import {
   anchorLabel,
   REFERENCE_ANCHORS_ADDENDUM,
@@ -75,6 +76,11 @@ import {
   roundWeightedToTenth,
 } from "./human-review.ts";
 import { findLimitingFlaw, type LimitingFlaw } from "./limiting-flaw.ts";
+import {
+  UNASSESSED_FACTOR_CONFIDENCE_CAP,
+  unassessedFactorReviewEnabled,
+  unassessedFactors,
+} from "./unassessed-factors.ts";
 
 // Version names for the in-code default prompts. These MUST match the seeded
 // rows in ai_prompt_versions (migration 00050) so the accuracy loop can
@@ -309,6 +315,13 @@ export interface CompositeGradeResult {
    * stored at up to 1.0.
    */
   confidence_ceiling: number;
+  /**
+   * US-3537: the review threshold this grade was judged against: the
+   * per-category calibrated one when calibration is enforced, else the flat
+   * one. The pipeline's final re-check must use the same number, or it undoes
+   * a calibrated threshold below the flat one.
+   */
+  review_threshold?: number;
   needs_human_review: boolean;
   image_validity: ImageValidity;
   // US-336/US-338: aggregated photo-authenticity assessment.
@@ -1575,8 +1588,14 @@ export async function analyzeImage(
   // Flag-gated (GRADING_SCALE_REFERENCE); identical text when off, and the
   // "+scale" stamp only when the sizing phrase was actually found and replaced.
   const perImageScale = applyScaleReferenceWording(perImageClean.text);
+  // US-3517: text inside a photo is evidence, not instructions. Flag-gated
+  // (GRADING_IMAGE_TEXT_GUARD); identical text when off, "+imgtext" when on.
+  const perImageTextGuard = applyImageTextGuard(
+    perImageScale.text,
+    UNTRUSTED_INPUT_GUARD,
+  );
   const systemBlock: AiSystemBlock = {
-    text: perImageScale.text,
+    text: perImageTextGuard.text,
     cache: gradingCachingEnabled(),
   };
 
@@ -1800,7 +1819,7 @@ export async function analyzeImage(
         perImageClean.applied ? "+clean2" : ""
       }${tailInSystem ? "+sysschema" : ""}${perImageScale.applied ? "+scale" : ""}${
         legibleWording.applied ? "+legible2" : ""
-      }`,
+      }${perImageTextGuard.applied ? "+imgtext" : ""}`,
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;
@@ -2527,10 +2546,6 @@ function scoreToGradeTier(score: number): string {
   return "Poor";
 }
 
-function roundToHalf(value: number): number {
-  return Math.round(value * 2) / 2;
-}
-
 // The 5 FACTORS are graded in 0.5 steps, but the OVERALL is the weighted
 // aggregate and is rounded to 0.1 (e.g. 8.6) — so a single-factor correction in
 // human review actually moves the overall instead of being swallowed by 0.5
@@ -2668,6 +2683,13 @@ export interface ConfidencePolicyInput {
    * submission whose label WAS read.
    */
   labelIllegible?: boolean;
+  /**
+   * US-3535: weighted factors that no analyzed photo could judge, so the
+   * composite wrote a neutral placeholder for them. Caps confidence and forces
+   * review. Optional and only passed when GRADING_UNASSESSED_FACTOR_REVIEW is
+   * on, so absent/empty is byte-identical.
+   */
+  unassessedFactors?: readonly string[];
 }
 
 export interface ConfidencePolicyResult {
@@ -2734,6 +2756,13 @@ export function applyGradingConfidencePolicy(
       ILLEGIBLE_LABEL_CONFIDENCE_CAP,
     );
   }
+  const unassessed = (input.unassessedFactors?.length ?? 0) > 0;
+  if (unassessed) {
+    confidenceCeiling = Math.min(
+      confidenceCeiling,
+      UNASSESSED_FACTOR_CONFIDENCE_CAP,
+    );
+  }
   const finalConfidence = Math.min(input.confidenceScore, confidenceCeiling);
   const needsHumanReview = finalConfidence < input.reviewThreshold ||
     input.authenticityFlagged ||
@@ -2745,7 +2774,9 @@ export function applyGradingConfidencePolicy(
     (input.fabricCloseupMissing ?? false) ||
     // US-3320: same reasoning — the cap sits below the DEFAULT threshold, and
     // a grade built on an unread composition must not ship on a permissive one.
-    (input.labelIllegible ?? false);
+    (input.labelIllegible ?? false) ||
+    // US-3535: a placeholder score must not ship on a permissive threshold.
+    unassessed;
   return { finalConfidence, needsHumanReview, confidenceCeiling };
 }
 
@@ -2805,6 +2836,12 @@ export function promptVersionSuffix(
     // the v2 "legible" definition (GRADING_LEGIBLE_V2). Read off the per-image
     // stamps, like scale, because the clause is in the per-image Rules block.
     legible2?: boolean;
+    // US-3517. Optional and appended last: the image-text guard clause was in
+    // the system prompt (GRADING_IMAGE_TEXT_GUARD).
+    imageTextGuard?: boolean;
+    // US-3529. Optional and appended last: read off the per-image stamps.
+    downscaled?: boolean;
+    noMeasure?: boolean;
   },
 ): string {
   return (blocks.baseline ? "+baseline" : "") +
@@ -2818,7 +2855,10 @@ export function promptVersionSuffix(
     (blocks.scale ? "+scale" : "") +
     (blocks.anchors ? "+anchors" : "") +
     (blocks.fabricZoom ? "+fabriczoom" : "") +
-    (blocks.legible2 ? "+legible2" : "");
+    (blocks.legible2 ? "+legible2" : "") +
+    (blocks.imageTextGuard ? "+imgtext" : "") +
+    (blocks.downscaled ? "+ds" : "") +
+    (blocks.noMeasure ? "+nomeasure" : "");
 }
 
 /**
@@ -3231,6 +3271,13 @@ export async function compositeGrade(
   // US-3329: visible-cleanliness wording on the system prompt and on the
   // factor-weights sentence, flag-gated. Off = both untouched, no suffix.
   const compositeClean = applyCleanlinessWording(prompt.text);
+  // US-3517: same clause and flag as the per-image prompt.
+  const compositeTextGuard = applyImageTextGuard(
+    compositeClean.text,
+    UNTRUSTED_INPUT_GUARD,
+  );
+  const imageTextGuard = compositeTextGuard.applied ||
+    perImageResults.some((r) => /\+imgtext(?:\+|$)/.test(r.prompt_version ?? ""));
   const weightsText = compositeBlocks.composite_factor_weights?.text ??
     COMPOSITE_FACTOR_WEIGHTS;
   const weightsClean = applyCleanlinessWording(weightsText);
@@ -3263,6 +3310,9 @@ export async function compositeGrade(
     anchors: referenceAnchors.length > 0,
     fabricZoom,
     legible2,
+    imageTextGuard,
+    downscaled: perImageResults.some((r) => /\+ds\d+(?:\+|$)/.test(r.prompt_version ?? "")),
+    noMeasure: perImageResults.some((r) => /\+nomeasure(?:\+|$)/.test(r.prompt_version ?? "")),
   });
 
   // US-2432: the other half of the attribution. promptVersion names the SYSTEM
@@ -3279,7 +3329,7 @@ export async function compositeGrade(
   // corrected precedents. Empty string when no set is active → grading unchanged.
   // An override path (eval / dry-run / shadow) measures the prompt itself, so the
   // block is never auto-appended there.
-  let systemText = compositeClean.text;
+  let systemText = compositeTextGuard.text;
   if (
     shouldAppendActiveExemplars(promptOverride !== undefined, suppressExemplars)
   ) {
@@ -3527,19 +3577,9 @@ export async function compositeGrade(
         location: d.location,
       })),
     );
-    parsed.factor_scores = {
-      fabric_condition: roundToHalf(weighting.blendedFactors.fabric_condition),
-      structural_integrity: roundToHalf(
-        weighting.blendedFactors.structural_integrity,
-      ),
-      cosmetic_appearance: roundToHalf(
-        weighting.blendedFactors.cosmetic_appearance,
-      ),
-      functional_elements: roundToHalf(
-        weighting.blendedFactors.functional_elements,
-      ),
-      odor_cleanliness: roundToHalf(weighting.blendedFactors.odor_cleanliness),
-    };
+    // US-3534: settledFactors floors where a defect ceiling binds, so a
+    // recorded defect can never round back up to a clean score.
+    parsed.factor_scores = { ...weighting.settledFactors };
     const largeDefectDivergence =
       weighting.divergence >= DEFECT_DIVERGENCE_REVIEW_THRESHOLD;
 
@@ -3696,6 +3736,10 @@ export async function compositeGrade(
       injectionSuspected,
       fabricCloseupMissing,
       labelIllegible,
+      // US-3535: inert unless the flag is on.
+      ...(unassessedFactorReviewEnabled()
+        ? { unassessedFactors: unassessedFactors(perImageResults) }
+        : {}),
     });
     let finalConfidence = policy.finalConfidence;
     let needsHumanReview = policy.needsHumanReview;
@@ -3737,6 +3781,7 @@ export async function compositeGrade(
       style_attributes: styleAttributes,
       confidence_score: finalConfidence,
       confidence_ceiling: confidenceCeiling,
+      review_threshold: effectiveThreshold,
       needs_human_review: needsHumanReview,
       image_validity: imageValidity,
       image_authenticity: imageAuthenticity,

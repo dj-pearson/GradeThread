@@ -45,7 +45,9 @@ const NAMEABLE_TIERS = ["Fair", "Good", "Very Good", "Excellent"] as const;
 const TIER_ORDER = ["Poor", "Fair", "Good", "Very Good", "Excellent", "NWOT", "NWT"];
 
 function overallFrom(model: FactorScores, defects: WeightedDefect[]): number {
-  const b = applyDefectWeighting(model, defects).blendedFactors;
+  // US-3534: the same settled factors compositeGrade stores, so "removing this
+  // flaw lifts the grade" is computed on the numbers the certificate shows.
+  const b = applyDefectWeighting(model, defects).settledFactors;
   return computeWeightedOverall({
     fabric_condition_score: clampScore(b.fabric_condition),
     structural_integrity_score: clampScore(b.structural_integrity),

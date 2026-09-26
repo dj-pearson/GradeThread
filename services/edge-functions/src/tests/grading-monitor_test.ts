@@ -23,6 +23,11 @@ const THRESHOLDS = {
   max_dispute_rate: 0.05,
   eval_mae_regression_delta: 0.3,
   eval_agreement_regression_delta: 0.1,
+  max_mean_shift: 0.3,
+  max_category_bias: 0.5,
+  max_queue_depth: 50,
+  max_queue_age_hours: 48,
+  max_failure_rate: 0.05,
 };
 
 const HEALTHY = {

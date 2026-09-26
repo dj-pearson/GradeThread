@@ -7,9 +7,10 @@ code_refs:
   - services/edge-functions/src/lib/grading-eval.ts
   - services/edge-functions/src/lib/grading-monitor.ts
   - services/edge-functions/src/tests/grading-eval-gate_test.ts
+  - services/edge-functions/src/tests/golden-set-growth_test.ts
   - scripts/grading-eval-ci.mjs
   - .github/workflows/grading-eval.yml
-reviewed: 2026-09-23
+reviewed: 2026-09-26
 tags: [grading, eval, ci, accuracy]
 summary: The golden-set eval gates prompt ACTIVATION, not the build; it cannot gate a PR (real vision calls, a set that must not be synthetic), but a weekly scheduled workflow fails on regression or an empty set.
 ---
@@ -108,6 +109,24 @@ set was unverified — that is AC1, and it is an operator read.
 the code defaults `per_image_v5` and `composite_v4` serve every grade with no row
 and no eval behind them. The golden-set count from the same section was not
 reported; nothing has ever inserted a case, so expect zero.
+
+**Too thin is refused too (US-3522, 2026-09-26).** An empty set was the only
+refusal, so three tops rated Good could pass a prompt that grades everything.
+`runEval` now calls `goldenSetGaps` before any vision call and throws naming
+the gap: an unscoped run needs `GRADING_EVAL_MIN_CASES` (default 20) cases and
+at least one in every tier NWT to Poor; a run scoped to one category needs
+`GRADING_EVAL_MIN_SCOPED_CASES` (default 5). The set also grows on its own now:
+a review adjustment or dispute that moves a grade by a point or more, or flags
+an intentional-design misread, is queued as an INACTIVE candidate by
+`autoQueueEvalCandidate`. An admin still approves each one before it counts.
+
+**Activation now needs more than a pass (US-3526, 2026-09-26).** For a grading
+prompt, `activatePromptVersion` also refuses a candidate whose latest passing
+eval is worse than the champion's (MAE +0.05, agreement -0.02 tolerance), and
+one with fewer than `GRADING_ACTIVATION_MIN_LIVE_SAMPLES` (default 20) scored
+shadow results and canary grades. A monitor alert, `serving_unevaluated_prompt`,
+also fires every run while a stage serves a version that could not pass this
+gate, including a code default with no row (US-3521).
 
 A corrected grade is only useful here if its AI score survived the correction.
 Until US-3323 the accuracy readers compared the reviewer's score with itself; see

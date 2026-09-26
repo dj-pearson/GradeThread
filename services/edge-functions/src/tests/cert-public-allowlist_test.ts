@@ -120,6 +120,9 @@ const ROUTE_ADDED = new Set([
   // so the SSR page can tell "this cert has no photos" from "we could not find
   // out" instead of noindexing a real certificate on a transient error.
   "photos_unavailable",
+  // US-3540: read from submissions.photos_purged_at in the handler, so the
+  // page can say "Photos expired <date>" where the gallery was.
+  "photos_expired_at",
   "verified_capture_passed",
   "live_capture_verified",
   "verified_360_badge",

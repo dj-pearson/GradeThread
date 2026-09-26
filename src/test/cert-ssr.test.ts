@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { certNotFoundResponse } from "../../functions/cert/cert-not-found";
+import { certNotFoundResponse, certRevisedResponse } from "../../functions/cert/cert-not-found";
 import { notFoundResponse, type PagesEnv } from "../../functions/_shared/blog-render";
 
 // US-1945 AC2: a made-up / unresolvable /cert/:id must return a DISTINCT,
@@ -47,5 +47,32 @@ describe("cert SSR 404 (US-1945 AC2)", () => {
     // The generic default carries its own copy; the cert page must not.
     expect(genericHtml).toContain("couldn't find that page");
     expect(certHtml).not.toContain("couldn't find that page");
+  });
+});
+
+describe("cert SSR withdrawn (US-3540)", () => {
+  it("says withdrawn, answers 410 and stays out of the index", async () => {
+    const res = certRevisedResponse(env, {
+      message: "This certificate was withdrawn on 2026-09-26.",
+      current_certificate_id: null,
+      current_certificate_number: null,
+      status: "revoked",
+    });
+    expect(res.status).toBe(410);
+    const html = await res.text();
+    expect(html).toContain("This certificate was withdrawn");
+    expect(html).toContain("withdrawn on 2026-09-26");
+    expect(html).toContain("noindex");
+  });
+
+  it("a replaced certificate still reads as revised", async () => {
+    const res = certRevisedResponse(env, {
+      message: "Replaced.",
+      current_certificate_id: "abc",
+      current_certificate_number: "GT-1",
+      status: "revised",
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("This certificate was revised");
   });
 });

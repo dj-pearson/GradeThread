@@ -46,7 +46,20 @@ export type RevisionResolution =
     status: "pending";
     revisedAt: string;
     hops: RevisionHop[];
+  }
+  | {
+    /**
+     * US-3540: the grade was withdrawn (a refunded per-grade purchase) and
+     * nothing replaces it. Its own state so a buyer reads "withdrawn on <date>"
+     * rather than "not found", which sounds like a forged number.
+     */
+    status: "revoked";
+    revisedAt: string;
+    hops: RevisionHop[];
   };
+
+/** The revision reason a refund writes. Terminal: nothing supersedes it. */
+export const REVOKED_REASON = "refund";
 
 export interface RevisionHop {
   fromCertificateNumber: string | null;
@@ -108,6 +121,10 @@ export function resolveRevisionChain(
     current = next;
   }
 
+  // US-3540: a withdrawn grade ends the chain whatever else the row holds.
+  if (current.reason === REVOKED_REASON) {
+    return { status: "revoked", revisedAt: current.superseded_at, hops };
+  }
   if (!current.superseding_report_id || !current.superseding_certificate_id) {
     return { status: "pending", revisedAt: current.superseded_at, hops };
   }
@@ -129,6 +146,10 @@ export function resolveRevisionChain(
  */
 export function revisionMessage(resolution: RevisionResolution): string {
   const when = resolution.revisedAt.slice(0, 10);
+  if (resolution.status === "revoked") {
+    return `This certificate was withdrawn on ${when}. It no longer describes ` +
+      `a graded item.`;
+  }
   if (resolution.status === "pending") {
     return `This certificate was replaced on ${when}. The updated grade is not ` +
       `published yet — check back shortly.`;

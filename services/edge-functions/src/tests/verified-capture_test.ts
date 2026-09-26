@@ -36,7 +36,13 @@ function img(
 }
 
 function iphone(dt: string, extra: Record<string, unknown> = {}) {
-  return { make: "Apple", model: "iPhone 14 Pro", dateTimeOriginal: dt, ...extra };
+  return {
+    source: "server",
+    make: "Apple",
+    model: "iPhone 14 Pro",
+    dateTimeOriginal: dt,
+    ...extra,
+  };
 }
 
 Deno.test("parseExifDate handles the EXIF colon-date form", () => {
@@ -443,4 +449,29 @@ Deno.test("US-1766: an omitted captureSource behaves exactly like an older clien
   assertEquals(r.badge, "video_verified");
   assertEquals(r.live_captured, false);
   assertEquals(r.capture_source, null);
+});
+
+Deno.test("US-3518: EXIF the client reported in a form field never earns the badge", () => {
+  const client = (dt: string) => ({ ...iphone(dt), source: "client" });
+  const r = evaluateVerifiedCapture({
+    optedIn: true,
+    submittedAtMs: SUBMIT,
+    images: [img("front", client(RECENT)), img("back", client(RECENT))],
+    crossUserReuse: false,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.verified, false);
+  assert(r.reasons[0]!.includes("read from the photo itself"));
+});
+
+Deno.test("US-3518: EXIF with no source tag (legacy rows) never earns the badge", () => {
+  const { source: _s, ...bare } = iphone(RECENT);
+  const r = evaluateVerifiedCapture({
+    optedIn: true,
+    submittedAtMs: SUBMIT,
+    images: [img("front", bare), img("back", bare)],
+    crossUserReuse: false,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.verified, false);
 });

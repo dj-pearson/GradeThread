@@ -74,9 +74,13 @@ Deno.test("both stages actually send the cleaned text", () => {
   // whitespace-collapsed code, since a reformat is not a regression.
   const flat = code.replace(/\s+/g, " ");
   assert(flat.includes("const perImageScale = applyScaleReferenceWording(perImageClean.text);"));
-  assert(flat.includes("const systemBlock: AiSystemBlock = { text: perImageScale.text,"));
+  // US-3517 layers the image-text guard last; it wraps the scale text, so the
+  // cleaned text still reaches the system block.
+  assert(flat.includes("const perImageTextGuard = applyImageTextGuard( perImageScale.text,"));
+  assert(flat.includes("const systemBlock: AiSystemBlock = { text: perImageTextGuard.text,"));
   assert(code.includes('perImageClean.applied ? "+clean2" : ""'));
-  assert(code.includes("let systemText = compositeClean.text;"));
+  assert(code.includes("let systemText = compositeTextGuard.text;"));
+  assert(code.replace(/\s+/g, " ").includes("const compositeTextGuard = applyImageTextGuard( compositeClean.text,"));
   const composite = code.slice(code.indexOf("export async function compositeGrade("));
   assertEquals((composite.match(/tagBlock,\n\s+promptBlocksForUser,\n/g) ?? []).length, 2);
   assertEquals((composite.match(/tagBlock,\n\s+compositeBlocks,\n/g) ?? []).length, 0);

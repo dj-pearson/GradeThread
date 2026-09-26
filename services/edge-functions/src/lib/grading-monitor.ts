@@ -1,9 +1,9 @@
 import { supabaseAdmin } from "./supabase.ts";
-import { COMPOSITE_PROMPT_VERSION } from "./ai-grading.ts";
+import { COMPOSITE_PROMPT_VERSION, PER_IMAGE_PROMPT_VERSION } from "./ai-grading.ts";
 import { requireJobSecret } from "./job-auth.ts";
 import { computeAccuracySummary, computeOutcomeFeedback } from "./accuracy-tracking.ts";
-import { evalThresholds, runEval } from "./grading-eval.ts";
-import { getGradingCompositeModel } from "./ai-config.ts";
+import { checkPromptServingEligibility, evalThresholds, runEval } from "./grading-eval.ts";
+import { getGradingCompositeModel, servingModelForStage } from "./ai-config.ts";
 import { sendGradingRegressionAlertEmail } from "./email.ts";
 import { captureException, recordMetric } from "./observability.ts";
 import { fetchWithTimeout } from "./circuit-breaker.ts";
@@ -33,6 +33,12 @@ export interface MonitorThresholds {
   max_dispute_rate: number;
   eval_mae_regression_delta: number;
   eval_agreement_regression_delta: number;
+  // US-3525: drift, bias, backlog and failure watches.
+  max_mean_shift: number;
+  max_category_bias: number;
+  max_queue_depth: number;
+  max_queue_age_hours: number;
+  max_failure_rate: number;
 }
 
 export function monitorThresholds(): MonitorThresholds {
@@ -47,6 +53,15 @@ export function monitorThresholds(): MonitorThresholds {
     // A live eval may go UP by this much vs. baseline before it's a regression.
     eval_mae_regression_delta: num("MONITOR_EVAL_MAE_REGRESSION_DELTA", 0.3),
     eval_agreement_regression_delta: num("MONITOR_EVAL_AGREEMENT_REGRESSION_DELTA", 0.1),
+    // US-3525: the mean grade of the last 7 days may move this far from the
+    // 28 days before it before it is called drift. Half a tier.
+    max_mean_shift: num("MONITOR_MAX_MEAN_SHIFT", 0.3),
+    // Human minus AI, averaged per garment category. Half a point is a whole
+    // factor step and is systematic, not noise, once the sample is there.
+    max_category_bias: num("MONITOR_MAX_CATEGORY_BIAS", 0.5),
+    max_queue_depth: num("MONITOR_MAX_QUEUE_DEPTH", 50),
+    max_queue_age_hours: num("MONITOR_MAX_QUEUE_AGE_HOURS", 48),
+    max_failure_rate: num("MONITOR_MAX_FAILURE_RATE", 0.05),
   };
 }
 
@@ -114,6 +129,25 @@ export interface AlertInputs {
   // A shrinking golden set is the exact signal the grading-engine skill asks
   // reviewers to watch for, and a human watching a table is not a mechanism.
   golden_set?: { active: number; baseline: number | null } | null;
+  // US-3525: mean overall grade, last 7 days vs the 28 days before. Slow
+  // inflation moves peer-norm's own baseline with it, so nothing else sees it.
+  grade_drift?: {
+    recent_mean: number;
+    recent_n: number;
+    prior_mean: number;
+    prior_n: number;
+  } | null;
+  // US-3525: per-category human-minus-AI error (accuracy-tracking computes it;
+  // nothing alerted on it).
+  category_bias?: Array<{ category: string; mean_signed_error: number; count: number }>;
+  // US-3525: the human review queue.
+  review_queue?: { depth: number; oldest_age_hours: number | null; overdue: number } | null;
+  // US-3525: grading outcomes over the last 7 days.
+  grading_outcomes?: { failed: number; total: number } | null;
+  // US-3521: the prompt version each grading stage is SERVING (an active row,
+  // or the code default when none is active) and why it is not eligible to
+  // serve, if it is not. Empty = every stage is serving an evaluated version.
+  unevaluated_serving?: Array<{ stage: string; version: string; reason: string }>;
 }
 
 /**
@@ -267,6 +301,104 @@ export function evaluateAlerts(
         t.max_dispute_rate,
       )}.`,
     });
+  }
+
+  // US-3521: activation refuses an un-evaled version, but a CODE DEFAULT is
+  // never activated; it serves whenever nothing is active, so no gate ever
+  // looked at it. Say so every run until it has a passing eval on the live
+  // model.
+  for (const u of inputs.unevaluated_serving ?? []) {
+    alerts.push({
+      code: "serving_unevaluated_prompt",
+      severity: "critical",
+      metric: `serving_prompt:${u.stage}`,
+      value: 0,
+      threshold: 1,
+      message: `The ${u.stage} stage is serving ${u.version}, which cannot serve under the eval gate: ${u.reason}`,
+    });
+  }
+
+  // US-3525: grade drift. Both windows need a real sample or the mean of a
+  // quiet week is noise.
+  const d = inputs.grade_drift;
+  if (d && d.recent_n >= t.min_sample && d.prior_n >= t.min_sample) {
+    const shift = d.recent_mean - d.prior_mean;
+    if (Math.abs(shift) >= t.max_mean_shift) {
+      alerts.push({
+        code: "grade_mean_shift",
+        severity: "warn",
+        metric: "mean_overall_shift",
+        value: Number(shift.toFixed(2)),
+        threshold: t.max_mean_shift,
+        message: `The average grade moved ${shift > 0 ? "up" : "down"} ${
+          Math.abs(shift).toFixed(2)
+        } (${d.prior_mean.toFixed(2)} over the prior 28 days, ${
+          d.recent_mean.toFixed(2)
+        } over the last 7, n=${d.recent_n}). Check for a prompt, model or mix change before trusting new grades.`,
+      });
+    }
+  }
+
+  // US-3525: systematic bias in one category.
+  for (const b of inputs.category_bias ?? []) {
+    if (b.count >= t.min_sample && Math.abs(b.mean_signed_error) >= t.max_category_bias) {
+      alerts.push({
+        code: "category_bias",
+        severity: "warn",
+        metric: `mean_signed_error:${b.category}`,
+        value: Number(b.mean_signed_error.toFixed(2)),
+        threshold: t.max_category_bias,
+        message: `Humans grade ${b.category} ${Math.abs(b.mean_signed_error).toFixed(2)} ${
+          b.mean_signed_error > 0 ? "higher" : "lower"
+        } than the AI on average (n=${b.count}). The AI is ${
+          b.mean_signed_error > 0 ? "harsh" : "generous"
+        } on this category.`,
+      });
+    }
+  }
+
+  // US-3525: review backlog. Overdue or old items are critical because a held
+  // grade past release_at shows the seller the preliminary AI grade.
+  const q = inputs.review_queue;
+  if (q) {
+    if (q.overdue > 0 || (q.oldest_age_hours ?? 0) >= t.max_queue_age_hours) {
+      alerts.push({
+        code: "review_queue_stale",
+        severity: "critical",
+        metric: "review_queue_oldest_age_hours",
+        value: Math.round(q.oldest_age_hours ?? 0),
+        threshold: t.max_queue_age_hours,
+        message: `${q.overdue} review(s) are past their due time and the oldest has waited ${
+          Math.round(q.oldest_age_hours ?? 0)
+        }h.`,
+      });
+    }
+    if (q.depth >= t.max_queue_depth) {
+      alerts.push({
+        code: "review_queue_deep",
+        severity: "warn",
+        metric: "review_queue_depth",
+        value: q.depth,
+        threshold: t.max_queue_depth,
+        message: `${q.depth} grades are waiting for human review.`,
+      });
+    }
+  }
+
+  // US-3525: grading failures.
+  const o = inputs.grading_outcomes;
+  if (o && o.total >= t.min_sample) {
+    const rate = o.failed / o.total;
+    if (rate > t.max_failure_rate) {
+      alerts.push({
+        code: "high_failure_rate",
+        severity: "critical",
+        metric: "grading_failure_rate",
+        value: rate,
+        threshold: t.max_failure_rate,
+        message: `${pct(rate)} of grades failed over the last 7 days (${o.failed} of ${o.total}).`,
+      });
+    }
   }
 
   return alerts;
@@ -492,6 +624,9 @@ export async function runGradingRegressionScan(
     console.error("[grading-monitor] golden-set size check failed:", err);
   }
 
+  const watch = await gatherQualityWatchInputs();
+  const unevaluatedServing = await findUnevaluatedServingPrompts();
+
   const alerts = evaluateAlerts(
     {
       eval_passed: evalResult.ran ? evalResult.passed ?? null : null,
@@ -500,6 +635,15 @@ export async function runGradingRegressionScan(
       model_changed: modelChanged,
       model_qualification: modelQualification,
       golden_set: goldenSet,
+      grade_drift: watch.grade_drift,
+      category_bias: accuracy.category_accuracies.map((a) => ({
+        category: a.garment_category,
+        mean_signed_error: a.mean_signed_error,
+        count: a.count,
+      })),
+      review_queue: watch.review_queue,
+      grading_outcomes: watch.grading_outcomes,
+      unevaluated_serving: unevaluatedServing,
     },
     t,
   );
@@ -546,6 +690,159 @@ export async function runGradingRegressionScan(
   }
 
   return { ran_at, trigger, eval: evalResult, production, alerts, severity, alerted };
+}
+
+// US-3525: the reads behind the drift, backlog and failure alerts. Each is
+// independent and best-effort: a failed read leaves that input null, which
+// raises nothing, and is logged, exactly like the checks above.
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DRIFT_ROW_CAP = 5000;
+
+export function meanOf(values: number[]): number | null {
+  return values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : null;
+}
+
+async function gatherQualityWatchInputs(now = Date.now()): Promise<{
+  grade_drift: AlertInputs["grade_drift"];
+  review_queue: AlertInputs["review_queue"];
+  grading_outcomes: AlertInputs["grading_outcomes"];
+}> {
+  let grade_drift: AlertInputs["grade_drift"] = null;
+  try {
+    const recentFrom = new Date(now - 7 * DAY_MS).toISOString();
+    const priorFrom = new Date(now - 35 * DAY_MS).toISOString();
+    const scores = async (from: string, to: string) => {
+      const { data, error } = await supabaseAdmin
+        .from("grade_reports")
+        .select("overall_score")
+        .is("superseded_at", null)
+        .gte("created_at", from)
+        .lt("created_at", to)
+        .limit(DRIFT_ROW_CAP);
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Array<{ overall_score: number | string | null }>)
+        .map((r) => Number(r.overall_score))
+        .filter((n) => Number.isFinite(n));
+    };
+    const [recent, prior] = await Promise.all([
+      scores(recentFrom, new Date(now).toISOString()),
+      scores(priorFrom, recentFrom),
+    ]);
+    const rm = meanOf(recent);
+    const pm = meanOf(prior);
+    if (rm !== null && pm !== null) {
+      grade_drift = { recent_mean: rm, recent_n: recent.length, prior_mean: pm, prior_n: prior.length };
+    }
+  } catch (err) {
+    console.error("[grading-monitor] grade-drift read failed:", err);
+  }
+
+  let review_queue: AlertInputs["review_queue"] = null;
+  try {
+    const base = () =>
+      supabaseAdmin
+        .from("grade_reports")
+        .select("id", { count: "exact", head: true })
+        .eq("review_status", "pending")
+        .eq("human_reviewed", false)
+        .is("superseded_at", null);
+    const [{ count: depth, error: e1 }, { count: overdue, error: e2 }, oldest] = await Promise.all([
+      base(),
+      base().lt("review_due_at", new Date(now).toISOString()),
+      supabaseAdmin
+        .from("grade_reports")
+        .select("created_at")
+        .eq("review_status", "pending")
+        .eq("human_reviewed", false)
+        .is("superseded_at", null)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    if (e1 || e2 || oldest.error) throw new Error((e1 ?? e2 ?? oldest.error)!.message);
+    const oldestAt = (oldest.data as { created_at?: string } | null)?.created_at;
+    review_queue = {
+      depth: depth ?? 0,
+      overdue: overdue ?? 0,
+      oldest_age_hours: oldestAt ? (now - Date.parse(oldestAt)) / 3_600_000 : null,
+    };
+  } catch (err) {
+    console.error("[grading-monitor] review-queue read failed:", err);
+  }
+
+  let grading_outcomes: AlertInputs["grading_outcomes"] = null;
+  try {
+    const since = new Date(now - 7 * DAY_MS).toISOString();
+    const count = async (statuses: string[]) => {
+      const { count, error } = await supabaseAdmin
+        .from("submissions")
+        .select("id", { count: "exact", head: true })
+        .in("status", statuses)
+        .gte("created_at", since);
+      if (error) throw new Error(error.message);
+      return count ?? 0;
+    };
+    const [failed, done] = await Promise.all([
+      count(["failed"]),
+      count(["completed", "pending_review"]),
+    ]);
+    grading_outcomes = { failed, total: failed + done };
+  } catch (err) {
+    console.error("[grading-monitor] grading-outcome read failed:", err);
+  }
+
+  return { grade_drift, review_queue, grading_outcomes };
+}
+
+// US-3521: which prompt version each grading stage serves, and whether it may.
+// Mirrors how serving resolves: an active unscoped row wins, else the code
+// default by name. The version is judged with the same
+// checkPromptServingEligibility that activation uses, against the model that
+// stage actually serves on.
+export async function findUnevaluatedServingPrompts(): Promise<
+  Array<{ stage: string; version: string; reason: string }>
+> {
+  const out: Array<{ stage: string; version: string; reason: string }> = [];
+  const stages = [
+    { stage: "per_image", codeDefault: PER_IMAGE_PROMPT_VERSION },
+    { stage: "composite", codeDefault: COMPOSITE_PROMPT_VERSION },
+  ];
+  for (const { stage, codeDefault } of stages) {
+    try {
+      const { data: active } = await supabaseAdmin
+        .from("ai_prompt_versions")
+        .select("version_name, eval_passed, qualified_model")
+        .eq("stage", stage)
+        .eq("is_active", true)
+        .is("garment_scope", null)
+        .maybeSingle();
+      type Row = { version_name: string; eval_passed: boolean | null; qualified_model: string | null };
+      let row = active as Row | null;
+      let version = row?.version_name ?? codeDefault;
+      if (!row) {
+        const { data: seeded } = await supabaseAdmin
+          .from("ai_prompt_versions")
+          .select("version_name, eval_passed, qualified_model")
+          .eq("version_name", codeDefault)
+          .maybeSingle();
+        row = seeded as Row | null;
+        version = codeDefault;
+      }
+      if (!row) {
+        out.push({
+          stage,
+          version,
+          reason: "the code default has no ai_prompt_versions row, so it has never been evaluated.",
+        });
+        continue;
+      }
+      const verdict = checkPromptServingEligibility(row, servingModelForStage(stage));
+      if (!verdict.ok) out.push({ stage, version, reason: verdict.reason });
+    } catch (err) {
+      console.error(`[grading-monitor] serving-prompt check failed for ${stage}:`, err);
+    }
+  }
+  return out;
 }
 
 // US-502: returns TRUE only if at least one channel ACTUALLY delivered. The

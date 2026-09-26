@@ -1,12 +1,14 @@
 import { supabaseAdmin } from "./supabase.ts";
 import {
   analyzeImage,
+  COMPOSITE_PROMPT_VERSION,
   compositeGrade,
   type CompositeGradeResult,
   type FactorScores,
   type GarmentInfo,
   invalidatePromptCache,
   type PerImageAnalysis,
+  PER_IMAGE_PROMPT_VERSION,
   type ResolvedPrompt,
   unversionedPromptSurfaceHash,
 } from "./ai-grading.ts";
@@ -90,6 +92,8 @@ export interface EvalCaseResult {
   error: number | null;
   agreed: boolean;
   failed_reason?: string;
+  // US-3523: each run's overall when GRADING_EVAL_REPEATS > 1.
+  run_scores?: number[];
 }
 
 export interface EvalTagResult {
@@ -326,6 +330,19 @@ export async function runEval(
         ". Add golden cases before running the eval gate.",
     );
   }
+  // US-3522: an empty set was the only refusal, so three tops rated Good could
+  // pass a prompt that grades every garment. Refuse a set too small or too
+  // narrow to mean anything, and name the gap.
+  const gaps = goldenSetGaps(
+    (cases as Array<{ expected_tier: string | null }>),
+    { scoped: Boolean(v.garment_scope) },
+  );
+  if (gaps.length > 0) {
+    throw new Error(
+      `Golden set too thin to gate on${v.garment_scope ? ` for "${v.garment_scope}"` : ""}: ` +
+        `${gaps.join("; ")}. Promote more real corrected grades before running the eval gate.`,
+    );
+  }
 
   // US-2307: the eval runs on, and stamps, the model THIS STAGE will serve on.
   //
@@ -346,6 +363,10 @@ export async function runEval(
       ? modelOverride
       : servingModelForStage(v.stage);
   const perCase: EvalCaseResult[] = [];
+  // US-3523: grading is not greedy on the serving model, so one run per case
+  // can pass or fail a prompt by luck. Each case is graded `repeats` times and
+  // scored on the mean.
+  const repeats = evalRepeats();
 
   for (const row of cases as EvalCaseRow[]) {
     const styleHint = Array.isArray(row.style_attributes) ? row.style_attributes : [];
@@ -353,48 +374,53 @@ export async function runEval(
       const images = Array.isArray(row.images) ? row.images : [];
       if (images.length === 0) throw new Error("case has no images");
 
-      // Per-image analysis (sequential to keep eval load modest).
-      const perImage: PerImageAnalysis[] = [];
-      for (const img of images) {
-        const dl = await downloadCaseImage(img.storage_path);
-        if ("error" in dl) throw new Error(`${img.storage_path}: ${dl.error}`);
-        perImage.push(
-          await analyzeImage(
-            dl.dataUri,
-            img.image_type,
-            row.garment_type,
-            row.garment_category,
-            styleHint,
-            perImageOverride,
-            modelOverride,
-            // No bucketKey: an eval is not a customer submission, so it must
-            // never take a canary slice — it has to measure the champion.
-            undefined,
-            "",
-            blockOverride,
-          ),
-        );
-      }
+      const runs: number[] = [];
+      for (let rep = 0; rep < repeats; rep++) {
+        // Per-image analysis (sequential to keep eval load modest).
+        const perImage: PerImageAnalysis[] = [];
+        for (const img of images) {
+          const dl = await downloadCaseImage(img.storage_path);
+          if ("error" in dl) throw new Error(`${img.storage_path}: ${dl.error}`);
+          perImage.push(
+            await analyzeImage(
+              dl.dataUri,
+              img.image_type,
+              row.garment_type,
+              row.garment_category,
+              styleHint,
+              perImageOverride,
+              modelOverride,
+              // No bucketKey: an eval is not a customer submission, so it must
+              // never take a canary slice — it has to measure the champion.
+              undefined,
+              "",
+              blockOverride,
+            ),
+          );
+        }
 
-      const garmentInfo: GarmentInfo = {
-        garment_type: row.garment_type,
-        garment_category: row.garment_category,
-        brand: row.brand,
-        title: row.label,
-        description: row.description,
-        style_attributes: styleHint,
-      };
-      const result = await compositeGrade(
-        perImage,
-        garmentInfo,
-        compositeOverride,
-        modelOverride,
-        undefined, // bucketKey
-        "", // baselineBlock
-        [], // verificationImages
-        true, // US-1643: eval measures the prompt — never the live exemplar block
-      );
-      const error = Math.abs(result.overall_score - row.expected_score);
+        const garmentInfo: GarmentInfo = {
+          garment_type: row.garment_type,
+          garment_category: row.garment_category,
+          brand: row.brand,
+          title: row.label,
+          description: row.description,
+          style_attributes: styleHint,
+        };
+        const result = await compositeGrade(
+          perImage,
+          garmentInfo,
+          compositeOverride,
+          modelOverride,
+          undefined, // bucketKey
+          "", // baselineBlock
+          [], // verificationImages
+          true, // US-1643: eval measures the prompt — never the live exemplar block
+        );
+        runs.push(result.overall_score);
+      }
+      const predicted = meanOfRuns(runs);
+      const error = Math.abs(predicted - row.expected_score);
 
       perCase.push({
         case_id: row.id,
@@ -402,9 +428,10 @@ export async function runEval(
         garment_category: row.garment_category,
         tags: row.tags ?? [],
         expected_score: row.expected_score,
-        predicted_score: result.overall_score,
+        predicted_score: predicted,
         error,
         agreed: error <= 0.5,
+        ...(runs.length > 1 ? { run_scores: runs } : {}),
       });
     } catch (err) {
       perCase.push({
@@ -850,6 +877,129 @@ export function checkPromptServingEligibility(
 }
 
 /**
+ * US-3526: what activation needs to see beyond a passing eval.
+ *
+ * `candidate` / `champion` are each version's most recent PASSING eval run on
+ * the golden set (champion = the version currently serving this slot, or the
+ * code default by name when nothing is active). `liveSamples` counts shadow
+ * results that produced a score plus canary grades stamped with the version.
+ */
+export interface ActivationEvidence {
+  candidate: { mae: number; agreement: number } | null;
+  champion: { name: string; mae: number; agreement: number } | null;
+  liveSamples: number;
+}
+
+export function activationMinLiveSamples(): number {
+  const raw = Number(Deno.env.get("GRADING_ACTIVATION_MIN_LIVE_SAMPLES"));
+  return Number.isFinite(raw) && raw >= 0 ? Math.trunc(raw) : 20;
+}
+
+/** Tolerances for "no worse": run-to-run noise, not a licence to regress. */
+export const CHAMPION_MAE_TOLERANCE = 0.05;
+export const CHAMPION_AGREEMENT_TOLERANCE = 0.02;
+
+export function activationEvidenceVerdict(
+  e: ActivationEvidence,
+  minLive = activationMinLiveSamples(),
+): { ok: true } | { ok: false; reason: string } {
+  if (!e.candidate) {
+    return { ok: false, reason: "No passing eval run is recorded for this version." };
+  }
+  if (e.champion) {
+    const worseMae = e.candidate.mae > e.champion.mae + CHAMPION_MAE_TOLERANCE;
+    const worseAgreement = e.candidate.agreement <
+      e.champion.agreement - CHAMPION_AGREEMENT_TOLERANCE;
+    if (worseMae || worseAgreement) {
+      return {
+        ok: false,
+        reason: `Worse than the version it would replace (${e.champion.name}): ` +
+          `MAE ${e.candidate.mae} vs ${e.champion.mae}, agreement ` +
+          `${e.candidate.agreement} vs ${e.champion.agreement}.`,
+      };
+    }
+  }
+  if (e.liveSamples < minLive) {
+    return {
+      ok: false,
+      reason: `Only ${e.liveSamples} live shadow or canary grades recorded for this version; ` +
+        `${minLive} are needed before it can serve every grade.`,
+    };
+  }
+  return { ok: true };
+}
+
+async function latestPassingRun(
+  promptVersionId: string,
+): Promise<{ mae: number; agreement: number } | null> {
+  const { data } = await supabaseAdmin
+    .from("grading_eval_runs")
+    .select("mean_absolute_error, agreement_rate")
+    .eq("prompt_version_id", promptVersionId)
+    .eq("passed", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const r = data as { mean_absolute_error: number; agreement_rate: number } | null;
+  return r ? { mae: Number(r.mean_absolute_error), agreement: Number(r.agreement_rate) } : null;
+}
+
+async function loadActivationEvidence(v: {
+  id: string;
+  stage: string;
+  garment_scope: string | null;
+}): Promise<ActivationEvidence> {
+  const candidate = await latestPassingRun(v.id);
+
+  let championQuery = supabaseAdmin
+    .from("ai_prompt_versions")
+    .select("id, version_name")
+    .eq("stage", v.stage)
+    .eq("is_active", true)
+    .neq("id", v.id);
+  championQuery = v.garment_scope
+    ? championQuery.eq("garment_scope", v.garment_scope)
+    : championQuery.is("garment_scope", null);
+  let { data: champRow } = await championQuery.maybeSingle();
+  if (!champRow && !v.garment_scope) {
+    const codeDefault = v.stage === "per_image" ? PER_IMAGE_PROMPT_VERSION : COMPOSITE_PROMPT_VERSION;
+    ({ data: champRow } = await supabaseAdmin
+      .from("ai_prompt_versions")
+      .select("id, version_name")
+      .eq("version_name", codeDefault)
+      .neq("id", v.id)
+      .maybeSingle());
+  }
+  const champ = champRow as { id: string; version_name: string } | null;
+  const champRun = champ ? await latestPassingRun(champ.id) : null;
+
+  const { data: nameRow } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .select("version_name")
+    .eq("id", v.id)
+    .maybeSingle();
+  const name = (nameRow as { version_name?: string } | null)?.version_name ?? "";
+  const { count: shadow } = await supabaseAdmin
+    .from("grading_shadow_results")
+    .select("id", { count: "exact", head: true })
+    .eq("shadow_prompt_version_id", v.id)
+    .not("shadow_overall_score", "is", null);
+  // Canary grades carry the version name, possibly with era suffixes.
+  const { count: canary } = name
+    ? await supabaseAdmin
+      .from("grade_reports")
+      .select("id", { count: "exact", head: true })
+      .like("prompt_version", `${name.replace(/[\\%_]/g, (m) => "\\" + m)}%`)
+    : { count: 0 };
+
+  return {
+    candidate,
+    champion: champ && champRun ? { name: champ.version_name, ...champRun } : null,
+    liveSamples: (shadow ?? 0) + (canary ?? 0),
+  };
+}
+
+/**
  * Activation gate. A prompt version may go active only if its most recent eval
  * run passed. Returns { ok } or { ok:false, reason } for the admin route to
  * surface. Mutates is_active + deactivates the previous active prompt for the
@@ -880,6 +1030,16 @@ export async function activatePromptVersion(
   // outright once the two diverge.
   const eligible = checkPromptServingEligibility(v, servingModelForStage(v.stage));
   if (!eligible.ok) return eligible;
+
+  // US-3526: for a GRADING prompt, passing the thresholds is not enough. It
+  // must be no worse than what it replaces on the golden set, and it must have
+  // been seen on live traffic (shadow or canary) first. Listing prompts have
+  // their own acceptance loop (listing-acceptance.ts) and skip this.
+  if (v.stage === "per_image" || v.stage === "composite") {
+    const evidence = await loadActivationEvidence(v);
+    const verdict = activationEvidenceVerdict(evidence);
+    if (!verdict.ok) return verdict;
+  }
 
   // Deactivate the current active prompt for the same stage + scope slot.
   let deactivateQuery = supabaseAdmin
@@ -1053,6 +1213,63 @@ export async function promoteGradeReportToEvalCase(
   return { ok: true, case_id: (inserted as { id: string }).id, already: false };
 }
 
+/**
+ * US-3523: how many times runEval grades each case. GRADING_EVAL_REPEATS,
+ * default 1 (each repeat is another full set of vision calls), capped at 5.
+ */
+export function evalRepeats(): number {
+  const raw = Number(Deno.env.get("GRADING_EVAL_REPEATS"));
+  return Number.isFinite(raw) && raw >= 1 ? Math.min(5, Math.trunc(raw)) : 1;
+}
+
+/** Mean of repeated overall scores, on the 0.1 grid the grade uses. */
+export function meanOfRuns(runs: readonly number[]): number {
+  if (runs.length === 0) return Number.NaN;
+  const m = runs.reduce((a, b) => a + b, 0) / runs.length;
+  return Math.round(m * 10) / 10;
+}
+
+/**
+ * US-3522: the minimum golden set the eval gate will run on.
+ *
+ * Unscoped: GRADING_EVAL_MIN_CASES cases (default 20) and at least one case in
+ * every grade tier, so a prompt cannot pass on a set that never asks it to
+ * grade a Poor or an NWT. Scoped to one category: GRADING_EVAL_MIN_SCOPED_CASES
+ * (default 5); the tier rule is not applied, since one category rarely spans
+ * every tier. Pure, so the thresholds are testable.
+ */
+export const GRADE_TIERS = [
+  "NWT",
+  "NWOT",
+  "Excellent",
+  "Very Good",
+  "Good",
+  "Fair",
+  "Poor",
+] as const;
+
+function envInt(name: string, fallback: number): number {
+  const raw = Number(Deno.env.get(name));
+  return Number.isFinite(raw) && raw >= 1 ? Math.trunc(raw) : fallback;
+}
+
+export function goldenSetGaps(
+  cases: ReadonlyArray<{ expected_tier: string | null }>,
+  opts: { scoped: boolean },
+): string[] {
+  const gaps: string[] = [];
+  const min = opts.scoped
+    ? envInt("GRADING_EVAL_MIN_SCOPED_CASES", 5)
+    : envInt("GRADING_EVAL_MIN_CASES", 20);
+  if (cases.length < min) gaps.push(`${cases.length} active cases, need ${min}`);
+  if (!opts.scoped) {
+    const present = new Set(cases.map((c) => c.expected_tier ?? ""));
+    const missing = GRADE_TIERS.filter((t) => !present.has(t));
+    if (missing.length > 0) gaps.push(`no case in tier ${missing.join(", ")}`);
+  }
+  return gaps;
+}
+
 /** A correction worth turning into a golden case: a flagged intentional-design
  *  misread, or a score the reviewer moved by at least `minDelta` points. An
  *  approved-as-is review (no adjusted score, no misread flag) is NOT high-signal
@@ -1068,6 +1285,45 @@ export function isHighSignalCorrection(
   if (review.intentional_misread === true) return true;
   if (review.adjusted_score === null || review.adjusted_score === undefined) return false;
   return Math.abs(review.adjusted_score - review.original_score) >= minDelta;
+}
+
+/**
+ * US-3522: queue a high-signal correction as an INACTIVE eval candidate the
+ * moment a human makes it, instead of waiting for someone to press the
+ * sweep button. The candidate still needs an admin to approve it before it
+ * counts toward the gate, exactly like a manual promotion. Never throws: a
+ * review must not fail because the golden-set bookkeeping did.
+ */
+export const AUTO_QUEUE_MIN_DELTA = 1.0;
+
+export async function autoQueueEvalCandidate(
+  review: {
+    grade_report_id: string;
+    original_score: number;
+    adjusted_score: number | null;
+    intentional_misread: boolean | null;
+  },
+  source: "human_review" | "dispute",
+  createdBy: string | null,
+  promote: typeof promoteGradeReportToEvalCase = promoteGradeReportToEvalCase,
+): Promise<"queued" | "already" | "skipped" | "failed"> {
+  if (!isHighSignalCorrection(review, AUTO_QUEUE_MIN_DELTA)) return "skipped";
+  try {
+    const res = await promote(review.grade_report_id, source, createdBy);
+    if (!res.ok) {
+      console.warn(
+        `[grading-eval] auto-queue of ${review.grade_report_id} refused: ${res.error}`,
+      );
+      return "failed";
+    }
+    return res.already ? "already" : "queued";
+  } catch (err) {
+    console.error(
+      `[grading-eval] auto-queue of ${review.grade_report_id} failed:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return "failed";
+  }
 }
 
 export interface HighSignalPromoteOptions {

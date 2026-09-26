@@ -8,11 +8,14 @@
 // It NEVER deletes the submission row (the caller owns that lifecycle, since the
 // single path 400s the request while the batch path fails just that job).
 
+import { duplicateCorePhoto, duplicatePhotoMessage } from "./duplicate-photo-guard.ts";
+import { sha256OfBytes } from "./cert-photo-seal.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { decodeBase64Image } from "./validation.ts";
 import { validateImageUpload } from "./upload-validation.ts";
 import { stripImageMetadata } from "./image-metadata.ts";
-import { computePhashFromImage } from "./perceptual-hash.ts";
+import { computePhashAndLuma } from "./perceptual-hash.ts";
+import { exposureVerdict, gradingMinImageEdge } from "./refund-loop-guard.ts";
 import { safeFetch } from "./ssrf.ts";
 import { GARMENT_CATEGORIES, GARMENT_TYPES } from "./ai-extract.ts";
 import { type GradeTier, isGradeTier } from "./grade-billing.ts";
@@ -151,6 +154,7 @@ export interface IngestedImageRow {
   storage_path: string;
   display_order: number;
   phash: string | null;
+  content_sha256: string | null;
 }
 
 export type IngestResult =
@@ -212,14 +216,32 @@ export async function ingestGradeImages(
 
     // US-276: magic-byte validation (not the declared content-type) + EXIF strip.
     const rawBytes = new Uint8Array(imageData);
-    const verdict = validateImageUpload(rawBytes, { allow: ["jpeg", "png", "webp"] });
+    const verdict = validateImageUpload(rawBytes, {
+      allow: ["jpeg", "png", "webp"],
+      minDimension: gradingMinImageEdge(), // US-3528
+    });
     if (!verdict.ok) {
       await cleanup(imageRecords);
       return { ok: false, code: "image_invalid", detail: `${img.image_type}: ${verdict.reason}`, status: 400 };
     }
     const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
     // US-480: server-side reuse hash from the stored bytes (never the client).
-    const serverPhash = await computePhashFromImage(cleanBytes, verdict.format);
+    const { phash: serverPhash, meanLuma } = await computePhashAndLuma(cleanBytes, verdict.format);
+    // US-3528: a black or blown-out core photo is refused before any charge.
+    const exposure = exposureVerdict(img.image_type, meanLuma);
+    if (exposure) {
+      await cleanup(imageRecords);
+      return { ok: false, code: "image_invalid", detail: exposure, status: 400 };
+    }
+    // US-3538: the same picture uploaded into two slots, one of them core.
+    const dup = duplicateCorePhoto([
+      ...imageRecords.map((r) => ({ imageType: r.image_type, phash: r.phash })),
+      { imageType: img.image_type, phash: serverPhash },
+    ]);
+    if (dup) {
+      await cleanup(imageRecords);
+      return { ok: false, code: "image_invalid", detail: duplicatePhotoMessage(dup), status: 400 };
+    }
     const storagePath = `${userId}/${submissionId}/${img.image_type}_${timestamp}.${verdict.ext}`;
 
     const { error: uploadError } = await supabaseAdmin.storage
@@ -236,6 +258,8 @@ export async function ingestGradeImages(
       storage_path: storagePath,
       display_order: i,
       phash: serverPhash,
+      // US-3516: sealed into the certificate (integrity v5).
+      content_sha256: await sha256OfBytes(cleanBytes),
     });
   }
 

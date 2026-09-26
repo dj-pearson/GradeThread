@@ -59,9 +59,8 @@ export function loadImage(file: File): Promise<HTMLImageElement> {
 // canvas re-encode (compressImage) strips EXIF and forensic signal, so this is
 // the only chance to capture it. Pure in-browser TIFF/IFD walk (no decoder, no
 // dependency) — a manual TIFF/IFD walk. Best-effort:
-// any malformed/absent EXIF resolves to null and never blocks an upload. GPS,
-// when present, is privacy-sensitive — it is submitted only as structured
-// metadata for access-controlled forensic use, never rendered to buyers.
+// any malformed/absent EXIF resolves to null and never blocks an upload.
+// US-3520: GPS is never read. Nothing in grading uses a seller's location.
 
 export type ExifMetadata = ImageExifMetadata;
 
@@ -74,7 +73,6 @@ function parseExifTiff(view: DataView, tiff: number): ExifMetadata | null {
 
   const meta: ExifMetadata = {};
   let exifIfdPtr = 0;
-  let gpsIfdPtr = 0;
 
   const readAscii = (entry: number): string => {
     const count = view.getUint32(entry + 4, le);
@@ -131,9 +129,6 @@ function parseExifTiff(view: DataView, tiff: number): ExifMetadata | null {
       case 0x8769:
         exifIfdPtr = tiff + view.getUint32(entry + 8, le);
         break;
-      case 0x8825:
-        gpsIfdPtr = tiff + view.getUint32(entry + 8, le);
-        break;
     }
   });
 
@@ -152,51 +147,6 @@ function parseExifTiff(view: DataView, tiff: number): ExifMetadata | null {
         }
       }
     });
-  }
-
-  if (gpsIfdPtr) {
-    // Mutated inside the IFD walk — held in an object so TS keeps the declared
-    // (possibly-null) types instead of over-narrowing from the initializers.
-    const g = {
-      latRef: "",
-      lonRef: "",
-      lat: null as number | null,
-      lon: null as number | null,
-    };
-    const readCoord = (entry: number): number | null => {
-      const count = view.getUint32(entry + 4, le);
-      if (count < 3) return null;
-      const off = tiff + view.getUint32(entry + 8, le); // 3 rationals > 4 bytes
-      if (off + 24 > view.byteLength) return null;
-      const rat = (o: number) => {
-        const den = view.getUint32(o + 4, le);
-        return den === 0 ? 0 : view.getUint32(o, le) / den;
-      };
-      return rat(off) + rat(off + 8) / 60 + rat(off + 16) / 3600;
-    };
-    walkIfd(gpsIfdPtr, (tag, entry) => {
-      switch (tag) {
-        case 0x0001:
-          g.latRef = readAscii(entry);
-          break;
-        case 0x0002:
-          g.lat = readCoord(entry);
-          break;
-        case 0x0003:
-          g.lonRef = readAscii(entry);
-          break;
-        case 0x0004:
-          g.lon = readCoord(entry);
-          break;
-      }
-    });
-    if (g.lat !== null && g.lon !== null) {
-      const latitude = g.latRef.toUpperCase() === "S" ? -g.lat : g.lat;
-      const longitude = g.lonRef.toUpperCase() === "W" ? -g.lon : g.lon;
-      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-        meta.gps = { latitude, longitude };
-      }
-    }
   }
 
   return Object.keys(meta).length > 0 ? meta : null;
@@ -222,7 +172,7 @@ function readExifFromJpeg(view: DataView): ExifMetadata | null {
 }
 
 /**
- * Read provenance EXIF (camera make/model, capture time, GPS) from the original
+ * Read provenance EXIF (camera make/model, capture time) from the original
  * file before any compression. Resolves to null for non-JPEG inputs or when no
  * EXIF is present — both are normal and never an error. Reads only the first
  * 128 KB (an EXIF APP1 segment is capped at 64 KB).

@@ -78,6 +78,11 @@ import { track } from "@/lib/analytics";
 import { badgeArrival, badgeArrivalNote } from "@/lib/badge-arrival";
 import { isExtensionInstalled } from "@/lib/lister-extension";
 import { edgeApiUrl } from "@/lib/edge-api";
+import {
+  certRevisionHeading,
+  type CertRevisionNotice,
+  parseCertRevision,
+} from "@/lib/cert-revision-notice";
 import { GradeRangeNote } from "@/components/grading/grade-range-note";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import type {
@@ -94,6 +99,11 @@ type IntegrityVerify = {
   signed: boolean;
   algorithm: string;
   content_hash: string | null;
+  // US-3516: sealed photos whose stored bytes no longer match (v5 certificates).
+  photos_altered?: string[];
+  photos_checked?: number;
+  // US-3540: when data retention deleted the photos (the grade stays sealed).
+  photos_expired_at?: string | null;
 };
 type VerifyState =
   | { phase: "idle" }
@@ -196,7 +206,7 @@ function IntegrityPanel({
       <div className="rounded-lg border border-green-600/30 bg-green-50 px-4 py-3 text-sm dark:bg-green-950/30">
         <div className="flex items-center gap-2 font-medium text-green-700 dark:text-green-400">
           <ShieldCheck className="h-5 w-5" />
-          Authentic — grade claims verified
+          Record unchanged since grading
         </div>
         <p className="mt-1 text-xs text-green-800/80 dark:text-green-300/80">
           The certified grade claims — overall score, tier, the five factor
@@ -208,8 +218,11 @@ function IntegrityPanel({
             not the photo pixels, so a buyer isn't misled into thinking the
             images are cryptographically bound. */}
         <p className="mt-1 text-[11px] text-green-800/70 dark:text-green-300/70">
-          The seal covers the grade data above; it does not cryptographically
-          bind the photographs themselves.
+          {result.photos_expired_at
+            ? `Photos expired ${result.photos_expired_at.slice(0, 10)} under the data retention policy. The seal still covers the grade and the record of which photos were graded.`
+            : result.photos_checked && result.photos_checked > 0
+              ? `The seal also covers the ${result.photos_checked} graded photos, which were checked just now.`
+              : "The seal covers the grade data above; it does not cryptographically bind the photographs themselves."}
         </p>
         {result.content_hash && (
           <p className="mt-1 break-all font-mono text-[10px] text-green-800/60 dark:text-green-300/60">
@@ -228,8 +241,9 @@ function IntegrityPanel({
           Integrity check failed — do not trust this certificate
         </div>
         <p className="mt-1 text-xs text-red-800/80 dark:text-red-300/80">
-          The grade data does not match GradeThread’s sealed record. This
-          certificate may have been altered or forged.
+          {result.photos_altered && result.photos_altered.length > 0
+            ? `The photos no longer match the ones that were graded (${result.photos_altered.join(", ")}). This certificate may have been altered.`
+            : "The grade data does not match GradeThread’s sealed record. This certificate may have been altered or forged."}
         </p>
         {/* US-2550: the worst news the product can give a buyer used to end
             here. Two ways out, both reachable without an account: file it
@@ -327,6 +341,8 @@ export function CertificatePage() {
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState<CertRevisionNotice | null>(null);
+  const [photosExpiredAt, setPhotosExpiredAt] = useState<string | null>(null);
   const [verify, setVerify] = useState<VerifyState>({ phase: "idle" });
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   // US-1095: the garment's passport slug, if this certificate is linked to a
@@ -431,6 +447,8 @@ export function CertificatePage() {
     async function fetchCertificate() {
       setLoading(true);
       setError(null);
+      setRevision(null);
+      setPhotosExpiredAt(null);
       setGradeReport(null);
       setPassportSlug(null);
       // US-1632's A→B navigation guard applies here too: a stale standing from
@@ -447,6 +465,14 @@ export function CertificatePage() {
 
       if (cancelled) return;
       if (reportError || !reportData) {
+        // US-3540: a replaced or withdrawn certificate is not a missing one.
+        // Ask the edge why before calling it "not found".
+        const notice = await fetch(`${edgeApiUrl()}/api/content/public/certificates/${id}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then(parseCertRevision)
+          .catch(() => null);
+        if (cancelled) return;
+        setRevision(notice);
         setError("Certificate not found");
         setLoading(false);
         return;
@@ -515,10 +541,13 @@ export function CertificatePage() {
                 display_order: number;
                 url: string;
               }>;
+              // US-3540: when data retention deleted the photos, or null.
+              photos_expired_at?: string | null;
             };
           };
           if (certificate) {
             setSellerIntegrity(certificate.seller_integrity ?? null);
+            setPhotosExpiredAt(certificate.photos_expired_at ?? null);
             setSubmission({
               title: certificate.title,
               brand: certificate.brand,
@@ -563,6 +592,33 @@ export function CertificatePage() {
 
   if (loading) {
     return <CertificateLoadingSkeleton />;
+  }
+
+  if (revision && !gradeReport) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-6">
+        <Card className="w-full max-w-md">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <AlertTriangle className="h-12 w-12 text-muted-foreground/50" />
+            <h3 className="mt-4 text-lg font-medium">{certRevisionHeading(revision.status)}</h3>
+            <p className="mt-2 text-sm text-muted-foreground">{revision.message}</p>
+            {revision.currentCertificateId ? (
+              <Link
+                to={`/cert/${revision.currentCertificateId}`}
+                className="mt-4 text-sm font-medium text-primary underline-offset-4 hover:underline"
+              >
+                View the current grade
+                {revision.currentCertificateNumber ? ` (${revision.currentCertificateNumber})` : ""}
+              </Link>
+            ) : (
+              <Link to="/verify" className="mt-4 text-sm font-medium text-primary underline-offset-4 hover:underline">
+                Check another certificate
+              </Link>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   if (error || !gradeReport) {
@@ -889,6 +945,20 @@ export function CertificatePage() {
 
         {/* Photo Gallery — the evidence behind the grade. Tap a photo to open
             the full-screen viewer (US-761): zoom, step through, download. */}
+        {images.length === 0 && photosExpiredAt && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Garment Photos</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Photos expired {photosExpiredAt.slice(0, 10)} under the data retention policy. The grade above is
+                unchanged.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {images.length > 0 && (
           <Card>
             <CardHeader>
@@ -1040,7 +1110,11 @@ export function CertificatePage() {
             <CardTitle className="text-base">Factor Breakdown</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* US-2225 AC3. On a handbag the condition grade and the
+            {/* US-3519: shown on EVERY certificate now, not only handbags. A
+                green "verified" badge beside a brand name reads as an
+                authenticity verdict on any item, and counterfeit clothing is
+                common. Original note follows.
+                US-2225 AC3. On a handbag the condition grade and the
                 authenticity add-on land on the same certificate — every tell
                 pack we hold is a bag brand — so a number beside a luxury logo
                 reads as a verdict on the logo unless this says otherwise. It
@@ -1244,7 +1318,7 @@ export function CertificatePage() {
                   <ShieldAlert className="mt-0.5 h-5 w-5 flex-shrink-0 text-yellow-600 dark:text-yellow-400" />
                   <div>
                     <p className="text-sm font-medium">
-                      Authenticity check: routed for review
+                      Photo check: routed for review
                     </p>
                     <p className="text-xs text-muted-foreground">
                       Our photo-authenticity check flagged this submission, so it
@@ -1258,10 +1332,12 @@ export function CertificatePage() {
                   <ShieldCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600 dark:text-green-400" />
                   <div>
                     <p className="text-sm font-medium">
-                      Authenticity check passed
+                      Photo check passed
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      No signs of photo manipulation or reused/screenshot images.
+                      No signs of photo manipulation or reused/screenshot
+                      images. This checks the photos, not whether the item is
+                      authentic.
                     </p>
                   </div>
                 </div>
@@ -1363,11 +1439,13 @@ export function CertificatePage() {
               <div className="flex items-start gap-3">
                 <ImageIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600 dark:text-green-400" />
                 <div>
-                  <p className="text-sm font-medium">Original photos verified</p>
+                  <p className="text-sm font-medium">No reused photos found</p>
                   <p className="text-xs text-muted-foreground">
-                    These images were checked against our database and don&apos;t
-                    match photos from any other seller — they&apos;re the
-                    seller&apos;s own, not stock or reused listing photos.
+                    {/* US-3538: say what was checked. A match only against our
+                        own recent uploads cannot prove a photo is not stock. */}
+                    We checked these photos against other sellers&apos; recent
+                    uploads on GradeThread and found no match. This does not
+                    check photos found elsewhere online.
                   </p>
                 </div>
               </div>

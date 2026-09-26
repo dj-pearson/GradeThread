@@ -272,6 +272,10 @@ export function NewSubmissionPage() {
   // create two submissions and risk a double charge. A ref flips synchronously
   // inside the handler, so the second click is rejected immediately.
   const submitLockRef = useRef(false);
+  // US-3532: one key per submission ATTEMPT, kept across retries of it and
+  // replaced only once a submit succeeds. A retry after a lost response then
+  // gets the first submission back instead of a second charge.
+  const submitKeyRef = useRef<string>(crypto.randomUUID());
   // US-207: chosen grade tier + the post-submit payment state when a one-time
   // charge is required (included grades + credits both exhausted).
   // US-2514: `?tier=` preselects the turnaround, so a visitor who clicked
@@ -1068,6 +1072,7 @@ export function NewSubmissionPage() {
       if (workspaceOwner) {
         requestHeaders["X-Workspace-Owner"] = workspaceOwner;
       }
+      requestHeaders["Idempotency-Key"] = submitKeyRef.current;
       if (videoMode) setUploadProgress(0);
       const { ok, json: result } = await postSubmission(
         formData,
@@ -1089,6 +1094,8 @@ export function NewSubmissionPage() {
 
       const submissionId: string = result.submissionId;
       const payment = result.payment ?? {};
+      // US-3532: this attempt landed; the next submit is a new grade.
+      submitKeyRef.current = crypto.randomUUID();
 
       // US-1764: the clip yielded no usable view of a required angle, so the
       // submission abstained instead of grading what it couldn't see. NOT a

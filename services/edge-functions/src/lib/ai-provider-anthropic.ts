@@ -16,6 +16,7 @@
 // first photo), which the wrapper passes through unbounded. streamed() below
 // therefore calls runAiCall itself, so it is bounded the same way.
 
+import { anthropicBreaker } from "./grading-availability.ts";
 import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient } from "./ai-config.ts";
 import { withAiFeature } from "./ai-feature-context.ts";
@@ -110,12 +111,17 @@ export class AnthropicProvider implements AiProvider {
     // it reached the SDK as an unknown request option and recorded nothing.
     const create = () =>
       (client.messages.create as unknown as (b: unknown) => Promise<Anthropic.Message>)(body);
-    let response: Anthropic.Message;
-    if (request.onFirstToken) {
-      response = await this.streamed(client, body, request.onFirstToken, context);
-    } else {
-      response = context ? await withAiFeature(context, create) : await create();
-    }
+    // US-3530: every call goes through one shared breaker, so an outage fails
+    // fast instead of every call waiting out its timeout and retries, and
+    // submits can refuse before charging (grading-availability.ts).
+    const onFirstToken = request.onFirstToken;
+    const response: Anthropic.Message = await anthropicBreaker().execute(() =>
+      onFirstToken
+        ? this.streamed(client, body, onFirstToken, context)
+        : context
+        ? withAiFeature(context, create)
+        : create()
+    );
 
     // Concatenate every text block rather than taking the first. A single block
     // is the norm and was what the old call sites assumed, but a reply split

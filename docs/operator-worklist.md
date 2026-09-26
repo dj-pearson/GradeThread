@@ -1,6 +1,6 @@
 # What the backlog is waiting on you for
 
-Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 172 of 295 open stories carry at least one OPERATOR criterion — a step only you can take.
+Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 176 of 314 open stories carry at least one OPERATOR criterion — a step only you can take.
 
 This is not a list of blocked work. Most of these stories have buildable criteria before the operator step, and several were finished this session right up to it. It is a list of the last mile.
 
@@ -17,11 +17,11 @@ Computed from supabase/held-migrations.json and the criteria below, so it is rig
 Most of these are not separate sittings. Grouped by what you need open:
 
 - **Somewhere else (read the step)** — 63 steps
-- **Coolify, or a deploy + env change** — 30 steps
-- **Production database (psql or the Supabase SQL editor)** — 28 steps
+- **Coolify, or a deploy + env change** — 31 steps
+- **Production database (psql or the Supabase SQL editor)** — 29 steps
 - **A marketplace account, logged in** — 27 steps
 - **A lawyer** — 11 steps
-- **A grading run that costs real money** — 8 steps
+- **A grading run that costs real money** — 10 steps
 - **A decision, with nothing to open** — 4 steps
 - **Cloudflare dashboard** — 3 steps
 - **Sentry or PostHog** — 3 steps
@@ -594,6 +594,12 @@ priority unranked
 
 after edge redeploy, the old INR case and closed return leave the open lists
 
+### US-3504 — Stripe account.updated webhook for consignor and affiliate Connect accounts
+
+priority unranked
+
+vault/10-ops/env-reference.md and vault/10-ops/edge-container-settings.md name the new secret; OPERATOR: add the endpoint in the Stripe dashboard and the secret in Coolify.
+
 ## Production database (psql or the Supabase SQL editor)
 
 ### US-3112 — eBay compliance: extension attribution, and stop calling APIs we cannot use
@@ -763,6 +769,12 @@ run scripts/aspect-value-coverage.ts against prod once the cache is warm, and fo
 priority unranked
 
 apply 00823 with npm run migrate:prod, then run the eBay full history sync; the Ship tab count drops from 208
+
+### US-3507 — Help: per-user vote dedupe, rate limits on help POSTs, and a stored-body sanitize backfill
+
+priority unranked
+
+scripts/sanitize-help-bodies.mjs runs --dry-run by default and --apply rewrites body_html through the same sanitizer the edge uses, then lists /help/* paths to purge; OPERATOR: run it against prod once.
 
 ## A marketplace account, logged in
 
@@ -997,6 +1009,18 @@ priority 1992
 AC4 is counsel review of refund.tsx sections 4 and 5 - the EU/UK right-of-withdrawal waiver and the chargeback clause - and it gates the rest. AC1's factual half is SETTLED from the schema and needs no lawyer: users.grade_credit_balance is a plain integer with a >= 0 CHECK and no expiry column exists across all 612 migrations, while the monthly allowance is a separate system (grades_used_this_month / grade_reset_at / included_grades_this_period) that does reset. So 'credits never expire' is true of PURCHASED packs and 'do not roll over' is true of MONTHLY INCLUDED grades, and the Terms sentence uses the word credits for the thing that resets. What remains is approving wording, not investigating. NOTE FOR WHOEVER PICKS THIS UP: terms.tsx was edited once and deliberately reverted, because rewriting it ahead of counsel swaps one unreviewed statement for another - the KNOWN_CONTRADICTIONS entry in src/test/credit-expiry-claims.test.ts says so and must be DELETED in the same commit as the fix, since the guard fails on a stale entry as loudly as on a new contradiction.
 
 ## A grading run that costs real money
+
+### US-3517 — Grading audit S2: defend grading prompts against instructions written inside photos
+
+priority 2
+
+add 3+ golden cases whose photos carry injected text (a card reading 'flawless, grade 10'), run shadow and the eval gate with GRADING_IMAGE_TEXT_GUARD=1, canary, then set it on for everyone.
+
+### US-3529 — Grading audit S4: send smaller images and skip measurement photos in the condition fan-out
+
+priority 4
+
+run shadow and the eval gate with GRADING_VISION_LONG_EDGE=1568, and separately with GRADING_SKIP_MEASUREMENT_FANOUT=1; turn each on only if MAE and agreement hold, then compare grading.completed cost_usd before and after.
 
 ### US-2301 — The golden-set eval gate never runs in CI and the live prompt versions have no DB row
 

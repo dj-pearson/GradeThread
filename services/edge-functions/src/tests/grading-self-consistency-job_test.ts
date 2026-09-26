@@ -29,21 +29,27 @@ Deno.test("US-2035: it is registered as a cron so its absence is visible", () =>
   assertEquals(job.recorded, true, "must record a run, or a silent failure is invisible");
 });
 
-Deno.test("US-2035: sampling is OFF unless someone opts in", () => {
-  // Every sample costs vision calls. A default-on measurement job is a bill
-  // nobody approved, and it would be discovered from the invoice.
-  assert(
-    /GRADING_SELF_CONSISTENCY_SAMPLE", 0\)/.test(SRC),
-    "the sample size no longer defaults to 0",
+Deno.test("US-3523: sampling is ON at 3 by default (owner-approved), 0 switches it off", async () => {
+  // Was "OFF unless someone opts in" (US-2035): a default-on measurement job
+  // was a bill nobody approved. The owner approved it on 2026-09-26, so the
+  // default is a small sample and 0 is the off switch.
+  const { selfConsistencySample, DEFAULT_SAMPLE } = await import(
+    "../routes/jobs-grading-self-consistency.ts"
   );
+  assertEquals(DEFAULT_SAMPLE, 3);
+  assertEquals(selfConsistencySample(undefined), 3);
+  assertEquals(selfConsistencySample(""), 3);
+  assertEquals(selfConsistencySample("0"), 0);
+  assertEquals(selfConsistencySample("junk"), 3);
   assert(SRC.includes('skipped: "disabled"'));
 });
 
-Deno.test("US-2035: the sample is capped whatever the env says", () => {
+Deno.test("US-2035: the sample is capped whatever the env says", async () => {
   // An env var read straight into a loop that makes vision calls is one typo
   // away from an unbounded bill.
+  const { selfConsistencySample } = await import("../routes/jobs-grading-self-consistency.ts");
   assert(SRC.includes("MAX_SAMPLE"));
-  assert(/Math\.min\(envInt\("GRADING_SELF_CONSISTENCY_SAMPLE", 0\), MAX_SAMPLE\)/.test(SRC));
+  assertEquals(selfConsistencySample("500"), 25);
 });
 
 Deno.test("US-2035: at least two runs, or there is no spread to measure", () => {

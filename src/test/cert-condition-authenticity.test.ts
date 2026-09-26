@@ -55,16 +55,17 @@ describe("US-2225 AC3: the separation exists and says the right thing", () => {
     expect(ssrNeeds("bags")).toBe(true);
   });
 
-  it("does NOT fire for clothing, so existing certificates are unchanged", () => {
-    for (const key of ["clothing", "sports_cards", "watches", "shoes"]) {
-      expect(spaNeeds(key), key).toBe(false);
-      expect(ssrNeeds(key), key).toBe(false);
+  it("US-3519: fires for EVERY certificate, clothing and legacy included", () => {
+    // Was "does NOT fire for clothing" (US-2225). A condition grade beside a
+    // brand name reads as an authenticity verdict on any item, so the line is
+    // now universal. A legacy certificate with no rubric_key gets it too.
+    for (const key of ["clothing", "sports_cards", "watches", "shoes", "bags"]) {
+      expect(spaNeeds(key), key).toBe(true);
+      expect(ssrNeeds(key), key).toBe(true);
     }
-    // Absent / unknown must not fire either — a legacy certificate carries no
-    // rubric_key at all and must render byte-identically to before.
-    expect(spaNeeds(null)).toBe(false);
-    expect(spaNeeds(undefined)).toBe(false);
-    expect(ssrNeeds("")).toBe(false);
+    expect(spaNeeds(null)).toBe(true);
+    expect(spaNeeds(undefined)).toBe(true);
+    expect(ssrNeeds("")).toBe(true);
   });
 });
 
@@ -75,9 +76,9 @@ describe("US-2225 AC3: it is rendered, not merely defined", () => {
     expect(html).toContain("authentic");
   });
 
-  it("the SSR page emits NOTHING for every other rubric", () => {
+  it("US-3519: the SSR page emits the notice for every rubric", () => {
     for (const key of ["clothing", "watches", null, undefined]) {
-      expect(conditionAuthenticityNoticeHtml(key)).toBe("");
+      expect(conditionAuthenticityNoticeHtml(key)).toContain("condition grade only");
     }
   });
 
@@ -148,5 +149,17 @@ describe("US-2225 AC1: the handbags rubric is real and coherent", () => {
     const block = EDGE_RUBRIC.slice(EDGE_RUBRIC.indexOf("const HANDBAGS"));
     const guidance = block.slice(0, block.indexOf("defectRouting"));
     expect(guidance).toContain("Say nothing about whether it is authentic");
+  });
+});
+
+describe("US-3519: the certificate never says 'Authentic' about itself", () => {
+  it("the integrity badge describes the record, not the item", () => {
+    expect(CERT_SPA).toContain("Record unchanged since grading");
+    expect(CERT_SPA).not.toMatch(/Authentic\s*[—-]\s*grade claims verified/);
+  });
+
+  it("the photo check is named for photos", () => {
+    expect(CERT_SPA).not.toContain("Authenticity check passed");
+    expect(CERT_SPA).toContain("Photo check passed");
   });
 });

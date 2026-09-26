@@ -74,6 +74,8 @@ interface PublicCertificate {
   // edge and Pages deploy separately, and an older edge simply omits it, which
   // reads as false and restores the previous behaviour exactly.
   photos_unavailable?: boolean;
+  // US-3540: when data retention deleted the photos, or null.
+  photos_expired_at?: string | null;
   // US-1413: the full ordered gallery (signed URLs). Returned by the public
   // endpoint but previously ignored by the SSR — now rendered as a photo grid.
   images?: Array<{ id: string; image_type: string; display_order: number; url: string }>;
@@ -196,12 +198,14 @@ export async function renderCertificate(context: Ctx): Promise<Response> {
     message?: string;
     current_certificate_id?: string | null;
     current_certificate_number?: string | null;
+    status?: string | null;
   } | null;
   if (revised?.revised) {
     return certRevisedResponse(env, {
       message: revised.message ?? "This certificate was replaced.",
       current_certificate_id: revised.current_certificate_id ?? null,
       current_certificate_number: revised.current_certificate_number ?? null,
+      status: revised.status ?? null,
     });
   }
 
@@ -282,6 +286,10 @@ export async function renderCertificate(context: Ctx): Promise<Response> {
         )
         .join("")
     }</div>`
+    : cert.photos_expired_at
+    ? `<h2>Garment Photos</h2><p>Photos expired ${
+      escape(cert.photos_expired_at.slice(0, 10))
+    } under the data retention policy. The grade above is unchanged.</p>`
     : "";
 
   // US-2225 AC3: the condition-vs-authenticity separation, rendered INSIDE the
@@ -332,7 +340,8 @@ export async function renderCertificate(context: Ctx): Promise<Response> {
     );
   }
   if (cert.original_photos_verified) {
-    badges.push('<span class="cert-badge cert-badge--verify">&#10003; Original photos verified</span>');
+    // US-3538: name what was checked (other sellers' recent GradeThread uploads).
+    badges.push('<span class="cert-badge cert-badge--verify">&#10003; No reused photos found</span>');
   }
   const badgesHtml = badges.length > 0 ? `<div class="cert-badges">${badges.join("")}</div>` : "";
 

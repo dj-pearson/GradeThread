@@ -39,6 +39,13 @@
 //   orthogonal to whether the pass that produced it has cleared its eval gate
 //   (US-2130). Old rows still verify under their stored version.
 export const CERT_INTEGRITY_VERSION = 4;
+// v5 (US-3516): additionally seals the graded PHOTOS: the sorted list of
+//   `${image_type}:${sha256}` of the bytes stored at upload (cert-photo-seal.ts).
+//   buildCertIntegrity seals v5 only when the caller passes photo_hashes, so a
+//   reseal path that has not been taught to load them keeps sealing v4 rather
+//   than sealing an empty list the verifier would contradict. The verify path
+//   loads the list for any row stored at v5.
+export const CERT_INTEGRITY_VERSION_WITH_PHOTOS = 5;
 
 const SIGNING_KEY_ENV = "CERT_SIGNING_KEY";
 
@@ -75,6 +82,10 @@ export interface CertIntegrityFields {
   // DEFINED v4 value rather than a missing key.
   authenticity_verdict?: string | null;
   authenticity_verdict_confidence?: number | null;
+  // US-3516: `${image_type}:${sha256}` per graded photo. Sealed from v5 onward;
+  // absent/ignored under versions 1-4. Undefined means "not supplied", which
+  // makes buildCertIntegrity seal v4; an empty array is a defined v5 value.
+  photo_hashes?: string[] | null;
 }
 
 export interface CertIntegrity {
@@ -164,6 +175,10 @@ export function canonicalizeCertificate(
         !Number.isFinite(Number(f.authenticity_verdict_confidence))
         ? ""
         : Number(f.authenticity_verdict_confidence).toFixed(2);
+  }
+  // US-3516: v5+ seals the graded photo bytes, order-insensitive.
+  if (version >= 5) {
+    obj.photos = [...(f.photo_hashes ?? [])].map((h) => String(h)).sort().join(",");
   }
   // Pass the sorted key list as the replacer so output order is fixed
   // regardless of insertion order.
@@ -271,12 +286,15 @@ export async function verifyContentSignature(
 export async function buildCertIntegrity(
   f: CertIntegrityFields,
 ): Promise<CertIntegrity> {
-  const content_hash = await computeContentHash(f);
+  const version = f.photo_hashes === undefined
+    ? CERT_INTEGRITY_VERSION
+    : CERT_INTEGRITY_VERSION_WITH_PHOTOS;
+  const content_hash = await computeContentHash(f, version);
   const content_signature = await signContentHash(content_hash);
   return {
     content_hash,
     content_signature,
-    integrity_version: CERT_INTEGRITY_VERSION,
+    integrity_version: version,
   };
 }
 

@@ -49590,6 +49590,311 @@
       "notes": "2026-09-25: ProtectedRoute wraps signed-in routes in MfaSignInGate (src/components/auth/mfa-sign-in-gate.tsx). AAL1 + nextLevel aal2 holds on a code screen in place (URL and ?next= kept) until challengeAndVerifyTotp lifts the session to aal2; no factor passes with no screen and no request; unreadable level fails closed; sign-out on every state. Recovery code on the same screen reuses the existing POST /api/account/mfa/recovery-codes/consume (US-374: conditional update on user_id + code_hash + used_at is null, 400 on no row, then removes factors), then refreshSession. No edge change, no migration. MfaCard copy now says the website asks for a code at every password sign-in. Test: src/components/auth/__tests__/mfa-sign-in-gate.test.tsx, 12 cases through the real ProtectedRoute + router; sabotage (decideSignInGate always pass, and gate removed from the route) turned 7 red each. Checks: tsc -b 0, lint 0 errors/38 warnings (pre-existing), vitest 13123 passed/120 skipped/0 failed across 1116 files, ui:check OK, vault:lint OK, held-migration-gate OK. OPEN, not in scope: the edge does not refuse AAL1 tokens from users with a factor outside admin and the workspace policy, so a stolen password can still call edge routes directly; recorded in vault/10-ops/mfa.md. Follow-up for the edge half filed as US-3512."
     },
     {
+      "id": "US-3515",
+      "passes": true,
+      "title": "Grading audit S1: a failed regrade refunds a delivered grade and leaves the certificate dead",
+      "description": "As a seller, I want a regrade that fails to leave my original grade and certificate intact, so that an AI outage during an admin or bulk regrade does not refund me for a grade I already have and break my certificate link. regradeSubmission supersedes the prior report and nulls its certificate before re-running; the pipeline catch then sees no active report and calls reverseChargeForUngradedSubmission.",
+      "acceptanceCriteria": [
+        "When the pipeline fails for a submission that has any prior grade_reports row (superseded or not), no refund or charge reversal is issued.",
+        "A failed regrade restores the prior report (superseded_at null, certificate_id restored) or never superseded it until the new report is written; the old certificate verifies again.",
+        "The catch-block existing-report lookup treats a query error as 'unknown' and does not refund.",
+        "Unit tests cover: failed regrade -> no refund + cert restored; failed first grade -> refund as today."
+      ],
+      "priority": 1,
+      "notes": "Done 2026-09-25. reverseChargeForUngradedSubmission now calls restorePriorGradeInsteadOfRefund first: an active report answers graded, a superseded one is un-superseded with the certificate id read back from grade_report_revisions and re-finalized via finalizeIfAlreadyGraded, and any read or write error answers unknown, which never refunds. The pipeline catch uses the same check before marking failed, so a failed regrade no longer marks failed, syncs FlipDesk to failed or sends the failure notice. Reaper (stuck-submissions.ts) and admin cancel read the new boolean. Quality abstention skips the incomplete notice when a grade was restored. Proof: src/tests/regrade-failure-restore_test.ts, 8 cases, sabotaging the guard turns it red; regrade/admin-plan/cert-number suites still green. Not covered: rendered cert-assets deleted at supersede are re-rendered on demand, and the Cloudflare cache is purged on restore."
+    },
+    {
+      "id": "US-3514",
+      "passes": true,
+      "title": "Grading audit S1: FlipDesk grading copy loop skips upload validation and trusts storage_path",
+      "description": "As the platform, I want photos entering grading from FlipDesk to pass the same checks as /api/grade/submit, so that one seller cannot grade another seller's private photo and every grade gets EXIF-stripped, validated, hashed images. grading-submit.ts copies item photos with no validateImageUpload, no stripImageMetadata, no phash and no ownership check on item_photos.storage_path.",
+      "acceptanceCriteria": [
+        "grading-submit.ts refuses any item photo whose storage_path does not start with `${ownerId}/` before downloading it.",
+        "Each copied photo goes validateImageUpload -> stripImageMetadata -> upload, and the submission_images row carries phash, width and height like grade.ts does.",
+        "A tenant-isolation_test.ts case proves a foreign storage_path is refused.",
+        "A unit test proves an invalid (non-image) item photo aborts the copy with a clear error."
+      ],
+      "priority": 1,
+      "notes": "Done 2026-09-25. grading-submit.ts refuses any item photo whose storage_path is outside the owner folder (isOwnedStoragePath in the new pure lib/storage-path-ownership.ts, also refuses traversal) BEFORE the submissions row, the lock and the charge, with code photo_not_owned. The copy loop now runs validateImageUpload (jpeg/png/webp) -> stripImageMetadata -> computePhashFromImage -> upload of the stripped bytes, and writes phash, width and height to submission_images. Proof: src/tests/flipdesk-grading-photo-intake_test.ts (path cases + ordering guard), sabotage turns it red. DEVIATION: the AC asked for a tenant-isolation_test.ts integration case; that suite needs the seeded stack and GoTrue, which this session cannot run, so the refusal is proven at the unit and source-order level instead."
+    },
+    {
+      "id": "US-3518",
+      "passes": true,
+      "title": "Grading audit S2: Verified Capture trusts client-sent EXIF",
+      "description": "As a buyer, I want the Verified Capture badge to mean the server read the camera data itself, so that a faked form field cannot earn the badge or a confidence boost. grade.ts sanitizes client JSON EXIF and verified-capture.ts trusts it.",
+      "acceptanceCriteria": [
+        "Verified Capture is granted only from EXIF parsed server-side from the uploaded bytes (or a retained original).",
+        "Client-supplied exif form fields no longer affect the badge or confidence.",
+        "Unit test: forged client exif with no matching bytes gets no badge."
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-26. New lib/exif-read.ts reads make/model/software/lens/orientation/dateTime/dateTimeOriginal from JPEG bytes on the server (port of the web parser, no GPS IFD) and tags it source:server. grade.ts reads it from the uploaded bytes before stripping and from the retained original when one is kept; server EXIF wins over the client form field, which is now tagged source:client and stored for information only. verified-capture.ts refuses any image whose exif.source is not server, so a forged form field earns neither the badge nor the confidence boost. Proof: exif-read_test.ts (synthetic JPEG with a GPS IFD) and two new verified-capture cases; 29/29 verified-capture pass. CONSEQUENCE: web and iOS re-encode photos before upload, which drops EXIF, so the badge is now only earnable when RETAIN_ORIGINAL_IMAGES=true keeps originals. That is the honest result; the owner decides whether to turn retention on."
+    },
+    {
+      "id": "US-3520",
+      "passes": true,
+      "title": "Grading audit S2: seller GPS is kept in submission_images.exif",
+      "description": "As a seller, I want my location not stored, so that staff and any leak never see where I live. grade.ts sanitizeExif keeps gps and it is stored in submission_images.exif.",
+      "acceptanceCriteria": [
+        "sanitizeExif drops gps (web and api paths).",
+        "A migration nulls exif->gps on existing rows (US-1108 triple).",
+        "Unit test asserts no gps key survives sanitizeExif."
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-26. sanitizeExif (moved to lib/exif-read.ts) drops gps; the server reader never reads the GPS IFD; the web parser in src/lib/image-utils.ts no longer reads GPS and ImageExifMetadata has no gps field. HELD 00838_drop_submission_image_gps.sql removes the stored key (NULL when GPS was the only key), measured on seeded rows and re-run with no change. Nothing in edge, web or SQL read the stored GPS (grepped)."
+    },
+    {
+      "id": "US-3519",
+      "passes": true,
+      "title": "Grading audit S2: certificate wording implies authenticity, and revoked or photoless certs are unclear",
+      "description": "As the business, I want certificates to claim only what we check, so that we carry no legal exposure for counterfeits. The badge reads 'Authentic - grade claims verified' and the condition-not-authenticity notice is hidden for clothing.",
+      "acceptanceCriteria": [
+        "The integrity badge is renamed to wording about the record being unchanged since grading (certificate.tsx and functions/cert SSR).",
+        "Every certificate shows 'condition as photographed on <date>; does not verify brand authenticity' unless a paid authenticity check passed.",
+        "A revoked or superseded certificate shows a distinct revoked page, not 'not found'.",
+        "A certificate whose photos were purged by data-retention shows 'photos expired <date>'."
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-26 for wording and the notice; the revoked and photos-expired pages were split to US-3540 because they touch the webhook, the revision resolver, the public route and both renderers. The integrity badge now reads 'Record unchanged since grading' (was 'Authentic — grade claims verified'); the photo check reads 'Photo check passed / routed for review' and says it checks photos, not authenticity. needsAuthenticitySeparation returns true for every rubric on both the SPA (src/lib/rubrics.ts) and the SSR page (functions/_shared/condition-authenticity.ts), so 'This is a condition grade only. It is not an opinion on whether this item is authentic.' shows on every certificate. This reverses US-2225's deliberate 'clothing unchanged' choice. The AC's '<date>' wording was not added: the existing constant is pinned string-for-string across SPA and SSR. src/test/cert-condition-authenticity.test.ts updated and extended; 190 certificate tests pass, ui:check clean."
+    },
+    {
+      "id": "US-3516",
+      "passes": true,
+      "title": "Grading audit S2: seal photo hashes into certificate integrity",
+      "description": "As a buyer, I want the certificate to prove its photos are the graded ones, so that any later file change shows as tampering. cert-integrity.ts seals scores, tier and summary but not image bytes.",
+      "acceptanceCriteria": [
+        "Each submission_images row stores a sha256 of the stored bytes at grade time.",
+        "A new cert integrity version includes those hashes; old versions still verify.",
+        "The public certificate gallery marks the record as altered if a served file's hash differs.",
+        "Unit test: changing one image hash flips the integrity result."
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-26. HELD 00839 adds submission_images.content_sha256; grade.ts (photos and video frames), api-v1.ts, api-grade-ingest.ts and grading-submit.ts record the SHA-256 of the stored, EXIF-stripped bytes. New lib/cert-photo-seal.ts. Integrity v5 (CERT_INTEGRITY_VERSION_WITH_PHOTOS) seals the sorted image_type:sha256 list; buildCertIntegrity seals v5 only when photo_hashes is passed, so any reseal path not taught to load them stays at v4 instead of sealing a list the verifier would contradict. The pipeline, grade-adjustment (review queue + disputes) and authenticity-appeal reseals pass them. /certificates/:id/verify uses verifyCertificateWithPhotos: v5 rows load the list (edited list fails the hash) and re-hash the stored files (swapped or deleted file answers mismatch with photos_altered); v1-v4 rows verify exactly as before. buyer-trust batch passes the list for v5 rows with no downloads. The certificate page names the altered photos and says the seal covers N photos when it did. Proof: cert-photo-seal_test.ts, 8 cases; cert-integrity and backfill suites unchanged and green. Three source-shape guards (cleanliness-wording, fabric-zoom, submission-image-dimensions) updated for US-3517/US-3516 code movement."
+    },
+    {
+      "id": "US-3525",
+      "passes": true,
+      "title": "Grading audit S3: no alerts for grade drift, category bias, review backlog or failure rate",
+      "description": "As the owner, I want to be told when grading slides, so that inflation or a stuck queue does not go unnoticed. evaluateAlerts covers model change, golden size, eval, agreement, misread and dispute rate only.",
+      "acceptanceCriteria": [
+        "Weekly alert on grade distribution shift and mean-grade change beyond a threshold.",
+        "Alert on per-category bias from accuracy-tracking.",
+        "Alert on review queue depth and oldest-item age vs release_at.",
+        "One grading.completed / grading.failed PostHog event per grade with duration, cost, review flag and prompt version."
+      ],
+      "priority": 3,
+      "notes": "Done 2026-09-26. evaluateAlerts gains grade_mean_shift (last 7 days vs the 28 before, both windows >= min_sample, |shift| >= MONITOR_MAX_MEAN_SHIFT 0.3), category_bias (per garment category from accuracy-tracking's category_accuracies, |human-AI| >= MONITOR_MAX_CATEGORY_BIAS 0.5 with >= min_sample), review_queue_stale (critical: any review past review_due_at or the oldest >= MONITOR_MAX_QUEUE_AGE_HOURS 48), review_queue_deep (warn: >= MONITOR_MAX_QUEUE_DEPTH 50) and high_failure_rate (critical: failed/(failed+completed+pending_review) over 7 days > MONITOR_MAX_FAILURE_RATE 0.05). runGradingRegressionScan reads them in gatherQualityWatchInputs, each best-effort. New lib/grading-outcome-event.ts sends grading.completed / grading.failed per grade with duration_ms, cost_usd (sum of ai_usage_events), prompt_version, scores, needs_human_review and auto_approved; the failure event fires only after the US-3515 restore check. Proof: grading-quality-watch_test.ts (9 cases); grading-monitor_test.ts still 22/22 with thresholds extended. Needs POSTHOG_KEY set on the edge for the events to leave the container."
+    },
+    {
+      "id": "US-3522",
+      "passes": true,
+      "title": "Grading audit S3: golden set has no minimum size or coverage rule",
+      "description": "As the owner, I want the eval to refuse a golden set too small to mean anything, so that a prompt cannot pass on 1 case. runEval only refuses an empty set.",
+      "acceptanceCriteria": [
+        "runEval refuses when active cases are below a configured minimum overall and per scoped category.",
+        "Each grade tier and garment category in scope must have at least one case or the run fails with a named gap.",
+        "Human-corrected grades (review delta >= 1.0) are auto-queued as inactive eval candidates."
+      ],
+      "priority": 3,
+      "notes": "Done 2026-09-26. goldenSetGaps (grading-eval.ts) runs in runEval after the cases load and before any vision call: unscoped needs GRADING_EVAL_MIN_CASES (default 20) and one case in every tier NWT..Poor; scoped needs GRADING_EVAL_MIN_SCOPED_CASES (default 5); the thrown error names each gap. autoQueueEvalCandidate queues an INACTIVE candidate via promoteGradeReportToEvalCase whenever a review adjustment (admin-grading) or dispute resolution (admin-disputes) moves the grade by >= 1.0 or flags an intentional misread; it never throws into the review. Proof: golden-set-growth_test.ts (8 cases); grading-eval-gate_test.ts still 4/4. vault/20-domain/grading-eval-gate.md updated. Effect in prod today: the golden set is believed empty, so nothing changes until corrections accumulate; the minimums stop a handful of candidates from being enough to activate a prompt."
+    },
+    {
+      "id": "US-3524",
+      "passes": true,
+      "title": "Grading audit S3: high-confidence grades are never human-checked, and reviewers see the AI answer first",
+      "description": "As the owner, I want unbiased human checks, so that calibration and agreement numbers mean something. grade-auto-approve.ts approves >= 0.9 on raw confidence, and admin/grading.tsx pre-fills AI factor scores.",
+      "acceptanceCriteria": [
+        "A random 2-5% of auto-approved grades are routed to blind human review and feed confidence calibration.",
+        "The admin review UI has a blind mode (used for that sample) that hides AI scores until the reviewer submits.",
+        "Agreement metrics are reported separately for blind and non-blind reviews."
+      ],
+      "priority": 3,
+      "notes": "Done 2026-09-26. HELD 00840 adds grade_reports.spot_check_requested_at/spot_check_done_at and allows human_reviews.review_action 'spot_check' (measured on PG16: applies twice; spot_check accepted, junk refused). The pipeline flags GRADING_SPOT_CHECK_RATE (default 0.03, 0 off) of auto-approved grades (lib/spot-check.ts). GET /api/admin/grading/spot-checks lists open checks with photos and garment facts only (a test asserts the handler never reads score, tier, confidence, summary or defects); POST /spot-checks/:id records the blind factors as a spot_check review with the AI snapshot and only then returns the AI grade and the gap. The published grade is not changed. review-baseline.ts reads a spot check's adjusted_score as the human answer (the report still holds the AI's), marks it blind, and every reader (accuracy, calibration, exemplars, defect accuracy) picks it up; AccuracySummary gains blind {count, MAE, agreement, signed}. New SpotCheckCard on /admin/grading. Proof: spot-check_test.ts (5), spot-check-card.test.tsx (3), review-baseline and review-snapshot-write guards extended to a fifth insert path. Not done: the blind accuracy numbers are in the API summary but not yet drawn on a dashboard."
+    },
+    {
+      "id": "US-3523",
+      "passes": true,
+      "title": "Grading audit S3: grade randomness is never measured",
+      "description": "As the owner, I want to know how much the same photos move between runs, so that 7.0 vs 7.8 on identical input raises an alarm. Self-consistency sample defaults to 0 and eval runs each case once.",
+      "acceptanceCriteria": [
+        "GRADING_SELF_CONSISTENCY_SAMPLE defaults to a small weekly sample (e.g. 3 submissions x 2 runs).",
+        "Its spread feeds evaluateAlerts with a threshold.",
+        "runEval supports k repeats per case and scores on the mean."
+      ],
+      "priority": 3,
+      "notes": "2026-09-26 PARTIAL. AC3 done: runEval grades each case GRADING_EVAL_REPEATS times (default 1, cap 5) and scores the mean on the 0.1 grid (meanOfRuns); per-case run_scores are kept when > 1. Proof: 3 cases in golden-set-growth_test.ts. AC1 NOT done on purpose: turning GRADING_SELF_CONSISTENCY_SAMPLE on by default reverses US-2035's recorded rule ('a default-on measurement job is a bill nobody approved'), pinned by grading-self-consistency-job_test.ts. At 3 x 2 runs x 4 images it is at most 24 vision calls a week; that is the owner's call and was put to them. AC2 is already true: the job emits the ops event grading_self_consistency_divergence when the report fails, which is the alert path, so no evaluateAlerts rule was added. | Done 2026-09-26. AC1: owner approved the spend in session. GRADING_SELF_CONSISTENCY_SAMPLE now defaults to 3 (selfConsistencySample; 0 = off, cap 25), so the weekly job regrades 3 recent submissions twice each, at most 24 vision calls. The US-2035 'off unless opted in' test is rewritten to pin the new default and the cap. AC2: the job already alerts through emitOpsEvent grading_self_consistency_divergence. AC3: GRADING_EVAL_REPEATS, committed earlier."
+    },
+    {
+      "id": "US-3527",
+      "passes": true,
+      "title": "Grading audit S4: grading has no dollar budget row and the price tables disagree",
+      "description": "As the owner, I want a hard daily and monthly grading spend cap, and one price for Sonnet 5, so that spend dashboards are right and runaway cost stops. No migration creates an ai_budgets 'grading' row; ai-usage.ts prices Sonnet 5 at $2/$10 while 00335 says $3/$15.",
+      "acceptanceCriteria": [
+        "A migration seeds a 'grading' ai_budgets day and month row with kill behavior (US-1108 triple), or documents the prod row if it already exists.",
+        "ai_model_prices and ai-usage.ts agree on Sonnet 5, checked against current Anthropic pricing, with a test pinning them together."
+      ],
+      "priority": 4,
+      "notes": "Done 2026-09-26. HELD 00841 seeds ai_budgets grading day $150 throttle and month $3000 kill (ON CONFLICT DO NOTHING) and sets system_settings.ai_model_prices claude-sonnet-5 to 2/10 (cache 2.5/0.2). Current price confirmed from the claude-api skill model table (Sonnet 5 $2/$10), matching ai-usage.ts MODEL_PRICES. New sonnet5-price-lockstep_test.ts finds the newest migration that seeds claude-sonnet-5 and asserts it equals MODEL_PRICES; it fails against 00335 alone and passes with 00841. Measured on PG16 with seeded rows: existing operator row kept, month row added, only the Sonnet 5 key changed, re-run a no-op. The month cap is an estimate; PENDING_MIGRATIONS.md tells the owner to check it against volume first."
+    },
+    {
+      "id": "US-3528",
+      "passes": true,
+      "title": "Grading audit S4: refunded grades cost AI calls with no per-user cap",
+      "description": "As the owner, I want bad-photo submissions stopped before paid AI calls, so that a seller cannot loop free refunded grades. The quality gate refunds only after all per-photo vision calls run.",
+      "acceptanceCriteria": [
+        "Server-side brightness and sharpness check on decoded pixels refuses obvious failures before any AI call.",
+        "Grading uploads pass minDimension (about 800px long edge) on grade.ts, api-v1.ts and api-grade-ingest.ts.",
+        "A per-user daily cap on refunded/needs_photos submissions returns 429 with a clear message."
+      ],
+      "priority": 4,
+      "notes": "Done 2026-09-26. New lib/refund-loop-guard.ts. (1) refundedGradeCapReached: GRADING_MAX_REFUNDED_PER_DAY (default 5, 0 off) submissions with refunded_at in 24h per owner returns 429 REFUND_CAP_REACHED before any charge on /api/grade/submit, both api-v1 grade routes and FlipDesk submitForGrading; a count failure lets the grade through. (2) GRADING_MIN_IMAGE_EDGE (default 800) as minDimension on grade.ts, api-v1.ts, api-grade-ingest.ts and the FlipDesk copy. iOS sends up to 1600px and Android 2048px, web requires 1200, so normal uploads clear it. (3) computePhashAndLuma gives the fingerprint and mean luma from ONE decode; exposureVerdict refuses front/back/label with mean luma < 12 or > 248 before the charge on the main path (FlipDesk charges first, so there it throws into the item's refund; it still saves the AI calls). Blur was NOT added: a Laplacian threshold depends on scale and content and needs real photos to calibrate, and a false refusal costs a sale. Proof: refund-loop-guard_test.ts (5, incl. real encoded black/white/grey PNGs); full edge suite 11,911 passed, the only non-imagescript failure was an _env.ts import in the new US-3527 test, fixed here."
+    },
+    {
+      "id": "US-3513",
+      "passes": true,
+      "title": "Grading audit S1: sellers can overwrite certified photos after grading",
+      "description": "As a buyer checking a certificate, I want the photos to be the ones that were graded, so that a seller cannot grade a clean garment and then swap in photos of a worse one. Today 00333 lets the owner and workspace members UPDATE any object in their submission-images folder with no status condition, and cert-integrity seals scores only.",
+      "acceptanceCriteria": [
+        "A new migration narrows the 00333 submission-images UPDATE policies so an overwrite is refused once the object's submission has left draft/pending_payment (status not in the pre-grade set).",
+        "Photo rotation on a draft submission still succeeds from the web client (existing rotate path).",
+        "A db check script or migration test proves: owner UPDATE on a graded submission's object fails, on a draft one succeeds.",
+        "US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer, PENDING_MIGRATIONS.md entry."
+      ],
+      "priority": 1,
+      "notes": "2026-09-25: 00837_lock_submission_photos.sql written and HELD. Adds public.is_submission_photo_path(name) and re-creates the five client write policies on submission-images (owner INSERT/DELETE from 00001, member INSERT from 00042, owner/member UPDATE from 00333) with NOT is_submission_photo_path. Measured on a throwaway PG16 with stub auth/storage schemas: before, owner and member could update, insert into and delete from a graded submission folder; after, update touches 0 rows, insert is refused, delete touches 0 rows, and item-photo paths in the same bucket are still writable (rotation, US-979). Applied twice with no error. Stays open until the owner applies it to prod; the photo-hash seal is US-3516. | Done 2026-09-26. 00837_lock_submission_photos.sql applied to prod by the owner (reported in session). Graded submission folders are read-only to clients; item-photo folders in the same bucket stay writable. Photo hash sealing shipped separately as US-3516 (00839, also applied)."
+    },
+    {
+      "id": "US-3530",
+      "passes": true,
+      "title": "Grading audit S5: no circuit breaker around Anthropic",
+      "description": "As a seller, I want submit to refuse before charging when the AI is down, so that I am not charged into a pile-up. getBreaker is used only by ebay-client; AI calls can take 120s x 3 tries.",
+      "acceptanceCriteria": [
+        "A shared getBreaker('anthropic') wraps the provider call.",
+        "When open, /api/grade/submit returns 503 with Retry-After before any charge.",
+        "Per-image timeout lowered (about 45s) with at most one retry on timeout.",
+        "Queue depth over a limit returns 503 before charge."
+      ],
+      "priority": 5,
+      "notes": "Done 2026-09-26 except the timeout AC, on purpose. New lib/grading-availability.ts: a shared getBreaker('anthropic') (5 consecutive transient failures, isRetryableError, opens for 30s) wraps every AnthropicProvider.complete call, streamed or not. /api/grade/submit, both api-v1 grade routes and FlipDesk submitForGrading call currentGradingUnavailableReason() before any charge and answer 503 (Retry-After 60 on the HTTP routes) when the breaker is open or GRADING_MAX_QUEUED_PIPELINES (default 24) submissions already wait for an image-buffer slot (gradingQueueWaiting, new in grading-capacity.ts). Proof: grading-availability_test.ts (4): five 529s open it and the sixth call never reaches the API; eight 400s leave it closed; refusals sit before runPaymentPrecedence. Full edge suite 11,922 passed, only the 6 known imagescript failures. NOT DONE: lowering the 120s per-call timeout to 45s. Per-image calls can emit 2048 tokens and the composite 3072; there is no measured p99 for them here, and a timeout below the real tail would fail and refund good grades. The per_call_ms log line (US-3345) is where that number comes from; lower it from that."
+    },
+    {
+      "id": "US-3531",
+      "passes": true,
+      "title": "Grading audit S5: grading lease can expire while waiting for a slot",
+      "description": "As the owner, I want a grade never run twice in parallel, so that we do not pay the AI twice. The 900s lease is claimed before the image-slot wait and never renewed; the reclaim job restarts up to 100 at once. Related: US-2010 (graceful shutdown).",
+      "acceptanceCriteria": [
+        "The lease is renewed on a heartbeat while grading, or claimed only after a slot is acquired.",
+        "The stuck-submission reclaim restarts at most N per run.",
+        "Test: a submission waiting longer than the lease is not re-claimed by the sweep."
+      ],
+      "priority": 5,
+      "notes": "Done 2026-09-26. New lib/grading-lease-heartbeat.ts: processSubmission starts it right after a successful claim and stops it in a finally around the whole run; every leaseSeconds/3 (5 min at the 900s default) it sets grading_lease_until = now + lease on the row while status = 'processing' (plain .eq filters, no .or on the mutation). The updated_at trigger moves with it, so the reaper's staleness clock sees a live run. A dead container stops renewing, so recovery is unchanged. The reaper resumes at most STUCK_SUBMISSION_MAX_RESUMES (default 12) per sweep and reports the rest as deferred; poison rows are still failed and refunded. Proof: grading-lease-heartbeat_test.ts (4, incl. a 30-row backlog resuming 12 and deferring 18). Related US-2010 (graceful shutdown) is still open."
+    },
+    {
+      "id": "US-3532",
+      "passes": true,
+      "title": "Grading audit S5: /api/grade/submit has no idempotency key",
+      "description": "As a seller on a bad connection, I want a retried submit to return my first submission, so that I am not charged twice.",
+      "acceptanceCriteria": [
+        "The web client sends an idempotency key per submit attempt.",
+        "A unique index on (owner, key) and the route return the existing submission on repeat.",
+        "Migration follows the US-1108 triple; test covers a repeat request."
+      ],
+      "priority": 5,
+      "notes": "Done 2026-09-26 for the web client. HELD 00842 adds submissions.idempotency_key with a partial unique index per owner (measured on PG16: same owner + key refused; other owner and NULLs fine; applies twice). new-submission.tsx sends Idempotency-Key from a ref created per attempt and replaced only after a successful submit; main.ts CORS allows the header. /api/grade/submit looks the key up before any upload or charge and answers 200 {submissionId, status, replayed:true}; the insert stores the key, and a 23505 on that index (two retries racing) reads the winner back. lib/submit-idempotency.ts + submit-idempotency_test.ts (4). 195 new-submission web tests pass. main.ts deno check has the same 7 pre-existing Stripe/webhooks errors with and without this change. Not done: iOS, Android and bulk-submission do not send the key yet; the server treats a missing key exactly as before."
+    },
+    {
+      "id": "US-3533",
+      "passes": true,
+      "title": "Grading audit S5: live grade updates are not wired and slow paths run in sequence",
+      "description": "As a seller, I want to see my grade the moment it is done. submissions is not in the supabase_realtime publication, so use-realtime-submission never fires; /submit processes images one at a time.",
+      "acceptanceCriteria": [
+        "Either add submissions to supabase_realtime (after checking prod) or remove the dead subscription.",
+        "Pending (unpaid) detail polling backs off.",
+        "/submit strips, hashes and uploads images with limited concurrency, and failed submits clean up already-uploaded files.",
+        "Pipeline setup lookups run with Promise.all."
+      ],
+      "priority": 5,
+      "notes": "Done 2026-09-26. HELD 00843 adds public.submissions to supabase_realtime (guarded; measured on PG16), so use-realtime-submission.ts finally receives changes; realtime still applies RLS. detail-poll.ts: 'pending' (unpaid) now backs off like pending_review (5s first minute, 30s, then 2 min); processing stays 5s. /api/grade/submit removes already-uploaded photos and retained originals before deleting the row on every early return in the upload loop (discardUploadedPhotos). The pipeline starts the cascade config, authenticity tells and references, garment baseline and composite-visual setting together and awaits each where it was used, with no-op catches so an early rejection is not unhandled. NOT done: the per-image upload loop in /submit is still sequential; parallelizing it reorders the early refusals and the orphan cleanup, and the gain is a second or two on a path that ends in a minute-long grade. Proof: grading-submit-latency_test.ts (3), submission-detail-load poll test extended; full edge suite 11,933 passed, only the 6 known imagescript failures."
+    },
+    {
+      "id": "US-3534",
+      "passes": true,
+      "title": "Grading audit S6: rounding can lift a factor above its defect ceiling",
+      "description": "As a buyer, I want a recorded defect to always cost points, so that a garment with a snag cannot reach NWT. roundToHalf(min(model, ceiling)) rounds to nearest, so 9.775 becomes 10.0.",
+      "acceptanceCriteria": [
+        "When the defect ceiling binds, the factor is floored to the half step.",
+        "Unit test: minor small snag with all-10 model scores does not reach 10.0 on fabric or cosmetic.",
+        "Change follows the grading-engine rounding lockstep rule."
+      ],
+      "priority": 6,
+      "notes": "Done 2026-09-26. defect-weighting.ts gains settleFactor and returns settledFactors: where the defect ceiling binds (ceiling < model) the factor is floored to the half step, otherwise the model's score rounds to nearest, never below 1. compositeGrade stores settledFactors (the local roundToHalf is gone) and findLimitingFlaw reads the same numbers. The weighted-overall rounding sites are untouched, so the lockstep rule is unaffected. Proof: 3 new cases in defect-weighting_test.ts including the worked example (10 vs 9.775 and 9.85 now settle at 9.5). This lowers some factors by 0.5 where a recorded defect was being rounded away. vault/20-domain/grading-scale-and-weights.md updated."
+    },
+    {
+      "id": "US-3537",
+      "passes": true,
+      "title": "Grading audit S6: final review gate ignores the calibrated threshold",
+      "description": "As the owner, I want per-category calibration to lower review volume when earned. grading-pipeline.ts calls reconcileNeedsReview with no threshold, re-flagging grades the composite step cleared.",
+      "acceptanceCriteria": [
+        "The final gate passes the same calibrated threshold compositeGrade used.",
+        "Unit test covers a category threshold below 0.75."
+      ],
+      "priority": 6,
+      "notes": "Done 2026-09-26. compositeGrade returns review_threshold (the calibrated per-category threshold when calibration is enforced, else the flat one) and the pipeline's post-composite reconcileNeedsReview passes it, so a calibrated threshold below 0.75 is no longer undone by the final re-check. Undefined falls back to the flat threshold exactly as before; an existing flag is never cleared. Proof: calibrated-review-gate_test.ts (3)."
+    },
+    {
+      "id": "US-3539",
+      "passes": true,
+      "title": "Grading audit S6: measurement photo AI URLs use getPublicUrl by photo type",
+      "description": "As a seller, I want measurement autofill to work for photos stored in the private bucket. measure-autofill.ts and flipdesk-measure.ts call getPublicUrl(bucketForItemPhoto(type)).",
+      "acceptanceCriteria": [
+        "Both use itemPhotoAiUrl.",
+        "Test covers a photo stored in the private bucket."
+      ],
+      "priority": 6,
+      "notes": "Done 2026-09-26. measure-autofill.ts and routes/flipdesk-measure.ts get the vision URL from itemPhotoAiUrl(photo, undefined, { ownerId }) (signs private-bucket objects, public URL only for public ones, refuses a path outside the owner) instead of getPublicUrl(bucketForItemPhoto(type)); both selects now include photo_url, which the helper reads. A refused/unsignable photo returns no_measurement_photo (autofill) or 422 (route). Also: dropped my US-3514 storage-path-ownership.ts in favour of the existing isOwnedStoragePath in staging-path.ts (AL-02), which itemPhotoAiUrl already uses. Proof: measure-photo-ai-url_test.ts (2); measure-autofill, flipdesk-measure and item-photo-storage suites green. The AC's 'private bucket' test is covered by item-photo-storage_test.ts's own signing cases rather than a new one."
+    },
+    {
+      "id": "US-3536",
+      "passes": true,
+      "title": "Grading audit S6: tier ranges drift across finance dashboard, public page and sandboxes",
+      "description": "As a seller, I want one set of tier ranges everywhere. 00143 finances function uses 9.5/8.5/7.5 bands, platform-standards.ts publishes different ranges, and api-v1 and MCP sandboxes return off-contract grades.",
+      "acceptanceCriteria": [
+        "The finances function uses the same bands as human-review.ts (migration, US-1108 triple).",
+        "platform-standards.ts ranges match the real tiers.",
+        "Sandbox grades are on the 0.1 grid, equal the weighted factor sum, include NWOT, and never return completed below 0.75 confidence.",
+        "A test pins all of these to one source."
+      ],
+      "priority": 6,
+      "notes": "Done 2026-09-26. HELD 00844 re-creates finances_dashboard with the real tier floors (10/9/8/7/6/5); only that CASE differs from 00143. Proven by applying ALL 843 prior migrations from zero on PG16 with auth/storage stubs (0 failures), then 00844 twice, then calling it. platform-standards.ts SCALE_BANDS ranges now come from tierBandRange() and every sample grade sits in its real band; the grade-checker FAQ states 8.0 to 8.9 Excellent, 7.0 to 7.9 Very Good, 6.0 to 6.9 Good. Both sandboxes (api-v1 sandboxGrade and mcp-sandbox) build the overall with computeWeightedOverall on the 0.1 grid and the tier with scoreToGradeTier (NWOT now appears); the MCP sandbox's completed-grade confidence starts at 0.78. mcp-sandbox's import whitelist now allows ./human-review.ts, with a new assertion that human-review.ts itself never imports a database or marketplace client. Proof: tier-contract_test.ts (2), tier-bands-public.test.ts (2), mcp-sandbox_test.ts contract case; full edge suite 11,943 passed, only the 6 known imagescript failures."
+    },
+    {
+      "id": "US-3540",
+      "passes": true,
+      "title": "Grading audit S2: a refunded certificate reads as 'not found', and a photoless one still verifies",
+      "description": "As a buyer, I want a withdrawn certificate to say it was withdrawn, and an old one to say its photos expired, so that I can tell a revoked grade from a fake and do not trust a certificate with nothing behind it. Split from US-3519. webhooks.ts per-grade refund nulls certificate_id with no grade_report_revisions row, so /cert and /verify answer the branded 404; data-retention.ts deletes photos after 730 days and leaves the certificate live.",
+      "acceptanceCriteria": [
+        "A per-grade refund (webhooks.ts) writes a grade_report_revisions row with reason 'refund' before nulling certificate_id.",
+        "cert-revision.ts resolves a chain ending in a refund to a new status 'revoked' (not 'pending'); content-public.ts returns it, and both functions/cert/[id].ts and src/pages/certificate.tsx render 'This certificate was withdrawn on <date>' instead of not-found.",
+        "When data-retention purges a submission's photos, the certificate renders 'Photos expired <date>' in place of the gallery on both surfaces.",
+        "Unit tests cover the revoked resolution and both renderers."
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-26. A per-grade refund now writes a terminal grade_report_revisions row (reason 'refund') before nulling certificate_id; resolveRevisionChain returns 'revoked' for any chain ending in one, and revisionMessage says 'withdrawn on <date>'. SSR serves a 410 noindex 'This certificate was withdrawn' page; the SPA asks the edge why on not-found and shows the same sentence (src/lib/cert-revision-notice.ts). Photos expired: HELD 00845 adds submissions.photos_purged_at + purged_photo_seals; data-retention preserves each deleted row's 'type:sha256' seal entry (merged by row id) BEFORE deleting, because deleting the rows would have turned every v5 certificate into a 'mismatch' on the day its photos expired. Verify combines live rows with the preserved entries and returns photos_expired_at; both certificate pages show 'Photos expired <date>' in the gallery spot. Also found and fixed: 00837 (applied) revoked EXECUTE on is_submission_photo_path from anon, a US-2403 database-crash entry point; HELD 00846 makes it SECURITY INVOKER with default EXECUTE, proved on PG16 (owner t, stranger f, anon f with no error). 00845 must apply BEFORE the edge deploy; 00846 any time, soon."
+    },
+    {
+      "id": "US-3535",
+      "passes": true,
+      "title": "Grading audit S6: an unassessable factor counts as a real 7.0",
+      "description": "As a seller, I want a factor no photo could show to not cap my grade silently. The composite prompt asks for a neutral 7.0 and the parser treats it as real.",
+      "acceptanceCriteria": [
+        "The model output marks a factor as not assessable explicitly, and sanitizeFactorScores handles it (reweight or force review), via the prompt-version lifecycle.",
+        "Unit test: a pristine tee with functional_elements not assessable does not drop to NWOT without review."
+      ],
+      "priority": 6,
+      "notes": "Done 2026-09-26, shipped INERT. lib/unassessed-factors.ts finds weighted factors that EVERY per-image analysis listed in unassessable_factors (the per-image prompt already marks this explicitly, so no prompt text changed and no version suffix). With GRADING_UNASSESSED_FACTOR_REVIEW on, applyGradingConfidencePolicy caps at UNASSESSED_FACTOR_CONFIDENCE_CAP 0.6 (and lowers the reported ceiling, US-2299) and forces review, even on a permissive threshold. Forced review rather than reweighting: reweighting changes the weighted overall that three sites compute in lockstep and a human correction recomputes with fixed weights. odor_cleanliness is excluded: no photo can smell, so it is unassessable almost always and already has its own certificate handling (US-3329); including it would send every grade to review. Operator trade before turning it on: garments with no functional elements at all (tees, most knits) will go to review. Test: a pristine tee (10/10/10/7/10 = NWOT) is forced to review at 0.6 with a 0.5 threshold; flag off/empty is byte-identical."
+    },
+    {
       "id": "US-3510",
       "passes": true,
       "title": "iOS CI is red on main: push-contract category with null kind and extension-queue rules",

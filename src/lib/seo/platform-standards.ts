@@ -20,6 +20,7 @@
 import type { PublicRoute } from "./public-routes";
 import { mapCondition, type MarketplacePlatform } from "../marketplace-specs";
 import { verifiedLabel } from "./freshness";
+import { tierBandRange } from "../constants";
 
 export const PLATFORM_STANDARDS_HUB_PATH = "/grading/platform-standards";
 
@@ -38,13 +39,17 @@ export const SCALE_BANDS: ReadonlyArray<{
   /** One-line description of the band, reused in listing-copy templates. */
   blurb: string;
 }> = [
-  { tier: "New With Tags", range: "9.75–10.0", grade: 9.9, blurb: "brand new, unworn, with original tags attached" },
-  { tier: "New Without Tags", range: "9.0–9.5", grade: 9.2, blurb: "unworn or as-new, no tags" },
-  { tier: "Excellent", range: "7.5–8.5", grade: 8.0, blurb: "very light wear, no notable flaws" },
-  { tier: "Very Good", range: "6.0–7.0", grade: 6.5, blurb: "light, honest wear with minor cosmetic signs" },
-  { tier: "Good", range: "4.5–5.5", grade: 5.0, blurb: "clear wear or a minor flaw, fully wearable" },
-  { tier: "Fair", range: "3.0–4.0", grade: 3.5, blurb: "significant wear or a disclosed defect" },
-  { tier: "Poor", range: "1.0–2.5", grade: 2.0, blurb: "heavy wear or damage; sold as-is for parts/repair" },
+  // US-3536: ranges come from GRADE_TIER_BANDS (the one tier table) and each
+  // representative grade sits inside its real band. These used to carry their
+  // own numbers ("Excellent 7.5 to 8.5"), so a 7.5 certificate said Very Good
+  // while this page called it Excellent.
+  { tier: "New With Tags", range: tierBandRange("NWT"), grade: 10.0, blurb: "brand new, unworn, with original tags attached" },
+  { tier: "New Without Tags", range: tierBandRange("NWOT"), grade: 9.4, blurb: "unworn or as-new, no tags" },
+  { tier: "Excellent", range: tierBandRange("Excellent"), grade: 8.4, blurb: "very light wear, no notable flaws" },
+  { tier: "Very Good", range: tierBandRange("Very Good"), grade: 7.4, blurb: "light, honest wear with minor cosmetic signs" },
+  { tier: "Good", range: tierBandRange("Good"), grade: 6.4, blurb: "clear wear or a minor flaw, fully wearable" },
+  { tier: "Fair", range: tierBandRange("Fair"), grade: 5.4, blurb: "significant wear or a disclosed defect" },
+  { tier: "Poor", range: tierBandRange("Poor"), grade: 3.0, blurb: "heavy wear or damage; sold as-is for parts/repair" },
 ];
 
 /** A hand-authored vocab row for a platform GradeThread doesn't push to. */

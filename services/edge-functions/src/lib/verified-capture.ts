@@ -11,8 +11,10 @@
 // All checks run server-side so they can't be bypassed from the client:
 //   1. Opted in              — the opt-in flag alone grants nothing further.
 //   2. Provenance present     — every image carries device (make/model) + a
-//                               capture timestamp read from the original file
-//                               before compression stripped it.
+//                               capture timestamp that the SERVER read from the
+//                               uploaded or retained original bytes
+//                               (`exif.source === "server"`, US-3518). EXIF the
+//                               client reported in a form field is ignored.
 //   3. Consistent device      — all images share one camera/device (a mix is the
 //                               tell of photos assembled from multiple sources).
 //   4. Recent capture         — every timestamp is within a window before submit
@@ -184,6 +186,17 @@ export function evaluateVerifiedCapture(opts: {
         ...base,
         with_exif: withExif,
         reasons: [`'${img.image_type}' has no provenance metadata`],
+      };
+    }
+    // US-3518: only EXIF read from the bytes on the server counts. The
+    // client-reported copy is a form field anyone can fill in.
+    if ((exif as Record<string, unknown>).source !== "server") {
+      return {
+        ...base,
+        with_exif: withExif,
+        reasons: [
+          `'${img.image_type}' has no provenance metadata read from the photo itself`,
+        ],
       };
     }
     if (hasEditorTell(exif)) {

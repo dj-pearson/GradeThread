@@ -43,8 +43,23 @@ export function certRevisedResponse(
     message: string;
     current_certificate_id: string | null;
     current_certificate_number: string | null;
+    /** US-3540: "revoked" when the grade was withdrawn and nothing replaces it. */
+    status?: string | null;
   },
 ): Response {
+  if (revision.status === "revoked") {
+    return notFoundResponse(env, {
+      title: "Certificate withdrawn - GradeThread",
+      heading: "This certificate was withdrawn",
+      message: `${escapeHtml(revision.message)} ` +
+        '<a href="/verify">Check another certificate &rarr;</a>',
+      canonicalPath: "/verify",
+      // 410: the number was real and is gone for good. Not indexable, since
+      // there is no grade left for a search result to point at.
+      status: 410,
+      noindex: true,
+    });
+  }
   const link = revision.current_certificate_id
     ? `<a href="/cert/${encodeURIComponent(revision.current_certificate_id)}">` +
       `View the current grade${

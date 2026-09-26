@@ -22,10 +22,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { decodeToImage } from "../lib/image-decode.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { encryptMeasureCardAddress } from "../lib/measure-card-pii.ts";
-import {
-  bucketForItemPhoto,
-  downloadItemPhoto,
-} from "../lib/item-photo-storage.ts";
+import { downloadItemPhoto, itemPhotoAiUrl } from "../lib/item-photo-storage.ts";
 import { MEASURE_CARD_VERSIONS } from "../lib/measure-card.ts";
 import {
   extractMeasurements,
@@ -111,7 +108,7 @@ flipdeskMeasureRoutes.post("/calibrate", async (c) => {
   const { data: row, error: rowErr } = await supabaseAdmin
     .from("item_photos")
     .select(
-      "id, inventory_item_id, storage_path, photo_type, measure_calibration, inventory_items!inner(user_id)",
+      "id, inventory_item_id, storage_path, photo_type, photo_url, measure_calibration, inventory_items!inner(user_id)",
     )
     .eq("id", photoId)
     .eq("inventory_items.user_id", ownerId)
@@ -232,7 +229,7 @@ flipdeskMeasureRoutes.post("/extract", async (c) => {
   const { data: row, error: rowErr } = await supabaseAdmin
     .from("item_photos")
     .select(
-      "id, inventory_item_id, storage_path, photo_type, measure_calibration, inventory_items!inner(user_id)",
+      "id, inventory_item_id, storage_path, photo_type, photo_url, measure_calibration, inventory_items!inner(user_id)",
     )
     .eq("id", photoId)
     .eq("inventory_items.user_id", ownerId)
@@ -300,9 +297,10 @@ flipdeskMeasureRoutes.post("/extract", async (c) => {
   if (!quota.ok) return c.json(quota.body, quota.status);
 
   // The vision call reads the photo by URL; detection/snapping read pixels.
-  const publicUrl = supabaseAdmin.storage
-    .from(bucketForItemPhoto(photo.photo_type))
-    .getPublicUrl(photo.storage_path).data.publicUrl;
+  // US-3539: sign private-bucket photos instead of handing the model a dead
+  // public link; refuse a path outside the owner's folder.
+  const publicUrl = await itemPhotoAiUrl(photo, undefined, { ownerId });
+  if (!publicUrl) return c.json({ error: "Could not load the image." }, 422);
   const dl = await downloadItemPhoto(photo.storage_path, photo.photo_type);
   if ("error" in dl) {
     return c.json({ error: `Could not load the image: ${dl.error}` }, 502);
