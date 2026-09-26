@@ -24,6 +24,13 @@
       "story": "US-3532",
       "held_since": "2026-09-26",
       "what": "a retried grade submit returns the first submission"
+    },
+    {
+      "version": "00843",
+      "file": "00843_realtime_submissions.sql",
+      "story": "US-3533",
+      "held_since": "2026-09-26",
+      "what": "live grade-complete updates on submissions"
     }
   ],
   "parked": [

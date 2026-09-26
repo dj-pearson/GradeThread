@@ -215,6 +215,9 @@ describe("SUB-11: polling", () => {
     const delays = [0, 11, 12, 31, 32, 200].map((n) => detailPollDelay("pending_review", n));
     expect(delays).toEqual([5000, 5000, 30000, 30000, 120000, 120000]);
     expect(detailPollDelay("processing", 500)).toBe(5000);
+    // US-3533: an unpaid submission backs off too.
+    expect(detailPollDelay("pending", 0)).toBe(5000);
+    expect(detailPollDelay("pending", 40)).toBe(120000);
   });
 
   it("does not poll a not-found page", async () => {

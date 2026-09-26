@@ -934,6 +934,20 @@ gradeRoutes.post("/submit", async (c) => {
     height: number | null;
   }> = [];
 
+  // US-3533: a photo refused partway through left the earlier photos in the
+  // private bucket with no submission row pointing at them. Remove them (and
+  // any retained originals) before the row is deleted. Best effort.
+  const discardUploadedPhotos = async () => {
+    const paths = imageRecords.flatMap((r) =>
+      r.original_storage_path ? [r.storage_path, r.original_storage_path] : [r.storage_path]
+    );
+    if (paths.length === 0) return;
+    await supabaseAdmin.storage.from("submission-images").remove(paths).then(
+      undefined,
+      () => {},
+    );
+  };
+
   for (let i = 0; i < imageFiles.length; i++) {
     const file = imageFiles[i];
     const imageType = imageTypes[i];
@@ -949,6 +963,7 @@ gradeRoutes.post("/submit", async (c) => {
       minDimension: gradingMinImageEdge(),
     });
     if (!verdict.ok) {
+      await discardUploadedPhotos();
       await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
       return c.json(
         { error: `Invalid image (${imageType}): ${verdict.reason}` },
@@ -970,6 +985,7 @@ gradeRoutes.post("/submit", async (c) => {
     // US-3528: refuse a black or blown-out core photo before any charge.
     const exposure = exposureVerdict(imageType, meanLuma);
     if (exposure) {
+      await discardUploadedPhotos();
       await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
       return c.json({ error: exposure, code: "PHOTO_EXPOSURE" }, 400);
     }
@@ -985,6 +1001,7 @@ gradeRoutes.post("/submit", async (c) => {
 
     if (uploadError) {
       console.error(`Failed to upload image ${i}:`, uploadError);
+      await discardUploadedPhotos();
       await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
       return c.json({ error: `Failed to upload image: ${imageType}` }, 500);
     }

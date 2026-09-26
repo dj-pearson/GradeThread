@@ -1973,7 +1973,32 @@ export async function processSubmission(submissionId: string) {
     // system_settings, off by default), grade the first pass on the cheap model
     // and escalate to the stronger model only when confidence is low / the item
     // is high-value. `firstPassModel` undefined ⇒ default single-model behavior.
-    const cascade = await getCascadeConfig();
+    // US-3533: these setup reads do not depend on each other, and ran one after
+    // another on every grade. Start them together and await each where it was
+    // used. The no-op catches only mark a rejection as handled while it waits
+    // its turn; awaiting the original still throws exactly as before.
+    const wantAuthenticitySetup =
+      (submission as { authenticity_addon?: boolean }).authenticity_addon === true;
+    const cascadeP = getCascadeConfig();
+    const tellsP = wantAuthenticitySetup
+      ? getEffectiveTellsForBrand(submission.brand).catch(() => [])
+      : Promise.resolve([]);
+    const referencesP = wantAuthenticitySetup
+      ? getAuthenticityReferences(brandKey(submission.brand ?? "")).catch(() => [])
+      : Promise.resolve([]);
+    const baselineP = getGarmentBaseline({
+      brand: submission.brand,
+      garmentCategory: submission.garment_category,
+    });
+    const visualSettingP = getSetting<{ enabled?: boolean; maxImages?: number }>(
+      "grading_composite_visual",
+      {},
+    );
+    for (const p of [cascadeP, baselineP, visualSettingP] as Promise<unknown>[]) {
+      p.catch(() => {});
+    }
+
+    const cascade = await cascadeP;
     const firstPassModel = cascade.enabled ? cascade.firstPassModel : undefined;
 
     // US-601: premium authenticity / counterfeit-confidence add-on. Only runs
@@ -2003,17 +2028,11 @@ export async function processSubmission(submissionId: string) {
     // Best-effort + only when the add-on was purchased — a miss (or an
     // unrecognizable brand) yields empty tells, keeping the assessment on the
     // byte-identical ungrounded v1 prompt.
-    const authenticityTells = wantAuthenticity
-      ? await getEffectiveTellsForBrand(submission.brand).catch(() => [])
-      : [];
+    const authenticityTells = await tellsP;
     // US-2218: the known-genuine references we hold for this brand. Empty on a
     // miss or a failure, which marks every visual tell unverifiable — widening
     // the disclosed limitations and capping confidence, never raising risk.
-    const authenticityReferences = wantAuthenticity
-      ? await getAuthenticityReferences(brandKey(submission.brand ?? "")).catch(
-        () => [],
-      )
-      : [];
+    const authenticityReferences = await referencesP;
 
     // US-2210: read the garment's OWN label as trusted identity context. Gated
     // on GRADING_TAG_OCR (default OFF — the composite prompt changes, so it goes
@@ -2074,12 +2093,7 @@ export async function processSubmission(submissionId: string) {
     // cache-first with lazy generation). Fetched ONCE before the memory-gated
     // closure so both the per-image calls and the composite share it. Strictly
     // additive — a null baseline leaves every prompt byte-identical.
-    const baselineBlock = baselineReferenceBlock(
-      (await getGarmentBaseline({
-        brand: submission.brand,
-        garmentCategory: submission.garment_category,
-      })) ?? "",
-    );
+    const baselineBlock = baselineReferenceBlock((await baselineP) ?? "");
 
     // US-1537: composite visual verification config (default OFF — canary
     // rollout; adds image tokens to the composite call). When on, the buffer
@@ -2088,10 +2102,7 @@ export async function processSubmission(submissionId: string) {
     const visualCfg = {
       enabled: false,
       maxImages: 4,
-      ...(await getSetting<{ enabled?: boolean; maxImages?: number }>(
-        "grading_composite_visual",
-        {},
-      )),
+      ...(await visualSettingP),
     };
     const verificationImages: VerificationImage[] = [];
 

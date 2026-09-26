@@ -71,6 +71,22 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00843_realtime_submissions.sql (US-3533 - live grade-complete updates on submissions)
+
+**What it does.** Adds `public.submissions` to the `supabase_realtime`
+publication, guarded like 00007 (no-op if already a member, or if the
+publication does not exist). `use-realtime-submission.ts` has subscribed to
+this table for months and received nothing; the detail page polled instead.
+
+**Risk: low to medium.** Every UPDATE on `submissions` now goes through
+Realtime's WAL decoding. Delivery respects RLS (owner / workspace member).
+Watch Realtime CPU after applying; to undo,
+`ALTER PUBLICATION supabase_realtime DROP TABLE public.submissions;`.
+Measured on PG16: no publication is a clean no-op; with one, it adds the
+table once and a second run changes nothing.
+
+**Apply order.** Any time. No edge code depends on it.
+
 ## HELD: 00842_submission_idempotency_key.sql (US-3532 - a retried grade submit returns the first submission)
 
 **What it does.** Adds nullable `submissions.idempotency_key` and a partial

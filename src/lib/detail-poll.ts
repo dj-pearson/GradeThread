@@ -12,9 +12,15 @@ export function isPollableStatus(status: string | null | undefined): status is P
   return status === "pending" || status === "processing" || status === "pending_review";
 }
 
-/** Delay before poll number `n` (0-based) for a submission in `status`. */
+/**
+ * Delay before poll number `n` (0-based) for a submission in `status`.
+ *
+ * US-3533: `pending` (waiting on payment) backs off like `pending_review`.
+ * Nothing changes until the seller pays, and an open checkout tab used to
+ * poll every 5 seconds forever.
+ */
 export function detailPollDelay(status: PollableStatus, n: number): number {
-  if (status !== "pending_review") return 5_000;
+  if (status === "processing") return 5_000;
   if (n < 12) return 5_000; // first minute
   if (n < 32) return 30_000; // next ten minutes
   return 120_000;

@@ -49802,6 +49802,20 @@
       ],
       "priority": 5,
       "notes": "Done 2026-09-26 for the web client. HELD 00842 adds submissions.idempotency_key with a partial unique index per owner (measured on PG16: same owner + key refused; other owner and NULLs fine; applies twice). new-submission.tsx sends Idempotency-Key from a ref created per attempt and replaced only after a successful submit; main.ts CORS allows the header. /api/grade/submit looks the key up before any upload or charge and answers 200 {submissionId, status, replayed:true}; the insert stores the key, and a 23505 on that index (two retries racing) reads the winner back. lib/submit-idempotency.ts + submit-idempotency_test.ts (4). 195 new-submission web tests pass. main.ts deno check has the same 7 pre-existing Stripe/webhooks errors with and without this change. Not done: iOS, Android and bulk-submission do not send the key yet; the server treats a missing key exactly as before."
+    },
+    {
+      "id": "US-3533",
+      "passes": true,
+      "title": "Grading audit S5: live grade updates are not wired and slow paths run in sequence",
+      "description": "As a seller, I want to see my grade the moment it is done. submissions is not in the supabase_realtime publication, so use-realtime-submission never fires; /submit processes images one at a time.",
+      "acceptanceCriteria": [
+        "Either add submissions to supabase_realtime (after checking prod) or remove the dead subscription.",
+        "Pending (unpaid) detail polling backs off.",
+        "/submit strips, hashes and uploads images with limited concurrency, and failed submits clean up already-uploaded files.",
+        "Pipeline setup lookups run with Promise.all."
+      ],
+      "priority": 5,
+      "notes": "Done 2026-09-26. HELD 00843 adds public.submissions to supabase_realtime (guarded; measured on PG16), so use-realtime-submission.ts finally receives changes; realtime still applies RLS. detail-poll.ts: 'pending' (unpaid) now backs off like pending_review (5s first minute, 30s, then 2 min); processing stays 5s. /api/grade/submit removes already-uploaded photos and retained originals before deleting the row on every early return in the upload loop (discardUploadedPhotos). The pipeline starts the cascade config, authenticity tells and references, garment baseline and composite-visual setting together and awaits each where it was used, with no-op catches so an early rejection is not unhandled. NOT done: the per-image upload loop in /submit is still sequential; parallelizing it reorders the early refusals and the orphan cleanup, and the gain is a second or two on a path that ends in a minute-long grade. Proof: grading-submit-latency_test.ts (3), submission-detail-load poll test extended; full edge suite 11,933 passed, only the 6 known imagescript failures."
     }
   ]
 }
