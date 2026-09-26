@@ -18,6 +18,7 @@
 // (the stranded-paid re-kick that covers the case the catch block cannot) and
 // US-2564 (per-item idempotency keys) before changing a line of the loop.
 
+import { currentGradingUnavailableReason, gradingUnavailableBody } from "./grading-availability.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { downloadItemPhoto } from "./item-photo-storage.ts";
 import { validateImageUpload } from "./upload-validation.ts";
@@ -721,6 +722,11 @@ export async function submitItemsForGrading(
     (await isAiBudgetExhausted("grading"))
   ) {
     return { ok: false, status: 503, body: featureDisabledBody("grading") };
+  }
+  // US-3530: the AI provider is failing, or the grading queue is full.
+  {
+    const busy = currentGradingUnavailableReason();
+    if (busy) return { ok: false, status: 503, body: gradingUnavailableBody(busy) };
   }
   // US-3528: refunded grades cost us the AI calls. Cap them per owner per day.
   if (await refundedGradeCapReached(ownerId)) {

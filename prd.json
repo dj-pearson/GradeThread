@@ -5198,19 +5198,6 @@
       "notes": "2026-09-26 SHIPPED INERT. New lib/vision-input-shaping.ts. GRADING_VISION_LONG_EDGE=<px> (>=512, unset = off) downscales each grading photo to that long edge as JPEG q88 before the per-image, authenticity and label calls, in the first pass and the escalation re-grade; defect and fabric zoom still crop the stored original. GRADING_SKIP_MEASUREMENT_FANOUT=1 leaves measurement_* photos out of the condition fan-out (both passes); settled results now index conditionImages, not imageData. Per-image reads are stamped +ds<px> / +nomeasure and the grade suffix gains +ds / +nomeasure, appended last. Off is byte-identical. Proof: vision-input-shaping_test.ts (6, incl. a real 1200x2400 JPEG shrunk to 784x1568 and undecodable bytes passing through). AC3 (cost before/after) is answerable from the grading.completed event's cost_usd (US-3525) split by prompt_version. Open: shadow and eval with each flag on, then switch on."
     },
     {
-      "id": "US-3530",
-      "passes": false,
-      "title": "Grading audit S5: no circuit breaker around Anthropic",
-      "description": "As a seller, I want submit to refuse before charging when the AI is down, so that I am not charged into a pile-up. getBreaker is used only by ebay-client; AI calls can take 120s x 3 tries.",
-      "acceptanceCriteria": [
-        "A shared getBreaker('anthropic') wraps the provider call.",
-        "When open, /api/grade/submit returns 503 with Retry-After before any charge.",
-        "Per-image timeout lowered (about 45s) with at most one retry on timeout.",
-        "Queue depth over a limit returns 503 before charge."
-      ],
-      "priority": 5
-    },
-    {
       "id": "US-3531",
       "passes": false,
       "title": "Grading audit S5: grading lease can expire while waiting for a slot",

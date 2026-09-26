@@ -1,4 +1,9 @@
 import { Hono } from "hono";
+import {
+  currentGradingUnavailableReason,
+  GRADING_BUSY_RETRY_AFTER_SECONDS,
+  gradingUnavailableBody,
+} from "../lib/grading-availability.ts";
 import { sha256OfBytes } from "../lib/cert-photo-seal.ts";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
@@ -168,6 +173,18 @@ apiV1Routes.post("/grades", async (c) => {
       error: { message: "Grading is temporarily unavailable. Please try again shortly.", code: "GRADING_UNAVAILABLE", details: [] },
       meta: null,
     }, 503);
+  }
+  // US-3530: the AI provider is failing, or the grading queue is full.
+  {
+    const busy = currentGradingUnavailableReason();
+    if (busy) {
+      c.header("Retry-After", String(GRADING_BUSY_RETRY_AFTER_SECONDS));
+      return c.json({
+        data: null,
+        error: { message: gradingUnavailableBody(busy).error, code: gradingUnavailableBody(busy).code, details: [] },
+        meta: null,
+      }, 503);
+    }
   }
   // US-3528: refunded grades cost us the AI calls. Cap them per owner per day.
   if (await refundedGradeCapReached(userId)) {
@@ -586,6 +603,18 @@ apiV1Routes.post("/grades/batch", async (c) => {
       error: { message: "Grading is temporarily unavailable. Please try again shortly.", code: "GRADING_UNAVAILABLE", details: [] },
       meta: null,
     }, 503);
+  }
+  // US-3530: the AI provider is failing, or the grading queue is full.
+  {
+    const busy = currentGradingUnavailableReason();
+    if (busy) {
+      c.header("Retry-After", String(GRADING_BUSY_RETRY_AFTER_SECONDS));
+      return c.json({
+        data: null,
+        error: { message: gradingUnavailableBody(busy).error, code: gradingUnavailableBody(busy).code, details: [] },
+        meta: null,
+      }, 503);
+    }
   }
   // US-3528: refunded grades cost us the AI calls. Cap them per owner per day.
   if (await refundedGradeCapReached(userId)) {

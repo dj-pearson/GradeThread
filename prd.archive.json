@@ -49762,6 +49762,20 @@
       ],
       "priority": 1,
       "notes": "2026-09-25: 00837_lock_submission_photos.sql written and HELD. Adds public.is_submission_photo_path(name) and re-creates the five client write policies on submission-images (owner INSERT/DELETE from 00001, member INSERT from 00042, owner/member UPDATE from 00333) with NOT is_submission_photo_path. Measured on a throwaway PG16 with stub auth/storage schemas: before, owner and member could update, insert into and delete from a graded submission folder; after, update touches 0 rows, insert is refused, delete touches 0 rows, and item-photo paths in the same bucket are still writable (rotation, US-979). Applied twice with no error. Stays open until the owner applies it to prod; the photo-hash seal is US-3516. | Done 2026-09-26. 00837_lock_submission_photos.sql applied to prod by the owner (reported in session). Graded submission folders are read-only to clients; item-photo folders in the same bucket stay writable. Photo hash sealing shipped separately as US-3516 (00839, also applied)."
+    },
+    {
+      "id": "US-3530",
+      "passes": true,
+      "title": "Grading audit S5: no circuit breaker around Anthropic",
+      "description": "As a seller, I want submit to refuse before charging when the AI is down, so that I am not charged into a pile-up. getBreaker is used only by ebay-client; AI calls can take 120s x 3 tries.",
+      "acceptanceCriteria": [
+        "A shared getBreaker('anthropic') wraps the provider call.",
+        "When open, /api/grade/submit returns 503 with Retry-After before any charge.",
+        "Per-image timeout lowered (about 45s) with at most one retry on timeout.",
+        "Queue depth over a limit returns 503 before charge."
+      ],
+      "priority": 5,
+      "notes": "Done 2026-09-26 except the timeout AC, on purpose. New lib/grading-availability.ts: a shared getBreaker('anthropic') (5 consecutive transient failures, isRetryableError, opens for 30s) wraps every AnthropicProvider.complete call, streamed or not. /api/grade/submit, both api-v1 grade routes and FlipDesk submitForGrading call currentGradingUnavailableReason() before any charge and answer 503 (Retry-After 60 on the HTTP routes) when the breaker is open or GRADING_MAX_QUEUED_PIPELINES (default 24) submissions already wait for an image-buffer slot (gradingQueueWaiting, new in grading-capacity.ts). Proof: grading-availability_test.ts (4): five 529s open it and the sixth call never reaches the API; eight 400s leave it closed; refusals sit before runPaymentPrecedence. Full edge suite 11,922 passed, only the 6 known imagescript failures. NOT DONE: lowering the 120s per-call timeout to 45s. Per-image calls can emit 2048 tokens and the composite 3072; there is no measured p99 for them here, and a timeout below the real tail would fail and refund good grades. The per_call_ms log line (US-3345) is where that number comes from; lower it from that."
     }
   ]
 }

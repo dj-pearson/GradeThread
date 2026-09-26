@@ -1,4 +1,9 @@
 import { Hono } from "hono";
+import {
+  currentGradingUnavailableReason,
+  GRADING_BUSY_RETRY_AFTER_SECONDS,
+  gradingUnavailableBody,
+} from "../lib/grading-availability.ts";
 import { sha256OfBytes } from "../lib/cert-photo-seal.ts";
 import type { Context } from "hono";
 import {
@@ -326,6 +331,14 @@ gradeRoutes.post("/submit", async (c) => {
   // payment/credit reservation so an over-budget breach never charges the user.
   if (await isAiBudgetExhausted("grading")) {
     return c.json(aiBudgetExceededBody("grading"), 503);
+  }
+  // US-3530: the AI provider is failing, or the grading queue is full.
+  {
+    const busy = currentGradingUnavailableReason();
+    if (busy) {
+      c.header("Retry-After", String(GRADING_BUSY_RETRY_AFTER_SECONDS));
+      return c.json(gradingUnavailableBody(busy), 503);
+    }
   }
   // US-3528: refunded grades cost us the AI calls. Cap them per owner per day.
   if (await refundedGradeCapReached(ownerId)) {
