@@ -5198,18 +5198,6 @@
       "notes": "2026-09-26 PARTIAL. AC1 done: activatePromptVersion, for per_image and composite only (listing prompts keep their own loop), now also requires activationEvidenceVerdict: the candidate's latest passing eval must be no worse than the champion's (the active row in the same slot, else the code default by name) within MAE +0.05 and agreement -0.02, and it needs GRADING_ACTIVATION_MIN_LIVE_SAMPLES (default 20, 0 waives) scored shadow results plus canary grades stamped with its name. Checked before anything is deactivated. Proof: 5 cases in golden-set-growth_test.ts. AC2 NOT done: runEval deliberately passes an empty baseline and suppresses exemplars (US-1643: the eval measures the prompt). Making it use the live flags changes what every eval measures and needs its own decision about how runs before and after compare."
     },
     {
-      "id": "US-3528",
-      "passes": false,
-      "title": "Grading audit S4: refunded grades cost AI calls with no per-user cap",
-      "description": "As the owner, I want bad-photo submissions stopped before paid AI calls, so that a seller cannot loop free refunded grades. The quality gate refunds only after all per-photo vision calls run.",
-      "acceptanceCriteria": [
-        "Server-side brightness and sharpness check on decoded pixels refuses obvious failures before any AI call.",
-        "Grading uploads pass minDimension (about 800px long edge) on grade.ts, api-v1.ts and api-grade-ingest.ts.",
-        "A per-user daily cap on refunded/needs_photos submissions returns 429 with a clear message."
-      ],
-      "priority": 4
-    },
-    {
       "id": "US-3529",
       "passes": false,
       "title": "Grading audit S4: send smaller images and skip measurement photos in the condition fan-out",

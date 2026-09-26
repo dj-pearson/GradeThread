@@ -41,7 +41,13 @@ import {
   debitBuyerMeter,
   refundBuyerMeterSource,
 } from "../lib/buyer-metering.ts";
-import { computePhashFromImage } from "../lib/perceptual-hash.ts";
+import { computePhashAndLuma, computePhashFromImage } from "../lib/perceptual-hash.ts";
+import {
+  exposureVerdict,
+  gradingMinImageEdge,
+  REFUND_CAP_MESSAGE,
+  refundedGradeCapReached,
+} from "../lib/refund-loop-guard.ts";
 import {
   GRADE_TIERS,
   type GradeTier,
@@ -320,6 +326,10 @@ gradeRoutes.post("/submit", async (c) => {
   // payment/credit reservation so an over-budget breach never charges the user.
   if (await isAiBudgetExhausted("grading")) {
     return c.json(aiBudgetExceededBody("grading"), 503);
+  }
+  // US-3528: refunded grades cost us the AI calls. Cap them per owner per day.
+  if (await refundedGradeCapReached(ownerId)) {
+    return c.json({ error: REFUND_CAP_MESSAGE, code: "REFUND_CAP_REACHED" }, 429);
   }
 
   // Member must have at least 'member' role in the workspace to submit a grade.
@@ -902,6 +912,8 @@ gradeRoutes.post("/submit", async (c) => {
     const rawBytes = new Uint8Array(await file.arrayBuffer());
     const verdict = validateImageUpload(rawBytes, {
       allow: ["jpeg", "png", "webp"],
+      // US-3528: a photo too small to show condition still costs a vision call.
+      minDimension: gradingMinImageEdge(),
     });
     if (!verdict.ok) {
       await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
@@ -918,7 +930,16 @@ gradeRoutes.post("/submit", async (c) => {
     // US-480: recompute the reuse-detection hash from the bytes we actually
     // store (never the client). null on a decode/hash failure → image is simply
     // skipped by reuse detection, never blocked.
-    const serverPhash = await computePhashFromImage(cleanBytes, verdict.format);
+    const { phash: serverPhash, meanLuma } = await computePhashAndLuma(
+      cleanBytes,
+      verdict.format,
+    );
+    // US-3528: refuse a black or blown-out core photo before any charge.
+    const exposure = exposureVerdict(imageType, meanLuma);
+    if (exposure) {
+      await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+      return c.json({ error: exposure, code: "PHOTO_EXPOSURE" }, 400);
+    }
     const storagePath =
       `${ownerId}/${submissionId}/${imageType}_${timestamp}.${verdict.ext}`;
 

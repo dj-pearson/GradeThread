@@ -1,6 +1,7 @@
 // US-3527: the edge's cost_usd price for Sonnet 5 and the latest migration that
 // seeds system_settings.ai_model_prices for it must agree, or AI Spend and the
 // budget job disagree with the ledger.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { MODEL_PRICES } from "../lib/ai-usage.ts";
 import { MODEL_IDS } from "../lib/ai-model-registry.ts";

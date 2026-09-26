@@ -22,7 +22,13 @@ import { supabaseAdmin } from "./supabase.ts";
 import { downloadItemPhoto } from "./item-photo-storage.ts";
 import { validateImageUpload } from "./upload-validation.ts";
 import { stripImageMetadata } from "./image-metadata.ts";
-import { computePhashFromImage } from "./perceptual-hash.ts";
+import { computePhashAndLuma } from "./perceptual-hash.ts";
+import {
+  exposureVerdict,
+  gradingMinImageEdge,
+  REFUND_CAP_MESSAGE,
+  refundedGradeCapReached,
+} from "./refund-loop-guard.ts";
 import { isOwnedStoragePath } from "./storage-path-ownership.ts";
 import { sha256OfBytes } from "./cert-photo-seal.ts";
 import { processSubmission } from "./grading-pipeline.ts";
@@ -716,6 +722,10 @@ export async function submitItemsForGrading(
   ) {
     return { ok: false, status: 503, body: featureDisabledBody("grading") };
   }
+  // US-3528: refunded grades cost us the AI calls. Cap them per owner per day.
+  if (await refundedGradeCapReached(ownerId)) {
+    return { ok: false, status: 429, body: { error: REFUND_CAP_MESSAGE, code: "REFUND_CAP_REACHED" } };
+  }
   if (role === "viewer") {
     return {
       ok: false,
@@ -1081,6 +1091,7 @@ export async function submitItemsForGrading(
         const rawBytes = new Uint8Array(await dl.blob.arrayBuffer());
         const verdict = validateImageUpload(rawBytes, {
           allow: ["jpeg", "png", "webp"],
+          minDimension: gradingMinImageEdge(), // US-3528
         });
         if (!verdict.ok) {
           throw new Error(
@@ -1088,7 +1099,11 @@ export async function submitItemsForGrading(
           );
         }
         const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
-        const phash = await computePhashFromImage(cleanBytes, verdict.format);
+        const { phash, meanLuma } = await computePhashAndLuma(cleanBytes, verdict.format);
+        // US-3528: the charge already ran on this path, so this throws into
+        // the item's catch, which refunds it; what it saves is the AI calls.
+        const exposure = exposureVerdict(photo.grading.imageType, meanLuma);
+        if (exposure) throw new Error(exposure);
         const newPath = `${ownerId}/${submissionId}/${photo.grading.imageType}_${i}.${verdict.ext}`;
         const { error: upErr } = await supabaseAdmin.storage
           .from("submission-images")

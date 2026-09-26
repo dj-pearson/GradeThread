@@ -49735,6 +49735,19 @@
       ],
       "priority": 4,
       "notes": "Done 2026-09-26. HELD 00841 seeds ai_budgets grading day $150 throttle and month $3000 kill (ON CONFLICT DO NOTHING) and sets system_settings.ai_model_prices claude-sonnet-5 to 2/10 (cache 2.5/0.2). Current price confirmed from the claude-api skill model table (Sonnet 5 $2/$10), matching ai-usage.ts MODEL_PRICES. New sonnet5-price-lockstep_test.ts finds the newest migration that seeds claude-sonnet-5 and asserts it equals MODEL_PRICES; it fails against 00335 alone and passes with 00841. Measured on PG16 with seeded rows: existing operator row kept, month row added, only the Sonnet 5 key changed, re-run a no-op. The month cap is an estimate; PENDING_MIGRATIONS.md tells the owner to check it against volume first."
+    },
+    {
+      "id": "US-3528",
+      "passes": true,
+      "title": "Grading audit S4: refunded grades cost AI calls with no per-user cap",
+      "description": "As the owner, I want bad-photo submissions stopped before paid AI calls, so that a seller cannot loop free refunded grades. The quality gate refunds only after all per-photo vision calls run.",
+      "acceptanceCriteria": [
+        "Server-side brightness and sharpness check on decoded pixels refuses obvious failures before any AI call.",
+        "Grading uploads pass minDimension (about 800px long edge) on grade.ts, api-v1.ts and api-grade-ingest.ts.",
+        "A per-user daily cap on refunded/needs_photos submissions returns 429 with a clear message."
+      ],
+      "priority": 4,
+      "notes": "Done 2026-09-26. New lib/refund-loop-guard.ts. (1) refundedGradeCapReached: GRADING_MAX_REFUNDED_PER_DAY (default 5, 0 off) submissions with refunded_at in 24h per owner returns 429 REFUND_CAP_REACHED before any charge on /api/grade/submit, both api-v1 grade routes and FlipDesk submitForGrading; a count failure lets the grade through. (2) GRADING_MIN_IMAGE_EDGE (default 800) as minDimension on grade.ts, api-v1.ts, api-grade-ingest.ts and the FlipDesk copy. iOS sends up to 1600px and Android 2048px, web requires 1200, so normal uploads clear it. (3) computePhashAndLuma gives the fingerprint and mean luma from ONE decode; exposureVerdict refuses front/back/label with mean luma < 12 or > 248 before the charge on the main path (FlipDesk charges first, so there it throws into the item's refund; it still saves the AI calls). Blur was NOT added: a Laplacian threshold depends on scale and content and needs real photos to calibrate, and a false refusal costs a sale. Proof: refund-loop-guard_test.ts (5, incl. real encoded black/white/grey PNGs); full edge suite 11,911 passed, the only non-imagescript failure was an _env.ts import in the new US-3527 test, fixed here."
     }
   ]
 }

@@ -46,7 +46,7 @@ Deno.test("US-3514: ownership is checked before the charge, intake runs in the c
   );
   const validate = loop.indexOf("validateImageUpload(rawBytes");
   const strip = loop.indexOf("stripImageMetadata(rawBytes, verdict.format)");
-  const hash = loop.indexOf("computePhashFromImage(cleanBytes");
+  const hash = loop.indexOf("computePhashAndLuma(cleanBytes");
   const upload = loop.indexOf(".upload(newPath, cleanBytes");
   assert(
     validate > 0 && validate < strip && strip < hash && hash < upload,

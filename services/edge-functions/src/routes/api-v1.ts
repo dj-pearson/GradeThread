@@ -14,7 +14,13 @@ import { decodeBase64Image } from "../lib/validation.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { REQUIRED_IMAGE_TYPES } from "../lib/image-quality.ts";
-import { computePhashFromImage } from "../lib/perceptual-hash.ts";
+import { computePhashAndLuma } from "../lib/perceptual-hash.ts";
+import {
+  exposureVerdict,
+  gradingMinImageEdge,
+  REFUND_CAP_MESSAGE,
+  refundedGradeCapReached,
+} from "../lib/refund-loop-guard.ts";
 import { assertPublicUrl, safeFetch, SsrfError } from "../lib/ssrf.ts";
 import {
   deliveryLimit,
@@ -162,6 +168,14 @@ apiV1Routes.post("/grades", async (c) => {
       error: { message: "Grading is temporarily unavailable. Please try again shortly.", code: "GRADING_UNAVAILABLE", details: [] },
       meta: null,
     }, 503);
+  }
+  // US-3528: refunded grades cost us the AI calls. Cap them per owner per day.
+  if (await refundedGradeCapReached(userId)) {
+    return c.json({
+      data: null,
+      error: { message: REFUND_CAP_MESSAGE, code: "REFUND_CAP_REACHED", details: [] },
+      meta: null,
+    }, 429);
   }
 
   let body: {
@@ -393,6 +407,8 @@ apiV1Routes.post("/grades", async (c) => {
     const rawBytes = new Uint8Array(imageData);
     const verdict = validateImageUpload(rawBytes, {
       allow: ["jpeg", "png", "webp"],
+      // US-3528
+      minDimension: gradingMinImageEdge(),
     });
     if (!verdict.ok) {
       for (const record of imageRecords) {
@@ -410,7 +426,16 @@ apiV1Routes.post("/grades", async (c) => {
     const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
     // US-480: server-side reuse hash from the stored bytes (never the client),
     // so public-API submissions are covered by photo-reuse detection too.
-    const serverPhash = await computePhashFromImage(cleanBytes, verdict.format);
+    const { phash: serverPhash, meanLuma } = await computePhashAndLuma(cleanBytes, verdict.format);
+    // US-3528: a black or blown-out core photo is refused before any charge.
+    const exposure = exposureVerdict(img.image_type, meanLuma);
+    if (exposure) {
+      for (const record of imageRecords) {
+        await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
+      }
+      await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+      return imageProcessingError(c, "image_invalid", exposure, 400);
+    }
     const storagePath = `${userId}/${submissionId}/${img.image_type}_${timestamp}.${verdict.ext}`;
 
     const { error: uploadError } = await supabaseAdmin.storage
@@ -561,6 +586,14 @@ apiV1Routes.post("/grades/batch", async (c) => {
       error: { message: "Grading is temporarily unavailable. Please try again shortly.", code: "GRADING_UNAVAILABLE", details: [] },
       meta: null,
     }, 503);
+  }
+  // US-3528: refunded grades cost us the AI calls. Cap them per owner per day.
+  if (await refundedGradeCapReached(userId)) {
+    return c.json({
+      data: null,
+      error: { message: REFUND_CAP_MESSAGE, code: "REFUND_CAP_REACHED", details: [] },
+      meta: null,
+    }, 429);
   }
 
   let body: { garments?: GradeGarmentInput[] };

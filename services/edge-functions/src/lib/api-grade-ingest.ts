@@ -13,7 +13,8 @@ import { supabaseAdmin } from "./supabase.ts";
 import { decodeBase64Image } from "./validation.ts";
 import { validateImageUpload } from "./upload-validation.ts";
 import { stripImageMetadata } from "./image-metadata.ts";
-import { computePhashFromImage } from "./perceptual-hash.ts";
+import { computePhashAndLuma } from "./perceptual-hash.ts";
+import { exposureVerdict, gradingMinImageEdge } from "./refund-loop-guard.ts";
 import { safeFetch } from "./ssrf.ts";
 import { GARMENT_CATEGORIES, GARMENT_TYPES } from "./ai-extract.ts";
 import { type GradeTier, isGradeTier } from "./grade-billing.ts";
@@ -214,14 +215,23 @@ export async function ingestGradeImages(
 
     // US-276: magic-byte validation (not the declared content-type) + EXIF strip.
     const rawBytes = new Uint8Array(imageData);
-    const verdict = validateImageUpload(rawBytes, { allow: ["jpeg", "png", "webp"] });
+    const verdict = validateImageUpload(rawBytes, {
+      allow: ["jpeg", "png", "webp"],
+      minDimension: gradingMinImageEdge(), // US-3528
+    });
     if (!verdict.ok) {
       await cleanup(imageRecords);
       return { ok: false, code: "image_invalid", detail: `${img.image_type}: ${verdict.reason}`, status: 400 };
     }
     const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
     // US-480: server-side reuse hash from the stored bytes (never the client).
-    const serverPhash = await computePhashFromImage(cleanBytes, verdict.format);
+    const { phash: serverPhash, meanLuma } = await computePhashAndLuma(cleanBytes, verdict.format);
+    // US-3528: a black or blown-out core photo is refused before any charge.
+    const exposure = exposureVerdict(img.image_type, meanLuma);
+    if (exposure) {
+      await cleanup(imageRecords);
+      return { ok: false, code: "image_invalid", detail: exposure, status: 400 };
+    }
     const storagePath = `${userId}/${submissionId}/${img.image_type}_${timestamp}.${verdict.ext}`;
 
     const { error: uploadError } = await supabaseAdmin.storage
