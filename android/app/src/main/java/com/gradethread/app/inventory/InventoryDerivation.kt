@@ -48,10 +48,11 @@ class InventoryDerivation {
         photoItemIds: Set<String>? = null,
         serverSearchIds: Set<String>? = null,
         nowMillis: Long = System.currentTimeMillis(),
+        soldDates: Map<String, Long> = emptyMap(),
     ): List<InventoryItemEntity> {
-        val key = filterKey(
+        val key = 31 * filterKey(
             itemsSignature(items), stage, query, sort, criteria, photoItemIds, serverSearchIds,
-        )
+        ) + (if (sort.isSaleSort) soldDates.hashCode() else 0)
         if (key != filteredKey) {
             filteredKey = key
             filterPassCount++
@@ -64,6 +65,7 @@ class InventoryDerivation {
                 photoItemIds = photoItemIds,
                 serverSearchIds = serverSearchIds,
                 nowMillis = nowMillis,
+                soldDates = soldDates,
             )
         }
         return filteredValue

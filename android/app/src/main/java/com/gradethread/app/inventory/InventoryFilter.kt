@@ -159,6 +159,7 @@ object InventoryFilter {
         photoItemIds: Set<String>? = null,
         serverSearchIds: Set<String>? = null,
         nowMillis: Long = System.currentTimeMillis(),
+        soldDates: Map<String, Long> = emptyMap(),
     ): List<InventoryItemEntity> {
         val tokens = searchTokens(query)
         return items
@@ -174,7 +175,7 @@ object InventoryFilter {
                 // Substring, not token equality: "nik" finds Nike.
                 tokens.all { hay.contains(it) }
             }
-            .sortedWith(sort.comparator())
+            .sortedWith(sort.comparator(soldDates))
             .toList()
     }
 }

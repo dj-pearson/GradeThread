@@ -12,6 +12,8 @@ final class InventoryFilterTests: XCTestCase {
         XCTAssertTrue(statuses.contains("cataloged"))
         XCTAssertTrue(statuses.contains("graded"))
         XCTAssertTrue(statuses.contains("comped"))
+        // US-3543: waiting on a grade is still work to list.
+        XCTAssertTrue(statuses.contains("grading"))
         XCTAssertFalse(statuses.contains("drafted"))
         XCTAssertFalse(statuses.contains("listed"))
     }
@@ -47,6 +49,95 @@ final class InventoryFilterTests: XCTestCase {
     func test_naturalCompare_emptyStrings() {
         XCTAssertEqual(SortOption.naturalCompare("", ""), .orderedSame)
         XCTAssertEqual(SortOption.naturalCompare("", "A"), .orderedAscending)
+    }
+
+    // MARK: - US-3543 sale-date + work-queue sorts
+
+    func test_sort_recentSale_ordersBySaleDateNotCreatedDate() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        // Created first, sold last: it must lead the Sold list.
+        let soldLast = LocalInventoryItem(
+            id: "a", userId: "u", title: "A", status: "sold",
+            createdAt: Date(timeIntervalSince1970: 100),
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+        let soldFirst = LocalInventoryItem(
+            id: "b", userId: "u", title: "B", status: "shipped",
+            createdAt: Date(timeIntervalSince1970: 200),
+            updatedAt: Date(timeIntervalSince1970: 200)
+        )
+        let unsold = LocalInventoryItem(
+            id: "c", userId: "u", title: "C", status: "listed",
+            createdAt: Date(timeIntervalSince1970: 900),
+            updatedAt: Date(timeIntervalSince1970: 900)
+        )
+        for item in [soldLast, soldFirst, unsold] { context.insert(item) }
+        let sold: [String: Date] = [
+            "a": Date(timeIntervalSince1970: 5_000),
+            "b": Date(timeIntervalSince1970: 1_000),
+        ]
+
+        let recent = [unsold, soldFirst, soldLast].sorted {
+            SortOption.recentSale.isOrdered($0, $1, soldDates: sold)
+        }
+        XCTAssertEqual(recent.map(\.id), ["a", "b", "c"])
+
+        let oldest = [unsold, soldLast, soldFirst].sorted {
+            SortOption.oldestSale.isOrdered($0, $1, soldDates: sold)
+        }
+        // Unsold sinks in both directions.
+        XCTAssertEqual(oldest.map(\.id), ["b", "a", "c"])
+    }
+
+    func test_saleDate_fallsBackToUpdatedAtForHandMarkedSale() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let handMarked = LocalInventoryItem(
+            id: "a", userId: "u", title: "A", status: "sold",
+            createdAt: Date(timeIntervalSince1970: 100),
+            updatedAt: Date(timeIntervalSince1970: 300)
+        )
+        let listed = LocalInventoryItem(
+            id: "b", userId: "u", title: "B", status: "listed",
+            createdAt: Date(timeIntervalSince1970: 100),
+            updatedAt: Date(timeIntervalSince1970: 300)
+        )
+        context.insert(handMarked)
+        context.insert(listed)
+        XCTAssertEqual(SortOption.saleDate(handMarked, [:]), Date(timeIntervalSince1970: 300))
+        XCTAssertNil(SortOption.saleDate(listed, [:]))
+    }
+
+    func test_sort_untouchedLongest_putsStalestFirst() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let stale = LocalInventoryItem(
+            id: "a", userId: "u", title: "A", status: "photographed",
+            createdAt: Date(timeIntervalSince1970: 500),
+            updatedAt: Date(timeIntervalSince1970: 500)
+        )
+        let fresh = LocalInventoryItem(
+            id: "b", userId: "u", title: "B", status: "photographed",
+            createdAt: Date(timeIntervalSince1970: 100),
+            updatedAt: Date(timeIntervalSince1970: 900)
+        )
+        context.insert(stale)
+        context.insert(fresh)
+        XCTAssertTrue(SortOption.untouchedLongest.isOrdered(stale, fresh))
+        XCTAssertFalse(SortOption.untouchedLongest.isOrdered(fresh, stale))
+    }
+
+    func test_stageDefaultSorts_andSaleSortsOnlyWhereSalesLive() {
+        XCTAssertEqual(InventoryStage.sold.defaultSort, .recentSale)
+        XCTAssertEqual(InventoryStage.shipped.defaultSort, .recentSale)
+        XCTAssertEqual(InventoryStage.toList.defaultSort, .untouchedLongest)
+        XCTAssertEqual(InventoryStage.all.defaultSort, .newest)
+        XCTAssertFalse(InventoryStage.toList.sortOptions.contains(.recentSale))
+        XCTAssertTrue(InventoryStage.sold.sortOptions.contains(.recentSale))
+        for stage in InventoryStage.userFacing {
+            XCTAssertTrue(stage.sortOptions.contains(stage.defaultSort), stage.rawValue)
+        }
     }
 
     // MARK: - SortOption.isOrdered

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3543",
+  "nextId": "US-3544",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5186,6 +5186,20 @@
         "Android: PlanStepViewModel.evaluate uses AccountPlanReader.planStepStatus; a failed read is PlanStep.ServerPlan.UNKNOWN and never shows PlanStepHost",
         "Android: PlanStep.classify treats any known paid flipdesk_plan as PAID whatever subscription_status is (trialing, past_due, null), and a PAID account is written to PlanStepStore.markSeen; PlanStepTest asserts both",
         "A free account that signed up on the device still sees the plan step exactly once on both platforms (existing PlanSelectionStateTests and PlanStepTest cases stay green)"
+      ]
+    },
+    {
+      "id": "US-3543",
+      "passes": false,
+      "title": "Mobile inventory: sold items by sale date, work queue by longest waiting",
+      "description": "As a reseller on the iOS or Android app, I want Sold items ordered by when they sold and unlisted items ordered by how long they have waited, so that I can find recent sales and pick the next item to work on without scrolling.",
+      "acceptanceCriteria": [
+        "iOS SortOption and Android SortOption add recent_sale, oldest_sale and least_recently_updated (ids match src/pages/flipdesk/inventory-sort.ts); sale sorts read LocalSale.saleDate / SaleEntity.saleDate, falling back to updatedAt for a sold item with no sale row, and unsold items sink in both directions",
+        "InventoryStage.defaultSort: Sold/Shipped/Returned open on recent_sale, To list/Drafts on least_recently_updated, All/Active on newest; switching stage applies it on both platforms",
+        "Sale sorts are offered only on All, Sold, Shipped and Returned (InventoryStage.sortOptions)",
+        "To list includes status grading on both platforms (it previously appeared only under All)",
+        "iOS keeps the selected stage and sort across relaunch via @SceneStorage (inventory.stage, inventory.sort)",
+        "Android InventoryDerivation re-sorts when sale dates change under a sale sort (InventoryDerivationTest.saleSortUsesTheSaleDatesThroughTheMemo)"
       ]
     }
   ]

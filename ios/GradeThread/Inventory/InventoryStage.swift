@@ -78,7 +78,9 @@ public enum InventoryStage: String, CaseIterable, Identifiable, Hashable {
             // Same set as TO_LIST_STATUSES on the web: anything pre-draft
             // that's already past sourcing — items the user could reasonably
             // start listing today.
-            return ["sourced", "acquired", "cataloged", "measured", "photographed", "graded", "comped"]
+            // US-3543: `grading` too. An item waiting on its grade is still
+            // work to list, and it used to show under All and nowhere else.
+            return ["sourced", "acquired", "cataloged", "measured", "photographed", "grading", "graded", "comped"]
         case .drafts:
             return ["drafted"]
         case .active:
@@ -89,6 +91,28 @@ public enum InventoryStage: String, CaseIterable, Identifiable, Hashable {
             return ["shipped", "completed"]
         case .returned:
             return ["returned"]
+        }
+    }
+
+    /// US-3543: the order a stage opens in. Sales read newest sale first (the
+    /// web's Sold tab default); the work queue reads longest-waiting first, so
+    /// the item that has sat the longest is the one on top.
+    public var defaultSort: SortOption {
+        switch self {
+        case .sold, .shipped, .returned: return .recentSale
+        case .toList, .drafts:           return .untouchedLongest
+        case .all, .active:              return .newest
+        }
+    }
+
+    /// US-3543: sorts that make sense in this stage. The sale sorts are only
+    /// offered where sold items can appear.
+    public var sortOptions: [SortOption] {
+        switch self {
+        case .all, .sold, .shipped, .returned:
+            return SortOption.allCases
+        case .toList, .drafts, .active:
+            return SortOption.allCases.filter { !$0.isSaleSort }
         }
     }
 

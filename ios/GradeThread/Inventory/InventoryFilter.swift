@@ -22,7 +22,7 @@ public enum InventoryFilter {
             staged = staged.filter { $0.gradeValue != nil }
         }
         let searched = filter(staged, search: search)
-        return searched.sorted(by: sort.isOrdered)
+        return searched.sorted { sort.isOrdered($0, $1) }
     }
 
     /// Full pipeline with the advanced ``InventoryFilterCriteria`` facets
@@ -65,7 +65,7 @@ public enum InventoryFilter {
             )
         }
         let searched = filter(faceted, search: search, serverSearchIds: serverSearchIds)
-        return searched.sorted(by: sort.isOrdered)
+        return searched.sorted { sort.isOrdered($0, $1, soldDates: soldDates) }
     }
 
     /// Effective price used by both the price-band facet and the price

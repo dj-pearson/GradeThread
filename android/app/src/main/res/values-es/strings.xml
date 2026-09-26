@@ -2219,6 +2219,9 @@
     <string name="inventory_sort_sku">SKU</string>
     <string name="inventory_sort_sourced_by_az">Conseguido por, de la A a la Z</string>
     <string name="inventory_sort_sourced_by_za">Conseguido por, de la Z a la A</string>
+    <string name="inventory_sort_recent_sale">Venta más reciente</string>
+    <string name="inventory_sort_oldest_sale">Venta más antigua primero</string>
+    <string name="inventory_sort_untouched_longest">Más tiempo sin tocar</string>
     <string name="inventory_stage_all">Todo</string>
     <string name="inventory_stage_to_list">Por publicar</string>
     <string name="inventory_stage_drafts">Borradores</string>

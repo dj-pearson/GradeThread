@@ -36,6 +36,9 @@ enum class InventoryStage(val wire: String, @StringRes val label: Int) {
                 "cataloged",
                 "measured",
                 "photographed",
+                // US-3543: waiting on a grade is still work to list. It used to
+                // show under All and nowhere else.
+                "grading",
                 "graded",
                 "comped",
             )
@@ -47,6 +50,24 @@ enum class InventoryStage(val wire: String, @StringRes val label: Int) {
         }
 
     fun matches(status: String): Boolean = status in matchingStatuses
+
+    /**
+     * US-3543: the order a stage opens in. Sales read newest sale first (the
+     * web's Sold tab default); the work queue reads longest-waiting first.
+     */
+    val defaultSort: SortOption
+        get() = when (this) {
+            SOLD, SHIPPED, RETURNED -> SortOption.RECENT_SALE
+            TO_LIST, DRAFTS -> SortOption.UNTOUCHED_LONGEST
+            ALL, ACTIVE -> SortOption.NEWEST
+        }
+
+    /** US-3543: sorts that make sense here; sale sorts only where sales live. */
+    val sortOptions: List<SortOption>
+        get() = when (this) {
+            ALL, SOLD, SHIPPED, RETURNED -> SortOption.entries
+            TO_LIST, DRAFTS, ACTIVE -> SortOption.entries.filterNot { it.isSaleSort }
+        }
 
     companion object {
         /**
@@ -73,12 +94,10 @@ enum class InventoryStage(val wire: String, @StringRes val label: Int) {
         )
 
         /**
-         * Carried over from iOS deliberately: `grading` is a known status and
-         * a board column, but belongs to NO user-facing stage except ALL — so
-         * an item mid-grading vanishes from every tab but All. Documented
-         * here because it looks like a bug when someone hits it.
+         * Statuses with no tab but All. US-3543 moved `grading` into To list
+         * on both platforms; what is left is deliberately off the work tabs.
          */
         val statusesWithoutASpecificTab: Set<String> =
-            setOf("grading", "archived", "keeping", "wearing")
+            setOf("archived", "keeping", "wearing")
     }
 }

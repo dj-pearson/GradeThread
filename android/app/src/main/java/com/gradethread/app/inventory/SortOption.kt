@@ -27,9 +27,38 @@ enum class SortOption(val wire: String, @StringRes val label: Int) {
     // ids and iOS's raw values, so a shared link and a phone mean one order.
     SOURCED_BY_AZ("sourcer_az", R.string.inventory_sort_sourced_by_az),
     SOURCED_BY_ZA("sourcer_za", R.string.inventory_sort_sourced_by_za),
+
+    // US-3543: sales in the order they happened, and the work queue by how long
+    // an item has sat untouched. Same ids as the web's `?sort=` and iOS.
+    RECENT_SALE("recent_sale", R.string.inventory_sort_recent_sale),
+    OLDEST_SALE("oldest_sale", R.string.inventory_sort_oldest_sale),
+    UNTOUCHED_LONGEST("least_recently_updated", R.string.inventory_sort_untouched_longest),
     ;
 
-    fun comparator(): Comparator<InventoryItemEntity> = when (this) {
+    /** US-3543: the sale sorts are only offered where sold items can appear. */
+    val isSaleSort: Boolean get() = this == RECENT_SALE || this == OLDEST_SALE
+
+    /**
+     * @param soldDates item id to linked sale date (epoch millis), for the two
+     * sale sorts. The item row has no sold date of its own.
+     */
+    fun comparator(soldDates: Map<String, Long> = emptyMap()): Comparator<InventoryItemEntity> = when (this) {
+        RECENT_SALE, OLDEST_SALE -> Comparator { a, b ->
+            // Unsold sinks in BOTH directions: it is neither the newest nor
+            // the oldest sale.
+            val aDate = saleDate(a, soldDates)
+            val bDate = saleDate(b, soldDates)
+            when {
+                aDate != null && bDate != null && aDate != bDate ->
+                    if (this == RECENT_SALE) bDate.compareTo(aDate) else aDate.compareTo(bDate)
+                aDate != null && bDate == null -> -1
+                aDate == null && bDate != null -> 1
+                else -> compareValuesBy(b, a) { it.createdAt }.let { if (it != 0) it else a.id.compareTo(b.id) }
+            }
+        }
+
+        UNTOUCHED_LONGEST -> compareBy<InventoryItemEntity> { it.updatedAt }.thenBy { it.id }
+
         // Explicit id tiebreak on EVERY order. Swift's sort is not stable and
         // Kotlin's is, so ties would silently order differently per platform;
         // pinning them keeps the two clients showing the same list.
@@ -102,6 +131,17 @@ enum class SortOption(val wire: String, @StringRes val label: Int) {
     }
 
     companion object {
+        /** Statuses an item only reaches by selling. */
+        val soldStatuses: Set<String> = setOf("sold", "shipped", "completed", "returned")
+
+        /**
+         * The linked sale's date; for a sold item with no synced sale row
+         * (marked sold by hand), the last time the row changed. Null when the
+         * item has not sold.
+         */
+        fun saleDate(item: InventoryItemEntity, soldDates: Map<String, Long>): Long? =
+            soldDates[item.id] ?: item.updatedAt.takeIf { item.status in soldStatuses }
+
         /** Missing values sink to the bottom of every descending sort. */
         private const val MISSING = -Double.MAX_VALUE
 

@@ -31,7 +31,9 @@ struct InventoryListView: View {
     @Environment(\.syncEngine) private var syncEngine
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var selectedStage: InventoryStage = .all
+    /// US-3543: the stage and sort survive leaving the tab and relaunching, so
+    /// a seller working through To list comes back to To list.
+    @SceneStorage("inventory.stage") private var selectedStage: InventoryStage = .all
     /// US-3101: a deep link can ask this list to open on a stage.
     ///
     /// Read once and CLEARED, like the tool-module request: without the clear,
@@ -59,7 +61,7 @@ struct InventoryListView: View {
     /// clamped the same way its digit is.
     @ScaledMetric(relativeTo: .body) private var badgeDiameterRaw: CGFloat = 16
     private var badgeDiameter: CGFloat { min(badgeDiameterRaw, 29) }
-    @State private var sortOption: SortOption = .newest
+    @SceneStorage("inventory.sort") private var sortOption: SortOption = .newest
     /// Advanced multi-facet filter (brand / size / color / price / grade /
     /// photo / recency). The old single "graded only" toggle is folded in
     /// as `criteria.gradedOnly`.
@@ -251,6 +253,12 @@ struct InventoryListView: View {
         // straight here lands on Drafts rather than All.
         .onChange(of: router?.pendingInventoryFilter, initial: true) { _, filter in
             applyPendingFilter(filter)
+        }
+        // US-3543: each stage opens in its own order (Sold: newest sale first,
+        // To list: untouched longest first). A sort picked after that holds
+        // until the stage changes again.
+        .onChange(of: selectedStage) { _, stage in
+            sortOption = stage.defaultSort
         }
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -757,7 +765,7 @@ struct InventoryListView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Section("Sort") {
-                    ForEach(SortOption.allCases) { option in
+                    ForEach(selectedStage.sortOptions) { option in
                         Button {
                             sortOption = option
                         } label: {

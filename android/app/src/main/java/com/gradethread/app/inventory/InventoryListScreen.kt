@@ -84,6 +84,7 @@ fun InventoryListScreen(
     val debouncedQuery by viewModel.debouncedQuery.collectAsStateWithLifecycle()
     val photoItemIds by viewModel.photoItemIds.collectAsStateWithLifecycle()
     val serverSearchIds by viewModel.serverSearchIds.collectAsStateWithLifecycle()
+    val soldDates by viewModel.soldDates.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val refreshError by viewModel.refreshError.collectAsStateWithLifecycle()
     val bulkBusy by viewModel.bulkBusy.collectAsStateWithLifecycle()
@@ -110,6 +111,7 @@ fun InventoryListScreen(
             debouncedQuery = debouncedQuery,
             photoItemIds = photoItemIds,
             serverSearchIds = serverSearchIds,
+            soldDates = soldDates,
             refreshing = refreshing,
             refreshError = refreshError,
             bulkBusy = bulkBusy,
@@ -162,6 +164,8 @@ data class InventoryUiState(
     val bulkBusy: Boolean,
     val bulkResult: BulkActionResult?,
     val bulkUndo: BulkUndo?,
+    /** US-3543: item id to latest sale date, for the sale sorts. */
+    val soldDates: Map<String, Long> = emptyMap(),
 )
 
 /** Everything this screen can do, with defaults so a golden needs none of it. */
@@ -256,6 +260,7 @@ internal fun InventoryListContent(
         criteria = criteria,
         photoItemIds = photoItemIds,
         serverSearchIds = serverSearchIds,
+        soldDates = ui.soldDates,
     )
 
     if (showingFilters) {
@@ -370,7 +375,7 @@ internal fun InventoryListContent(
             }
         }
 
-        SortRow(current = sort, onSelect = actions.onSetSort)
+        SortRow(options = stage.sortOptions, current = sort, onSelect = actions.onSetSort)
 
         refreshError?.let { message ->
             Row(
@@ -466,12 +471,12 @@ internal fun InventoryListContent(
 }
 
 @Composable
-private fun SortRow(current: SortOption, onSelect: (SortOption) -> Unit) {
+private fun SortRow(options: List<SortOption>, current: SortOption, onSelect: (SortOption) -> Unit) {
     LazyRow(
         modifier = Modifier.fillMaxWidth().padding(Spacing.xs),
         horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        items(SortOption.entries) { option ->
+        items(options) { option ->
             FilterChip(
                 selected = option == current,
                 onClick = { onSelect(option) },
