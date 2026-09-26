@@ -12,6 +12,7 @@ import {
   WRINKLE_FLOOR_FACTOR,
   type FactorScores,
   type WeightedDefect,
+  settleFactor,
 } from "../lib/defect-weighting.ts";
 
 const PRISTINE: FactorScores = {
@@ -219,4 +220,24 @@ Deno.test("US-1930: a defect with an off-spec severity still derives a ceiling",
     "a retained moderate defect must derive a fabric ceiling < 10",
   );
   assert(r.blendedFactors.fabric_condition < 10);
+});
+
+// US-3534: a binding defect ceiling floors to the half step.
+
+Deno.test("US-3534: a minor small snag can no longer round back to 10", () => {
+  // 1.5 x 0.5 x 0.5 = 0.375 penalty; fabric takes 0.225 (ceiling 9.775),
+  // cosmetic 0.15 (ceiling 9.85). Nearest-rounding made both 10.0.
+  assertEquals(settleFactor(10, 9.775), 9.5);
+  assertEquals(settleFactor(10, 9.85), 9.5);
+});
+
+Deno.test("US-3534: where the model's own read binds, it still rounds to nearest", () => {
+  assertEquals(settleFactor(8.3, 9.5), 8.5);
+  assertEquals(settleFactor(8.2, 10), 8);
+});
+
+Deno.test("US-3534: an exact half-step ceiling is kept, float error included, never below 1", () => {
+  assertEquals(settleFactor(10, 9.5), 9.5);
+  assertEquals(settleFactor(10, 9.499999999999), 9.5);
+  assertEquals(settleFactor(5, 1.2), 1);
 });

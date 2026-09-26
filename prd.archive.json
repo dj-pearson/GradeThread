@@ -49816,6 +49816,19 @@
       ],
       "priority": 5,
       "notes": "Done 2026-09-26. HELD 00843 adds public.submissions to supabase_realtime (guarded; measured on PG16), so use-realtime-submission.ts finally receives changes; realtime still applies RLS. detail-poll.ts: 'pending' (unpaid) now backs off like pending_review (5s first minute, 30s, then 2 min); processing stays 5s. /api/grade/submit removes already-uploaded photos and retained originals before deleting the row on every early return in the upload loop (discardUploadedPhotos). The pipeline starts the cascade config, authenticity tells and references, garment baseline and composite-visual setting together and awaits each where it was used, with no-op catches so an early rejection is not unhandled. NOT done: the per-image upload loop in /submit is still sequential; parallelizing it reorders the early refusals and the orphan cleanup, and the gain is a second or two on a path that ends in a minute-long grade. Proof: grading-submit-latency_test.ts (3), submission-detail-load poll test extended; full edge suite 11,933 passed, only the 6 known imagescript failures."
+    },
+    {
+      "id": "US-3534",
+      "passes": true,
+      "title": "Grading audit S6: rounding can lift a factor above its defect ceiling",
+      "description": "As a buyer, I want a recorded defect to always cost points, so that a garment with a snag cannot reach NWT. roundToHalf(min(model, ceiling)) rounds to nearest, so 9.775 becomes 10.0.",
+      "acceptanceCriteria": [
+        "When the defect ceiling binds, the factor is floored to the half step.",
+        "Unit test: minor small snag with all-10 model scores does not reach 10.0 on fabric or cosmetic.",
+        "Change follows the grading-engine rounding lockstep rule."
+      ],
+      "priority": 6,
+      "notes": "Done 2026-09-26. defect-weighting.ts gains settleFactor and returns settledFactors: where the defect ceiling binds (ceiling < model) the factor is floored to the half step, otherwise the model's score rounds to nearest, never below 1. compositeGrade stores settledFactors (the local roundToHalf is gone) and findLimitingFlaw reads the same numbers. The weighted-overall rounding sites are untouched, so the lockstep rule is unaffected. Proof: 3 new cases in defect-weighting_test.ts including the worked example (10 vs 9.775 and 9.85 now settle at 9.5). This lowers some factors by 0.5 where a recorded defect was being rounded away. vault/20-domain/grading-scale-and-weights.md updated."
     }
   ]
 }

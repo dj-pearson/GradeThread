@@ -11,6 +11,7 @@ code_refs:
   - services/edge-functions/src/lib/ai-grading.ts
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/defect-weighting.ts
+  - services/edge-functions/src/lib/defect-weighting.ts
   - services/edge-functions/src/tests/weighted-grade-parity_test.ts
 reviewed: 2026-09-25
 tags: [grading, contract]
@@ -54,6 +55,13 @@ summary: The 1.0-10.0 scale, the five weighted factors, the rounding rule that h
 
 Grades run **1.0 – 10.0**. Individual factors are scored in **0.5 steps**; the
 weighted overall is rounded to **0.1**. Tiers run NWT (10) down to Poor (3–4).
+
+**A defect ceiling rounds DOWN (US-3534, 2026-09-26).** A factor is
+`min(model, 10 - defect penalty)`. Where the defect ceiling is the smaller one,
+it is floored to the half step (`settleFactor` in `defect-weighting.ts`);
+otherwise the model's score rounds to nearest. Nearest-rounding turned a 9.775
+ceiling (a minor small snag) back into 10.0, so a snagged garment could reach
+NWT. `compositeGrade` and `findLimitingFlaw` both read `settledFactors`.
 
 > **Where the bands live (US-2871).** `GRADE_TIER_BANDS` in
 > `src/lib/constants.ts` is the single table mapping a tier to its inclusive

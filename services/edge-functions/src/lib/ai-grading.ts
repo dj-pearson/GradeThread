@@ -2534,10 +2534,6 @@ function scoreToGradeTier(score: number): string {
   return "Poor";
 }
 
-function roundToHalf(value: number): number {
-  return Math.round(value * 2) / 2;
-}
-
 // The 5 FACTORS are graded in 0.5 steps, but the OVERALL is the weighted
 // aggregate and is rounded to 0.1 (e.g. 8.6) — so a single-factor correction in
 // human review actually moves the overall instead of being swallowed by 0.5
@@ -3553,19 +3549,9 @@ export async function compositeGrade(
         location: d.location,
       })),
     );
-    parsed.factor_scores = {
-      fabric_condition: roundToHalf(weighting.blendedFactors.fabric_condition),
-      structural_integrity: roundToHalf(
-        weighting.blendedFactors.structural_integrity,
-      ),
-      cosmetic_appearance: roundToHalf(
-        weighting.blendedFactors.cosmetic_appearance,
-      ),
-      functional_elements: roundToHalf(
-        weighting.blendedFactors.functional_elements,
-      ),
-      odor_cleanliness: roundToHalf(weighting.blendedFactors.odor_cleanliness),
-    };
+    // US-3534: settledFactors floors where a defect ceiling binds, so a
+    // recorded defect can never round back up to a clean score.
+    parsed.factor_scores = { ...weighting.settledFactors };
     const largeDefectDivergence =
       weighting.divergence >= DEFECT_DIVERGENCE_REVIEW_THRESHOLD;
 
