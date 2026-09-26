@@ -56,6 +56,7 @@ import {
 import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { flipdeskScoutRoutes } from "./routes/flipdesk-scout.ts";
 import { flipdeskRadarRoutes } from "./routes/flipdesk-radar.ts";
+import { flipdeskSwapRoutes } from "./routes/flipdesk-swap.ts";
 import { flipdeskMeasureRoutes } from "./routes/flipdesk-measure.ts";
 import { flipdeskDescriptionRoutes } from "./routes/flipdesk-description.ts";
 import { flipdeskSizeBandsRoutes } from "./routes/flipdesk-size-bands.ts";
@@ -603,6 +604,9 @@ app.use("/api/flipdesk/scout/*", authMiddleware);
 // US-1863: Thrift Radar network layer (read-only aggregates). Authed like
 // scout — it is the same surface, one layer up.
 app.use("/api/flipdesk/radar/*", authMiddleware);
+// US-3541: Reseller Swap. Cross-tenant tips, opt-in on both sides; see the
+// route header for the tenancy rule.
+app.use("/api/flipdesk/swap/*", authMiddleware);
 app.use("/api/flipdesk/measure/*", authMiddleware);
 app.use("/api/flipdesk/description/*", authMiddleware);
 // US-2917: the expected-size band table. Authed like every other read on the
@@ -800,6 +804,9 @@ app.use("/api/flipdesk/import/*", workspaceMiddleware);
 app.use("/api/flipdesk/ai/*", workspaceMiddleware);
 app.use("/api/flipdesk/scout/*", workspaceMiddleware);
 app.use("/api/flipdesk/radar/*", workspaceMiddleware);
+app.use("/api/flipdesk/swap/*", workspaceMiddleware);
+// Sharing the owner's listings with other sellers is the owner's call.
+app.use("/api/flipdesk/swap/settings", requireWorkspaceRoleForWrites("admin"));
 app.use("/api/flipdesk/measure/*", workspaceMiddleware);
 app.use("/api/flipdesk/description/*", workspaceMiddleware);
 app.use("/api/flipdesk/product/*", workspaceMiddleware);
@@ -1560,6 +1567,7 @@ app.route("/api/flipdesk/scout", flipdeskScoutRoutes);
 // US-1863: Thrift Radar aggregates — venue list by bounding box + venue detail.
 // Read-only, Pro+ (compPulls), k-anonymity floor enforced server-side.
 app.route("/api/flipdesk/radar", flipdeskRadarRoutes);
+app.route("/api/flipdesk/swap", flipdeskSwapRoutes);
 app.route("/api/flipdesk/measure", flipdeskMeasureRoutes);
 app.route("/api/flipdesk/size-bands", flipdeskSizeBandsRoutes);
 // US-3039: the published measurement table. Reference-only, same class as

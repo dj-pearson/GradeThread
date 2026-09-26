@@ -10,7 +10,14 @@
     "scripts/held-migrations-registry.test.mjs fails when this file and the HELD headings",
     "in PENDING_MIGRATIONS.md disagree, in either direction."
   ],
-  "held": [],
+  "held": [
+    {
+      "version": "00847",
+      "file": "00847_reseller_swap.sql",
+      "story": "US-3541",
+      "what": "Reseller Swap opt-in settings and tip dismissals"
+    }
+  ],
   "parked": [
     {
       "version": "00794",

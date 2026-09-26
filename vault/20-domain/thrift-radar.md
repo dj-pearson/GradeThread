@@ -452,5 +452,6 @@ implies the stronger claim.
 - [[service-role-tables]] — why an owner-less table must be registered twice
 - [[buyer-platform]] — an allowance is inert until a call site refuses
 - [[grading-scale-and-weights]] — the estimated grade a Radar event carries
+- [[reseller-swap]] — stale stock from other sellers, shown on the same page
 - [[ralph-learnings]] — the working log that points here
 - [[INDEX]]
