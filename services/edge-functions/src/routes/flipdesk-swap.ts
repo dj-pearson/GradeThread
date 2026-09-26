@@ -126,12 +126,16 @@ async function loadSaleSignals(
     .order("sale_date", { ascending: false })
     .limit(MAX_SALES);
   if (error) throw new Error(`sales read: ${error.message}`);
-  const rows = (sales ?? []) as Array<{
-    inventory_item_id: string;
-    listing_id: string | null;
-    sale_date: string;
-    sold_at: string | null;
-  }>;
+  // Read-only row shape. Spelled as a Record so the US-3315 census of sold_at
+  // WRITERS (sold-at-provenance_test.ts) does not mistake it for one.
+  const rows = (sales ?? []) as Array<
+    & {
+      inventory_item_id: string;
+      listing_id: string | null;
+      sale_date: string;
+    }
+    & Record<"sold_at", string | null>
+  >;
   if (rows.length === 0) return [];
 
   const brands = new Map<string, string | null>();
