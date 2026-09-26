@@ -58,6 +58,74 @@ export interface RetentionResult {
   rows_deleted: number;
 }
 
+interface PurgeImageRow {
+  id: string;
+  storage_path: string;
+  submission_id: string;
+  image_type?: string | null;
+  content_sha256?: string | null;
+}
+
+export interface SealPreserveStore {
+  load: (
+    submissionIds: string[],
+  ) => Promise<Array<{ id: string; photos_purged_at: string | null; purged_photo_seals: Record<string, string> | null }>>;
+  save: (
+    submissionId: string,
+    patch: { photos_purged_at: string; purged_photo_seals: Record<string, string> },
+  ) => Promise<void>;
+}
+
+const defaultSealPreserveStore: SealPreserveStore = {
+  load: async (ids) => {
+    const { data, error } = await supabaseAdmin
+      .from("submissions")
+      .select("id, photos_purged_at, purged_photo_seals")
+      .in("id", ids);
+    if (error) throw new Error(`retention seal read failed: ${error.message}`);
+    return (data ?? []) as Array<{
+      id: string;
+      photos_purged_at: string | null;
+      purged_photo_seals: Record<string, string> | null;
+    }>;
+  },
+  save: async (id, patch) => {
+    const { error } = await supabaseAdmin.from("submissions").update(patch).eq("id", id);
+    if (error) throw new Error(`retention seal write failed: ${error.message}`);
+  },
+};
+
+/**
+ * US-3540: record, per submission, the seal entries of the rows about to be
+ * deleted and when the purge happened. Merged by row id, so a run retried after
+ * a partial failure writes the same map. Every submission in the batch gets a
+ * photos_purged_at, hashed or not: the certificate should say its photos
+ * expired either way.
+ */
+export async function preservePhotoSeals(
+  rows: readonly PurgeImageRow[],
+  store: SealPreserveStore = defaultSealPreserveStore,
+  now: () => Date = () => new Date(),
+): Promise<void> {
+  const ids = [...new Set(rows.map((r) => r.submission_id))];
+  if (ids.length === 0) return;
+  const existing = new Map((await store.load(ids)).map((s) => [s.id, s]));
+  const stamp = now().toISOString();
+  for (const id of ids) {
+    const prior = existing.get(id);
+    const seals: Record<string, string> = { ...(prior?.purged_photo_seals ?? {}) };
+    for (const r of rows) {
+      if (r.submission_id === id && r.content_sha256 && r.image_type) {
+        seals[r.id] = `${r.image_type}:${r.content_sha256}`;
+      }
+    }
+    await store.save(id, {
+      photos_purged_at: prior?.photos_purged_at ?? stamp,
+      purged_photo_seals: seals,
+    });
+  }
+}
+
 export async function purgeExpiredGradingPii(): Promise<RetentionResult> {
   const cutoff = new Date(Date.now() - retentionDays() * 86_400_000).toISOString();
 
@@ -80,7 +148,7 @@ export async function purgeExpiredGradingPii(): Promise<RetentionResult> {
   // deterministic rather than dependent on Postgres row order.
   const { data: imgs, error: imgErr } = await supabaseAdmin
     .from("submission_images")
-    .select("id, storage_path, submission_id, submissions!inner(created_at)")
+    .select("id, storage_path, submission_id, image_type, content_sha256, submissions!inner(created_at)")
     .lt("submissions.created_at", cutoff)
     .order("created_at", { ascending: true })
     .limit(BATCH_LIMIT);
@@ -89,13 +157,19 @@ export async function purgeExpiredGradingPii(): Promise<RetentionResult> {
     throw new Error(`retention scan failed: ${imgErr.message}`);
   }
 
-  const rows = (imgs ?? []) as Array<{ id: string; storage_path: string; submission_id: string }>;
+  const rows = (imgs ?? []) as PurgeImageRow[];
   if (rows.length === 0) {
     return { cutoff, submissions_processed: 0, objects_deleted: 0, rows_deleted: 0 };
   }
   // Distinct submissions touched by this batch — reported, not used as the
   // batch key, so the count stays meaningful without reintroducing the stall.
   const submissionIds = [...new Set(rows.map((r) => r.submission_id))];
+
+  // US-3540: move each hashed row's seal entry onto its submission BEFORE the
+  // row goes, so a v5 certificate still verifies and can say when its photos
+  // expired. A failure here stops the run: deleting first would break the
+  // seal of every certificate in the batch.
+  await preservePhotoSeals(rows);
 
   // Delete the storage objects (PII) in chunks, then the index rows. Storage
   // first: if the row delete fails we retry next run and re-delete (idempotent);

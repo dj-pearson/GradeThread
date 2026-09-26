@@ -49867,6 +49867,32 @@
       ],
       "priority": 6,
       "notes": "Done 2026-09-26. HELD 00844 re-creates finances_dashboard with the real tier floors (10/9/8/7/6/5); only that CASE differs from 00143. Proven by applying ALL 843 prior migrations from zero on PG16 with auth/storage stubs (0 failures), then 00844 twice, then calling it. platform-standards.ts SCALE_BANDS ranges now come from tierBandRange() and every sample grade sits in its real band; the grade-checker FAQ states 8.0 to 8.9 Excellent, 7.0 to 7.9 Very Good, 6.0 to 6.9 Good. Both sandboxes (api-v1 sandboxGrade and mcp-sandbox) build the overall with computeWeightedOverall on the 0.1 grid and the tier with scoreToGradeTier (NWOT now appears); the MCP sandbox's completed-grade confidence starts at 0.78. mcp-sandbox's import whitelist now allows ./human-review.ts, with a new assertion that human-review.ts itself never imports a database or marketplace client. Proof: tier-contract_test.ts (2), tier-bands-public.test.ts (2), mcp-sandbox_test.ts contract case; full edge suite 11,943 passed, only the 6 known imagescript failures."
+    },
+    {
+      "id": "US-3540",
+      "passes": true,
+      "title": "Grading audit S2: a refunded certificate reads as 'not found', and a photoless one still verifies",
+      "description": "As a buyer, I want a withdrawn certificate to say it was withdrawn, and an old one to say its photos expired, so that I can tell a revoked grade from a fake and do not trust a certificate with nothing behind it. Split from US-3519. webhooks.ts per-grade refund nulls certificate_id with no grade_report_revisions row, so /cert and /verify answer the branded 404; data-retention.ts deletes photos after 730 days and leaves the certificate live.",
+      "acceptanceCriteria": [
+        "A per-grade refund (webhooks.ts) writes a grade_report_revisions row with reason 'refund' before nulling certificate_id.",
+        "cert-revision.ts resolves a chain ending in a refund to a new status 'revoked' (not 'pending'); content-public.ts returns it, and both functions/cert/[id].ts and src/pages/certificate.tsx render 'This certificate was withdrawn on <date>' instead of not-found.",
+        "When data-retention purges a submission's photos, the certificate renders 'Photos expired <date>' in place of the gallery on both surfaces.",
+        "Unit tests cover the revoked resolution and both renderers."
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-26. A per-grade refund now writes a terminal grade_report_revisions row (reason 'refund') before nulling certificate_id; resolveRevisionChain returns 'revoked' for any chain ending in one, and revisionMessage says 'withdrawn on <date>'. SSR serves a 410 noindex 'This certificate was withdrawn' page; the SPA asks the edge why on not-found and shows the same sentence (src/lib/cert-revision-notice.ts). Photos expired: HELD 00845 adds submissions.photos_purged_at + purged_photo_seals; data-retention preserves each deleted row's 'type:sha256' seal entry (merged by row id) BEFORE deleting, because deleting the rows would have turned every v5 certificate into a 'mismatch' on the day its photos expired. Verify combines live rows with the preserved entries and returns photos_expired_at; both certificate pages show 'Photos expired <date>' in the gallery spot. Also found and fixed: 00837 (applied) revoked EXECUTE on is_submission_photo_path from anon, a US-2403 database-crash entry point; HELD 00846 makes it SECURITY INVOKER with default EXECUTE, proved on PG16 (owner t, stranger f, anon f with no error). 00845 must apply BEFORE the edge deploy; 00846 any time, soon."
+    },
+    {
+      "id": "US-3535",
+      "passes": true,
+      "title": "Grading audit S6: an unassessable factor counts as a real 7.0",
+      "description": "As a seller, I want a factor no photo could show to not cap my grade silently. The composite prompt asks for a neutral 7.0 and the parser treats it as real.",
+      "acceptanceCriteria": [
+        "The model output marks a factor as not assessable explicitly, and sanitizeFactorScores handles it (reweight or force review), via the prompt-version lifecycle.",
+        "Unit test: a pristine tee with functional_elements not assessable does not drop to NWOT without review."
+      ],
+      "priority": 6,
+      "notes": "Done 2026-09-26, shipped INERT. lib/unassessed-factors.ts finds weighted factors that EVERY per-image analysis listed in unassessable_factors (the per-image prompt already marks this explicitly, so no prompt text changed and no version suffix). With GRADING_UNASSESSED_FACTOR_REVIEW on, applyGradingConfidencePolicy caps at UNASSESSED_FACTOR_CONFIDENCE_CAP 0.6 (and lowers the reported ceiling, US-2299) and forces review, even on a permissive threshold. Forced review rather than reweighting: reweighting changes the weighted overall that three sites compute in lockstep and a human correction recomputes with fixed weights. odor_cleanliness is excluded: no photo can smell, so it is unassessable almost always and already has its own certificate handling (US-3329); including it would send every grade to review. Operator trade before turning it on: garments with no functional elements at all (tees, most knits) will go to review. Test: a pristine tee (10/10/10/7/10 = NWOT) is forced to review at 0.6 with a 0.5 threshold; flag off/empty is byte-identical."
     }
   ]
 }

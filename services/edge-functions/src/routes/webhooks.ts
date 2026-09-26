@@ -54,6 +54,7 @@ import { applySesFeedback } from "../lib/email-suppression.ts";
 import { type SnsMessage, verifySnsSignature } from "../lib/sns-verify.ts";
 import { recordDripConversion } from "../lib/drip-conversion.ts";
 import { consumeSubscriptionDiscount } from "../lib/rewards-tangible.ts";
+import { REVOKED_REASON } from "../lib/cert-revision.ts";
 import {
   paymentIntentIdOf,
   resolveChargeMetadata,
@@ -2439,6 +2440,42 @@ async function clawbackActionCredits(
 }
 
 
+interface RefundedReport {
+  id: string;
+  certificate_id: string | null;
+  certificate_number: string | null;
+  overall_score: number | string | null;
+  grade_tier: string | null;
+}
+
+/** US-3540: one terminal 'refund' revision per withdrawn certificate. */
+async function recordRefundRevisions(
+  submissionId: string,
+  reports: RefundedReport[],
+): Promise<void> {
+  if (reports.length === 0) return;
+  const { error } = await supabaseAdmin
+    .from("grade_report_revisions")
+    .upsert(
+      reports.map((r) => ({
+        submission_id: submissionId,
+        superseded_report_id: r.id,
+        superseded_certificate_id: r.certificate_id,
+        superseded_certificate_number: r.certificate_number,
+        superseded_overall_score: r.overall_score,
+        superseded_grade_tier: r.grade_tier,
+        reason: REVOKED_REASON,
+      })),
+      // A replayed webhook must not raise on 00600's unique index.
+      { onConflict: "superseded_report_id", ignoreDuplicates: true },
+    );
+  if (error) {
+    console.error(
+      `[Webhook] refund revision record failed for ${submissionId}: ${error.message}`,
+    );
+  }
+}
+
 async function refundPerGrade(
   event: Stripe.Event,
   chargeId: string,
@@ -2492,9 +2529,14 @@ async function refundPerGrade(
   // cert ids first so we can drop their edge-stored rendered images.
   const { data: preCerts } = await supabaseAdmin
     .from("grade_reports")
-    .select("certificate_id")
+    .select("id, certificate_id, certificate_number, overall_score, grade_tier")
     .eq("submission_id", submissionId)
     .not("certificate_id", "is", null);
+  // US-3540: record the withdrawal BEFORE the certificate id is nulled, so the
+  // public page can say "withdrawn on <date>" instead of "not found", which
+  // reads as a forged number to a buyer holding the hangtag. Non-fatal: the
+  // withhold below is the part that must happen.
+  await recordRefundRevisions(submissionId, (preCerts ?? []) as RefundedReport[]);
   const { error: certErr } = await supabaseAdmin
     .from("grade_reports")
     .update({ certificate_id: null })

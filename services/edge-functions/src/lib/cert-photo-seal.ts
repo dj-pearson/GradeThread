@@ -33,6 +33,7 @@ export async function sha256OfBytes(bytes: Uint8Array): Promise<string> {
 }
 
 export interface PhotoHashRow {
+  id?: string;
   image_type: string;
   storage_path?: string | null;
   content_sha256: string | null;
@@ -48,19 +49,60 @@ export function sealedPhotoList(rows: readonly PhotoHashRow[]): string[] {
     .sort();
 }
 
+/** US-3540: what data retention kept when it deleted a submission's photos. */
+export interface PurgedPhotoSeals {
+  purgedAt: string | null;
+  /** submission_images.id -> "image_type:sha256" for each deleted row. */
+  seals: Record<string, string>;
+}
+
 export interface PhotoSealStore {
   loadRows: (submissionId: string) => Promise<PhotoHashRow[]>;
   download: (storagePath: string) => Promise<Uint8Array | null>;
+  /** Absent in stores that predate US-3540: treated as nothing purged. */
+  loadPurged?: (submissionId: string) => Promise<PurgedPhotoSeals>;
+}
+
+/**
+ * The full sealed list: live rows plus the entries retention preserved for rows
+ * it deleted. A row id present in both (a purge whose row delete failed) counts
+ * once, from the live row.
+ */
+export function combinedSealList(
+  rows: readonly PhotoHashRow[],
+  purged: PurgedPhotoSeals | null,
+): string[] {
+  const live = new Set(rows.map((r) => r.id).filter((id): id is string => !!id));
+  const kept = Object.entries(purged?.seals ?? {})
+    .filter(([id, entry]) => !live.has(id) && typeof entry === "string" && entry !== "")
+    .map(([, entry]) => entry);
+  return [...sealedPhotoList(rows), ...kept].sort();
 }
 
 export const defaultPhotoSealStore: PhotoSealStore = {
   loadRows: async (submissionId) => {
     const { data, error } = await supabaseAdmin
       .from("submission_images")
-      .select("image_type, storage_path, content_sha256")
+      .select("id, image_type, storage_path, content_sha256")
       .eq("submission_id", submissionId);
     if (error) throw new Error(`photo hash read failed: ${error.message}`);
     return (data ?? []) as PhotoHashRow[];
+  },
+  loadPurged: async (submissionId) => {
+    const { data, error } = await supabaseAdmin
+      .from("submissions")
+      .select("photos_purged_at, purged_photo_seals")
+      .eq("id", submissionId)
+      .maybeSingle();
+    if (error) throw new Error(`purged seal read failed: ${error.message}`);
+    const row = data as {
+      photos_purged_at?: string | null;
+      purged_photo_seals?: Record<string, string> | null;
+    } | null;
+    return {
+      purgedAt: row?.photos_purged_at ?? null,
+      seals: row?.purged_photo_seals ?? {},
+    };
   },
   download: async (storagePath) => {
     const { data, error } = await supabaseAdmin.storage
@@ -76,7 +118,9 @@ export async function loadSealedPhotoHashes(
   submissionId: string,
   store: PhotoSealStore = defaultPhotoSealStore,
 ): Promise<string[]> {
-  return sealedPhotoList(await store.loadRows(submissionId));
+  const rows = await store.loadRows(submissionId);
+  const purged = store.loadPurged ? await store.loadPurged(submissionId) : null;
+  return combinedSealList(rows, purged);
 }
 
 export interface StoredPhotoCheck {
@@ -153,7 +197,12 @@ export async function verifyCertificateWithPhotos(
   submissionId: string,
   store: PhotoSealStore = defaultPhotoSealStore,
 ): Promise<
-  CertVerifyResult & { photos_checked: number; photos_altered: string[] }
+  CertVerifyResult & {
+    photos_checked: number;
+    photos_altered: string[];
+    /** US-3540: when retention deleted the photos, or null. */
+    photos_expired_at: string | null;
+  }
 > {
   if ((integrityVersion ?? 1) < CERT_INTEGRITY_VERSION_WITH_PHOTOS) {
     const res = await verifyCertIntegrity(
@@ -162,11 +211,13 @@ export async function verifyCertificateWithPhotos(
       storedSig,
       integrityVersion,
     );
-    return { ...res, photos_checked: 0, photos_altered: [] };
+    return { ...res, photos_checked: 0, photos_altered: [], photos_expired_at: null };
   }
   let rows: PhotoHashRow[];
+  let purged: PurgedPhotoSeals | null;
   try {
     rows = await store.loadRows(submissionId);
+    purged = store.loadPurged ? await store.loadPurged(submissionId) : null;
   } catch {
     const res = await verifyCertIntegrity(
       fields,
@@ -180,10 +231,11 @@ export async function verifyCertificateWithPhotos(
       verified: false,
       photos_checked: 0,
       photos_altered: [],
+      photos_expired_at: null,
     };
   }
   const res = await verifyCertIntegrity(
-    { ...fields, photo_hashes: sealedPhotoList(rows) },
+    { ...fields, photo_hashes: combinedSealList(rows, purged) },
     storedHash,
     storedSig,
     integrityVersion,
@@ -196,11 +248,13 @@ export async function verifyCertificateWithPhotos(
       verified: false,
       photos_checked: bytes.checked,
       photos_altered: bytes.altered,
+      photos_expired_at: purged?.purgedAt ?? null,
     };
   }
   return {
     ...res,
     photos_checked: bytes.checked,
     photos_altered: bytes.altered,
+    photos_expired_at: purged?.purgedAt ?? null,
   };
 }

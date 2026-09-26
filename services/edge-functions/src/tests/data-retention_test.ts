@@ -330,3 +330,48 @@ Deno.test("US-2642: the inline write-path prune is still there", () => {
       "backstop was added alongside it, not instead of it",
   );
 });
+
+// ── US-3540: the purge keeps each deleted photo's seal entry ──────────────
+// A v5 certificate seals the list of `${image_type}:${sha256}` built from
+// submission_images. Deleting those rows without keeping the entries would
+// turn every such certificate into a "mismatch" on the day its photos expired.
+
+Deno.test("US-3540: seal entries are preserved BEFORE any storage or row delete", () => {
+  const body = SRC.slice(SRC.indexOf("export async function purgeExpiredGradingPii"));
+  const preserve = body.indexOf("await preservePhotoSeals(rows)");
+  assert(preserve > 0, "purgeExpiredGradingPii must call preservePhotoSeals");
+  assert(preserve < body.indexOf(".remove(slice)"), "preserve must run before storage removal");
+  assert(preserve < body.indexOf(".delete({ count"), "preserve must run before the row delete");
+});
+
+Deno.test("US-3540: preservePhotoSeals merges by row id and keeps the first purge date", async () => {
+  const { preservePhotoSeals } = await import("../lib/data-retention.ts");
+  const saved = new Map<string, { photos_purged_at: string; purged_photo_seals: Record<string, string> }>();
+  const store = {
+    load: () =>
+      Promise.resolve([
+        { id: "s1", photos_purged_at: "2028-01-01T00:00:00.000Z", purged_photo_seals: { old: "front:aa" } },
+      ]),
+    save: (id: string, patch: { photos_purged_at: string; purged_photo_seals: Record<string, string> }) => {
+      saved.set(id, patch);
+      return Promise.resolve();
+    },
+  };
+  const rows = [
+    { id: "r1", storage_path: "u/s1/back.jpg", submission_id: "s1", image_type: "back", content_sha256: "bb" },
+    { id: "r2", storage_path: "u/s2/front.jpg", submission_id: "s2", image_type: "front", content_sha256: null },
+  ];
+  const now = () => new Date("2028-09-26T03:00:00.000Z");
+  await preservePhotoSeals(rows, store, now);
+  // A retried run writes the same thing.
+  await preservePhotoSeals(rows, store, now);
+  assertEquals(saved.get("s1"), {
+    photos_purged_at: "2028-01-01T00:00:00.000Z",
+    purged_photo_seals: { old: "front:aa", r1: "back:bb" },
+  });
+  // Unhashed photos still stamp the date, so the certificate can say they expired.
+  assertEquals(saved.get("s2"), {
+    photos_purged_at: "2028-09-26T03:00:00.000Z",
+    purged_photo_seals: {},
+  });
+});

@@ -71,6 +71,43 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00846_submission_photo_path_invoker.sql (US-3540 follow-up - remove an anon database-crash entry point)
+
+**What it does.** Re-creates `public.is_submission_photo_path(text)` as
+SECURITY INVOKER (was DEFINER in 00837) and grants EXECUTE back to PUBLIC.
+00837 revoked EXECUTE from PUBLIC and anon, and on this Postgres image a
+permission-denied error for a role in `supautils.hint_roles` segfaults the
+backend (US-2403). The storage INSERT and DELETE policies that call the function
+have no TO clause, so an anonymous upload attempt to `submission-images` can
+restart the database. As INVOKER the function reads submissions through the
+existing SELECT policies, which show the owner and workspace members exactly the
+rows it needs.
+
+**Risk: low, and the risk of waiting is higher.** Measured on the PG16 cluster
+with all 845 prior migrations: applied twice; `prosecdef = f`; anon and
+authenticated both hold EXECUTE; the owner gets `true` for their own submission
+folder and `false` for a staging folder; a different user gets `false`; anon
+gets `false` with no error.
+
+**Apply order. Any time, and soon.** No code depends on it. 00837 is already on
+prod, so the crash entry point is live until this applies.
+
+## HELD: 00845_photos_purged_seals.sql (US-3540 - certificates keep their photo seal after retention deletes the photos)
+
+**What it does.** Adds two columns to `public.submissions`:
+`photos_purged_at timestamptz` and `purged_photo_seals jsonb not null default '{}'`.
+Data retention now copies each deleted photo's `image_type:sha256` seal entry
+there before it deletes the file and row, so an integrity-v5 certificate still
+verifies after its photos expire and can say "Photos expired <date>".
+
+**Risk: low.** Additive columns with a constant default. Measured: applied twice
+on the PG16 cluster that holds all 844 prior migrations (second run is a no-op).
+
+**Apply order. BEFORE the edge deploy.** The new edge reads and writes these
+columns in the retention cron and the public verify endpoint. Without them the
+nightly retention job fails, and the verify endpoint answers "unverifiable" for
+v5 certificates.
+
 ## HELD: 00844_finances_tier_bands.sql (US-3536 - Finances dashboard uses the real grade tier bands)
 
 **What it does.** Re-creates `public.finances_dashboard(timestamptz)` from 00143

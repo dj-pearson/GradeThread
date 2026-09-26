@@ -78,6 +78,11 @@ import { track } from "@/lib/analytics";
 import { badgeArrival, badgeArrivalNote } from "@/lib/badge-arrival";
 import { isExtensionInstalled } from "@/lib/lister-extension";
 import { edgeApiUrl } from "@/lib/edge-api";
+import {
+  certRevisionHeading,
+  type CertRevisionNotice,
+  parseCertRevision,
+} from "@/lib/cert-revision-notice";
 import { GradeRangeNote } from "@/components/grading/grade-range-note";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import type {
@@ -97,6 +102,8 @@ type IntegrityVerify = {
   // US-3516: sealed photos whose stored bytes no longer match (v5 certificates).
   photos_altered?: string[];
   photos_checked?: number;
+  // US-3540: when data retention deleted the photos (the grade stays sealed).
+  photos_expired_at?: string | null;
 };
 type VerifyState =
   | { phase: "idle" }
@@ -211,9 +218,11 @@ function IntegrityPanel({
             not the photo pixels, so a buyer isn't misled into thinking the
             images are cryptographically bound. */}
         <p className="mt-1 text-[11px] text-green-800/70 dark:text-green-300/70">
-          {result.photos_checked && result.photos_checked > 0
-            ? `The seal also covers the ${result.photos_checked} graded photos, which were checked just now.`
-            : "The seal covers the grade data above; it does not cryptographically bind the photographs themselves."}
+          {result.photos_expired_at
+            ? `Photos expired ${result.photos_expired_at.slice(0, 10)} under the data retention policy. The seal still covers the grade and the record of which photos were graded.`
+            : result.photos_checked && result.photos_checked > 0
+              ? `The seal also covers the ${result.photos_checked} graded photos, which were checked just now.`
+              : "The seal covers the grade data above; it does not cryptographically bind the photographs themselves."}
         </p>
         {result.content_hash && (
           <p className="mt-1 break-all font-mono text-[10px] text-green-800/60 dark:text-green-300/60">
@@ -332,6 +341,8 @@ export function CertificatePage() {
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState<CertRevisionNotice | null>(null);
+  const [photosExpiredAt, setPhotosExpiredAt] = useState<string | null>(null);
   const [verify, setVerify] = useState<VerifyState>({ phase: "idle" });
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   // US-1095: the garment's passport slug, if this certificate is linked to a
@@ -436,6 +447,8 @@ export function CertificatePage() {
     async function fetchCertificate() {
       setLoading(true);
       setError(null);
+      setRevision(null);
+      setPhotosExpiredAt(null);
       setGradeReport(null);
       setPassportSlug(null);
       // US-1632's A→B navigation guard applies here too: a stale standing from
@@ -452,6 +465,14 @@ export function CertificatePage() {
 
       if (cancelled) return;
       if (reportError || !reportData) {
+        // US-3540: a replaced or withdrawn certificate is not a missing one.
+        // Ask the edge why before calling it "not found".
+        const notice = await fetch(`${edgeApiUrl()}/api/content/public/certificates/${id}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then(parseCertRevision)
+          .catch(() => null);
+        if (cancelled) return;
+        setRevision(notice);
         setError("Certificate not found");
         setLoading(false);
         return;
@@ -520,10 +541,13 @@ export function CertificatePage() {
                 display_order: number;
                 url: string;
               }>;
+              // US-3540: when data retention deleted the photos, or null.
+              photos_expired_at?: string | null;
             };
           };
           if (certificate) {
             setSellerIntegrity(certificate.seller_integrity ?? null);
+            setPhotosExpiredAt(certificate.photos_expired_at ?? null);
             setSubmission({
               title: certificate.title,
               brand: certificate.brand,
@@ -568,6 +592,33 @@ export function CertificatePage() {
 
   if (loading) {
     return <CertificateLoadingSkeleton />;
+  }
+
+  if (revision && !gradeReport) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-6">
+        <Card className="w-full max-w-md">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <AlertTriangle className="h-12 w-12 text-muted-foreground/50" />
+            <h3 className="mt-4 text-lg font-medium">{certRevisionHeading(revision.status)}</h3>
+            <p className="mt-2 text-sm text-muted-foreground">{revision.message}</p>
+            {revision.currentCertificateId ? (
+              <Link
+                to={`/cert/${revision.currentCertificateId}`}
+                className="mt-4 text-sm font-medium text-primary underline-offset-4 hover:underline"
+              >
+                View the current grade
+                {revision.currentCertificateNumber ? ` (${revision.currentCertificateNumber})` : ""}
+              </Link>
+            ) : (
+              <Link to="/verify" className="mt-4 text-sm font-medium text-primary underline-offset-4 hover:underline">
+                Check another certificate
+              </Link>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   if (error || !gradeReport) {
@@ -894,6 +945,20 @@ export function CertificatePage() {
 
         {/* Photo Gallery — the evidence behind the grade. Tap a photo to open
             the full-screen viewer (US-761): zoom, step through, download. */}
+        {images.length === 0 && photosExpiredAt && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Garment Photos</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Photos expired {photosExpiredAt.slice(0, 10)} under the data retention policy. The grade above is
+                unchanged.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {images.length > 0 && (
           <Card>
             <CardHeader>

@@ -260,3 +260,31 @@ Deno.test("the public cert endpoint answers revised instead of 404", async () =>
       "a revision must not read around a moderation hold",
   );
 });
+
+Deno.test("US-3540: a refund revision is withdrawn, not pending", () => {
+  const row = rev({
+    reason: "refund",
+    superseding_report_id: null,
+    superseding_certificate_id: null,
+    superseding_certificate_number: null,
+  });
+  const res = resolveRevisionChain(row, new Map([["r1", row]]));
+  assertEquals(res.status, "revoked");
+  const msg = revisionMessage(res);
+  assert(msg.includes("withdrawn on 2026-08-14"), msg);
+});
+
+Deno.test("US-3540: a regrade whose successor was later refunded ends withdrawn", () => {
+  const first = rev();
+  const second = rev({
+    superseded_report_id: "r2",
+    superseded_certificate_id: "c2",
+    superseding_report_id: null,
+    superseding_certificate_id: null,
+    reason: "refund",
+    superseded_at: "2026-09-01T00:00:00.000Z",
+  });
+  const res = resolveRevisionChain(first, new Map([["r1", first], ["r2", second]]));
+  assertEquals(res.status, "revoked");
+  assertEquals(res.revisedAt, "2026-09-01T00:00:00.000Z");
+});

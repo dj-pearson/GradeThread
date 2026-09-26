@@ -5198,17 +5198,6 @@
       "notes": "2026-09-26 SHIPPED INERT. New lib/vision-input-shaping.ts. GRADING_VISION_LONG_EDGE=<px> (>=512, unset = off) downscales each grading photo to that long edge as JPEG q88 before the per-image, authenticity and label calls, in the first pass and the escalation re-grade; defect and fabric zoom still crop the stored original. GRADING_SKIP_MEASUREMENT_FANOUT=1 leaves measurement_* photos out of the condition fan-out (both passes); settled results now index conditionImages, not imageData. Per-image reads are stamped +ds<px> / +nomeasure and the grade suffix gains +ds / +nomeasure, appended last. Off is byte-identical. Proof: vision-input-shaping_test.ts (6, incl. a real 1200x2400 JPEG shrunk to 784x1568 and undecodable bytes passing through). AC3 (cost before/after) is answerable from the grading.completed event's cost_usd (US-3525) split by prompt_version. Open: shadow and eval with each flag on, then switch on."
     },
     {
-      "id": "US-3535",
-      "passes": false,
-      "title": "Grading audit S6: an unassessable factor counts as a real 7.0",
-      "description": "As a seller, I want a factor no photo could show to not cap my grade silently. The composite prompt asks for a neutral 7.0 and the parser treats it as real.",
-      "acceptanceCriteria": [
-        "The model output marks a factor as not assessable explicitly, and sanitizeFactorScores handles it (reweight or force review), via the prompt-version lifecycle.",
-        "Unit test: a pristine tee with functional_elements not assessable does not drop to NWOT without review."
-      ],
-      "priority": 6
-    },
-    {
       "id": "US-3538",
       "passes": false,
       "title": "Grading audit S6: same photo in every slot and mixed garments pass",
@@ -5220,19 +5209,6 @@
       ],
       "priority": 6,
       "notes": "2026-09-26 PARTIAL. AC1 done: lib/duplicate-photo-guard.ts refuses (400 PHOTO_DUPLICATE, retake message) a front, back or label photo within 6 bits of any other photo in the same submission, before the charge on /api/grade/submit and in api-v1, api-grade-ingest and the FlipDesk copy (which charges first, so it throws into the item's refund). Two detail shots are not compared. AC3 done: the badge reads 'No reused photos found' and says it checked other sellers' recent GradeThread uploads, not photos elsewhere online (certificate.tsx and functions/cert SSR). Proof: duplicate-photo-guard_test.ts (4); 152 certificate web tests pass. OPEN: AC2 (matches_declared_view in the per-image schema) changes the model's output schema and every per-image parse, so it ships through shadow/eval/canary and is not done here."
-    },
-    {
-      "id": "US-3540",
-      "passes": false,
-      "title": "Grading audit S2: a refunded certificate reads as 'not found', and a photoless one still verifies",
-      "description": "As a buyer, I want a withdrawn certificate to say it was withdrawn, and an old one to say its photos expired, so that I can tell a revoked grade from a fake and do not trust a certificate with nothing behind it. Split from US-3519. webhooks.ts per-grade refund nulls certificate_id with no grade_report_revisions row, so /cert and /verify answer the branded 404; data-retention.ts deletes photos after 730 days and leaves the certificate live.",
-      "acceptanceCriteria": [
-        "A per-grade refund (webhooks.ts) writes a grade_report_revisions row with reason 'refund' before nulling certificate_id.",
-        "cert-revision.ts resolves a chain ending in a refund to a new status 'revoked' (not 'pending'); content-public.ts returns it, and both functions/cert/[id].ts and src/pages/certificate.tsx render 'This certificate was withdrawn on <date>' instead of not-found.",
-        "When data-retention purges a submission's photos, the certificate renders 'Photos expired <date>' in place of the gallery on both surfaces.",
-        "Unit tests cover the revoked resolution and both renderers."
-      ],
-      "priority": 2
     }
   ]
 }

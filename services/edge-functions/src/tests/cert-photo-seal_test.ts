@@ -9,6 +9,7 @@ import {
   verifyCertIntegrity,
 } from "../lib/cert-integrity.ts";
 import {
+  combinedSealList,
   type PhotoHashRow,
   type PhotoSealStore,
   sealedPhotoList,
@@ -189,4 +190,56 @@ Deno.test("US-3516: a photo read failure on a v5 row is unverifiable, never veri
   );
   assertEquals(res.status, "unverifiable");
   assertEquals(res.verified, false);
+});
+
+Deno.test("US-3540: after retention deletes the photos, the certificate still verifies and says when", async () => {
+  const { rows, sealed } = await setup();
+  // Retention moved each row's entry onto the submission, then deleted the rows.
+  const purged = {
+    purgedAt: "2028-09-26T03:00:00.000Z",
+    seals: Object.fromEntries(
+      rows.map((r, i) => [`row-${i}`, `${r.image_type}:${r.content_sha256}`]),
+    ),
+  };
+  const store: PhotoSealStore = {
+    loadRows: () => Promise.resolve([]),
+    download: () => Promise.resolve(null),
+    loadPurged: () => Promise.resolve(purged),
+  };
+  const res = await verifyCertificateWithPhotos(
+    BASE,
+    sealed.content_hash,
+    sealed.content_signature,
+    sealed.integrity_version,
+    "s",
+    store,
+  );
+  assertEquals(res.status, "verified");
+  assertEquals(res.photos_checked, 0);
+  assertEquals(res.photos_expired_at, "2028-09-26T03:00:00.000Z");
+});
+
+Deno.test("US-3540: without the preserved entries, deleting the rows would break the seal", async () => {
+  const { sealed } = await setup();
+  const store: PhotoSealStore = {
+    loadRows: () => Promise.resolve([]),
+    download: () => Promise.resolve(null),
+  };
+  const res = await verifyCertificateWithPhotos(
+    BASE,
+    sealed.content_hash,
+    sealed.content_signature,
+    sealed.integrity_version,
+    "s",
+    store,
+  );
+  assertEquals(res.status, "mismatch");
+});
+
+Deno.test("US-3540: a row both live and preserved (row delete failed) counts once", () => {
+  const list = combinedSealList(
+    [{ id: "a", image_type: "front", content_sha256: "aa" }],
+    { purgedAt: "x", seals: { a: "front:aa", b: "back:bb" } },
+  );
+  assertEquals(list, ["back:bb", "front:aa"]);
 });
