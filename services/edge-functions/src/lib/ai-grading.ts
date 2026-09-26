@@ -76,6 +76,11 @@ import {
   roundWeightedToTenth,
 } from "./human-review.ts";
 import { findLimitingFlaw, type LimitingFlaw } from "./limiting-flaw.ts";
+import {
+  UNASSESSED_FACTOR_CONFIDENCE_CAP,
+  unassessedFactorReviewEnabled,
+  unassessedFactors,
+} from "./unassessed-factors.ts";
 
 // Version names for the in-code default prompts. These MUST match the seeded
 // rows in ai_prompt_versions (migration 00050) so the accuracy loop can
@@ -2678,6 +2683,13 @@ export interface ConfidencePolicyInput {
    * submission whose label WAS read.
    */
   labelIllegible?: boolean;
+  /**
+   * US-3535: weighted factors that no analyzed photo could judge, so the
+   * composite wrote a neutral placeholder for them. Caps confidence and forces
+   * review. Optional and only passed when GRADING_UNASSESSED_FACTOR_REVIEW is
+   * on, so absent/empty is byte-identical.
+   */
+  unassessedFactors?: readonly string[];
 }
 
 export interface ConfidencePolicyResult {
@@ -2744,6 +2756,13 @@ export function applyGradingConfidencePolicy(
       ILLEGIBLE_LABEL_CONFIDENCE_CAP,
     );
   }
+  const unassessed = (input.unassessedFactors?.length ?? 0) > 0;
+  if (unassessed) {
+    confidenceCeiling = Math.min(
+      confidenceCeiling,
+      UNASSESSED_FACTOR_CONFIDENCE_CAP,
+    );
+  }
   const finalConfidence = Math.min(input.confidenceScore, confidenceCeiling);
   const needsHumanReview = finalConfidence < input.reviewThreshold ||
     input.authenticityFlagged ||
@@ -2755,7 +2774,9 @@ export function applyGradingConfidencePolicy(
     (input.fabricCloseupMissing ?? false) ||
     // US-3320: same reasoning — the cap sits below the DEFAULT threshold, and
     // a grade built on an unread composition must not ship on a permissive one.
-    (input.labelIllegible ?? false);
+    (input.labelIllegible ?? false) ||
+    // US-3535: a placeholder score must not ship on a permissive threshold.
+    unassessed;
   return { finalConfidence, needsHumanReview, confidenceCeiling };
 }
 
@@ -3715,6 +3736,10 @@ export async function compositeGrade(
       injectionSuspected,
       fabricCloseupMissing,
       labelIllegible,
+      // US-3535: inert unless the flag is on.
+      ...(unassessedFactorReviewEnabled()
+        ? { unassessedFactors: unassessedFactors(perImageResults) }
+        : {}),
     });
     let finalConfidence = policy.finalConfidence;
     let needsHumanReview = policy.needsHumanReview;
