@@ -1,9 +1,9 @@
 import { supabaseAdmin } from "./supabase.ts";
-import { COMPOSITE_PROMPT_VERSION } from "./ai-grading.ts";
+import { COMPOSITE_PROMPT_VERSION, PER_IMAGE_PROMPT_VERSION } from "./ai-grading.ts";
 import { requireJobSecret } from "./job-auth.ts";
 import { computeAccuracySummary, computeOutcomeFeedback } from "./accuracy-tracking.ts";
-import { evalThresholds, runEval } from "./grading-eval.ts";
-import { getGradingCompositeModel } from "./ai-config.ts";
+import { checkPromptServingEligibility, evalThresholds, runEval } from "./grading-eval.ts";
+import { getGradingCompositeModel, servingModelForStage } from "./ai-config.ts";
 import { sendGradingRegressionAlertEmail } from "./email.ts";
 import { captureException, recordMetric } from "./observability.ts";
 import { fetchWithTimeout } from "./circuit-breaker.ts";
@@ -144,6 +144,10 @@ export interface AlertInputs {
   review_queue?: { depth: number; oldest_age_hours: number | null; overdue: number } | null;
   // US-3525: grading outcomes over the last 7 days.
   grading_outcomes?: { failed: number; total: number } | null;
+  // US-3521: the prompt version each grading stage is SERVING (an active row,
+  // or the code default when none is active) and why it is not eligible to
+  // serve, if it is not. Empty = every stage is serving an evaluated version.
+  unevaluated_serving?: Array<{ stage: string; version: string; reason: string }>;
 }
 
 /**
@@ -296,6 +300,21 @@ export function evaluateAlerts(
       message: `Buyer dispute rate on graded sales (${pct(p.dispute_rate)}) exceeded ${pct(
         t.max_dispute_rate,
       )}.`,
+    });
+  }
+
+  // US-3521: activation refuses an un-evaled version, but a CODE DEFAULT is
+  // never activated; it serves whenever nothing is active, so no gate ever
+  // looked at it. Say so every run until it has a passing eval on the live
+  // model.
+  for (const u of inputs.unevaluated_serving ?? []) {
+    alerts.push({
+      code: "serving_unevaluated_prompt",
+      severity: "critical",
+      metric: `serving_prompt:${u.stage}`,
+      value: 0,
+      threshold: 1,
+      message: `The ${u.stage} stage is serving ${u.version}, which cannot serve under the eval gate: ${u.reason}`,
     });
   }
 
@@ -606,6 +625,7 @@ export async function runGradingRegressionScan(
   }
 
   const watch = await gatherQualityWatchInputs();
+  const unevaluatedServing = await findUnevaluatedServingPrompts();
 
   const alerts = evaluateAlerts(
     {
@@ -623,6 +643,7 @@ export async function runGradingRegressionScan(
       })),
       review_queue: watch.review_queue,
       grading_outcomes: watch.grading_outcomes,
+      unevaluated_serving: unevaluatedServing,
     },
     t,
   );
@@ -771,6 +792,57 @@ async function gatherQualityWatchInputs(now = Date.now()): Promise<{
   }
 
   return { grade_drift, review_queue, grading_outcomes };
+}
+
+// US-3521: which prompt version each grading stage serves, and whether it may.
+// Mirrors how serving resolves: an active unscoped row wins, else the code
+// default by name. The version is judged with the same
+// checkPromptServingEligibility that activation uses, against the model that
+// stage actually serves on.
+export async function findUnevaluatedServingPrompts(): Promise<
+  Array<{ stage: string; version: string; reason: string }>
+> {
+  const out: Array<{ stage: string; version: string; reason: string }> = [];
+  const stages = [
+    { stage: "per_image", codeDefault: PER_IMAGE_PROMPT_VERSION },
+    { stage: "composite", codeDefault: COMPOSITE_PROMPT_VERSION },
+  ];
+  for (const { stage, codeDefault } of stages) {
+    try {
+      const { data: active } = await supabaseAdmin
+        .from("ai_prompt_versions")
+        .select("version_name, eval_passed, qualified_model")
+        .eq("stage", stage)
+        .eq("is_active", true)
+        .is("garment_scope", null)
+        .maybeSingle();
+      type Row = { version_name: string; eval_passed: boolean | null; qualified_model: string | null };
+      let row = active as Row | null;
+      let version = row?.version_name ?? codeDefault;
+      if (!row) {
+        const { data: seeded } = await supabaseAdmin
+          .from("ai_prompt_versions")
+          .select("version_name, eval_passed, qualified_model")
+          .eq("version_name", codeDefault)
+          .maybeSingle();
+        row = seeded as Row | null;
+        version = codeDefault;
+      }
+      if (!row) {
+        out.push({
+          stage,
+          version,
+          reason: "the code default has no ai_prompt_versions row, so it has never been evaluated.",
+        });
+        continue;
+      }
+      const verdict = checkPromptServingEligibility(row, servingModelForStage(stage));
+      if (!verdict.ok) out.push({ stage, version, reason: verdict.reason });
+    } catch (err) {
+      console.error(`[grading-monitor] serving-prompt check failed for ${stage}:`, err);
+    }
+  }
+  return out;
 }
 
 // US-502: returns TRUE only if at least one channel ACTUALLY delivered. The

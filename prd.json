@@ -5182,7 +5182,8 @@
       "priority": 3,
       "dependsOn": [
         "US-2301"
-      ]
+      ],
+      "notes": "2026-09-26 PARTIAL. Every monitor run now raises serving_unevaluated_prompt (critical, one per stage) when the version a stage is SERVING, the active unscoped row or else the code default by name, fails checkPromptServingEligibility on the model that stage serves (servingModelForStage). A code default with no ai_prompt_versions row is named as never evaluated. Proof: 2 cases in grading-quality-watch_test.ts. NOT DONE on purpose: refusing to serve. Prod today has no passing eval for either code default and a golden set believed empty, so a boot or grade-time refusal would stop all grading on the next deploy. The alert makes the state loud until AC3 of US-2301 (seed the rows) and a real golden set exist; the refusal can then be switched on."
     },
     {
       "id": "US-3523",

@@ -208,3 +208,48 @@ Deno.test("US-3525: the pipeline emits the event on success and on a real failur
     "failure event only after the restore check",
   );
 });
+
+Deno.test("US-3521: a stage serving an unevaluated prompt raises a critical alert per stage", () => {
+  const alerts = evaluateAlerts({
+    eval_passed: null,
+    eval_regression: false,
+    production: HEALTHY,
+    unevaluated_serving: [
+      {
+        stage: "per_image",
+        version: "per_image_v5",
+        reason:
+          "the code default has no ai_prompt_versions row, so it has never been evaluated.",
+      },
+      {
+        stage: "composite",
+        version: "composite_v4",
+        reason: "Prompt version has not passed the eval gate.",
+      },
+    ],
+  }, T);
+  assertEquals(alerts.map((a) => [a.code, a.severity, a.metric]), [
+    ["serving_unevaluated_prompt", "critical", "serving_prompt:per_image"],
+    ["serving_unevaluated_prompt", "critical", "serving_prompt:composite"],
+  ]);
+  assert(alerts[0]!.message.includes("per_image_v5"));
+});
+
+Deno.test("US-3521: the monitor checks what serves with the activation gate's own rule", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../lib/grading-monitor.ts", import.meta.url),
+  );
+  const fn = src.slice(
+    src.indexOf("export async function findUnevaluatedServingPrompts"),
+  );
+  assert(
+    fn.includes("PER_IMAGE_PROMPT_VERSION") &&
+      fn.includes("COMPOSITE_PROMPT_VERSION"),
+  );
+  assert(
+    fn.includes(
+      "checkPromptServingEligibility(row, servingModelForStage(stage))",
+    ),
+  );
+  assert(src.includes("unevaluated_serving: unevaluatedServing,"));
+});
