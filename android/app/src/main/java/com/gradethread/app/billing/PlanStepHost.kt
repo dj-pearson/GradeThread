@@ -73,7 +73,15 @@ class PlanStepViewModel @Inject constructor(
             // The plan comes from the SERVER, not from what Play told this
             // device: someone who subscribed on the web has never seen this step
             // and must not be sold their own plan back.
-            if (!PlanStep.shouldShow(id, seen, plans.current())) return@launch
+            if (id.isNullOrBlank() || id in seen) return@launch
+            val serverPlan = plans.planStepStatus()
+            // US-3542: a paid account retires the step for good, so it is not
+            // re-read on every launch.
+            if (serverPlan == PlanStep.ServerPlan.PAID) {
+                store.markSeen(id)
+                return@launch
+            }
+            if (!PlanStep.shouldShow(id, seen, serverPlan)) return@launch
 
             Telemetry.event("plan_step.shown")
             subscriptions.refresh()

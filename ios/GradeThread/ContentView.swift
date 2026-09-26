@@ -879,7 +879,7 @@ struct MainShell: View {
             // `shellCover == nil` (US-2925 — it used to be gated on
             // `planStep == nil`, which was the same rule enforced by hand
             // against two separate modifiers).
-            offerPlanSelectionIfNeeded()
+            await offerPlanSelectionIfNeeded()
             await drainSharedInboxIfNeeded()
             // US-749: load the orphan-listing count for the shell Reconcile banner.
             refreshReconcileBadge()
@@ -1004,14 +1004,30 @@ struct MainShell: View {
     /// Resolves the pending signup flag to the now-known user id, then offers the
     /// step only when this account is eligible and hasn't already been shown it.
     /// Existing users (no pending signup) are never eligible, so never prompted.
-    private func offerPlanSelectionIfNeeded() {
+    @MainActor
+    private func offerPlanSelectionIfNeeded() async {
         guard case let .signedIn(user) = authStore.phase else { return }
         let state = PlanSelectionState()
         // US-1523: the pending flag resolves only onto the account whose email
         // signed up — a different account on this device never inherits it.
         state.resolvePending(userId: user.id, email: user.email)
-        if state.shouldOffer(userId: user.id) {
+        guard state.shouldOffer(userId: user.id) else { return }
+        // US-3542: the local flags only say the account LOOKS new. A seller who
+        // subscribed on the web and then signs in with Apple for the first time
+        // (Apple hands over the name on that first grant) or taps "Sign up" with
+        // an email that already exists (GoTrue answers that with a success)
+        // passes them, and was being sold their own Business plan. Ask the
+        // server what the account pays for; a paid plan retires the step for
+        // good, and an unreadable plan leaves it for the next launch.
+        let serverPlan = await PlanSelectionState.fetchServerPlan()
+        switch PlanSelectionState.decision(serverPlan: serverPlan) {
+        case .offer:
+            guard case let .signedIn(current) = authStore.phase, current.id == user.id else { return }
             shellCover = .planStep(PlanStepPresentation(userId: user.id))
+        case .alreadyPaid:
+            state.markOffered(userId: user.id)
+        case .unknown:
+            return
         }
     }
 

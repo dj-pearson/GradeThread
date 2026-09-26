@@ -131,6 +131,45 @@ struct PlanSelectionState {
         ids(Self.offeredKey).contains(userId.uuidString)
     }
 
+    // MARK: - Server plan check (US-3542)
+
+    /// What to do with an account the local flags call fresh.
+    enum Decision: Equatable {
+        /// Free on the server: show the step.
+        case offer
+        /// Already on a paid plan (web, App Store or Play): never show it.
+        case alreadyPaid
+        /// The plan could not be read: don't show it now, ask again next launch.
+        case unknown
+    }
+
+    /// `serverPlan` is `users.flipdesk_plan`, or nil when the read failed.
+    /// Cancelling a subscription sets the column back to `free` (webhooks.ts
+    /// downgrade), so any other known value is a plan the seller pays for.
+    static func decision(serverPlan: String?) -> Decision {
+        guard let serverPlan else { return .unknown }
+        let plan = serverPlan.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return plan.isEmpty || plan == "free" ? .offer : .alreadyPaid
+    }
+
+    /// Reads the signed-in user's own `flipdesk_plan` (RLS scopes the row).
+    /// Returns "free" for a NULL column and nil when the read fails.
+    static func fetchServerPlan() async -> String? {
+        struct Row: Decodable { let flipdesk_plan: String? }
+        do {
+            let rows: [Row] = try await SupabaseShared.client
+                .from("users")
+                .select("flipdesk_plan")
+                .limit(1)
+                .execute()
+                .value
+            guard let row = rows.first else { return nil }
+            return row.flipdesk_plan ?? "free"
+        } catch {
+            return nil
+        }
+    }
+
     /// Record that the plan step was shown (purchased or skipped) so it never
     /// re-prompts. Drops the id from `eligible` so the set doesn't grow.
     func markOffered(userId: UUID) {

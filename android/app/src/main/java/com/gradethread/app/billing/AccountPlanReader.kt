@@ -50,5 +50,21 @@ class AccountPlanReader @Inject constructor(
         return PlanTier.fromSlug(row.plan)
     }
 
+    /**
+     * US-3542: the plan step's own read. Unlike [current], a failed read is
+     * [PlanStep.ServerPlan.UNKNOWN] rather than "free", and a paid tier counts
+     * whatever its subscription status.
+     */
+    suspend fun planStepStatus(): PlanStep.ServerPlan {
+        val userId = client.auth.currentUserOrNull()?.id ?: return PlanStep.ServerPlan.UNKNOWN
+        val row = runCatching {
+            client.from("users").select {
+                filter { eq("id", userId) }
+                limit(1)
+            }.decodeList<PlanRow>().firstOrNull()
+        }.getOrNull() ?: return PlanStep.ServerPlan.UNKNOWN
+        return PlanStep.classify(row.plan)
+    }
+
     fun signedInUserId(): String? = client.auth.currentUserOrNull()?.id
 }

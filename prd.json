@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3542",
+  "nextId": "US-3543",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5173,6 +5173,19 @@
         "OPERATOR: apply 00847 to prod (npm run migrate:prod), then redeploy the edge",
         "OPERATOR: join eBay Partner Network, create a campaign, set EBAY_EPN_CAMPAIGN_ID on the Coolify edge",
         "OPERATOR: have counsel read the Terms of Service section for Reseller Swap before turning it on for users"
+      ]
+    },
+    {
+      "id": "US-3542",
+      "passes": false,
+      "title": "Never offer the mobile plan step to a seller who already pays",
+      "description": "As a seller on a paid FlipDesk plan bought on the web, I want the iOS and Android apps to skip the post-signup plan picker, so that I am not asked to buy the plan I already have.",
+      "acceptanceCriteria": [
+        "iOS: ContentView.offerPlanSelectionIfNeeded reads users.flipdesk_plan via PlanSelectionState.fetchServerPlan before presenting OnboardingPlanStepView; a starter/pro/business plan calls markOffered and presents nothing",
+        "iOS: a failed plan read (PlanSelectionState.decision(serverPlan: nil) == .unknown) presents nothing and leaves the account eligible for the next launch; PlanSelectionStateTests covers free, paid and unreadable",
+        "Android: PlanStepViewModel.evaluate uses AccountPlanReader.planStepStatus; a failed read is PlanStep.ServerPlan.UNKNOWN and never shows PlanStepHost",
+        "Android: PlanStep.classify treats any known paid flipdesk_plan as PAID whatever subscription_status is (trialing, past_due, null), and a PAID account is written to PlanStepStore.markSeen; PlanStepTest asserts both",
+        "A free account that signed up on the device still sees the plan step exactly once on both platforms (existing PlanSelectionStateTests and PlanStepTest cases stay green)"
       ]
     }
   ]
