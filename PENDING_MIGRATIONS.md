@@ -71,6 +71,20 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00838_drop_submission_image_gps.sql (US-3520 - seller GPS was stored in submission_images.exif)
+
+**What it does.** `UPDATE public.submission_images SET exif = NULLIF(exif - 'gps', '{}')
+WHERE exif ? 'gps'`. Removes the stored GPS key from every row; a row whose
+only EXIF was GPS becomes NULL. Nothing reads that key.
+
+**Risk: low, but it rewrites rows.** It is data removal and cannot be undone
+except from a backup, which `npm run migrate:prod -- --apply` takes first.
+Measured on seeded rows: GPS removed, other keys kept, GPS-only row becomes
+NULL, and a second run changes nothing.
+
+**Apply order.** Any time. The edge in the same commit already stops storing
+GPS, so it does not depend on this. `NOTIFY pgrst, 'reload schema';` after.
+
 ## HELD: 00837_lock_submission_photos.sql (US-3513 - sellers could overwrite certified photos after grading)
 
 **What it does.** Adds `public.is_submission_photo_path(name)` (SECURITY

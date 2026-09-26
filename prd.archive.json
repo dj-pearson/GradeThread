@@ -49616,6 +49616,32 @@
       ],
       "priority": 1,
       "notes": "Done 2026-09-25. grading-submit.ts refuses any item photo whose storage_path is outside the owner folder (isOwnedStoragePath in the new pure lib/storage-path-ownership.ts, also refuses traversal) BEFORE the submissions row, the lock and the charge, with code photo_not_owned. The copy loop now runs validateImageUpload (jpeg/png/webp) -> stripImageMetadata -> computePhashFromImage -> upload of the stripped bytes, and writes phash, width and height to submission_images. Proof: src/tests/flipdesk-grading-photo-intake_test.ts (path cases + ordering guard), sabotage turns it red. DEVIATION: the AC asked for a tenant-isolation_test.ts integration case; that suite needs the seeded stack and GoTrue, which this session cannot run, so the refusal is proven at the unit and source-order level instead."
+    },
+    {
+      "id": "US-3518",
+      "passes": true,
+      "title": "Grading audit S2: Verified Capture trusts client-sent EXIF",
+      "description": "As a buyer, I want the Verified Capture badge to mean the server read the camera data itself, so that a faked form field cannot earn the badge or a confidence boost. grade.ts sanitizes client JSON EXIF and verified-capture.ts trusts it.",
+      "acceptanceCriteria": [
+        "Verified Capture is granted only from EXIF parsed server-side from the uploaded bytes (or a retained original).",
+        "Client-supplied exif form fields no longer affect the badge or confidence.",
+        "Unit test: forged client exif with no matching bytes gets no badge."
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-26. New lib/exif-read.ts reads make/model/software/lens/orientation/dateTime/dateTimeOriginal from JPEG bytes on the server (port of the web parser, no GPS IFD) and tags it source:server. grade.ts reads it from the uploaded bytes before stripping and from the retained original when one is kept; server EXIF wins over the client form field, which is now tagged source:client and stored for information only. verified-capture.ts refuses any image whose exif.source is not server, so a forged form field earns neither the badge nor the confidence boost. Proof: exif-read_test.ts (synthetic JPEG with a GPS IFD) and two new verified-capture cases; 29/29 verified-capture pass. CONSEQUENCE: web and iOS re-encode photos before upload, which drops EXIF, so the badge is now only earnable when RETAIN_ORIGINAL_IMAGES=true keeps originals. That is the honest result; the owner decides whether to turn retention on."
+    },
+    {
+      "id": "US-3520",
+      "passes": true,
+      "title": "Grading audit S2: seller GPS is kept in submission_images.exif",
+      "description": "As a seller, I want my location not stored, so that staff and any leak never see where I live. grade.ts sanitizeExif keeps gps and it is stored in submission_images.exif.",
+      "acceptanceCriteria": [
+        "sanitizeExif drops gps (web and api paths).",
+        "A migration nulls exif->gps on existing rows (US-1108 triple).",
+        "Unit test asserts no gps key survives sanitizeExif."
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-26. sanitizeExif (moved to lib/exif-read.ts) drops gps; the server reader never reads the GPS IFD; the web parser in src/lib/image-utils.ts no longer reads GPS and ImageExifMetadata has no gps field. HELD 00838_drop_submission_image_gps.sql removes the stored key (NULL when GPS was the only key), measured on seeded rows and re-run with no change. Nothing in edge, web or SQL read the stored GPS (grepped)."
     }
   ]
 }

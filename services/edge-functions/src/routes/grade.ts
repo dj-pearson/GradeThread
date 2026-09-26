@@ -15,6 +15,7 @@ import {
 } from "../lib/verified-capture.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { readExifFromBytes, sanitizeExif } from "../lib/exif-read.ts";
 import { REQUIRED_IMAGE_TYPES } from "../lib/image-quality.ts";
 import { validateVideoUpload } from "../lib/video-validation.ts";
 import {
@@ -203,54 +204,6 @@ type ImageType = (typeof IMAGE_TYPES)[number];
 // without an explicit config choice. EXIF capture below runs regardless.
 const RETAIN_ORIGINAL_IMAGES =
   (Deno.env.get("RETAIN_ORIGINAL_IMAGES") ?? "").toLowerCase() === "true";
-
-// Sanitize + bound the client-supplied EXIF blob (US-339). Never trust the
-// client: keep only known fields, cap string lengths, and validate GPS ranges.
-// Returns null when nothing usable remains (the common case).
-function sanitizeExif(
-  raw: FormDataEntryValue | undefined,
-): Record<string, unknown> | null {
-  if (typeof raw !== "string" || raw.trim() === "") return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return null;
-  }
-  const src = parsed as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  const copyStr = (k: string) => {
-    const v = src[k];
-    if (typeof v === "string" && v.trim()) out[k] = v.trim().slice(0, 256);
-  };
-  copyStr("make");
-  copyStr("model");
-  copyStr("software");
-  copyStr("lensModel");
-  copyStr("dateTime");
-  copyStr("dateTimeOriginal");
-  if (typeof src.orientation === "number" && Number.isFinite(src.orientation)) {
-    const o = Math.trunc(src.orientation);
-    if (o >= 1 && o <= 8) out.orientation = o;
-  }
-  const gps = src.gps;
-  if (gps && typeof gps === "object" && !Array.isArray(gps)) {
-    const lat = (gps as Record<string, unknown>).latitude;
-    const lon = (gps as Record<string, unknown>).longitude;
-    if (
-      typeof lat === "number" && Number.isFinite(lat) && lat >= -90 &&
-      lat <= 90 &&
-      typeof lon === "number" && Number.isFinite(lon) && lon >= -180 &&
-      lon <= 180
-    ) {
-      out.gps = { latitude: lat, longitude: lon };
-    }
-  }
-  return Object.keys(out).length > 0 ? out : null;
-}
 
 export const gradeRoutes = new Hono<GradeEnv>();
 
@@ -955,6 +908,10 @@ gradeRoutes.post("/submit", async (c) => {
         400,
       );
     }
+    // US-3518: read provenance EXIF from the bytes BEFORE stripping them. A
+    // browser re-encode usually leaves none, which is fine: the retained
+    // original (below) is read too, and absence is never a penalty.
+    const uploadedExif = readExifFromBytes(rawBytes);
     const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
     // US-480: recompute the reuse-detection hash from the bytes we actually
     // store (never the client). null on a decode/hash failure → image is simply
@@ -983,6 +940,7 @@ gradeRoutes.post("/submit", async (c) => {
     // the whole point. Validation still runs (sniff + size/dim cap). Best
     // effort: a failed original upload never fails the submission.
     let originalStoragePath: string | null = null;
+    let originalExif: ReturnType<typeof readExifFromBytes> = null;
     if (retainOriginals) {
       const orig = allOriginals[i];
       if (orig instanceof File && orig.size > 0) {
@@ -1004,6 +962,7 @@ gradeRoutes.post("/submit", async (c) => {
               console.error(`Failed to upload original ${i}:`, origErr);
             } else {
               originalStoragePath = origPath;
+              originalExif = readExifFromBytes(origBytes);
             }
           }
         } catch (err) {
@@ -1018,7 +977,8 @@ gradeRoutes.post("/submit", async (c) => {
       storage_path: storagePath,
       display_order: i,
       phash: serverPhash,
-      exif: imageExif[i] ?? null,
+      // US-3518: server-read EXIF wins; the client's copy is informational.
+      exif: originalExif ?? uploadedExif ?? imageExif[i] ?? null,
       original_storage_path: originalStoragePath,
       capture_source: imageCaptureSource[i] ?? null,
       quality_score: imageQualityScore[i] ?? null,

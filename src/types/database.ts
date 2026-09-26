@@ -753,8 +753,7 @@ export interface ImageAuthenticity {
 // EXIF/provenance metadata captured client-side from the ORIGINAL file before
 // compression (US-339). Every field is optional — absence is normal (re-shared
 // photos, screenshots, stripped uploads) and is never penalized on its own.
-// GPS, when present, is privacy-sensitive: access-controlled, never exposed
-// publicly or to buyers.
+// US-3520: GPS is never collected or stored.
 export interface ImageExifMetadata {
   make?: string;
   model?: string;
@@ -763,7 +762,6 @@ export interface ImageExifMetadata {
   orientation?: number;
   dateTime?: string;
   dateTimeOriginal?: string;
-  gps?: { latitude: number; longitude: number };
 }
 
 // US-340: server-side Verified Capture provenance evaluation, persisted on

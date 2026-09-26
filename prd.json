@@ -5182,18 +5182,6 @@
       "priority": 2
     },
     {
-      "id": "US-3518",
-      "passes": false,
-      "title": "Grading audit S2: Verified Capture trusts client-sent EXIF",
-      "description": "As a buyer, I want the Verified Capture badge to mean the server read the camera data itself, so that a faked form field cannot earn the badge or a confidence boost. grade.ts sanitizes client JSON EXIF and verified-capture.ts trusts it.",
-      "acceptanceCriteria": [
-        "Verified Capture is granted only from EXIF parsed server-side from the uploaded bytes (or a retained original).",
-        "Client-supplied exif form fields no longer affect the badge or confidence.",
-        "Unit test: forged client exif with no matching bytes gets no badge."
-      ],
-      "priority": 2
-    },
-    {
       "id": "US-3519",
       "passes": false,
       "title": "Grading audit S2: certificate wording implies authenticity, and revoked or photoless certs are unclear",
@@ -5203,18 +5191,6 @@
         "Every certificate shows 'condition as photographed on <date>; does not verify brand authenticity' unless a paid authenticity check passed.",
         "A revoked or superseded certificate shows a distinct revoked page, not 'not found'.",
         "A certificate whose photos were purged by data-retention shows 'photos expired <date>'."
-      ],
-      "priority": 2
-    },
-    {
-      "id": "US-3520",
-      "passes": false,
-      "title": "Grading audit S2: seller GPS is kept in submission_images.exif",
-      "description": "As a seller, I want my location not stored, so that staff and any leak never see where I live. grade.ts sanitizeExif keeps gps and it is stored in submission_images.exif.",
-      "acceptanceCriteria": [
-        "sanitizeExif drops gps (web and api paths).",
-        "A migration nulls exif->gps on existing rows (US-1108 triple).",
-        "Unit test asserts no gps key survives sanitizeExif."
       ],
       "priority": 2
     },
