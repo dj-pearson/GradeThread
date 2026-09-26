@@ -90,6 +90,8 @@ export interface EvalCaseResult {
   error: number | null;
   agreed: boolean;
   failed_reason?: string;
+  // US-3523: each run's overall when GRADING_EVAL_REPEATS > 1.
+  run_scores?: number[];
 }
 
 export interface EvalTagResult {
@@ -359,6 +361,10 @@ export async function runEval(
       ? modelOverride
       : servingModelForStage(v.stage);
   const perCase: EvalCaseResult[] = [];
+  // US-3523: grading is not greedy on the serving model, so one run per case
+  // can pass or fail a prompt by luck. Each case is graded `repeats` times and
+  // scored on the mean.
+  const repeats = evalRepeats();
 
   for (const row of cases as EvalCaseRow[]) {
     const styleHint = Array.isArray(row.style_attributes) ? row.style_attributes : [];
@@ -366,48 +372,53 @@ export async function runEval(
       const images = Array.isArray(row.images) ? row.images : [];
       if (images.length === 0) throw new Error("case has no images");
 
-      // Per-image analysis (sequential to keep eval load modest).
-      const perImage: PerImageAnalysis[] = [];
-      for (const img of images) {
-        const dl = await downloadCaseImage(img.storage_path);
-        if ("error" in dl) throw new Error(`${img.storage_path}: ${dl.error}`);
-        perImage.push(
-          await analyzeImage(
-            dl.dataUri,
-            img.image_type,
-            row.garment_type,
-            row.garment_category,
-            styleHint,
-            perImageOverride,
-            modelOverride,
-            // No bucketKey: an eval is not a customer submission, so it must
-            // never take a canary slice — it has to measure the champion.
-            undefined,
-            "",
-            blockOverride,
-          ),
-        );
-      }
+      const runs: number[] = [];
+      for (let rep = 0; rep < repeats; rep++) {
+        // Per-image analysis (sequential to keep eval load modest).
+        const perImage: PerImageAnalysis[] = [];
+        for (const img of images) {
+          const dl = await downloadCaseImage(img.storage_path);
+          if ("error" in dl) throw new Error(`${img.storage_path}: ${dl.error}`);
+          perImage.push(
+            await analyzeImage(
+              dl.dataUri,
+              img.image_type,
+              row.garment_type,
+              row.garment_category,
+              styleHint,
+              perImageOverride,
+              modelOverride,
+              // No bucketKey: an eval is not a customer submission, so it must
+              // never take a canary slice — it has to measure the champion.
+              undefined,
+              "",
+              blockOverride,
+            ),
+          );
+        }
 
-      const garmentInfo: GarmentInfo = {
-        garment_type: row.garment_type,
-        garment_category: row.garment_category,
-        brand: row.brand,
-        title: row.label,
-        description: row.description,
-        style_attributes: styleHint,
-      };
-      const result = await compositeGrade(
-        perImage,
-        garmentInfo,
-        compositeOverride,
-        modelOverride,
-        undefined, // bucketKey
-        "", // baselineBlock
-        [], // verificationImages
-        true, // US-1643: eval measures the prompt — never the live exemplar block
-      );
-      const error = Math.abs(result.overall_score - row.expected_score);
+        const garmentInfo: GarmentInfo = {
+          garment_type: row.garment_type,
+          garment_category: row.garment_category,
+          brand: row.brand,
+          title: row.label,
+          description: row.description,
+          style_attributes: styleHint,
+        };
+        const result = await compositeGrade(
+          perImage,
+          garmentInfo,
+          compositeOverride,
+          modelOverride,
+          undefined, // bucketKey
+          "", // baselineBlock
+          [], // verificationImages
+          true, // US-1643: eval measures the prompt — never the live exemplar block
+        );
+        runs.push(result.overall_score);
+      }
+      const predicted = meanOfRuns(runs);
+      const error = Math.abs(predicted - row.expected_score);
 
       perCase.push({
         case_id: row.id,
@@ -415,9 +426,10 @@ export async function runEval(
         garment_category: row.garment_category,
         tags: row.tags ?? [],
         expected_score: row.expected_score,
-        predicted_score: result.overall_score,
+        predicted_score: predicted,
         error,
         agreed: error <= 0.5,
+        ...(runs.length > 1 ? { run_scores: runs } : {}),
       });
     } catch (err) {
       perCase.push({
@@ -1064,6 +1076,22 @@ export async function promoteGradeReportToEvalCase(
   if (error) return { ok: false, status: 400, error: error.message };
 
   return { ok: true, case_id: (inserted as { id: string }).id, already: false };
+}
+
+/**
+ * US-3523: how many times runEval grades each case. GRADING_EVAL_REPEATS,
+ * default 1 (each repeat is another full set of vision calls), capped at 5.
+ */
+export function evalRepeats(): number {
+  const raw = Number(Deno.env.get("GRADING_EVAL_REPEATS"));
+  return Number.isFinite(raw) && raw >= 1 ? Math.min(5, Math.trunc(raw)) : 1;
+}
+
+/** Mean of repeated overall scores, on the 0.1 grid the grade uses. */
+export function meanOfRuns(runs: readonly number[]): number {
+  if (runs.length === 0) return Number.NaN;
+  const m = runs.reduce((a, b) => a + b, 0) / runs.length;
+  return Math.round(m * 10) / 10;
 }
 
 /**

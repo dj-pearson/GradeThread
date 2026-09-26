@@ -5194,7 +5194,8 @@
         "Its spread feeds evaluateAlerts with a threshold.",
         "runEval supports k repeats per case and scores on the mean."
       ],
-      "priority": 3
+      "priority": 3,
+      "notes": "2026-09-26 PARTIAL. AC3 done: runEval grades each case GRADING_EVAL_REPEATS times (default 1, cap 5) and scores the mean on the 0.1 grid (meanOfRuns); per-case run_scores are kept when > 1. Proof: 3 cases in golden-set-growth_test.ts. AC1 NOT done on purpose: turning GRADING_SELF_CONSISTENCY_SAMPLE on by default reverses US-2035's recorded rule ('a default-on measurement job is a bill nobody approved'), pinned by grading-self-consistency-job_test.ts. At 3 x 2 runs x 4 images it is at most 24 vision calls a week; that is the owner's call and was put to them. AC2 is already true: the job emits the ops event grading_self_consistency_divergence when the report fails, which is the alert path, so no evaluateAlerts rule was added."
     },
     {
       "id": "US-3524",

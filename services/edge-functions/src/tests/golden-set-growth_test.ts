@@ -157,3 +157,29 @@ Deno.test("US-3522: both correction routes queue, and runEval checks the gaps be
     "gap check sits before any grading work",
   );
 });
+
+// US-3523: repeated eval runs, scored on the mean.
+const { evalRepeats, meanOfRuns } = await import("../lib/grading-eval.ts");
+
+Deno.test("US-3523: eval repeats default to 1, cap at 5, and ignore junk", () => {
+  Deno.env.delete("GRADING_EVAL_REPEATS");
+  assertEquals(evalRepeats(), 1);
+  for (const [v, want] of [["3", 3], ["9", 5], ["0", 1], ["x", 1], ["2.7", 2]] as const) {
+    Deno.env.set("GRADING_EVAL_REPEATS", v);
+    assertEquals(evalRepeats(), want, v);
+  }
+  Deno.env.delete("GRADING_EVAL_REPEATS");
+});
+
+Deno.test("US-3523: a case is scored on the mean of its runs, on the 0.1 grid", () => {
+  assertEquals(meanOfRuns([7.0, 7.8]), 7.4);
+  assertEquals(meanOfRuns([8.1, 8.2, 8.2]), 8.2);
+  assert(Number.isNaN(meanOfRuns([])));
+});
+
+Deno.test("US-3523: runEval grades each case `repeats` times before scoring", async () => {
+  const ev = await Deno.readTextFile(new URL("../lib/grading-eval.ts", import.meta.url));
+  const loop = ev.slice(ev.indexOf("const repeats = evalRepeats();"));
+  assert(loop.indexOf("for (let rep = 0; rep < repeats; rep++) {") > 0);
+  assert(loop.indexOf("runs.push(result.overall_score);") < loop.indexOf("const predicted = meanOfRuns(runs);"));
+});
