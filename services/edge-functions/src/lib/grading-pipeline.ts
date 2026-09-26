@@ -149,6 +149,7 @@ import {
 export { mediaTypeForVision };
 import { captureServer } from "./posthog.ts";
 import { emitGradingOutcome } from "./grading-outcome-event.ts";
+import { startLeaseHeartbeat } from "./grading-lease-heartbeat.ts";
 import { requestSpotCheck, shouldSpotCheck } from "./spot-check.ts";
 import { emitEvent, firstOccurrenceKey } from "./user-events.ts";
 import { autoRefundPaidStripe } from "./grade-refund.ts";
@@ -1906,6 +1907,10 @@ export async function processSubmission(submissionId: string) {
     );
     return;
   }
+
+  // US-3531: renew the lease while this run is alive, so a grade waiting for
+  // an image slot is not resumed a second time by the reaper.
+  const stopHeartbeat = startLeaseHeartbeat(submissionId, gradingLeaseSeconds());
 
   try {
     // --- Step 1: Fetch submission record ---
@@ -4481,5 +4486,7 @@ export async function processSubmission(submissionId: string) {
     }
 
     throw error;
+  } finally {
+    stopHeartbeat();
   }
 }

@@ -5198,18 +5198,6 @@
       "notes": "2026-09-26 SHIPPED INERT. New lib/vision-input-shaping.ts. GRADING_VISION_LONG_EDGE=<px> (>=512, unset = off) downscales each grading photo to that long edge as JPEG q88 before the per-image, authenticity and label calls, in the first pass and the escalation re-grade; defect and fabric zoom still crop the stored original. GRADING_SKIP_MEASUREMENT_FANOUT=1 leaves measurement_* photos out of the condition fan-out (both passes); settled results now index conditionImages, not imageData. Per-image reads are stamped +ds<px> / +nomeasure and the grade suffix gains +ds / +nomeasure, appended last. Off is byte-identical. Proof: vision-input-shaping_test.ts (6, incl. a real 1200x2400 JPEG shrunk to 784x1568 and undecodable bytes passing through). AC3 (cost before/after) is answerable from the grading.completed event's cost_usd (US-3525) split by prompt_version. Open: shadow and eval with each flag on, then switch on."
     },
     {
-      "id": "US-3531",
-      "passes": false,
-      "title": "Grading audit S5: grading lease can expire while waiting for a slot",
-      "description": "As the owner, I want a grade never run twice in parallel, so that we do not pay the AI twice. The 900s lease is claimed before the image-slot wait and never renewed; the reclaim job restarts up to 100 at once. Related: US-2010 (graceful shutdown).",
-      "acceptanceCriteria": [
-        "The lease is renewed on a heartbeat while grading, or claimed only after a slot is acquired.",
-        "The stuck-submission reclaim restarts at most N per run.",
-        "Test: a submission waiting longer than the lease is not re-claimed by the sweep."
-      ],
-      "priority": 5
-    },
-    {
       "id": "US-3532",
       "passes": false,
       "title": "Grading audit S5: /api/grade/submit has no idempotency key",

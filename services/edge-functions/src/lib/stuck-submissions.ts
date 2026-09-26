@@ -46,6 +46,14 @@ function abandonedThresholdMs(): number {
 
 const BATCH_LIMIT = 100;
 
+// US-3531: how many stuck grades one sweep RESUMES. Each resume competes for
+// the same few image-buffer slots; resuming 100 at once put the tail of the
+// backlog behind its own lease. The rest wait for the next run (every 10 min).
+export function maxResumesPerSweep(): number {
+  const raw = Number(Deno.env.get("STUCK_SUBMISSION_MAX_RESUMES"));
+  return Number.isFinite(raw) && raw >= 1 ? Math.trunc(raw) : 12;
+}
+
 /**
  * Fail a submission that is stuck in 'processing' and never produced a grade,
  * reverse the charge taken for it, and mirror the failure into the FlipDesk
@@ -98,6 +106,8 @@ export interface StuckSweepResult {
   refunded: number;
   /** Recovery errors (left for the next sweep). */
   failed: number;
+  /** US-3531: resumable but over the per-sweep cap; the next sweep takes them. */
+  deferred?: number;
 }
 
 // Injectable data access so the resume/poison-guard orchestration is unit-
@@ -183,8 +193,15 @@ export async function recoverStuckSubmissions(
   let resumed = 0;
   let refunded = 0;
   let failed = 0;
+  const resumeCap = maxResumesPerSweep();
+  let deferred = 0;
   for (const s of stuck) {
     try {
+      if (s.grading_attempts < maxAttempts && resumed >= resumeCap) {
+        // US-3531: leave it for the next sweep.
+        deferred += 1;
+        continue;
+      }
       if (s.grading_attempts < maxAttempts) {
         // Still within budget → resume (US-569). The pipeline re-claims the lease
         // and either finishes the grade or finalizes an already-written report.
@@ -210,7 +227,13 @@ export async function recoverStuckSubmissions(
     );
   }
 
-  return { scanned: stuck.length, resumed, refunded, failed };
+  return {
+    scanned: stuck.length,
+    resumed,
+    refunded,
+    failed,
+    ...(deferred > 0 ? { deferred } : {}),
+  };
 }
 
 // US-773: sweep abandoned-checkout submissions (closed the Checkout tab, never

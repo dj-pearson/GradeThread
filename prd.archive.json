@@ -49776,6 +49776,19 @@
       ],
       "priority": 5,
       "notes": "Done 2026-09-26 except the timeout AC, on purpose. New lib/grading-availability.ts: a shared getBreaker('anthropic') (5 consecutive transient failures, isRetryableError, opens for 30s) wraps every AnthropicProvider.complete call, streamed or not. /api/grade/submit, both api-v1 grade routes and FlipDesk submitForGrading call currentGradingUnavailableReason() before any charge and answer 503 (Retry-After 60 on the HTTP routes) when the breaker is open or GRADING_MAX_QUEUED_PIPELINES (default 24) submissions already wait for an image-buffer slot (gradingQueueWaiting, new in grading-capacity.ts). Proof: grading-availability_test.ts (4): five 529s open it and the sixth call never reaches the API; eight 400s leave it closed; refusals sit before runPaymentPrecedence. Full edge suite 11,922 passed, only the 6 known imagescript failures. NOT DONE: lowering the 120s per-call timeout to 45s. Per-image calls can emit 2048 tokens and the composite 3072; there is no measured p99 for them here, and a timeout below the real tail would fail and refund good grades. The per_call_ms log line (US-3345) is where that number comes from; lower it from that."
+    },
+    {
+      "id": "US-3531",
+      "passes": true,
+      "title": "Grading audit S5: grading lease can expire while waiting for a slot",
+      "description": "As the owner, I want a grade never run twice in parallel, so that we do not pay the AI twice. The 900s lease is claimed before the image-slot wait and never renewed; the reclaim job restarts up to 100 at once. Related: US-2010 (graceful shutdown).",
+      "acceptanceCriteria": [
+        "The lease is renewed on a heartbeat while grading, or claimed only after a slot is acquired.",
+        "The stuck-submission reclaim restarts at most N per run.",
+        "Test: a submission waiting longer than the lease is not re-claimed by the sweep."
+      ],
+      "priority": 5,
+      "notes": "Done 2026-09-26. New lib/grading-lease-heartbeat.ts: processSubmission starts it right after a successful claim and stops it in a finally around the whole run; every leaseSeconds/3 (5 min at the 900s default) it sets grading_lease_until = now + lease on the row while status = 'processing' (plain .eq filters, no .or on the mutation). The updated_at trigger moves with it, so the reaper's staleness clock sees a live run. A dead container stops renewing, so recovery is unchanged. The reaper resumes at most STUCK_SUBMISSION_MAX_RESUMES (default 12) per sweep and reports the rest as deferred; poison rows are still failed and refunded. Proof: grading-lease-heartbeat_test.ts (4, incl. a 30-row backlog resuming 12 and deferring 18). Related US-2010 (graceful shutdown) is still open."
     }
   ]
 }
