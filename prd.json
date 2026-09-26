@@ -5222,17 +5222,6 @@
       "priority": 6
     },
     {
-      "id": "US-3537",
-      "passes": false,
-      "title": "Grading audit S6: final review gate ignores the calibrated threshold",
-      "description": "As the owner, I want per-category calibration to lower review volume when earned. grading-pipeline.ts calls reconcileNeedsReview with no threshold, re-flagging grades the composite step cleared.",
-      "acceptanceCriteria": [
-        "The final gate passes the same calibrated threshold compositeGrade used.",
-        "Unit test covers a category threshold below 0.75."
-      ],
-      "priority": 6
-    },
-    {
       "id": "US-3538",
       "passes": false,
       "title": "Grading audit S6: same photo in every slot and mixed garments pass",

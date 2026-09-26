@@ -3701,6 +3701,9 @@ export async function processSubmission(submissionId: string) {
     compositeResult.needs_human_review = reconcileNeedsReview(
       compositeResult.needs_human_review,
       compositeResult.confidence_score,
+      // US-3537: the same threshold compositeGrade used (calibrated when
+      // enforced); undefined falls back to the flat one, as before.
+      compositeResult.review_threshold,
     );
 
     // US-333 + US-1279: tamper-evident integrity. Hash the canonical

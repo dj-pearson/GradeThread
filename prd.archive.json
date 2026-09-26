@@ -49829,6 +49829,18 @@
       ],
       "priority": 6,
       "notes": "Done 2026-09-26. defect-weighting.ts gains settleFactor and returns settledFactors: where the defect ceiling binds (ceiling < model) the factor is floored to the half step, otherwise the model's score rounds to nearest, never below 1. compositeGrade stores settledFactors (the local roundToHalf is gone) and findLimitingFlaw reads the same numbers. The weighted-overall rounding sites are untouched, so the lockstep rule is unaffected. Proof: 3 new cases in defect-weighting_test.ts including the worked example (10 vs 9.775 and 9.85 now settle at 9.5). This lowers some factors by 0.5 where a recorded defect was being rounded away. vault/20-domain/grading-scale-and-weights.md updated."
+    },
+    {
+      "id": "US-3537",
+      "passes": true,
+      "title": "Grading audit S6: final review gate ignores the calibrated threshold",
+      "description": "As the owner, I want per-category calibration to lower review volume when earned. grading-pipeline.ts calls reconcileNeedsReview with no threshold, re-flagging grades the composite step cleared.",
+      "acceptanceCriteria": [
+        "The final gate passes the same calibrated threshold compositeGrade used.",
+        "Unit test covers a category threshold below 0.75."
+      ],
+      "priority": 6,
+      "notes": "Done 2026-09-26. compositeGrade returns review_threshold (the calibrated per-category threshold when calibration is enforced, else the flat one) and the pipeline's post-composite reconcileNeedsReview passes it, so a calibrated threshold below 0.75 is no longer undone by the final re-check. Undefined falls back to the flat threshold exactly as before; an existing flag is never cleared. Proof: calibrated-review-gate_test.ts (3)."
     }
   ]
 }

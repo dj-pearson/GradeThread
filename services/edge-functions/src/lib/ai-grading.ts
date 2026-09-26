@@ -310,6 +310,13 @@ export interface CompositeGradeResult {
    * stored at up to 1.0.
    */
   confidence_ceiling: number;
+  /**
+   * US-3537: the review threshold this grade was judged against: the
+   * per-category calibrated one when calibration is enforced, else the flat
+   * one. The pipeline's final re-check must use the same number, or it undoes
+   * a calibrated threshold below the flat one.
+   */
+  review_threshold?: number;
   needs_human_review: boolean;
   image_validity: ImageValidity;
   // US-336/US-338: aggregated photo-authenticity assessment.
@@ -3749,6 +3756,7 @@ export async function compositeGrade(
       style_attributes: styleAttributes,
       confidence_score: finalConfidence,
       confidence_ceiling: confidenceCeiling,
+      review_threshold: effectiveThreshold,
       needs_human_review: needsHumanReview,
       image_validity: imageValidity,
       image_authenticity: imageAuthenticity,
