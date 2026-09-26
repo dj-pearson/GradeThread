@@ -31,6 +31,13 @@
       "story": "US-3533",
       "held_since": "2026-09-26",
       "what": "live grade-complete updates on submissions"
+    },
+    {
+      "version": "00844",
+      "file": "00844_finances_tier_bands.sql",
+      "story": "US-3536",
+      "held_since": "2026-09-26",
+      "what": "Finances dashboard uses the real grade tier bands"
     }
   ],
   "parked": [

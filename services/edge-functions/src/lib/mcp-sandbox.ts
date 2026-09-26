@@ -17,6 +17,7 @@
 // model that reports a fake publish as real is worse than one that cannot
 // publish at all, and the text is what it reads.
 
+import { computeWeightedOverall, scoreToGradeTier } from "./human-review.ts";
 import {
   type PriceGuideCatalogItem,
   type PriceGuideEntry,
@@ -38,15 +39,6 @@ function sandboxSeed(input: string): number {
   return ((h >>> 0) % 1000) / 1000;
 }
 
-const SANDBOX_TIERS = [
-  { min: 9.5, tier: "NWT" },
-  { min: 8.5, tier: "NWOT" },
-  { min: 7.5, tier: "Excellent" },
-  { min: 6.5, tier: "Very Good" },
-  { min: 5.5, tier: "Good" },
-  { min: 4.5, tier: "Fair" },
-  { min: 0, tier: "Poor" },
-] as const;
 
 export interface SandboxGrade {
   sandbox: true;
@@ -73,10 +65,20 @@ export function sandboxGrade(title: string, brand?: string): SandboxGrade {
   const seed = title || "sample";
   const s = sandboxSeed(seed);
   const half = (n: number) => Math.round(n * 2) / 2;
-  const overall = half(5 + s * 4.5);
+  const base = 5 + s * 4.5;
   const jitter = (k: string) =>
-    half(Math.max(1, Math.min(10, overall + (sandboxSeed(seed + k) - 0.5) * 2)));
-  const tier = SANDBOX_TIERS.find((t) => overall >= t.min)?.tier ?? "Good";
+    half(Math.max(1, Math.min(10, base + (sandboxSeed(seed + k) - 0.5) * 2)));
+  // US-3536: the same contract as a real grade. Factors on the 0.5 grid, the
+  // overall their weighted sum on the 0.1 grid, the tier from the real bands.
+  const factors = {
+    fabric_condition_score: jitter("fabric"),
+    structural_integrity_score: jitter("structural"),
+    cosmetic_appearance_score: jitter("cosmetic"),
+    functional_elements_score: jitter("functional"),
+    odor_cleanliness_score: jitter("odor"),
+  };
+  const overall = computeWeightedOverall(factors);
+  const tier = scoreToGradeTier(overall);
 
   return {
     sandbox: true,
@@ -86,12 +88,9 @@ export function sandboxGrade(title: string, brand?: string): SandboxGrade {
     brand: brand ?? null,
     overall_score: overall,
     grade_tier: tier,
-    fabric_condition_score: jitter("fabric"),
-    structural_integrity_score: jitter("structural"),
-    cosmetic_appearance_score: jitter("cosmetic"),
-    functional_elements_score: jitter("functional"),
-    odor_cleanliness_score: jitter("odor"),
-    confidence_score: Math.round((0.7 + s * 0.25) * 100) / 100,
+    ...factors,
+    // US-3536: a "completed" grade is never below the 0.75 review threshold.
+    confidence_score: Math.round((0.78 + s * 0.2) * 100) / 100,
     ai_summary:
       `Sample condition report for a ${tier.toLowerCase()} garment. Light wear consistent with ` +
       `the grade; no structural faults noted.`,

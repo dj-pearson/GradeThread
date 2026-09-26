@@ -49853,6 +49853,20 @@
       ],
       "priority": 6,
       "notes": "Done 2026-09-26. measure-autofill.ts and routes/flipdesk-measure.ts get the vision URL from itemPhotoAiUrl(photo, undefined, { ownerId }) (signs private-bucket objects, public URL only for public ones, refuses a path outside the owner) instead of getPublicUrl(bucketForItemPhoto(type)); both selects now include photo_url, which the helper reads. A refused/unsignable photo returns no_measurement_photo (autofill) or 422 (route). Also: dropped my US-3514 storage-path-ownership.ts in favour of the existing isOwnedStoragePath in staging-path.ts (AL-02), which itemPhotoAiUrl already uses. Proof: measure-photo-ai-url_test.ts (2); measure-autofill, flipdesk-measure and item-photo-storage suites green. The AC's 'private bucket' test is covered by item-photo-storage_test.ts's own signing cases rather than a new one."
+    },
+    {
+      "id": "US-3536",
+      "passes": true,
+      "title": "Grading audit S6: tier ranges drift across finance dashboard, public page and sandboxes",
+      "description": "As a seller, I want one set of tier ranges everywhere. 00143 finances function uses 9.5/8.5/7.5 bands, platform-standards.ts publishes different ranges, and api-v1 and MCP sandboxes return off-contract grades.",
+      "acceptanceCriteria": [
+        "The finances function uses the same bands as human-review.ts (migration, US-1108 triple).",
+        "platform-standards.ts ranges match the real tiers.",
+        "Sandbox grades are on the 0.1 grid, equal the weighted factor sum, include NWOT, and never return completed below 0.75 confidence.",
+        "A test pins all of these to one source."
+      ],
+      "priority": 6,
+      "notes": "Done 2026-09-26. HELD 00844 re-creates finances_dashboard with the real tier floors (10/9/8/7/6/5); only that CASE differs from 00143. Proven by applying ALL 843 prior migrations from zero on PG16 with auth/storage stubs (0 failures), then 00844 twice, then calling it. platform-standards.ts SCALE_BANDS ranges now come from tierBandRange() and every sample grade sits in its real band; the grade-checker FAQ states 8.0 to 8.9 Excellent, 7.0 to 7.9 Very Good, 6.0 to 6.9 Good. Both sandboxes (api-v1 sandboxGrade and mcp-sandbox) build the overall with computeWeightedOverall on the 0.1 grid and the tier with scoreToGradeTier (NWOT now appears); the MCP sandbox's completed-grade confidence starts at 0.78. mcp-sandbox's import whitelist now allows ./human-review.ts, with a new assertion that human-review.ts itself never imports a database or marketplace client. Proof: tier-contract_test.ts (2), tier-bands-public.test.ts (2), mcp-sandbox_test.ts contract case; full edge suite 11,943 passed, only the 6 known imagescript failures."
     }
   ]
 }

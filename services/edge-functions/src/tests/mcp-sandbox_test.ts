@@ -9,6 +9,7 @@
 // test asserts that import list, because the property survives only as long as
 // nobody adds a convenient import.
 
+import { computeWeightedOverall, scoreToGradeTier } from "../lib/human-review.ts";
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
@@ -51,11 +52,20 @@ Deno.test("the sandbox module cannot reach a database or a marketplace", () => {
   }
 
   // Whitelist rather than blacklist: a new import is a decision, not a default.
+  // US-3536: human-review.ts is the ONE weighted-overall + tier implementation
+  // (grading-engine lockstep rule), so the sandbox imports it rather than
+  // forking the arithmetic. It is allowed only while it stays off the database,
+  // which the next assertion checks.
   assertEquals(
-    imports,
-    ["./price-guide.ts"],
+    imports.slice().sort(),
+    ["./human-review.ts", "./price-guide.ts"],
     "the sandbox module gained an import. Only pure fixture helpers belong here.",
   );
+  const hr = Deno.readTextFileSync(new URL("../lib/human-review.ts", import.meta.url));
+  const hrImports = [...hr.matchAll(/^import[\s\S]*?from\s+"([^"]+)";/gm)].map((m) => m[1]);
+  for (const path of forbidden) {
+    assert(!hrImports.includes(path), `human-review.ts imports ${path}; the sandbox can no longer use it`);
+  }
 });
 
 Deno.test("the sandbox module declares no async handler, because nothing it does can block", () => {
@@ -113,22 +123,23 @@ Deno.test("the same input gives the same grade, so a partner can assert on it", 
   assert(different.overall_score !== a.overall_score || different.id !== a.id);
 });
 
-Deno.test("sandbox grades stay on the real scale and the half-point steps", () => {
+Deno.test("US-3536: sandbox grades follow the real grade contract", () => {
   for (const title of ["a", "jacket", "Levis 501", "tee", "boots", "scarf"]) {
     const g = sandboxGrade(title);
-    for (
-      const score of [
-        g.overall_score,
-        g.fabric_condition_score,
-        g.structural_integrity_score,
-        g.cosmetic_appearance_score,
-        g.functional_elements_score,
-        g.odor_cleanliness_score,
-      ]
-    ) {
+    const factors = {
+      fabric_condition_score: g.fabric_condition_score,
+      structural_integrity_score: g.structural_integrity_score,
+      cosmetic_appearance_score: g.cosmetic_appearance_score,
+      functional_elements_score: g.functional_elements_score,
+      odor_cleanliness_score: g.odor_cleanliness_score,
+    };
+    for (const score of Object.values(factors)) {
       assert(score >= 1 && score <= 10, `${title}: ${score} is off the 1-10 scale`);
-      assertEquals(score * 2, Math.round(score * 2), `${title}: ${score} is not a half-point step`);
+      assertEquals(score * 2, Math.round(score * 2), `${title}: factor ${score} is not a half step`);
     }
+    assertEquals(g.overall_score, computeWeightedOverall(factors), `${title}: overall is not the weighted sum`);
+    assertEquals(g.grade_tier, scoreToGradeTier(g.overall_score), `${title}: tier does not match the bands`);
+    assert(g.confidence_score >= 0.75, `${title}: a completed grade below the review threshold`);
   }
 });
 

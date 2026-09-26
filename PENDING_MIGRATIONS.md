@@ -71,6 +71,20 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00844_finances_tier_bands.sql (US-3536 - Finances dashboard uses the real grade tier bands)
+
+**What it does.** Re-creates `public.finances_dashboard(timestamptz)` from 00143
+with ONE change: the per-sale `grade_tier` CASE uses floors 10 / 9 / 8 / 7 / 6 /
+5 instead of 9.5 / 8.5 / 7.5 / 6.5 / 5.5 / 4.5. `diff` against 00143 shows only
+that CASE. `CREATE OR REPLACE` keeps the existing grants; still SECURITY INVOKER.
+
+**Risk: low.** Tier profit stats on /dashboard/flipdesk finances will re-bucket
+(an 8.7 moves from NWOT to Excellent). Measured: all 843 prior migrations
+applied from zero on a PG16 cluster with auth/storage stubs (0 failures), then
+00844 applied twice and `finances_dashboard(null)` ran.
+
+**Apply order.** Any time. No code depends on it.
+
 ## HELD: 00843_realtime_submissions.sql (US-3533 - live grade-complete updates on submissions)
 
 **What it does.** Adds `public.submissions` to the `supabase_realtime`

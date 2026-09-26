@@ -5209,19 +5209,6 @@
       "priority": 6
     },
     {
-      "id": "US-3536",
-      "passes": false,
-      "title": "Grading audit S6: tier ranges drift across finance dashboard, public page and sandboxes",
-      "description": "As a seller, I want one set of tier ranges everywhere. 00143 finances function uses 9.5/8.5/7.5 bands, platform-standards.ts publishes different ranges, and api-v1 and MCP sandboxes return off-contract grades.",
-      "acceptanceCriteria": [
-        "The finances function uses the same bands as human-review.ts (migration, US-1108 triple).",
-        "platform-standards.ts ranges match the real tiers.",
-        "Sandbox grades are on the 0.1 grid, equal the weighted factor sum, include NWOT, and never return completed below 0.75 confidence.",
-        "A test pins all of these to one source."
-      ],
-      "priority": 6
-    },
-    {
       "id": "US-3538",
       "passes": false,
       "title": "Grading audit S6: same photo in every slot and mixed garments pass",

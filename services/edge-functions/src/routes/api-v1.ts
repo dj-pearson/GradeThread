@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { computeWeightedOverall, scoreToGradeTier } from "../lib/human-review.ts";
 import {
   currentGradingUnavailableReason,
   GRADING_BUSY_RETRY_AFTER_SECONDS,
@@ -848,14 +849,6 @@ function sandboxSeed(input: string): number {
   return ((h >>> 0) % 1000) / 1000;
 }
 
-const SANDBOX_TIERS: Array<{ min: number; tier: string }> = [
-  { min: 9.5, tier: "NWT" },
-  { min: 8.5, tier: "Excellent" },
-  { min: 7, tier: "Very Good" },
-  { min: 6, tier: "Good" },
-  { min: 5, tier: "Fair" },
-  { min: 0, tier: "Poor" },
-];
 
 function sandboxGrade(
   seedInput: string,
@@ -868,10 +861,21 @@ function sandboxGrade(
   } = {},
 ) {
   const s = sandboxSeed(seedInput || "sample");
-  const round = (n: number) => Math.round(n * 2) / 2; // half-point scale
-  const overall = round(5 + s * 4.5); // 5.0 – 9.5
-  const jitter = (k: string) => round(Math.max(1, Math.min(10, overall + (sandboxSeed(seedInput + k) - 0.5) * 2)));
-  const tier = SANDBOX_TIERS.find((t) => overall >= t.min)?.tier ?? "Good";
+  const round = (n: number) => Math.round(n * 2) / 2; // half-point factor scale
+  const base = 5 + s * 4.5;
+  const jitter = (k: string) => round(Math.max(1, Math.min(10, base + (sandboxSeed(seedInput + k) - 0.5) * 2)));
+  // US-3536: the same contract as a real grade: the overall is the weighted
+  // factor sum on the 0.1 grid and the tier comes from the real bands (this
+  // table used to skip NWOT and put Excellent at 8.5).
+  const factors = {
+    fabric_condition_score: jitter("fabric"),
+    structural_integrity_score: jitter("structural"),
+    cosmetic_appearance_score: jitter("cosmetic"),
+    functional_elements_score: jitter("functional"),
+    odor_cleanliness_score: jitter("odor"),
+  };
+  const overall = computeWeightedOverall(factors);
+  const tier = scoreToGradeTier(overall);
   return {
     id: `sandbox_${Math.floor(s * 1e9).toString(36)}`,
     status: "completed" as const,
@@ -885,11 +889,7 @@ function sandboxGrade(
       id: `sandbox_report_${Math.floor(s * 1e9).toString(36)}`,
       overall_score: overall,
       grade_tier: tier,
-      fabric_condition_score: jitter("fabric"),
-      structural_integrity_score: jitter("structural"),
-      cosmetic_appearance_score: jitter("cosmetic"),
-      functional_elements_score: jitter("functional"),
-      odor_cleanliness_score: jitter("odor"),
+      ...factors,
       confidence_score: Math.round((0.8 + s * 0.18) * 100) / 100, // 0.80–0.98
       ai_summary:
         "Sandbox grade. This is a deterministic sample response for integration testing — no real grading was performed and no credits were spent.",
