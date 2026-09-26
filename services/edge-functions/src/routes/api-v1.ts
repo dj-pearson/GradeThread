@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { sha256OfBytes } from "../lib/cert-photo-seal.ts";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { billingMonthStartIso, computeQuotaState } from "../lib/api-quota.ts";
@@ -337,6 +338,7 @@ apiV1Routes.post("/grades", async (c) => {
     storage_path: string;
     display_order: number;
     phash: string | null;
+    content_sha256: string | null;
   }> = [];
 
   for (let i = 0; i < images!.length; i++) {
@@ -432,6 +434,8 @@ apiV1Routes.post("/grades", async (c) => {
       storage_path: storagePath,
       display_order: i,
       phash: serverPhash,
+      // US-3516: sealed into the certificate (integrity v5).
+      content_sha256: await sha256OfBytes(cleanBytes),
     });
   }
 

@@ -8,6 +8,7 @@
 // It NEVER deletes the submission row (the caller owns that lifecycle, since the
 // single path 400s the request while the batch path fails just that job).
 
+import { sha256OfBytes } from "./cert-photo-seal.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { decodeBase64Image } from "./validation.ts";
 import { validateImageUpload } from "./upload-validation.ts";
@@ -151,6 +152,7 @@ export interface IngestedImageRow {
   storage_path: string;
   display_order: number;
   phash: string | null;
+  content_sha256: string | null;
 }
 
 export type IngestResult =
@@ -236,6 +238,8 @@ export async function ingestGradeImages(
       storage_path: storagePath,
       display_order: i,
       phash: serverPhash,
+      // US-3516: sealed into the certificate (integrity v5).
+      content_sha256: await sha256OfBytes(cleanBytes),
     });
   }
 

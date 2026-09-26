@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { verifyCertificateWithPhotos } from "../lib/cert-photo-seal.ts";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { decodeTagCode } from "../lib/brand-decoders.ts";
@@ -2206,7 +2207,8 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  const result = await verifyCertIntegrity(
+  // US-3516: v5 rows also seal and re-hash the graded photos.
+  const result = await verifyCertificateWithPhotos(
     {
       certificate_id: r.certificate_id,
       overall_score: r.overall_score,
@@ -2233,6 +2235,7 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
     r.content_hash,
     r.content_signature,
     r.integrity_version,
+    r.submission_id,
   );
 
   // US-1465: this fires on every public certificate view, so let a CDN absorb
@@ -2252,6 +2255,9 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
     integrity_version: result.integrity_version,
     content_hash: result.content_hash,
     issued_at: r.created_at,
+    // US-3516: how many sealed photos were re-hashed, and which no longer match.
+    photos_checked: result.photos_checked,
+    photos_altered: result.photos_altered,
   });
 });
 

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { sha256OfBytes } from "../lib/cert-photo-seal.ts";
 import type { Context } from "hono";
 import {
   notifyAdminsDisputeFiled,
@@ -881,6 +882,7 @@ gradeRoutes.post("/submit", async (c) => {
     storage_path: string;
     display_order: number;
     phash: string | null;
+    content_sha256: string | null;
     exif: Record<string, unknown> | null;
     original_storage_path: string | null;
     capture_source: string | null;
@@ -977,6 +979,8 @@ gradeRoutes.post("/submit", async (c) => {
       storage_path: storagePath,
       display_order: i,
       phash: serverPhash,
+      // US-3516: sealed into the certificate (integrity v5).
+      content_sha256: await sha256OfBytes(cleanBytes),
       // US-3518: server-read EXIF wins; the client's copy is informational.
       exif: originalExif ?? uploadedExif ?? imageExif[i] ?? null,
       original_storage_path: originalStoragePath,
@@ -1124,6 +1128,8 @@ gradeRoutes.post("/submit", async (c) => {
         // lifted from someone else's listing video is still caught by reuse
         // detection (US-480) — and can still cost the clip its badge.
         phash: await computePhashFromImage(cleanBytes, verdict.format),
+        // US-3516: sealed into the certificate (integrity v5).
+        content_sha256: await sha256OfBytes(cleanBytes),
         // A frame carries no EXIF: it was never a file on a camera. The
         // provenance claim here is video_capture, not device metadata.
         exif: null,

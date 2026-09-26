@@ -9,6 +9,7 @@
 // copy of this logic; centralizing it keeps the reseal + row-count guarantees
 // identical and unit-testable against an injected client.
 
+import { loadPhotoHashesForReport } from "./cert-photo-seal.ts";
 import {
   type CheckedUpdateClient,
   updateByIdChecked,
@@ -94,6 +95,8 @@ export async function applyGradeAdjustment(
       authenticity_verdict: report.authenticity_assessment?.verdict ?? null,
       authenticity_verdict_confidence:
         report.authenticity_assessment?.verdict_confidence ?? null,
+      // US-3516: keep the photos sealed across a correction (v5).
+      photo_hashes: await loadPhotoHashesForReport(report.id),
     });
     update.content_hash = integrity.content_hash;
     update.content_signature = integrity.content_signature;

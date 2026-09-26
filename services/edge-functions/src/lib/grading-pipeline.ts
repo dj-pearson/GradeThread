@@ -123,6 +123,7 @@ import {
   verifiedCaptureBoost,
 } from "./verified-capture.ts";
 import { buildCertIntegrity } from "./cert-integrity.ts";
+import { loadSealedPhotoHashes } from "./cert-photo-seal.ts";
 import {
   fuseTamperSignals,
   runForensicPass,
@@ -3660,6 +3661,9 @@ export async function processSubmission(submissionId: string) {
       // empty verdict, not a missing key.
       authenticity_verdict: authenticityAssessment?.verdict ?? null,
       authenticity_verdict_confidence: authenticityAssessment?.verdict_confidence ?? null,
+      // US-3516: seal the graded photo bytes (v5). A read failure seals v4
+      // rather than failing a paid grade.
+      photo_hashes: await loadSealedPhotoHashes(submissionId).catch(() => undefined),
     });
 
     // US-2570: a certificate-number collision must not fail a PAID grade.

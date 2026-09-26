@@ -94,6 +94,9 @@ type IntegrityVerify = {
   signed: boolean;
   algorithm: string;
   content_hash: string | null;
+  // US-3516: sealed photos whose stored bytes no longer match (v5 certificates).
+  photos_altered?: string[];
+  photos_checked?: number;
 };
 type VerifyState =
   | { phase: "idle" }
@@ -208,8 +211,9 @@ function IntegrityPanel({
             not the photo pixels, so a buyer isn't misled into thinking the
             images are cryptographically bound. */}
         <p className="mt-1 text-[11px] text-green-800/70 dark:text-green-300/70">
-          The seal covers the grade data above; it does not cryptographically
-          bind the photographs themselves.
+          {result.photos_checked && result.photos_checked > 0
+            ? `The seal also covers the ${result.photos_checked} graded photos, which were checked just now.`
+            : "The seal covers the grade data above; it does not cryptographically bind the photographs themselves."}
         </p>
         {result.content_hash && (
           <p className="mt-1 break-all font-mono text-[10px] text-green-800/60 dark:text-green-300/60">
@@ -228,8 +232,9 @@ function IntegrityPanel({
           Integrity check failed — do not trust this certificate
         </div>
         <p className="mt-1 text-xs text-red-800/80 dark:text-red-300/80">
-          The grade data does not match GradeThread’s sealed record. This
-          certificate may have been altered or forged.
+          {result.photos_altered && result.photos_altered.length > 0
+            ? `The photos no longer match the ones that were graded (${result.photos_altered.join(", ")}). This certificate may have been altered.`
+            : "The grade data does not match GradeThread’s sealed record. This certificate may have been altered or forged."}
         </p>
         {/* US-2550: the worst news the product can give a buyer used to end
             here. Two ways out, both reachable without an account: file it

@@ -1,7 +1,11 @@
 import { Hono } from "hono";
+import { type PhotoHashRow, sealedPhotoList } from "../lib/cert-photo-seal.ts";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { isCertificateWithheld } from "../lib/certificate-visibility.ts";
-import { verifyCertIntegrity } from "../lib/cert-integrity.ts";
+import {
+  CERT_INTEGRITY_VERSION_WITH_PHOTOS,
+  verifyCertIntegrity,
+} from "../lib/cert-integrity.ts";
 import {
   hasAnyTrustSignal,
   projectTrustSignals,
@@ -133,6 +137,29 @@ buyerTrustRoutes.post("/trust-signals", async (c) => {
     ((subRows ?? []) as SubmissionRow[]).map((s) => [s.id, s]),
   );
 
+  // US-3516: integrity v5 seals the graded photo list, so those rows need it to
+  // recompute the hash. One batch; no file downloads here (the full byte check
+  // runs on the per-certificate verify endpoint).
+  const v5SubmissionIds = [...new Set(
+    reports
+      .filter((r) => (r.integrity_version ?? 1) >= CERT_INTEGRITY_VERSION_WITH_PHOTOS)
+      .map((r) => r.submission_id),
+  )];
+  const photoRowsBySub = new Map<string, PhotoHashRow[]>();
+  let photoRowsOk = true;
+  if (v5SubmissionIds.length > 0) {
+    const { data: photoRows, error: photoErr } = await supabaseAdmin
+      .from("submission_images")
+      .select("submission_id, image_type, content_sha256")
+      .in("submission_id", v5SubmissionIds);
+    if (photoErr) photoRowsOk = false;
+    for (const row of (photoRows ?? []) as Array<PhotoHashRow & { submission_id: string }>) {
+      const list = photoRowsBySub.get(row.submission_id) ?? [];
+      list.push(row);
+      photoRowsBySub.set(row.submission_id, list);
+    }
+  }
+
   // Which owning sellers run a public Verified profile (US-1761) — one batch.
   const sellerIds = [...new Set(
     ((subRows ?? []) as SubmissionRow[]).map((s) => s.user_id).filter(Boolean),
@@ -158,7 +185,8 @@ buyerTrustRoutes.post("/trust-signals", async (c) => {
     // Real integrity check (pure hash recompute — no network), same contract as
     // the public verify endpoint. Unverifiable/legacy rows → not "verified".
     let integrityOk = false;
-    if (rep.content_hash) {
+    const isV5 = (rep.integrity_version ?? 1) >= CERT_INTEGRITY_VERSION_WITH_PHOTOS;
+    if (rep.content_hash && (!isV5 || photoRowsOk)) {
       try {
         const res = await verifyCertIntegrity(
           {
@@ -174,6 +202,9 @@ buyerTrustRoutes.post("/trust-signals", async (c) => {
             buyer_writeup: rep.buyer_writeup,
             coverage_pct: rep.coverage_pct,
             covered_zones: rep.covered_zones,
+            photo_hashes: isV5
+              ? sealedPhotoList(photoRowsBySub.get(rep.submission_id) ?? [])
+              : undefined,
           },
           rep.content_hash,
           rep.content_signature,

@@ -71,6 +71,19 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00839_submission_image_content_sha256.sql (US-3516 - record each graded photo's hash so certificates seal their photos)
+
+**What it does.** `ALTER TABLE submission_images ADD COLUMN IF NOT EXISTS
+content_sha256 text` plus a column comment. Additive, no backfill.
+
+**⚠ APPLY BEFORE THE EDGE DEPLOYS.** Every edge upload path in the same commit
+writes `content_sha256` on insert (grade.ts, api-v1.ts, api-grade-ingest.ts,
+grading-submit.ts). An edge running before the column exists would fail every
+grade upload. The schema-version boot guard (EXPECTED_SCHEMA_VERSION = 00839)
+is what stops that, so apply this, then redeploy the edge.
+
+**Risk: low.** Nullable column, no default, no rewrite.
+
 ## HELD: 00838_drop_submission_image_gps.sql (US-3520 - seller GPS was stored in submission_images.exif)
 
 **What it does.** `UPDATE public.submission_images SET exif = NULLIF(exif - 'gps', '{}')

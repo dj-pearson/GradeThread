@@ -49656,6 +49656,20 @@
       ],
       "priority": 2,
       "notes": "Done 2026-09-26 for wording and the notice; the revoked and photos-expired pages were split to US-3540 because they touch the webhook, the revision resolver, the public route and both renderers. The integrity badge now reads 'Record unchanged since grading' (was 'Authentic — grade claims verified'); the photo check reads 'Photo check passed / routed for review' and says it checks photos, not authenticity. needsAuthenticitySeparation returns true for every rubric on both the SPA (src/lib/rubrics.ts) and the SSR page (functions/_shared/condition-authenticity.ts), so 'This is a condition grade only. It is not an opinion on whether this item is authentic.' shows on every certificate. This reverses US-2225's deliberate 'clothing unchanged' choice. The AC's '<date>' wording was not added: the existing constant is pinned string-for-string across SPA and SSR. src/test/cert-condition-authenticity.test.ts updated and extended; 190 certificate tests pass, ui:check clean."
+    },
+    {
+      "id": "US-3516",
+      "passes": true,
+      "title": "Grading audit S2: seal photo hashes into certificate integrity",
+      "description": "As a buyer, I want the certificate to prove its photos are the graded ones, so that any later file change shows as tampering. cert-integrity.ts seals scores, tier and summary but not image bytes.",
+      "acceptanceCriteria": [
+        "Each submission_images row stores a sha256 of the stored bytes at grade time.",
+        "A new cert integrity version includes those hashes; old versions still verify.",
+        "The public certificate gallery marks the record as altered if a served file's hash differs.",
+        "Unit test: changing one image hash flips the integrity result."
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-26. HELD 00839 adds submission_images.content_sha256; grade.ts (photos and video frames), api-v1.ts, api-grade-ingest.ts and grading-submit.ts record the SHA-256 of the stored, EXIF-stripped bytes. New lib/cert-photo-seal.ts. Integrity v5 (CERT_INTEGRITY_VERSION_WITH_PHOTOS) seals the sorted image_type:sha256 list; buildCertIntegrity seals v5 only when photo_hashes is passed, so any reseal path not taught to load them stays at v4 instead of sealing a list the verifier would contradict. The pipeline, grade-adjustment (review queue + disputes) and authenticity-appeal reseals pass them. /certificates/:id/verify uses verifyCertificateWithPhotos: v5 rows load the list (edited list fails the hash) and re-hash the stored files (swapped or deleted file answers mismatch with photos_altered); v1-v4 rows verify exactly as before. buyer-trust batch passes the list for v5 rows with no downloads. The certificate page names the altered photos and says the seal covers N photos when it did. Proof: cert-photo-seal_test.ts, 8 cases; cert-integrity and backfill suites unchanged and green. Three source-shape guards (cleanliness-wording, fabric-zoom, submission-image-dimensions) updated for US-3517/US-3516 code movement."
     }
   ]
 }

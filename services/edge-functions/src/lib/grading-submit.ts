@@ -24,6 +24,7 @@ import { validateImageUpload } from "./upload-validation.ts";
 import { stripImageMetadata } from "./image-metadata.ts";
 import { computePhashFromImage } from "./perceptual-hash.ts";
 import { isOwnedStoragePath } from "./storage-path-ownership.ts";
+import { sha256OfBytes } from "./cert-photo-seal.ts";
 import { processSubmission } from "./grading-pipeline.ts";
 import { REQUIRED_IMAGE_TYPES } from "./image-quality.ts";
 import { GRADE_IMAGE_TYPES } from "./api-grade-ingest.ts";
@@ -1061,6 +1062,7 @@ export async function submitItemsForGrading(
         storage_path: string;
         display_order: number;
         phash: string | null;
+        content_sha256: string | null;
         width: number | null;
         height: number | null;
       }> = [];
@@ -1106,6 +1108,8 @@ export async function submitItemsForGrading(
           storage_path: newPath,
           display_order: i,
           phash,
+          // US-3516: sealed into the certificate (integrity v5).
+          content_sha256: await sha256OfBytes(cleanBytes),
           width: verdict.width,
           height: verdict.height,
         });

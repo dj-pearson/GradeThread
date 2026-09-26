@@ -291,6 +291,9 @@ export async function resealAfterAuthenticityChange(
       covered_zones: coverage?.covered_zones ?? null,
       authenticity_verdict: nextAssessment?.verdict ?? null,
       authenticity_verdict_confidence: nextAssessment?.verdict_confidence ?? null,
+      // US-3516: keep the photos sealed across the reseal (v5).
+      photo_hashes: await (await import("./cert-photo-seal.ts"))
+        .loadPhotoHashesForReport(gradeReportId),
     });
 
     return {

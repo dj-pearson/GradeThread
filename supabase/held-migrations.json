@@ -24,6 +24,13 @@
       "story": "US-3520",
       "held_since": "2026-09-26",
       "what": "seller GPS was stored in submission_images.exif"
+    },
+    {
+      "version": "00839",
+      "file": "00839_submission_image_content_sha256.sql",
+      "story": "US-3516",
+      "held_since": "2026-09-26",
+      "what": "record each graded photo's hash so certificates seal their photos"
     }
   ],
   "parked": [

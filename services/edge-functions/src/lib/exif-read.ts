@@ -14,7 +14,7 @@
 // walk, no decoder, no dependency) minus the GPS IFD. Best effort: any
 // malformed or absent EXIF answers null and never throws.
 
-export interface ServerExif {
+export type ServerExif = {
   source: "server";
   make?: string;
   model?: string;
@@ -23,7 +23,7 @@ export interface ServerExif {
   orientation?: number;
   dateTime?: string;
   dateTimeOriginal?: string;
-}
+};
 
 const MAX_STR = 256;
 

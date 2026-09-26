@@ -5157,19 +5157,6 @@
       "notes": "2026-09-25: 00837_lock_submission_photos.sql written and HELD. Adds public.is_submission_photo_path(name) and re-creates the five client write policies on submission-images (owner INSERT/DELETE from 00001, member INSERT from 00042, owner/member UPDATE from 00333) with NOT is_submission_photo_path. Measured on a throwaway PG16 with stub auth/storage schemas: before, owner and member could update, insert into and delete from a graded submission folder; after, update touches 0 rows, insert is refused, delete touches 0 rows, and item-photo paths in the same bucket are still writable (rotation, US-979). Applied twice with no error. Stays open until the owner applies it to prod; the photo-hash seal is US-3516."
     },
     {
-      "id": "US-3516",
-      "passes": false,
-      "title": "Grading audit S2: seal photo hashes into certificate integrity",
-      "description": "As a buyer, I want the certificate to prove its photos are the graded ones, so that any later file change shows as tampering. cert-integrity.ts seals scores, tier and summary but not image bytes.",
-      "acceptanceCriteria": [
-        "Each submission_images row stores a sha256 of the stored bytes at grade time.",
-        "A new cert integrity version includes those hashes; old versions still verify.",
-        "The public certificate gallery marks the record as altered if a served file's hash differs.",
-        "Unit test: changing one image hash flips the integrity result."
-      ],
-      "priority": 2
-    },
-    {
       "id": "US-3517",
       "passes": false,
       "title": "Grading audit S2: defend grading prompts against instructions written inside photos",

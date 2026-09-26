@@ -80,7 +80,7 @@ Deno.test("a video frame reports dimensions even though its quality_score is nul
   // here would understate what we actually have.
   const frameLoop = GRADE.slice(
     GRADE.indexOf("const frameRecords: typeof imageRecords = []"),
-    GRADE.indexOf("const frameRecords: typeof imageRecords = []") + 2600,
+    GRADE.indexOf("const frameRecords: typeof imageRecords = []") + 3000,
   );
   assert(frameLoop.includes("quality_score: null,"), "frame sharpness should stay unknown");
   assert(

@@ -132,6 +132,8 @@ export interface ResealInput extends FactorScores {
   // review path (US-2140), not through a grade reseal.
   authenticity_verdict?: string | null;
   authenticity_verdict_confidence?: number | null;
+  // US-3516: the graded photo hashes. Undefined reseals at v4.
+  photo_hashes?: string[];
 }
 
 // Recompute the certificate integrity (hash + signature + version) for an
@@ -157,5 +159,7 @@ export function resealCertificate(input: ResealInput): Promise<CertIntegrity> {
     // v4 hash would stop matching what the certificate displays.
     authenticity_verdict: input.authenticity_verdict,
     authenticity_verdict_confidence: input.authenticity_verdict_confidence,
+    // US-3516: v5 when the caller loaded them, v4 otherwise.
+    photo_hashes: input.photo_hashes,
   });
 }

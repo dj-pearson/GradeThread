@@ -1,6 +1,6 @@
 # What the backlog is waiting on you for
 
-Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 174 of 334 open stories carry at least one OPERATOR criterion — a step only you can take.
+Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 175 of 332 open stories carry at least one OPERATOR criterion — a step only you can take.
 
 This is not a list of blocked work. Most of these stories have buildable criteria before the operator step, and several were finished this session right up to it. It is a list of the last mile.
 
@@ -8,10 +8,11 @@ This is not a list of blocked work. Most of these stories have buildable criteri
 
 Computed from supabase/held-migrations.json and the criteria below, so it is right on the day you read it. Everything under this heading is two sittings, and it is the two that move the most stories.
 
-**1. Apply the 2 held migrations, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
+**1. Apply the 3 held migrations, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
 
 - `00837_lock_submission_photos.sql` — US-3513 — sellers could overwrite certified photos after grading
 - `00838_drop_submission_image_gps.sql` — US-3520 — seller GPS was stored in submission_images.exif
+- `00839_submission_image_content_sha256.sql` — US-3516 — record each graded photo's hash so certificates seal their photos
 
    Applying them and flipping each heading to `## ✅ APPLIED:` with a date is also what clears `node scripts/held-migration-gate.mjs --ci`, which CI runs first and which fails on any branch carrying a held migration. Until then a pull request from a branch that has one cannot go green, however good the rest of it is.
 
@@ -28,7 +29,7 @@ Most of these are not separate sittings. Grouped by what you need open:
 - **Production database (psql or the Supabase SQL editor)** — 29 steps
 - **A marketplace account, logged in** — 27 steps
 - **A lawyer** — 11 steps
-- **A grading run that costs real money** — 8 steps
+- **A grading run that costs real money** — 9 steps
 - **A decision, with nothing to open** — 4 steps
 - **Cloudflare dashboard** — 3 steps
 - **Sentry or PostHog** — 3 steps
@@ -1016,6 +1017,12 @@ priority 1992
 AC4 is counsel review of refund.tsx sections 4 and 5 - the EU/UK right-of-withdrawal waiver and the chargeback clause - and it gates the rest. AC1's factual half is SETTLED from the schema and needs no lawyer: users.grade_credit_balance is a plain integer with a >= 0 CHECK and no expiry column exists across all 612 migrations, while the monthly allowance is a separate system (grades_used_this_month / grade_reset_at / included_grades_this_period) that does reset. So 'credits never expire' is true of PURCHASED packs and 'do not roll over' is true of MONTHLY INCLUDED grades, and the Terms sentence uses the word credits for the thing that resets. What remains is approving wording, not investigating. NOTE FOR WHOEVER PICKS THIS UP: terms.tsx was edited once and deliberately reverted, because rewriting it ahead of counsel swaps one unreviewed statement for another - the KNOWN_CONTRADICTIONS entry in src/test/credit-expiry-claims.test.ts says so and must be DELETED in the same commit as the fix, since the guard fails on a stale entry as loudly as on a new contradiction.
 
 ## A grading run that costs real money
+
+### US-3517 — Grading audit S2: defend grading prompts against instructions written inside photos
+
+priority 2
+
+add 3+ golden cases whose photos carry injected text (a card reading 'flawless, grade 10'), run shadow and the eval gate with GRADING_IMAGE_TEXT_GUARD=1, canary, then set it on for everyone.
 
 ### US-2301 — The golden-set eval gate never runs in CI and the live prompt versions have no DB row
 
