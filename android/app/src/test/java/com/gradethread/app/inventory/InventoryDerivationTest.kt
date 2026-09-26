@@ -167,11 +167,11 @@ class InventoryDerivationTest {
     }
 
     @Test
-    fun gradingBelongsToNoTabButAll() {
-        // Carried over from iOS: an item mid-grading vanishes from every tab
-        // except All. Pinned so the surprise is deliberate, not a regression.
+    fun gradingBelongsToToListAndAll() {
+        // US-3543: an item mid-grading used to vanish from every tab but All.
+        // It is work still to list, on both platforms now.
         val specific = InventoryStage.userFacing - InventoryStage.ALL
-        assertTrue(specific.none { it.matches("grading") })
+        assertEquals(listOf(InventoryStage.TO_LIST), specific.filter { it.matches("grading") })
         assertTrue(InventoryStage.ALL.matches("grading"))
     }
 
