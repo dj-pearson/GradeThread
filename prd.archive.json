@@ -49723,6 +49723,18 @@
       ],
       "priority": 3,
       "notes": "2026-09-26 PARTIAL. AC3 done: runEval grades each case GRADING_EVAL_REPEATS times (default 1, cap 5) and scores the mean on the 0.1 grid (meanOfRuns); per-case run_scores are kept when > 1. Proof: 3 cases in golden-set-growth_test.ts. AC1 NOT done on purpose: turning GRADING_SELF_CONSISTENCY_SAMPLE on by default reverses US-2035's recorded rule ('a default-on measurement job is a bill nobody approved'), pinned by grading-self-consistency-job_test.ts. At 3 x 2 runs x 4 images it is at most 24 vision calls a week; that is the owner's call and was put to them. AC2 is already true: the job emits the ops event grading_self_consistency_divergence when the report fails, which is the alert path, so no evaluateAlerts rule was added. | Done 2026-09-26. AC1: owner approved the spend in session. GRADING_SELF_CONSISTENCY_SAMPLE now defaults to 3 (selfConsistencySample; 0 = off, cap 25), so the weekly job regrades 3 recent submissions twice each, at most 24 vision calls. The US-2035 'off unless opted in' test is rewritten to pin the new default and the cap. AC2: the job already alerts through emitOpsEvent grading_self_consistency_divergence. AC3: GRADING_EVAL_REPEATS, committed earlier."
+    },
+    {
+      "id": "US-3527",
+      "passes": true,
+      "title": "Grading audit S4: grading has no dollar budget row and the price tables disagree",
+      "description": "As the owner, I want a hard daily and monthly grading spend cap, and one price for Sonnet 5, so that spend dashboards are right and runaway cost stops. No migration creates an ai_budgets 'grading' row; ai-usage.ts prices Sonnet 5 at $2/$10 while 00335 says $3/$15.",
+      "acceptanceCriteria": [
+        "A migration seeds a 'grading' ai_budgets day and month row with kill behavior (US-1108 triple), or documents the prod row if it already exists.",
+        "ai_model_prices and ai-usage.ts agree on Sonnet 5, checked against current Anthropic pricing, with a test pinning them together."
+      ],
+      "priority": 4,
+      "notes": "Done 2026-09-26. HELD 00841 seeds ai_budgets grading day $150 throttle and month $3000 kill (ON CONFLICT DO NOTHING) and sets system_settings.ai_model_prices claude-sonnet-5 to 2/10 (cache 2.5/0.2). Current price confirmed from the claude-api skill model table (Sonnet 5 $2/$10), matching ai-usage.ts MODEL_PRICES. New sonnet5-price-lockstep_test.ts finds the newest migration that seeds claude-sonnet-5 and asserts it equals MODEL_PRICES; it fails against 00335 alone and passes with 00841. Measured on PG16 with seeded rows: existing operator row kept, month row added, only the Sonnet 5 key changed, re-run a no-op. The month cap is an estimate; PENDING_MIGRATIONS.md tells the owner to check it against volume first."
     }
   ]
 }

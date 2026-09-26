@@ -71,6 +71,25 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00841_grading_budget_and_sonnet5_price.sql (US-3527 - a dollar cap on grading, and one price for Sonnet 5)
+
+**What it does.** (1) Inserts `ai_budgets` rows for `grading`: day $150
+`throttle` (alerts only) and month $3,000 `kill` (hard stop; `grade.ts` and
+`api-v1.ts` return 503 while it is breached). `ON CONFLICT DO NOTHING`, so a
+budget an operator already set is untouched. (2) Sets
+`system_settings.ai_model_prices['claude-sonnet-5']` to input 2 / output 10 /
+cache_write 2.5 / cache_read 0.2 in both `value` and `default_value`,
+matching `ai-usage.ts`. Other models untouched.
+
+**⚠ Check the month cap against real volume before applying.** At about $0.16
+of AI per standard grade, $3,000 is roughly 18,000 grades a month. If prod runs
+near that, raise it in admin (or edit the row) first, or grading stops for the
+rest of the month when it is crossed.
+
+**Risk: low.** Measured on seeded rows: an existing day row kept its values,
+the month row was added, the Sonnet 5 price changed and Haiku did not, and a
+second run changed nothing. Any time; `NOTIFY pgrst, 'reload schema';` after.
+
 ## HELD: 00840_blind_spot_checks.sql (US-3524 - blind spot checks on auto-approved grades)
 
 **What it does.** Adds `grade_reports.spot_check_requested_at` and

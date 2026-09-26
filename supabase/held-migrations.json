@@ -38,6 +38,13 @@
       "story": "US-3524",
       "held_since": "2026-09-26",
       "what": "blind spot checks on auto-approved grades"
+    },
+    {
+      "version": "00841",
+      "file": "00841_grading_budget_and_sonnet5_price.sql",
+      "story": "US-3527",
+      "held_since": "2026-09-26",
+      "what": "a dollar cap on grading, and one price for Sonnet 5"
     }
   ],
   "parked": [

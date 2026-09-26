@@ -66,7 +66,7 @@ import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "./migration-manifest.ts";
 // rather than colliding: two files with the same NNNNN is unrecoverable, a gap
 // is not. The manifest lists what THIS tree ships, so a prod row for 00794
 // reads as "ahead", which is the safe direction.
-export const EXPECTED_SCHEMA_VERSION = "00840";
+export const EXPECTED_SCHEMA_VERSION = "00841";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

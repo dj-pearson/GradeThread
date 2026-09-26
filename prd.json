@@ -5198,17 +5198,6 @@
       "notes": "2026-09-26 PARTIAL. AC1 done: activatePromptVersion, for per_image and composite only (listing prompts keep their own loop), now also requires activationEvidenceVerdict: the candidate's latest passing eval must be no worse than the champion's (the active row in the same slot, else the code default by name) within MAE +0.05 and agreement -0.02, and it needs GRADING_ACTIVATION_MIN_LIVE_SAMPLES (default 20, 0 waives) scored shadow results plus canary grades stamped with its name. Checked before anything is deactivated. Proof: 5 cases in golden-set-growth_test.ts. AC2 NOT done: runEval deliberately passes an empty baseline and suppresses exemplars (US-1643: the eval measures the prompt). Making it use the live flags changes what every eval measures and needs its own decision about how runs before and after compare."
     },
     {
-      "id": "US-3527",
-      "passes": false,
-      "title": "Grading audit S4: grading has no dollar budget row and the price tables disagree",
-      "description": "As the owner, I want a hard daily and monthly grading spend cap, and one price for Sonnet 5, so that spend dashboards are right and runaway cost stops. No migration creates an ai_budgets 'grading' row; ai-usage.ts prices Sonnet 5 at $2/$10 while 00335 says $3/$15.",
-      "acceptanceCriteria": [
-        "A migration seeds a 'grading' ai_budgets day and month row with kill behavior (US-1108 triple), or documents the prod row if it already exists.",
-        "ai_model_prices and ai-usage.ts agree on Sonnet 5, checked against current Anthropic pricing, with a test pinning them together."
-      ],
-      "priority": 4
-    },
-    {
       "id": "US-3528",
       "passes": false,
       "title": "Grading audit S4: refunded grades cost AI calls with no per-user cap",
