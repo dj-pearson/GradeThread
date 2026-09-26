@@ -68,7 +68,7 @@ export const FIELD_LABELS: Record<FilterField, string> = {
   target_price: "Target price",
   floor_price: "Floor price",
   grade: "Grade",
-  days_in_status: "Days in status",
+  days_in_status: "Days since last change",
   days_listed: "Days listed",
   purchase_date: "Purchase date",
   created_at: "Date added",

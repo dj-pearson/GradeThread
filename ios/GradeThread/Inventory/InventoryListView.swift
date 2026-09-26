@@ -31,7 +31,9 @@ struct InventoryListView: View {
     @Environment(\.syncEngine) private var syncEngine
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var selectedStage: InventoryStage = .all
+    /// US-3543: the stage and sort survive leaving the tab and relaunching, so
+    /// a seller working through To list comes back to To list.
+    @SceneStorage("inventory.stage") private var selectedStage: InventoryStage = .all
     /// US-3101: a deep link can ask this list to open on a stage.
     ///
     /// Read once and CLEARED, like the tool-module request: without the clear,
@@ -40,9 +42,18 @@ struct InventoryListView: View {
     private func applyPendingFilter(_ filter: AppRouter.InventoryDeepFilter?) {
         guard let filter else { return }
         switch filter {
-        case .drafts: selectedStage = .drafts
+        case .drafts: selectStage(.drafts)
         }
         router?.pendingInventoryFilter = nil
+    }
+    /// US-3543: each stage opens in its own order (Sold: newest sale first,
+    /// To list: untouched longest first). A sort picked after that holds until
+    /// the stage changes again. Explicit rather than an `onChange`, so a saved
+    /// view that sets a stage AND a sort keeps its sort.
+    private func selectStage(_ stage: InventoryStage) {
+        guard stage != selectedStage else { return }
+        selectedStage = stage
+        sortOption = stage.defaultSort
     }
     /// US-813: list vs. kanban-board layout. The board ignores the stage tabs
     /// (it shows every pipeline column) but still honors search + filters.
@@ -59,7 +70,7 @@ struct InventoryListView: View {
     /// clamped the same way its digit is.
     @ScaledMetric(relativeTo: .body) private var badgeDiameterRaw: CGFloat = 16
     private var badgeDiameter: CGFloat { min(badgeDiameterRaw, 29) }
-    @State private var sortOption: SortOption = .newest
+    @SceneStorage("inventory.sort") private var sortOption: SortOption = .newest
     /// Advanced multi-facet filter (brand / size / color / price / grade /
     /// photo / recency). The old single "graded only" toggle is folded in
     /// as `criteria.gradedOnly`.
@@ -269,6 +280,8 @@ struct InventoryListView: View {
             case .filter:
                 InventoryFilterSheet(
                     criteria: $criteria,
+                    stage: $selectedStage,
+                    sort: $sortOption,
                     facets: facets,
                     savedFilters: savedFilters,
                     resultCount: { resultCount(for: $0) }
@@ -443,7 +456,7 @@ struct InventoryListView: View {
                 ForEach(InventoryStage.userFacing) { stage in
                     Button {
                         AppRouter.haptic()
-                        selectedStage = stage
+                        selectStage(stage)
                     } label: {
                         tabChip(for: stage, count: counts[stage] ?? 0)
                     }
@@ -757,7 +770,7 @@ struct InventoryListView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Section("Sort") {
-                    ForEach(SortOption.allCases) { option in
+                    ForEach(selectedStage.sortOptions) { option in
                         Button {
                             sortOption = option
                         } label: {

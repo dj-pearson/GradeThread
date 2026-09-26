@@ -62,9 +62,13 @@ async function run(flag: string | undefined, extra: Record<string, unknown> = {}
       usage: { input_tokens: 1, output_tokens: 1 },
     });
   };
-  let result: { prompt_version?: string; matches_declared_view?: boolean | null } | null = null;
+  type Stamped = { prompt_version?: string; matches_declared_view?: boolean | null };
+  let result: Stamped | null = null;
   try {
-    result = await analyzeImage(TINY_PNG, "front", "tops", "hoodie", []) as never;
+    // Cast to the shape read below, not to `never`: assigning a `never`
+    // narrows `result` to `never` and every property read after it fails
+    // type-checking.
+    result = await analyzeImage(TINY_PNG, "front", "tops", "hoodie", []) as unknown as Stamped;
   } finally {
     surface.create = original;
     if (before === undefined) Deno.env.delete(FLAG);

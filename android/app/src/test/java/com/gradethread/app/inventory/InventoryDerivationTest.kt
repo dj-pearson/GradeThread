@@ -48,6 +48,108 @@ class InventoryDerivationTest {
 
     // ── stages ───────────────────────────────────────────────────────────
 
+    // US-3543: the sale-date and work-queue sorts.
+
+    @Test
+    fun recentSaleOrdersBySaleDateNotCreatedDate() {
+        val soldLast = item("a", status = "sold", createdAt = 100)
+        val soldFirst = item("b", status = "shipped", createdAt = 200)
+        val unsold = item("c", status = "listed", createdAt = 900)
+        val sold = mapOf("a" to 5_000L, "b" to 1_000L)
+        val all = listOf(unsold, soldFirst, soldLast)
+        assertEquals(listOf("a", "b", "c"), all.sortedWith(SortOption.RECENT_SALE.comparator(sold)).map { it.id })
+        // Unsold sinks in both directions.
+        assertEquals(listOf("b", "a", "c"), all.sortedWith(SortOption.OLDEST_SALE.comparator(sold)).map { it.id })
+    }
+
+    @Test
+    fun handMarkedSaleFallsBackToUpdatedAt() {
+        assertEquals(300L, SortOption.saleDate(item("a", status = "sold", updatedAt = 300), emptyMap()))
+        assertNull(SortOption.saleDate(item("b", status = "listed", updatedAt = 300), emptyMap()))
+    }
+
+    @Test
+    fun untouchedLongestPutsStalestFirst() {
+        val stale = item("a", status = "photographed", createdAt = 500, updatedAt = 500)
+        val fresh = item("b", status = "photographed", createdAt = 100, updatedAt = 900)
+        val sorted = listOf(fresh, stale).sortedWith(SortOption.UNTOUCHED_LONGEST.comparator())
+        assertEquals(listOf("a", "b"), sorted.map { it.id })
+    }
+
+    @Test
+    fun stagesOpenInTheirOwnOrder() {
+        assertEquals(SortOption.RECENT_SALE, InventoryStage.SOLD.defaultSort)
+        assertEquals(SortOption.RECENT_SALE, InventoryStage.SHIPPED.defaultSort)
+        assertEquals(SortOption.UNTOUCHED_LONGEST, InventoryStage.TO_LIST.defaultSort)
+        assertEquals(SortOption.NEWEST, InventoryStage.ALL.defaultSort)
+        assertFalse(SortOption.RECENT_SALE in InventoryStage.TO_LIST.sortOptions)
+        assertTrue(SortOption.RECENT_SALE in InventoryStage.SOLD.sortOptions)
+        for (stage in InventoryStage.userFacing) {
+            assertTrue(stage.name, stage.defaultSort in stage.sortOptions)
+        }
+    }
+
+    @Test
+    fun highestCompSortsOnTheHighestSavedCompNotTargetPrice() {
+        // US-3544: high target, low comps must rank below low target, high comps.
+        val lowComps = item("a", target = 500.0).copy(compSetJson = """[{"price":20},{"price":"35"}]""")
+        val highComps = item("b", target = 10.0).copy(compSetJson = """[{"price":90}]""")
+        val noComps = item("c", target = 900.0)
+        val sorted = InventoryFilter.apply(
+            listOf(noComps, lowComps, highComps),
+            InventoryStage.ALL,
+            "",
+            SortOption.HIGHEST_COMP,
+            InventoryFilterCriteria(),
+        )
+        assertEquals(listOf("b", "a", "c"), sorted.map { it.id })
+        assertEquals(35.0, SortOption.maxCompPrice(lowComps))
+        assertNull(SortOption.maxCompPrice(noComps))
+    }
+
+    @Test
+    fun filterCriteriaSurviveARoundTrip() {
+        val criteria = InventoryFilterCriteria(
+            brands = setOf("Patagonia"),
+            minPrice = 20.0,
+            photoState = PhotoState.MISSING_PHOTO,
+            dateAdded = DateAddedBand.LAST_30,
+        )
+        assertEquals(criteria, InventoryFilterCriteria.decode(InventoryFilterCriteria.encode(criteria)))
+        assertEquals(InventoryFilterCriteria(), InventoryFilterCriteria.decode("not json"))
+        assertEquals(InventoryFilterCriteria(), InventoryFilterCriteria.decode(null))
+    }
+
+    @Test
+    fun gradingItemsAreWorkToList() {
+        assertTrue(InventoryStage.TO_LIST.matches("grading"))
+    }
+
+    @Test
+    fun saleSortUsesTheSaleDatesThroughTheMemo() {
+        val d = InventoryDerivation()
+        val items = listOf(item("a", status = "sold", createdAt = 100), item("b", status = "sold", createdAt = 200))
+        val first = d.filtered(
+            items,
+            InventoryStage.SOLD,
+            "",
+            SortOption.RECENT_SALE,
+            InventoryFilterCriteria(),
+            soldDates = mapOf("a" to 2L, "b" to 1L),
+        )
+        assertEquals(listOf("a", "b"), first.map { it.id })
+        // A new sale date must re-sort, not return the cached order.
+        val second = d.filtered(
+            items,
+            InventoryStage.SOLD,
+            "",
+            SortOption.RECENT_SALE,
+            InventoryFilterCriteria(),
+            soldDates = mapOf("a" to 1L, "b" to 2L),
+        )
+        assertEquals(listOf("b", "a"), second.map { it.id })
+    }
+
     @Test
     fun stagesMapToTheirStatuses() {
         assertTrue(InventoryStage.TO_LIST.matches("photographed"))
@@ -65,11 +167,11 @@ class InventoryDerivationTest {
     }
 
     @Test
-    fun gradingBelongsToNoTabButAll() {
-        // Carried over from iOS: an item mid-grading vanishes from every tab
-        // except All. Pinned so the surprise is deliberate, not a regression.
+    fun gradingBelongsToToListAndAll() {
+        // US-3543: an item mid-grading used to vanish from every tab but All.
+        // It is work still to list, on both platforms now.
         val specific = InventoryStage.userFacing - InventoryStage.ALL
-        assertTrue(specific.none { it.matches("grading") })
+        assertEquals(listOf(InventoryStage.TO_LIST), specific.filter { it.matches("grading") })
         assertTrue(InventoryStage.ALL.matches("grading"))
     }
 

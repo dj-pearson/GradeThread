@@ -15,19 +15,27 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
     // ids so a link and a phone mean the same order.
     case sourcerAZ     = "sourcer_az"
     case sourcerZA     = "sourcer_za"
+    // US-3543: sales in the order they happened, and the work queue by how
+    // long an item has sat untouched. Raw values match the web's `?sort=` ids.
+    case recentSale    = "recent_sale"
+    case oldestSale    = "oldest_sale"
+    case untouchedLongest = "least_recently_updated"
 
     public var id: String { rawValue }
 
     public var label: String {
         switch self {
-        case .newest:       return "Newest"
-        case .oldest:       return "Oldest"
+        case .newest:       return "Newest added"
+        case .oldest:       return "Oldest added"
         case .bestROI:      return "Best ROI"
         case .highestComp:  return "Highest comp"
         case .highestGrade: return "Highest grade"
         case .skuNatural:   return "SKU"
         case .sourcerAZ:    return "Sourced by A to Z"
         case .sourcerZA:    return "Sourced by Z to A"
+        case .recentSale:   return "Most recent sale"
+        case .oldestSale:   return "Oldest sale first"
+        case .untouchedLongest: return "Untouched longest"
         }
     }
 
@@ -41,13 +49,48 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
         case .skuNatural:   return "barcode"
         case .sourcerAZ:    return "person"
         case .sourcerZA:    return "person"
+        case .recentSale:   return "dollarsign.circle"
+        case .oldestSale:   return "clock.arrow.circlepath"
+        case .untouchedLongest: return "hourglass"
         }
     }
 
+    /// US-3543: whether this sort reads the sale date. Only offered where
+    /// sales live (All, Sold, Shipped, Returned).
+    var isSaleSort: Bool { self == .recentSale || self == .oldestSale }
+
     /// Lower-comes-first comparator over LocalInventoryItem-like values.
     /// Returns true iff `a` should appear before `b` under this sort.
-    func isOrdered(_ a: LocalInventoryItem, _ b: LocalInventoryItem) -> Bool {
+    ///
+    /// - Parameter soldDates: item id -> linked sale date, for the two sale
+    ///   sorts. The item row has no sold date of its own.
+    ///   - compPrices: item id -> highest saved comp price, precomputed once per
+    ///     sort so the comp JSON is not decoded on every comparison. A missing
+    ///     entry is decoded on the spot.
+    func isOrdered(
+        _ a: LocalInventoryItem,
+        _ b: LocalInventoryItem,
+        soldDates: [String: Date] = [:],
+        compPrices: [String: Double] = [:]
+    ) -> Bool {
         switch self {
+        case .recentSale, .oldestSale:
+            // An item with no sale sinks in BOTH directions: it has not sold,
+            // so it is neither the newest nor the oldest sale.
+            let aDate = Self.saleDate(a, soldDates)
+            let bDate = Self.saleDate(b, soldDates)
+            switch (aDate, bDate) {
+            case let (aDate?, bDate?) where aDate != bDate:
+                return self == .recentSale ? aDate > bDate : aDate < bDate
+            case (.some, .none): return true
+            case (.none, .some): return false
+            default:
+                if a.createdAt != b.createdAt { return a.createdAt > b.createdAt }
+                return a.id < b.id
+            }
+        case .untouchedLongest:
+            if a.updatedAt != b.updatedAt { return a.updatedAt < b.updatedAt }
+            return a.id < b.id
         case .newest:
             return a.createdAt > b.createdAt
         case .oldest:
@@ -61,10 +104,11 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
             if aROI != bROI { return (aROI ?? -.greatestFiniteMagnitude) > (bROI ?? -.greatestFiniteMagnitude) }
             return a.createdAt > b.createdAt
         case .highestComp:
-            // Closest standin we have on the local cache is target_price
-            // — items_full's `comps` jsonb isn't cached locally yet.
-            let aPrice = a.targetPrice ?? a.listingPrice ?? -.greatestFiniteMagnitude
-            let bPrice = b.targetPrice ?? b.listingPrice ?? -.greatestFiniteMagnitude
+            // US-3544: the highest saved comp, the same number the web's
+            // `maxCompPrice` sorts on. It used to be target price, which the
+            // label did not say. No comps sinks to the bottom.
+            let aPrice = compPrices[a.id] ?? Self.maxCompPrice(a) ?? -.greatestFiniteMagnitude
+            let bPrice = compPrices[b.id] ?? Self.maxCompPrice(b) ?? -.greatestFiniteMagnitude
             if aPrice != bPrice { return aPrice > bPrice }
             return a.createdAt > b.createdAt
         case .highestGrade:
@@ -98,6 +142,23 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
             if a.createdAt != b.createdAt { return a.createdAt > b.createdAt }
             return a.id < b.id
         }
+    }
+
+    /// Highest positive comp price in the item's saved comp set, or nil when
+    /// it has none. Mirrors `maxCompPrice` in src/lib/listability.ts.
+    static func maxCompPrice(_ item: LocalInventoryItem) -> Double? {
+        ItemComp.decodeList(item.compSetJSON).map(\.price).filter { $0 > 0 }.max()
+    }
+
+    /// Statuses an item only reaches by selling.
+    static let soldStatuses: Set<String> = ["sold", "shipped", "completed", "returned"]
+
+    /// The linked sale's date; for a sold item with no synced sale row (marked
+    /// sold by hand), the last time the row changed, which is when it was
+    /// marked. Nil for anything that has not sold.
+    static func saleDate(_ item: LocalInventoryItem, _ soldDates: [String: Date]) -> Date? {
+        if let date = soldDates[item.id] { return date }
+        return soldStatuses.contains(item.status) ? item.updatedAt : nil
     }
 
     private static func roi(target: Double?, cost: Double?) -> Double? {

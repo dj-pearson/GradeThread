@@ -62,7 +62,9 @@ class InventoryListViewModel @Inject constructor(
     )
     val sort: StateFlow<SortOption> = _sort.asStateFlow()
 
-    private val _criteria = MutableStateFlow(InventoryFilterCriteria())
+    private val _criteria = MutableStateFlow(
+        InventoryFilterCriteria.decode(saved.get<String>(Restorable.Keys.INVENTORY_CRITERIA)),
+    )
     val criteria: StateFlow<InventoryFilterCriteria> = _criteria.asStateFlow()
 
     private val _viewMode = MutableStateFlow(
@@ -144,7 +146,26 @@ class InventoryListViewModel @Inject constructor(
         _refreshError.value = null
     }
 
+    /**
+     * US-3543: item id to its latest sale date, for the sale sorts. The sold
+     * date lives on the sale, not the item.
+     */
+    val soldDates: StateFlow<Map<String, Long>> = db.sales().observeAll()
+        .map { sales ->
+            buildMap<String, Long> {
+                for (sale in sales) {
+                    val existing = get(sale.inventoryItemId)
+                    if (existing == null || sale.saleDate > existing) put(sale.inventoryItemId, sale.saleDate)
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     fun selectStage(stage: InventoryStage) {
+        // US-3543: each stage opens in its own order (Sold: newest sale first,
+        // To list: untouched longest). Only on a real change, so re-tapping
+        // the current tab keeps a sort the seller picked.
+        if (stage != _stage.value) setSort(stage.defaultSort)
         _stage.value = stage
         // Saved by NAME, not ordinal: an ordinal shifts the moment anyone
         // inserts a case, so a saved "Listed" filter would come back as "Sold".
@@ -163,10 +184,11 @@ class InventoryListViewModel @Inject constructor(
 
     fun setCriteria(value: InventoryFilterCriteria) {
         _criteria.value = value
+        saved[Restorable.Keys.INVENTORY_CRITERIA] = InventoryFilterCriteria.encode(value)
     }
 
     fun clearFilters() {
-        _criteria.value = InventoryFilterCriteria()
+        setCriteria(InventoryFilterCriteria())
     }
 
     /**
@@ -180,7 +202,7 @@ class InventoryListViewModel @Inject constructor(
     fun applyPendingBrandFilter() {
         val brand = InventoryFilterRequests.consumeBrand() ?: return
         _stage.value = InventoryStage.ALL
-        _criteria.value = _criteria.value.copy(brands = setOf(brand))
+        setCriteria(_criteria.value.copy(brands = setOf(brand)))
     }
 
     fun toggleViewMode() {

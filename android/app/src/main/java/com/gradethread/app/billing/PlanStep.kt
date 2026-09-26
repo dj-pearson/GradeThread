@@ -19,17 +19,38 @@ private val Context.planStepDataStore by preferencesDataStore(name = "plan_step"
 object PlanStep {
 
     /**
-     * Show the step exactly once, and only to someone on the free plan.
+     * US-3542: what the server says about the account's plan, for this step only.
+     *
+     * [UNKNOWN] is its own answer. The step used to read "could not load the
+     * plan" as "free", so a Business seller on a slow start-up got offered the
+     * plan they already pay for.
+     */
+    enum class ServerPlan { FREE, PAID, UNKNOWN }
+
+    /**
+     * Show the step exactly once, and only to someone the server says is free.
      *
      * The plan check is not redundant with the seen-list: a user who subscribed
      * on the web and then installed the app has never seen the step and does not
      * need to. Selling someone a plan they already pay for is the failure mode
      * worth designing around.
      */
-    fun shouldShow(userId: String?, seen: Set<String>, currentPlan: PlanTier?): Boolean {
+    fun shouldShow(userId: String?, seen: Set<String>, serverPlan: ServerPlan): Boolean {
         if (userId.isNullOrBlank()) return false
-        if (currentPlan != null) return false
+        if (serverPlan != ServerPlan.FREE) return false
         return userId !in seen
+    }
+
+    /**
+     * `users.flipdesk_plan` to a [ServerPlan]. Cancelling sets the column back to
+     * `free` (the Stripe downgrade in webhooks.ts), so any known paid tier counts
+     * as paid whatever `subscription_status` says: trialing, past due, or blank
+     * on an account set up by hand.
+     */
+    fun classify(flipdeskPlan: String?): ServerPlan {
+        val plan = flipdeskPlan?.trim().orEmpty()
+        if (plan.isEmpty() || plan.equals("free", ignoreCase = true)) return ServerPlan.FREE
+        return if (PlanTier.fromSlug(plan) != null) ServerPlan.PAID else ServerPlan.UNKNOWN
     }
 }
 

@@ -64,7 +64,7 @@ public struct InventoryRuleQuery: Codable, Equatable, Hashable {
             case .grade:        return "Grade"
             case .cost:         return "Cost"
             case .targetPrice:  return "Target price"
-            case .daysInStatus: return "Days in status"
+            case .daysInStatus: return "Days since last change"
             }
         }
 

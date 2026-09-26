@@ -159,4 +159,24 @@ final class PlanSelectionStateTests: XCTestCase {
         XCTAssertTrue(s.shouldOffer(userId: userB))
         XCTAssertFalse(s.shouldOffer(userId: userA))
     }
+
+    // MARK: - Server plan check (US-3542)
+
+    func test_decision_freeOrEmptyPlan_offers() {
+        XCTAssertEqual(PlanSelectionState.decision(serverPlan: "free"), .offer)
+        XCTAssertEqual(PlanSelectionState.decision(serverPlan: " Free "), .offer)
+        XCTAssertEqual(PlanSelectionState.decision(serverPlan: ""), .offer)
+    }
+
+    func test_decision_paidPlan_neverOffers() {
+        // A Business seller who subscribed on the web must not be sold it again.
+        for plan in ["starter", "pro", "business", "Business"] {
+            XCTAssertEqual(PlanSelectionState.decision(serverPlan: plan), .alreadyPaid, plan)
+        }
+    }
+
+    func test_decision_unreadablePlan_waits() {
+        // A failed read is not evidence of a free account.
+        XCTAssertEqual(PlanSelectionState.decision(serverPlan: nil), .unknown)
+    }
 }

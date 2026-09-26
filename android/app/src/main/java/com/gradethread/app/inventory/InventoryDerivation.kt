@@ -39,6 +39,9 @@ class InventoryDerivation {
     var facetsPassCount: Int = 0
         private set
 
+    // Nine inputs because the pipeline reads nine things, each a separate memo key;
+    // a wrapper object would only move the same list one level down.
+    @Suppress("LongParameterList")
     fun filtered(
         items: List<InventoryItemEntity>,
         stage: InventoryStage,
@@ -48,10 +51,17 @@ class InventoryDerivation {
         photoItemIds: Set<String>? = null,
         serverSearchIds: Set<String>? = null,
         nowMillis: Long = System.currentTimeMillis(),
+        soldDates: Map<String, Long> = emptyMap(),
     ): List<InventoryItemEntity> {
-        val key = filterKey(
-            itemsSignature(items), stage, query, sort, criteria, photoItemIds, serverSearchIds,
-        )
+        val key = 31 * filterKey(
+            itemsSignature(items),
+            stage,
+            query,
+            sort,
+            criteria,
+            photoItemIds,
+            serverSearchIds,
+        ) + (if (sort.isSaleSort) soldDates.hashCode() else 0)
         if (key != filteredKey) {
             filteredKey = key
             filterPassCount++
@@ -64,6 +74,7 @@ class InventoryDerivation {
                 photoItemIds = photoItemIds,
                 serverSearchIds = serverSearchIds,
                 nowMillis = nowMillis,
+                soldDates = soldDates,
             )
         }
         return filteredValue
@@ -87,10 +98,7 @@ class InventoryDerivation {
         return stageCountsValue
     }
 
-    fun facets(
-        items: List<InventoryItemEntity>,
-        sourceNames: Map<String, String> = emptyMap(),
-    ): InventoryFacets {
+    fun facets(items: List<InventoryItemEntity>, sourceNames: Map<String, String> = emptyMap()): InventoryFacets {
         // sourceNames is in the key because a source RENAME changes labels
         // without changing any item, and the facet list must still refresh.
         val key = 31 * itemsSignature(items) + sourceNames.hashCode()

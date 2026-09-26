@@ -332,7 +332,7 @@ enum AutomationVocabulary {
         ("target_price", "Target price"),
         ("status", "Status"),
         ("grade", "Grade"),
-        ("days_in_status", "Days in status"),
+        ("days_in_status", "Days since last change"),
     ]
 
     static let scopeOps: [(value: String, label: String)] = [

@@ -27,9 +27,7 @@ private data class PlanRow(
  * show a member their host's plan.
  */
 @Singleton
-class AccountPlanReader @Inject constructor(
-    private val client: SupabaseClient,
-) {
+class AccountPlanReader @Inject constructor(private val client: SupabaseClient) {
 
     /** Null when free, unknown, or unreadable — never a guess. */
     suspend fun current(): PlanTier? {
@@ -48,6 +46,22 @@ class AccountPlanReader @Inject constructor(
         // it back is exactly what someone in that state came here to do.
         if (row.status != "active") return null
         return PlanTier.fromSlug(row.plan)
+    }
+
+    /**
+     * US-3542: the plan step's own read. Unlike [current], a failed read is
+     * [PlanStep.ServerPlan.UNKNOWN] rather than "free", and a paid tier counts
+     * whatever its subscription status.
+     */
+    suspend fun planStepStatus(): PlanStep.ServerPlan {
+        val userId = client.auth.currentUserOrNull()?.id ?: return PlanStep.ServerPlan.UNKNOWN
+        val row = runCatching {
+            client.from("users").select {
+                filter { eq("id", userId) }
+                limit(1)
+            }.decodeList<PlanRow>().firstOrNull()
+        }.getOrNull() ?: return PlanStep.ServerPlan.UNKNOWN
+        return PlanStep.classify(row.plan)
     }
 
     fun signedInUserId(): String? = client.auth.currentUserOrNull()?.id
