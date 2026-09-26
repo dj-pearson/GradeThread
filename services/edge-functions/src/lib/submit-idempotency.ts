@@ -17,6 +17,7 @@ export function parseIdempotencyKey(
 export interface ExistingSubmission {
   id: string;
   status: string;
+  payment_status?: string | null;
 }
 
 export async function findSubmissionByKey(
@@ -25,7 +26,7 @@ export async function findSubmissionByKey(
 ): Promise<ExistingSubmission | null> {
   const { data, error } = await supabaseAdmin
     .from("submissions")
-    .select("id, status")
+    .select("id, status, payment_status")
     .eq("user_id", ownerId)
     .eq("idempotency_key", key)
     .maybeSingle();
@@ -43,5 +44,13 @@ export function isIdempotencyConflict(
 
 /** The replay response body: the same shape as a fresh submit, marked replayed. */
 export function replayBody(existing: ExistingSubmission) {
-  return { submissionId: existing.id, status: existing.status, replayed: true };
+  // payment_status lets a batch client sort a replayed row into paid or
+  // awaiting-payment without a second read (US-3532). Additive: the web
+  // single-submit reads only submissionId and status.
+  return {
+    submissionId: existing.id,
+    status: existing.status,
+    payment_status: existing.payment_status ?? null,
+    replayed: true,
+  };
 }

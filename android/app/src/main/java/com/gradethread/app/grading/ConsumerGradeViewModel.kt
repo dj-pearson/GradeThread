@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Named
 
@@ -65,8 +66,17 @@ class ConsumerGradeViewModel @Inject constructor(
 
     private val uploader = PhotoGradeUploader(api)
 
+    // US-3532: one key per submit attempt. A retry after a dropped connection
+    // reuses it, so a submit that already landed is not created and charged
+    // twice; it is replaced only once a submit comes back.
+    private var submitKey = UUID.randomUUID().toString()
+
     val flow = ConsumerGradeFlow(
-        submit = { images, request, _ -> uploader.submit(images, request) },
+        submit = { images, request, _ ->
+            uploader.submit(images, request, submitKey).also {
+                submitKey = UUID.randomUUID().toString()
+            }
+        },
         pay = { submissionId ->
             api.decode<PhotoGradePayment.Response>(
                 api.postRaw(

@@ -83,9 +83,13 @@ final class ConsumerGradeFlow {
         // the same reason GradeRequestStore constructs its own here.
         self.creditTopUp = creditTopUp ?? CreditTopUpFlow(
             fetchBalance: { await PaywallStore.liveBillingFetcher()?.credits })
+        let submitKey = SubmitIdempotencyKey()
         self.submit = submit ?? { images, request, onProgress in
-            try await PhotoGradeUploadService.submit(
-                images: images, request: request, onProgress: onProgress)
+            let outcome = try await PhotoGradeUploadService.submit(
+                images: images, request: request, idempotencyKey: submitKey.current,
+                onProgress: onProgress)
+            submitKey.rotate()
+            return outcome
         }
         self.pay = pay ?? { submissionId in
             let response: PhotoGradePayResponse = try await EdgeAPI.shared.postJSON(

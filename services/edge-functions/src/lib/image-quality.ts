@@ -12,6 +12,8 @@
 // is fully unit-testable and deterministic. A missing/garbled quality field
 // defaults to "good", so the gate never abstains on absent data.
 
+import { viewMismatchSlots } from "./view-check.ts";
+
 export type BlurLevel = "none" | "mild" | "severe";
 export type LightingLevel = "ok" | "dim" | "dark";
 export type FramingLevel = "full" | "partial";
@@ -35,6 +37,9 @@ export const DEFAULT_IMAGE_QUALITY: ImageQuality = {
 export interface QualityImageInput {
   image_type: string;
   quality?: ImageQuality;
+  // US-3538: false when the photo does not show the view it was uploaded as.
+  // Only set when GRADING_VIEW_CHECK asked; absent/null never blocks.
+  matches_declared_view?: boolean | null;
 }
 
 export type QualityProblem =
@@ -42,7 +47,8 @@ export type QualityProblem =
   | "blur"
   | "lighting"
   | "framing"
-  | "illegible_label";
+  | "illegible_label"
+  | "wrong_view";
 
 export interface QualityIssue {
   image_type: string;
@@ -291,6 +297,18 @@ export function evaluateImageQuality(
           "We couldn't read the brand/care label, so a person will check this grade before it is final. If the garment has a printed care tag, a straight-on close-up gets you a faster, more certain grade next time.",
       });
     }
+  }
+
+  // US-3538: a front, back or label photo that shows something else. BLOCK,
+  // because the ask is actionable (upload the right photo) and grading the
+  // wrong view as the right one is how a mixed or staged set gets a grade.
+  for (const t of viewMismatchSlots(images)) {
+    issues.push({
+      image_type: t,
+      problem: "wrong_view",
+      severity: "block",
+      message: `The ${t} photo doesn't look like the ${t} of this garment. Upload the ${t} of the same item.`,
+    });
   }
 
   const blocking = issues.filter((i) => i.severity === "block");

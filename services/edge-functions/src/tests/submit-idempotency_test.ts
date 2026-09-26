@@ -41,8 +41,14 @@ Deno.test("US-3532: the replay has the fresh-submit shape, marked replayed", () 
   assertEquals(replayBody({ id: "s1", status: "processing" }), {
     submissionId: "s1",
     status: "processing",
+    payment_status: null,
     replayed: true,
   });
+  // A batch client sorts a replayed row by this (bulk-submission.tsx).
+  assertEquals(
+    replayBody({ id: "s2", status: "pending", payment_status: "unpaid" }).payment_status,
+    "unpaid",
+  );
 });
 
 Deno.test("US-3532: the replay check runs before any charge, the key is stored, and CORS allows it", async () => {

@@ -276,4 +276,14 @@ final class ConsumerGradeFlowTests: XCTestCase {
         XCTAssertTrue(error.errorDescription?.contains("tag") == true)
         XCTAssertFalse(error.errorDescription?.contains("label") == true)
     }
+
+    // US-3532: a retry reads the same key; only a completed submit rotates it.
+    func testTheSubmitKeyHoldsUntilRotated() {
+        let key = SubmitIdempotencyKey()
+        let first = key.current
+        XCTAssertEqual(key.current, first)
+        XCTAssertGreaterThanOrEqual(first.count, 8)
+        key.rotate()
+        XCTAssertNotEqual(key.current, first)
+    }
 }

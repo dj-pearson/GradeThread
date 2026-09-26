@@ -728,8 +728,12 @@ adminGradingRoutes.post("/prompts/:id/eval", async (c) => {
   const userId = c.get("userId");
   const id = c.req.param("id");
   try {
-    const result = await runEval(id, userId);
+    // US-3526: ?live=1 measures with the live baseline and exemplars. It is
+    // stored as "<version>+live" and never qualifies the prompt.
+    const liveContext = c.req.query("live") === "1";
+    const result = await runEval(id, userId, undefined, undefined, { liveContext });
     await auditLog(c, "run_prompt_eval", "ai_prompt_version", id, {
+      live_context: liveContext,
       passed: result.passed,
       mae: result.mean_absolute_error,
       agreement_rate: result.agreement_rate,

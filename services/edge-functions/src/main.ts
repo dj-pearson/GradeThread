@@ -169,7 +169,7 @@ import { cronNameForPath } from "./lib/cron-runs.ts";
 import { finishCronRun } from "./lib/cron-run-outcome.ts";
 import { createMiddleware } from "hono/factory";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
-import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
+import { findUnevaluatedServingPrompts, handleGradingMonitorCron } from "./lib/grading-monitor.ts";
 import { handleGradingSelfConsistencyCron } from "./routes/jobs-grading-self-consistency.ts";
 import { handleStuckSubmissionsCron } from "./lib/stuck-submissions.ts";
 import { handlePushTokenPruneCron } from "./lib/push-token-prune.ts";
@@ -331,6 +331,7 @@ import {
 } from "./lib/env.ts";
 import { assertRequiredEnv, warnDeliverability, warnMissingFeatureGroups } from "./lib/env-validation.ts";
 import { assertSchemaVersion, checkSchemaCompleteness } from "./lib/schema-version.ts";
+import { PROMPT_GATE_REFRESH_MS, refreshPromptGate } from "./lib/prompt-serving-gate.ts";
 import { redactError } from "./lib/log-redact.ts";
 import { captureException, logEvent, readCtxVar, releaseSha } from "./lib/observability.ts";
 import {
@@ -2233,6 +2234,14 @@ void getSetting<number>("grading_review_confidence_threshold", 0.75);
 // stops being silent. Deliberately backgrounded and non-throwing — a boot guard
 // that can fail is how the schema check once crash-looped the service (US-778).
 void warnAuthenticityGate();
+
+// US-3521: refuse grading on an unevaluated prompt when
+// GRADING_PROMPT_EVAL_GATE=enforce. Background and non-throwing, like the
+// authenticity warning above; re-checked so a seeded eval row lifts it.
+void refreshPromptGate(findUnevaluatedServingPrompts);
+Deno.unrefTimer(
+  setInterval(() => void refreshPromptGate(findUnevaluatedServingPrompts), PROMPT_GATE_REFRESH_MS),
+);
 
 // US-890: warm the per-user rate-limit override cache so an active throttle/block
 // is enforced from the first request (background, non-fatal).

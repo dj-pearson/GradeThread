@@ -133,4 +133,15 @@ class PhotoGradeUploaderTest {
             error?.message?.contains("${PhotoGradeContract.MAX_IMAGES}") == true,
         )
     }
+
+    @Test
+    fun theRetryKeyRidesAsTheHeaderTheRouteReads() {
+        // US-3532: grade.ts reads Idempotency-Key; no key sends nothing.
+        assertEquals(
+            mapOf("Idempotency-Key" to "k-12345678"),
+            PhotoGradeUploader.idempotencyHeaders("k-12345678"),
+        )
+        assertEquals(emptyMap<String, String>(), PhotoGradeUploader.idempotencyHeaders(null))
+        assertEquals(emptyMap<String, String>(), PhotoGradeUploader.idempotencyHeaders(" "))
+    }
 }

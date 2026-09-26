@@ -49801,7 +49801,7 @@
         "Migration follows the US-1108 triple; test covers a repeat request."
       ],
       "priority": 5,
-      "notes": "Done 2026-09-26 for the web client. HELD 00842 adds submissions.idempotency_key with a partial unique index per owner (measured on PG16: same owner + key refused; other owner and NULLs fine; applies twice). new-submission.tsx sends Idempotency-Key from a ref created per attempt and replaced only after a successful submit; main.ts CORS allows the header. /api/grade/submit looks the key up before any upload or charge and answers 200 {submissionId, status, replayed:true}; the insert stores the key, and a 23505 on that index (two retries racing) reads the winner back. lib/submit-idempotency.ts + submit-idempotency_test.ts (4). 195 new-submission web tests pass. main.ts deno check has the same 7 pre-existing Stripe/webhooks errors with and without this change. Not done: iOS, Android and bulk-submission do not send the key yet; the server treats a missing key exactly as before."
+      "notes": "Done 2026-09-26 for the web client. HELD 00842 adds submissions.idempotency_key with a partial unique index per owner (measured on PG16: same owner + key refused; other owner and NULLs fine; applies twice). new-submission.tsx sends Idempotency-Key from a ref created per attempt and replaced only after a successful submit; main.ts CORS allows the header. /api/grade/submit looks the key up before any upload or charge and answers 200 {submissionId, status, replayed:true}; the insert stores the key, and a 23505 on that index (two retries racing) reads the winner back. lib/submit-idempotency.ts + submit-idempotency_test.ts (4). 195 new-submission web tests pass. main.ts deno check has the same 7 pre-existing Stripe/webhooks errors with and without this change. Not done: iOS, Android and bulk-submission do not send the key yet; the server treats a missing key exactly as before. 2026-09-26 follow-up: the rest of AC1 is done. Bulk submission sends a per-row Idempotency-Key (kept per row object, so the 401 retry and retry-failed-rows reuse it) and sorts a replayed row by payment_status, now in the replay body. Android and iOS send the key on every attempt of one submit and rotate it only after a submit returns. A replayed unpaid row still goes to /api/grade/pay, which answers paid:true when already paid. Swift and Kotlin were not compiled here (no Xcode, no Android SDK); iOS CI and Android CI are the proof for those. All iOS source guards pass."
     },
     {
       "id": "US-3533",
@@ -49905,6 +49905,46 @@
         "iOS CI 'Build + test' is green on main after the fix."
       ],
       "notes": "2026-09-25: test fixes committed (PushContract kind optional; allCases 20; marketing excluded from the deep-link sweep as in noDestination; Depop expectations moved to US-3462's extension channel). No app code changed. Left open until iOS CI Build + test is green on main, which is AC3. | iOS CI Build + test green on main for merge commit 0129e48f4 (run 36198344006, 2026-09-25). First green iOS run on main since at least 2026-09-22."
+    },
+    {
+      "id": "US-3521",
+      "passes": true,
+      "title": "Grading audit S3: the live code-default prompt version never passed the eval gate",
+      "description": "As the owner, I want every prompt that grades paid submissions to have passed eval, so that a prompt edit cannot ship to all grades on deploy unchecked. per_image_v5 and composite_v4 are code defaults; the gate runs only on DB activation. Related: US-2301.",
+      "acceptanceCriteria": [
+        "A boot or CI check refuses to serve a code-default prompt version unless a passing grading_eval_runs row exists for that version and model, or an explicit operator override env is set and logged.",
+        "The check is covered by a unit test for pass, fail and override."
+      ],
+      "priority": 3,
+      "dependsOn": [
+        "US-2301"
+      ],
+      "notes": "2026-09-26 PARTIAL. Every monitor run now raises serving_unevaluated_prompt (critical, one per stage) when the version a stage is SERVING, the active unscoped row or else the code default by name, fails checkPromptServingEligibility on the model that stage serves (servingModelForStage). A code default with no ai_prompt_versions row is named as never evaluated. Proof: 2 cases in grading-quality-watch_test.ts. NOT DONE on purpose: refusing to serve. Prod today has no passing eval for either code default and a golden set believed empty, so a boot or grade-time refusal would stop all grading on the next deploy. The alert makes the state loud until AC3 of US-2301 (seed the rows) and a real golden set exist; the refusal can then be switched on. | Done 2026-09-26 (refusal half). lib/prompt-serving-gate.ts: with GRADING_PROMPT_EVAL_GATE=enforce, new grades are refused before any charge (503 GRADING_PAUSED via grading-availability.ts, same path as the AI-down and queue-full refusals) while findUnevaluatedServingPrompts names a stage serving a version that fails checkPromptServingEligibility. GRADING_PROMPT_EVAL_GATE_OVERRIDE=<reason> serves anyway and logs the reason on every check. Checked at boot and every 15 min in the background; a failed check keeps the previous state and never throws. OFF by default on purpose: prod has no passing eval for either code default, so enforcing now would stop all grading. Turn it on after the golden set is seeded and the defaults pass. Proof: prompt-serving-gate_test.ts (6: pass, refuse, override, default-off, 503 body, failed-check keeps state)."
+    },
+    {
+      "id": "US-3526",
+      "passes": true,
+      "title": "Grading audit S3: prompt activation skips shadow evidence and eval ignores live flags",
+      "description": "As the owner, I want a prompt to prove it is no worse than the current one on the same context live grades get. activatePromptVersion checks only eval_passed; runEval passes an empty baseline and no exemplars.",
+      "acceptanceCriteria": [
+        "activatePromptVersion requires eval no worse than the current champion and a minimum shadow sample count.",
+        "runEval uses the live garment-baseline, fabric-criteria flags and the active exemplar set."
+      ],
+      "priority": 3,
+      "notes": "2026-09-26 PARTIAL. AC1 done: activatePromptVersion, for per_image and composite only (listing prompts keep their own loop), now also requires activationEvidenceVerdict: the candidate's latest passing eval must be no worse than the champion's (the active row in the same slot, else the code default by name) within MAE +0.05 and agreement -0.02, and it needs GRADING_ACTIVATION_MIN_LIVE_SAMPLES (default 20, 0 waives) scored shadow results plus canary grades stamped with its name. Checked before anything is deactivated. Proof: 5 cases in golden-set-growth_test.ts. AC2 NOT done: runEval deliberately passes an empty baseline and suppresses exemplars (US-1643: the eval measures the prompt). Making it use the live flags changes what every eval measures and needs its own decision about how runs before and after compare. | Done 2026-09-26 (AC2). runEval takes options.liveContext (admin: POST /prompts/:id/eval?live=1). Live runs add the garment baseline (getGarmentBaseline, null while its flag is off) and the active exemplar set; fabric criteria already follow their flag inside compositeGrade. Chosen shape for the comparability question: a live-context run is a MEASUREMENT only, stored as '<version>+live' with prompt_version_id null and no eval_passed write-back, so it can never qualify a prompt and never mixes with the prompt-only runs activationEvidenceVerdict compares. Default runs are unchanged. Proof: eval-live-context_test.ts (3 source guards); prompt-blocks_test regex widened for the new condition."
+    },
+    {
+      "id": "US-3538",
+      "passes": true,
+      "title": "Grading audit S6: same photo in every slot and mixed garments pass",
+      "description": "As a buyer, I want the photos to show one garment from the declared views. photo-reuse skips the submission's own images and slots are checked by name only; 'original photos verified' only means no match in the latest 5,000 hashes.",
+      "acceptanceCriteria": [
+        "Near-duplicate phash (distance <= 6) across slots in one submission blocks grading with a retake message.",
+        "Per-image schema gains matches_declared_view (prompt-version lifecycle) and a core-slot mismatch blocks.",
+        "The originalPhotosVerified badge wording states what was actually checked."
+      ],
+      "priority": 6,
+      "notes": "2026-09-26 PARTIAL. AC1 done: lib/duplicate-photo-guard.ts refuses (400 PHOTO_DUPLICATE, retake message) a front, back or label photo within 6 bits of any other photo in the same submission, before the charge on /api/grade/submit and in api-v1, api-grade-ingest and the FlipDesk copy (which charges first, so it throws into the item's refund). Two detail shots are not compared. AC3 done: the badge reads 'No reused photos found' and says it checked other sellers' recent GradeThread uploads, not photos elsewhere online (certificate.tsx and functions/cert SSR). Proof: duplicate-photo-guard_test.ts (4); 152 certificate web tests pass. OPEN: AC2 (matches_declared_view in the per-image schema) changes the model's output schema and every per-image parse, so it ships through shadow/eval/canary and is not done here. | Done 2026-09-26 (AC2), shipped INERT. lib/view-check.ts: with GRADING_VIEW_CHECK=1 the per-image schema text, Rules text and structured-output schema gain matches_declared_view; the read is stamped +view and the grade suffix gains +view (appended last). A front, back or label photo answering false blocks through the image-quality gate (problem wrong_view, retake message naming the slot); detail shots and unasked reads never block. Off is byte-identical (request body compared). Open for the operator: shadow, eval and canary with the flag on, then switch on. Proof: view-check_test.ts (6, incl. captured request body off/on)."
     }
   ]
 }

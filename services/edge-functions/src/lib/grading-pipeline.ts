@@ -2724,6 +2724,7 @@ export async function processSubmission(submissionId: string) {
       perImageResults.map((r) => ({
         image_type: r.image_type,
         quality: r.quality,
+        matches_declared_view: r.matches_declared_view ?? null,
       })),
     );
     if (qualityGate.abstain) {

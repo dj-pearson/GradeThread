@@ -117,7 +117,9 @@ describe("the bulk page cannot charge without a confirmation (US-2516)", () => {
     const src = page();
     // grade.ts returns 201 with payment.paid=false when checkout is required,
     // so counting every 201 as a success overstated what the batch achieved.
-    expect(src).toMatch(/if \(json\.payment\?\.paid\)/);
+    // US-3532 folded the replayed case in; a fresh row still reads payment.paid.
+    expect(src).toMatch(/:\s*json\.payment\?\.paid === true;/);
+    expect(src).toMatch(/if \(rowPaid\)/);
     expect(src).toMatch(/awaitingPayment\+\+/);
   });
 
@@ -125,5 +127,21 @@ describe("the bulk page cannot charge without a confirmation (US-2516)", () => {
     const src = page();
     expect(src).toMatch(/failedRows\.push\(row\)/);
     expect(src).toMatch(/runBatch\(result\.failedRows\)/);
+  });
+});
+
+// US-3532: every bulk row carries an Idempotency-Key that survives a retry, so
+// a row that already landed is answered with its first submission instead of
+// being created and charged again.
+describe("bulk submit retry key (US-3532)", () => {
+  const src = readFileSync(resolve(process.cwd(), PAGE), "utf8");
+  it("sends the per-row key on the submit call", () => {
+    expect(src).toMatch(/headers:\s*\{\s*"Idempotency-Key":\s*idempotencyKeyFor\(row\)\s*\}/);
+  });
+  it("keys by row object, so a retry of the same row reuses it", () => {
+    expect(src).toMatch(/new WeakMap<ParsedRow, string>\(\)/);
+  });
+  it("sorts a replayed row by its payment_status", () => {
+    expect(src).toMatch(/json\.replayed\s*\?\s*json\.payment_status !== "unpaid"/);
   });
 });

@@ -34,6 +34,7 @@ enum PhotoGradeUploadService {
     static func submit(
         images: [PhotoGradeImage],
         request: PhotoGradeRequest,
+        idempotencyKey: String? = nil,
         onProgress: @MainActor @escaping (Double) -> Void
     ) async throws -> PhotoGradeOutcome {
         // Refuse before spending the upload. Each of these is something the
@@ -53,6 +54,11 @@ enum PhotoGradeUploadService {
         urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue(
             "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        // US-3532: the same key on a retry makes the route answer with the
+        // first submission instead of creating and charging a second one.
+        if let idempotencyKey, !idempotencyKey.isEmpty {
+            urlRequest.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+        }
 
         let delegate = PhotoUploadProgressDelegate(onProgress: onProgress)
         let (data, response) = try await session.upload(
@@ -187,5 +193,24 @@ private final class PhotoUploadProgressDelegate: NSObject, URLSessionTaskDelegat
         guard totalBytesExpectedToSend > 0 else { return }
         let fraction = Double(totalBytesSent) / Double(totalBytesExpectedToSend)
         Task { @MainActor [onProgress] in onProgress(min(1, fraction)) }
+    }
+}
+
+/// US-3532: one Idempotency-Key per submit attempt. A retry after a dropped
+/// connection reads the same key; it is replaced only once a submit comes back.
+final class SubmitIdempotencyKey: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = UUID().uuidString
+
+    var current: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func rotate() {
+        lock.lock()
+        defer { lock.unlock() }
+        value = UUID().uuidString
     }
 }

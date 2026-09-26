@@ -21,6 +21,12 @@ import { applyScaleReferenceWording } from "./scale-reference.ts";
 import { applyLegibleWording } from "./label-legibility.ts";
 import { applyImageTextGuard } from "./image-text-guard.ts";
 import {
+  applyViewCheckWording,
+  outputSchemaWithViewCheck,
+  parseMatchesDeclaredView,
+  viewCheckEnabled,
+} from "./view-check.ts";
+import {
   anchorLabel,
   REFERENCE_ANCHORS_ADDENDUM,
   type ReferenceAnchor,
@@ -118,6 +124,9 @@ export interface PerImageAnalysis {
   // down-weight it instead of averaging a fake 7.0 into the grade. Empty/absent
   // means every factor was assessable from this image.
   unassessable_factors?: string[];
+  // US-3538: whether this photo shows the view it was uploaded as. Only set
+  // when GRADING_VIEW_CHECK asked; absent on every other read.
+  matches_declared_view?: boolean | null;
   // US-336/US-338: photo-authenticity assessment for THIS image (the per-image
   // pass is the only one that sees pixels). Optional for back-compat with
   // historical/eval traces.
@@ -1490,9 +1499,13 @@ export async function analyzeImage(
   // US-481/US-1033/US-1032: reproducible, model-family-aware sampling (low temp
   // on Sonnet/Haiku, effort on Opus-4.7+/Fable) MERGED with a structured-output
   // schema so the response is guaranteed-valid JSON (no parse-failure path).
+  // US-3538: the view question joins the structured schema only when asked.
+  const askView = viewCheckEnabled();
   const { outputConfig, temperature } = gradingTuning(
     model,
-    PER_IMAGE_OUTPUT_SCHEMA as unknown as Record<string, unknown>,
+    askView
+      ? outputSchemaWithViewCheck(PER_IMAGE_OUTPUT_SCHEMA as unknown as Record<string, unknown>)
+      : PER_IMAGE_OUTPUT_SCHEMA as unknown as Record<string, unknown>,
   );
 
   // Resolve the active per-image prompt (DB override → code default), unless
@@ -1565,13 +1578,28 @@ export async function analyzeImage(
   const legibleWording = applyLegibleWording(
     blocks.per_image_rules?.text ?? PER_IMAGE_RULES,
   );
-  const renderBlocks: PromptBlockOverrides = legibleWording.applied
+  // US-3538: the view question, flag-gated (GRADING_VIEW_CHECK). Applied to
+  // the resolved schema and rules text; off, both are untouched.
+  const viewWording = applyViewCheckWording(
+    blocks.per_image_response_schema?.text ?? PER_IMAGE_RESPONSE_SCHEMA,
+    legibleWording.text,
+    askView,
+  );
+  const renderBlocks: PromptBlockOverrides = legibleWording.applied || viewWording.applied
     ? {
       ...blocks,
       per_image_rules: {
-        text: legibleWording.text,
+        text: viewWording.rulesText,
         versionName: blocks.per_image_rules?.versionName ?? "",
       },
+      ...(viewWording.applied
+        ? {
+          per_image_response_schema: {
+            text: viewWording.schemaText,
+            versionName: blocks.per_image_response_schema?.versionName ?? "",
+          },
+        }
+        : {}),
     }
     : blocks;
 
@@ -1697,6 +1725,7 @@ export async function analyzeImage(
       unassessable_factors?: unknown;
       authenticity?: unknown;
       quality?: unknown;
+      matches_declared_view?: unknown;
     };
 
     try {
@@ -1787,6 +1816,10 @@ export async function analyzeImage(
       condition_signals: parsed.condition_signals,
       estimated_scores: parsed.estimated_scores,
       unassessable_factors: unassessableFactors,
+      // US-3538: only when the view question was asked.
+      ...(viewWording.applied
+        ? { matches_declared_view: parseMatchesDeclaredView(parsed.matches_declared_view) }
+        : {}),
       authenticity: normalizeAuthenticity(parsed.authenticity),
       quality: normalizeQuality(parsed.quality),
       // US-1534: hardened care-label fiber transcription (omit-never-guess).
@@ -1819,7 +1852,7 @@ export async function analyzeImage(
         perImageClean.applied ? "+clean2" : ""
       }${tailInSystem ? "+sysschema" : ""}${perImageScale.applied ? "+scale" : ""}${
         legibleWording.applied ? "+legible2" : ""
-      }${perImageTextGuard.applied ? "+imgtext" : ""}`,
+      }${perImageTextGuard.applied ? "+imgtext" : ""}${viewWording.applied ? "+view" : ""}`,
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;
@@ -2842,6 +2875,8 @@ export function promptVersionSuffix(
     // US-3529. Optional and appended last: read off the per-image stamps.
     downscaled?: boolean;
     noMeasure?: boolean;
+    // US-3538. Optional and appended last: read off the per-image stamps.
+    viewCheck?: boolean;
   },
 ): string {
   return (blocks.baseline ? "+baseline" : "") +
@@ -2858,7 +2893,8 @@ export function promptVersionSuffix(
     (blocks.legible2 ? "+legible2" : "") +
     (blocks.imageTextGuard ? "+imgtext" : "") +
     (blocks.downscaled ? "+ds" : "") +
-    (blocks.noMeasure ? "+nomeasure" : "");
+    (blocks.noMeasure ? "+nomeasure" : "") +
+    (blocks.viewCheck ? "+view" : "");
 }
 
 /**
@@ -3313,6 +3349,7 @@ export async function compositeGrade(
     imageTextGuard,
     downscaled: perImageResults.some((r) => /\+ds\d+(?:\+|$)/.test(r.prompt_version ?? "")),
     noMeasure: perImageResults.some((r) => /\+nomeasure(?:\+|$)/.test(r.prompt_version ?? "")),
+    viewCheck: perImageResults.some((r) => /\+view(?:\+|$)/.test(r.prompt_version ?? "")),
   });
 
   // US-2432: the other half of the attribution. promptVersion names the SYSTEM

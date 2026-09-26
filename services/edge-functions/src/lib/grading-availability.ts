@@ -17,6 +17,14 @@
 import { getBreaker } from "./circuit-breaker.ts";
 import { isRetryableError } from "./retry.ts";
 import { gradingQueueWaiting } from "./grading-capacity.ts";
+import { promptGateBlocked } from "./prompt-serving-gate.ts";
+
+// US-3521: a third signal, off unless GRADING_PROMPT_EVAL_GATE=enforce. See
+// prompt-serving-gate.ts.
+export type GradingUnavailableReason =
+  | "ai_unavailable"
+  | "queue_full"
+  | "prompt_unevaluated";
 
 export function anthropicBreaker() {
   return getBreaker("anthropic", {
@@ -36,27 +44,34 @@ export function gradingUnavailableReason(
   breakerState: "closed" | "open" | "half_open",
   queued: number,
   maxQueued = maxQueuedPipelines(),
-): "ai_unavailable" | "queue_full" | null {
+  promptBlocked = false,
+): GradingUnavailableReason | null {
+  if (promptBlocked) return "prompt_unevaluated";
   if (breakerState === "open") return "ai_unavailable";
   if (queued >= maxQueued) return "queue_full";
   return null;
 }
 
-export function currentGradingUnavailableReason():
-  | "ai_unavailable"
-  | "queue_full"
-  | null {
+export function currentGradingUnavailableReason(): GradingUnavailableReason | null {
   return gradingUnavailableReason(
     anthropicBreaker().getState(),
     gradingQueueWaiting(),
+    maxQueuedPipelines(),
+    promptGateBlocked(),
   );
 }
 
 export const GRADING_BUSY_RETRY_AFTER_SECONDS = 60;
 
 export function gradingUnavailableBody(
-  reason: "ai_unavailable" | "queue_full",
+  reason: GradingUnavailableReason,
 ) {
+  if (reason === "prompt_unevaluated") {
+    return {
+      error: "Grading is paused while we check a grading update. You were not charged. Try again later.",
+      code: "GRADING_PAUSED",
+    };
+  }
   return {
     error: reason === "ai_unavailable"
       ? "Grading is paused for a moment because our AI provider is not responding. You were not charged. Try again in a minute."
