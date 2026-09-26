@@ -5234,17 +5234,6 @@
       "priority": 6
     },
     {
-      "id": "US-3539",
-      "passes": false,
-      "title": "Grading audit S6: measurement photo AI URLs use getPublicUrl by photo type",
-      "description": "As a seller, I want measurement autofill to work for photos stored in the private bucket. measure-autofill.ts and flipdesk-measure.ts call getPublicUrl(bucketForItemPhoto(type)).",
-      "acceptanceCriteria": [
-        "Both use itemPhotoAiUrl.",
-        "Test covers a photo stored in the private bucket."
-      ],
-      "priority": 6
-    },
-    {
       "id": "US-3540",
       "passes": false,
       "title": "Grading audit S2: a refunded certificate reads as 'not found', and a photoless one still verifies",

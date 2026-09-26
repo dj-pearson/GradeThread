@@ -49841,6 +49841,18 @@
       ],
       "priority": 6,
       "notes": "Done 2026-09-26. compositeGrade returns review_threshold (the calibrated per-category threshold when calibration is enforced, else the flat one) and the pipeline's post-composite reconcileNeedsReview passes it, so a calibrated threshold below 0.75 is no longer undone by the final re-check. Undefined falls back to the flat threshold exactly as before; an existing flag is never cleared. Proof: calibrated-review-gate_test.ts (3)."
+    },
+    {
+      "id": "US-3539",
+      "passes": true,
+      "title": "Grading audit S6: measurement photo AI URLs use getPublicUrl by photo type",
+      "description": "As a seller, I want measurement autofill to work for photos stored in the private bucket. measure-autofill.ts and flipdesk-measure.ts call getPublicUrl(bucketForItemPhoto(type)).",
+      "acceptanceCriteria": [
+        "Both use itemPhotoAiUrl.",
+        "Test covers a photo stored in the private bucket."
+      ],
+      "priority": 6,
+      "notes": "Done 2026-09-26. measure-autofill.ts and routes/flipdesk-measure.ts get the vision URL from itemPhotoAiUrl(photo, undefined, { ownerId }) (signs private-bucket objects, public URL only for public ones, refuses a path outside the owner) instead of getPublicUrl(bucketForItemPhoto(type)); both selects now include photo_url, which the helper reads. A refused/unsignable photo returns no_measurement_photo (autofill) or 422 (route). Also: dropped my US-3514 storage-path-ownership.ts in favour of the existing isOwnedStoragePath in staging-path.ts (AL-02), which itemPhotoAiUrl already uses. Proof: measure-photo-ai-url_test.ts (2); measure-autofill, flipdesk-measure and item-photo-storage suites green. The AC's 'private bucket' test is covered by item-photo-storage_test.ts's own signing cases rather than a new one."
     }
   ]
 }

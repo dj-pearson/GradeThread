@@ -30,7 +30,7 @@ import {
   REFUND_CAP_MESSAGE,
   refundedGradeCapReached,
 } from "./refund-loop-guard.ts";
-import { isOwnedStoragePath } from "./storage-path-ownership.ts";
+import { isOwnedStoragePath } from "./staging-path.ts";
 import { sha256OfBytes } from "./cert-photo-seal.ts";
 import { processSubmission } from "./grading-pipeline.ts";
 import { REQUIRED_IMAGE_TYPES } from "./image-quality.ts";

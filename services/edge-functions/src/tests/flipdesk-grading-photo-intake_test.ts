@@ -4,7 +4,7 @@
 // bucket), and it must run the same US-276 intake as /api/grade/submit.
 import { assert, assertEquals } from "@std/assert";
 
-import { isOwnedStoragePath } from "../lib/storage-path-ownership.ts";
+import { isOwnedStoragePath } from "../lib/staging-path.ts";
 
 const OWNER = "11111111-1111-1111-1111-111111111111";
 const OTHER = "22222222-2222-2222-2222-222222222222";

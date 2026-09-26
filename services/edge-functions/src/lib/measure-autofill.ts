@@ -24,7 +24,7 @@
 
 import { Image } from "imagescript";
 import { supabaseAdmin } from "./supabase.ts";
-import { bucketForItemPhoto, downloadItemPhoto } from "./item-photo-storage.ts";
+import { downloadItemPhoto, itemPhotoAiUrl } from "./item-photo-storage.ts";
 import { MEASURE_CARD_VERSIONS } from "./measure-card.ts";
 import {
   calibrateAdaptive,
@@ -157,6 +157,7 @@ interface CardPhoto {
     id: string;
     storage_path: string;
     photo_type: string | null;
+    photo_url?: string | null;
   };
   calibration: StoredCalibration;
   decoded: Image;
@@ -187,7 +188,7 @@ async function findCardPhoto(
 ): Promise<CardPhoto | { reason: MeasureAutofillReason; message: string | null }> {
   const { data: rows } = await supabaseAdmin
     .from("item_photos")
-    .select("id, storage_path, photo_type, measure_calibration, sort_order")
+    .select("id, storage_path, photo_type, photo_url, measure_calibration, sort_order")
     .eq("inventory_item_id", itemId)
     .order("sort_order", { ascending: true });
   const all = ((rows ?? []) as Array<{
@@ -415,9 +416,13 @@ async function runAutofill(
   }
   const { photo, calibration, decoded, gray, scale } = found;
 
-  const publicUrl = supabaseAdmin.storage
-    .from(bucketForItemPhoto(photo.photo_type))
-    .getPublicUrl(photo.storage_path).data.publicUrl;
+  // US-3539: a photo in the PRIVATE bucket has no working public URL, so the
+  // model was handed a dead link. itemPhotoAiUrl signs private objects, uses
+  // the public URL only for public ones, and refuses a path outside the owner.
+  const publicUrl = await itemPhotoAiUrl(photo, undefined, { ownerId });
+  if (!publicUrl) {
+    return emptyResult(group, "no_measurement_photo", current, currentSources);
+  }
 
   let result;
   try {
