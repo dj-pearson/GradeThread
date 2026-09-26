@@ -114,13 +114,26 @@ sealed class PhotoGradeError(val message: String) {
  */
 class PhotoGradeUploader(private val api: EdgeApi) {
 
-    suspend fun submit(images: List<PhotoGradeImage>, request: PhotoGradeRequest): PhotoSubmitResponse {
+    /**
+     * US-3532: [idempotencyKey] is sent as `Idempotency-Key`. Reuse it for a
+     * retry of the SAME submit and the route answers with the first submission
+     * instead of creating and charging a second one.
+     */
+    suspend fun submit(
+        images: List<PhotoGradeImage>,
+        request: PhotoGradeRequest,
+        idempotencyKey: String? = null,
+    ): PhotoSubmitResponse {
         validate(images)?.let { throw IllegalArgumentException(it.message) }
-        return api.decode(api.postMultipart(PATH, body(images, request)))
+        return api.decode(api.postMultipart(PATH, body(images, request), idempotencyHeaders(idempotencyKey)))
     }
 
     companion object {
         private const val PATH = "/api/grade/submit"
+
+        /** The header the route reads (grade.ts, US-3532). Empty for no key. */
+        fun idempotencyHeaders(key: String?): Map<String, String> =
+            if (key.isNullOrBlank()) emptyMap() else mapOf("Idempotency-Key" to key)
 
         /** Refuse before uploading. Null means the set is submittable. */
         fun validate(images: List<PhotoGradeImage>): PhotoGradeError? {

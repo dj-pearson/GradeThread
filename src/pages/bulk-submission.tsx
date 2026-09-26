@@ -345,6 +345,20 @@ export function BulkSubmissionPage() {
     };
   }
 
+  // US-3532: one Idempotency-Key per row, kept for as long as the row object
+  // lives, so edgeFetch's 401 retry and a "retry failed rows" pass both reuse
+  // it. A row that already landed then answers with its first submission
+  // instead of being created and charged again.
+  const rowKeysRef = useRef(new WeakMap<ParsedRow, string>());
+  function idempotencyKeyFor(row: ParsedRow): string {
+    let key = rowKeysRef.current.get(row);
+    if (!key) {
+      key = crypto.randomUUID();
+      rowKeysRef.current.set(row, key);
+    }
+    return key;
+  }
+
   async function runBatch(batch: ParsedRow[]) {
     if (batch.length === 0) return;
     // US-1625: reject a re-entrant double-click synchronously. `disabled={isSubmitting}`
@@ -408,6 +422,7 @@ export function BulkSubmissionPage() {
           const response = await edgeFetch("/api/grade/submit", {
             method: "POST",
             body: formData,
+            headers: { "Idempotency-Key": idempotencyKeyFor(row) },
             silentGate: true,
           });
           // US-1632: guard .json() — an HTML 502 from an infra blip isn't JSON
@@ -420,16 +435,24 @@ export function BulkSubmissionPage() {
                   error?: string;
                   submissionId?: string;
                   payment?: { paid?: boolean };
+                  replayed?: boolean;
+                  payment_status?: string | null;
                 },
             );
           if (!response.ok) {
             throw new Error(json.error || "Submission failed");
           }
           submitted++;
+          // US-3532: a replayed row landed on an earlier try that this run saw
+          // fail (a dropped connection after the server created it). Its
+          // payment_status says which pile it belongs in.
+          const rowPaid = json.replayed
+            ? json.payment_status !== "unpaid"
+            : json.payment?.paid === true;
           // US-2516: a 201 with paid=false means the row exists but nothing has
           // been charged for it, so it will never be graded until the seller
           // pays. Counted apart from the paid rows.
-          if (json.payment?.paid) {
+          if (rowPaid) {
             paid++;
           } else {
             awaitingPayment++;

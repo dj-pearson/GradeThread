@@ -236,7 +236,11 @@ class EdgeApi(
      *
      * So the caller supplies one ordered list and this writes it verbatim.
      */
-    suspend fun postMultipart(path: String, parts: List<Part>): String {
+    suspend fun postMultipart(
+        path: String,
+        parts: List<Part>,
+        headers: Map<String, String> = emptyMap(),
+    ): String {
         val multipart = MultipartBody.Builder().setType(MultipartBody.FORM).apply {
             parts.forEach { part ->
                 when (part) {
@@ -249,7 +253,7 @@ class EdgeApi(
                 }
             }
         }.build()
-        return send("POST", path, emptyMap(), multipart, allowTransientRetry = false)
+        return send("POST", path, emptyMap(), multipart, allowTransientRetry = false, headers = headers)
     }
 
     /** One entry in an ordered multipart body. */
@@ -283,6 +287,9 @@ class EdgeApi(
         query: Map<String, String>,
         body: RequestBody?,
         allowTransientRetry: Boolean,
+        // US-3532: extra request headers, e.g. Idempotency-Key. Sent on every
+        // attempt, so the auth-refresh retry below reuses the same key.
+        headers: Map<String, String> = emptyMap(),
     ): String = withContext(Dispatchers.IO) {
         var attempt = 0
         var didRefreshAuth = false
@@ -290,7 +297,7 @@ class EdgeApi(
 
         while (true) {
             try {
-                val request = buildRequest(method, path, query, body)
+                val request = buildRequest(method, path, query, body, headers)
                 val (code, responseBody, warningHeader, retryAfter) = execute(request)
 
                 // Plan signals ride on ANY status (US-805).
@@ -348,6 +355,7 @@ class EdgeApi(
         path: String,
         query: Map<String, String>,
         body: RequestBody?,
+        headers: Map<String, String> = emptyMap(),
     ): Request {
         val url: HttpUrl = ("$baseUrl$path").toHttpUrl().newBuilder().apply {
             query.forEach { (k, v) -> addQueryParameter(k, v) }
@@ -362,6 +370,7 @@ class EdgeApi(
             },
         )
         builder.header("Accept", "application/json")
+        headers.forEach { (k, v) -> builder.header(k, v) }
 
         // US-1523 contract: a transient token failure THROWS (retryable
         // Network) — the request is never sent unauthenticated on a blip.
