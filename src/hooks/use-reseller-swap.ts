@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 
 // US-3541: Reseller Swap. Stale eBay listings from sellers who opted in to
@@ -80,7 +80,7 @@ export function useUpdateSwapSettings() {
       qc.setQueryData(SETTINGS_KEY, settings);
       void qc.invalidateQueries({ queryKey: TIPS_KEY });
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => toastError(e, "Could not save your swap settings. Try again."),
   });
 }
 
@@ -118,6 +118,6 @@ export function useDismissSwapTip() {
         prev ? { ...prev, tips: prev.tips.filter((t) => t.item_id !== itemId) } : prev,
       );
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => toastError(e, "Could not hide that tip. Try again."),
   });
 }

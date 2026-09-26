@@ -322,6 +322,8 @@ describe("US-3282: no surface renders a raw item-photo photo_url", () => {
   const ALLOWED: Record<string, string> = {
     "src/pages/verified-seller.tsx":
       "public storefront: a listings projection, not item_photos, and a signed private URL must never appear on a public page",
+    "src/components/flipdesk/reseller-swap-card.tsx":
+      "US-3541 swap tip: another seller's public listing photo, projected by the edge from front/flatlay/on-model/on-hanger rows with an https photo_url only; the viewer has no access to that seller's private bucket, so there is nothing to sign",
   };
 
   function tsxFiles(dir: string): string[] {
