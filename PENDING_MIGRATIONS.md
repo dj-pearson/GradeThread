@@ -71,7 +71,7 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
-## HELD: 00846_submission_photo_path_invoker.sql (US-3540 follow-up - remove an anon database-crash entry point)
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00846_submission_photo_path_invoker.sql (US-3540 follow-up - remove an anon database-crash entry point)
 
 **What it does.** Re-creates `public.is_submission_photo_path(text)` as
 SECURITY INVOKER (was DEFINER in 00837) and grants EXECUTE back to PUBLIC.
@@ -92,7 +92,7 @@ gets `false` with no error.
 **Apply order. Any time, and soon.** No code depends on it. 00837 is already on
 prod, so the crash entry point is live until this applies.
 
-## HELD: 00845_photos_purged_seals.sql (US-3540 - certificates keep their photo seal after retention deletes the photos)
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00845_photos_purged_seals.sql (US-3540 - certificates keep their photo seal after retention deletes the photos)
 
 **What it does.** Adds two columns to `public.submissions`:
 `photos_purged_at timestamptz` and `purged_photo_seals jsonb not null default '{}'`.
@@ -108,7 +108,7 @@ columns in the retention cron and the public verify endpoint. Without them the
 nightly retention job fails, and the verify endpoint answers "unverifiable" for
 v5 certificates.
 
-## HELD: 00844_finances_tier_bands.sql (US-3536 - Finances dashboard uses the real grade tier bands)
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00844_finances_tier_bands.sql (US-3536 - Finances dashboard uses the real grade tier bands)
 
 **What it does.** Re-creates `public.finances_dashboard(timestamptz)` from 00143
 with ONE change: the per-sale `grade_tier` CASE uses floors 10 / 9 / 8 / 7 / 6 /
@@ -122,7 +122,7 @@ applied from zero on a PG16 cluster with auth/storage stubs (0 failures), then
 
 **Apply order.** Any time. No code depends on it.
 
-## HELD: 00843_realtime_submissions.sql (US-3533 - live grade-complete updates on submissions)
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00843_realtime_submissions.sql (US-3533 - live grade-complete updates on submissions)
 
 **What it does.** Adds `public.submissions` to the `supabase_realtime`
 publication, guarded like 00007 (no-op if already a member, or if the
@@ -138,7 +138,7 @@ table once and a second run changes nothing.
 
 **Apply order.** Any time. No edge code depends on it.
 
-## HELD: 00842_submission_idempotency_key.sql (US-3532 - a retried grade submit returns the first submission)
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00842_submission_idempotency_key.sql (US-3532 - a retried grade submit returns the first submission)
 
 **What it does.** Adds nullable `submissions.idempotency_key` and a partial
 unique index `submissions_owner_idempotency_key` on `(user_id,
@@ -152,7 +152,7 @@ it in the same commit.
 **Risk: low.** Measured on PG16: a second owner may reuse a key, NULLs never
 collide, and the same owner + key is refused by the index. Applies twice.
 
-## HELD: 00841_grading_budget_and_sonnet5_price.sql (US-3527 - a dollar cap on grading, and one price for Sonnet 5)
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00841_grading_budget_and_sonnet5_price.sql (US-3527 - a dollar cap on grading, and one price for Sonnet 5)
 
 **What it does.** (1) Inserts `ai_budgets` rows for `grading`: day $150
 `throttle` (alerts only) and month $3,000 `kill` (hard stop; `grade.ts` and

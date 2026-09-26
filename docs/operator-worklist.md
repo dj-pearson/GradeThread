@@ -1,6 +1,6 @@
 # What the backlog is waiting on you for
 
-Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 176 of 316 open stories carry at least one OPERATOR criterion — a step only you can take.
+Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 176 of 314 open stories carry at least one OPERATOR criterion — a step only you can take.
 
 This is not a list of blocked work. Most of these stories have buildable criteria before the operator step, and several were finished this session right up to it. It is a list of the last mile.
 
@@ -8,18 +8,7 @@ This is not a list of blocked work. Most of these stories have buildable criteri
 
 Computed from supabase/held-migrations.json and the criteria below, so it is right on the day you read it. Everything under this heading is two sittings, and it is the two that move the most stories.
 
-**1. Apply the 6 held migrations, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
-
-- `00841_grading_budget_and_sonnet5_price.sql` — US-3527 — a dollar cap on grading, and one price for Sonnet 5
-- `00842_submission_idempotency_key.sql` — US-3532 — a retried grade submit returns the first submission
-- `00843_realtime_submissions.sql` — US-3533 — live grade-complete updates on submissions
-- `00844_finances_tier_bands.sql` — US-3536 — Finances dashboard uses the real grade tier bands
-- `00845_photos_purged_seals.sql` — US-3540 — certificates keep their photo seal after retention deletes the photos
-- `00846_submission_photo_path_invoker.sql` — US-3540 — remove an anon database-crash entry point
-
-   Applying them and flipping each heading to `## ✅ APPLIED:` with a date is also what clears `node scripts/held-migration-gate.mjs --ci`, which CI runs first and which fails on any branch carrying a held migration. Until then a pull request from a branch that has one cannot go green, however good the rest of it is.
-
-**2. Redeploy the edge on Coolify.** Its boot guard expects the schema version the migrations above just set, so this follows them rather than leading. That one deploy is the precondition for **7 stories** whose remaining step is a measurement taken afterwards, not separate work: US-3457, US-3146, US-3149, US-3147, US-3148, US-3472, US-3028.
+**1. Redeploy the edge on Coolify.** Its boot guard expects the schema version the migrations above just set, so this follows them rather than leading. That one deploy is the precondition for **7 stories** whose remaining step is a measurement taken afterwards, not separate work: US-3457, US-3146, US-3149, US-3147, US-3148, US-3472, US-3028.
 
 ---
 

@@ -10,50 +10,7 @@
     "scripts/held-migrations-registry.test.mjs fails when this file and the HELD headings",
     "in PENDING_MIGRATIONS.md disagree, in either direction."
   ],
-  "held": [
-    {
-      "version": "00841",
-      "file": "00841_grading_budget_and_sonnet5_price.sql",
-      "story": "US-3527",
-      "held_since": "2026-09-26",
-      "what": "a dollar cap on grading, and one price for Sonnet 5"
-    },
-    {
-      "version": "00842",
-      "file": "00842_submission_idempotency_key.sql",
-      "story": "US-3532",
-      "held_since": "2026-09-26",
-      "what": "a retried grade submit returns the first submission"
-    },
-    {
-      "version": "00843",
-      "file": "00843_realtime_submissions.sql",
-      "story": "US-3533",
-      "held_since": "2026-09-26",
-      "what": "live grade-complete updates on submissions"
-    },
-    {
-      "version": "00844",
-      "file": "00844_finances_tier_bands.sql",
-      "story": "US-3536",
-      "held_since": "2026-09-26",
-      "what": "Finances dashboard uses the real grade tier bands"
-    },
-    {
-      "version": "00845",
-      "file": "00845_photos_purged_seals.sql",
-      "story": "US-3540",
-      "held_since": "2026-09-26",
-      "what": "certificates keep their photo seal after retention deletes the photos"
-    },
-    {
-      "version": "00846",
-      "file": "00846_submission_photo_path_invoker.sql",
-      "story": "US-3540",
-      "held_since": "2026-09-26",
-      "what": "remove an anon database-crash entry point"
-    }
-  ],
+  "held": [],
   "parked": [
     {
       "version": "00794",
