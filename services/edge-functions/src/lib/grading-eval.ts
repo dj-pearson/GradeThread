@@ -26,6 +26,7 @@ import { isAllowedGradingModel, servingModelForStage } from "./ai-config.ts";
 import { runListingEval } from "./listing-eval.ts";
 import { scoreToGradeTier } from "./human-review.ts";
 import { downloadGradingImage } from "./grading-image-encoding.ts";
+import { baselineReferenceBlock, getGarmentBaseline } from "./garment-baselines.ts";
 
 // ─── Eval harness + activation gate ─────────────────────────────────
 //
@@ -184,7 +185,18 @@ export async function runEval(
   // When set, `promptVersionId` is ignored — the system prompt stays whatever is
   // active, and exactly one user-message block is pinned to this row.
   blockCandidate?: { blockVersionId: string },
+  // US-3526 AC2: opt-in. By default the eval measures the PROMPT alone (empty
+  // baseline, no exemplars; US-1643), and every stored pass means that. With
+  // liveContext each case also gets what live grading adds when its flags are
+  // on: the garment baseline (getGarmentBaseline returns null while that flag
+  // is off) and the active exemplar set. Fabric criteria already follow their
+  // live flag inside compositeGrade either way. A live-context run is a
+  // MEASUREMENT: it is stored under "<version>+live" with no prompt_version_id
+  // and never writes eval_passed back, so it cannot qualify a prompt and never
+  // mixes with the prompt-only runs the activation gate compares.
+  options: { liveContext?: boolean } = {},
 ): Promise<EvalRunResult> {
+  const liveContext = options.liveContext === true;
   // ── The candidate, from either table ──
   //
   // Both drive the same four things: which stage to override, which garment
@@ -373,6 +385,14 @@ export async function runEval(
     try {
       const images = Array.isArray(row.images) ? row.images : [];
       if (images.length === 0) throw new Error("case has no images");
+      const baselineBlock = liveContext
+        ? baselineReferenceBlock(
+          (await getGarmentBaseline({
+            brand: row.brand,
+            garmentCategory: row.garment_category,
+          }).catch(() => null)) ?? "",
+        )
+        : "";
 
       const runs: number[] = [];
       for (let rep = 0; rep < repeats; rep++) {
@@ -393,7 +413,7 @@ export async function runEval(
               // No bucketKey: an eval is not a customer submission, so it must
               // never take a canary slice — it has to measure the champion.
               undefined,
-              "",
+              baselineBlock,
               blockOverride,
             ),
           );
@@ -413,9 +433,11 @@ export async function runEval(
           compositeOverride,
           modelOverride,
           undefined, // bucketKey
-          "", // baselineBlock
+          baselineBlock, // "" unless liveContext
           [], // verificationImages
-          true, // US-1643: eval measures the prompt — never the live exemplar block
+          // US-1643: eval measures the prompt, never the live exemplar block,
+          // unless this is an opt-in live-context measurement (US-3526).
+          !liveContext,
         );
         runs.push(result.overall_score);
       }
@@ -522,8 +544,8 @@ export async function runEval(
       // prompt_version_name, which carries the full
       // "block:<key>[<scope>]=<version>" label. No migration is needed — the
       // column has been nullable since 00050.
-      prompt_version_id: blockRow ? null : v.id,
-      prompt_version_name: v.version_name,
+      prompt_version_id: blockRow || liveContext ? null : v.id,
+      prompt_version_name: liveContext ? `${v.version_name}+live` : v.version_name,
       model,
       mean_absolute_error: Number.isFinite(mae) ? Number(mae.toFixed(2)) : 99.99,
       agreement_rate: Number(agreementRate.toFixed(4)),
@@ -548,7 +570,9 @@ export async function runEval(
   // never earned. qualified_model is cleared on a failing run so a stale pass
   // from an earlier model can't linger on the row.
   const runId = runRow ? (runRow as { id: string }).id : null;
-  if (blockRow) {
+  if (liveContext) {
+    // US-3526: a measurement, never a qualification. See the parameter note.
+  } else if (blockRow) {
     // The block table carries eval_passed/eval_run_id for exactly this. It has
     // no qualified_model, and that is not an oversight to paper over: a block
     // does not choose a model, it rides whichever one its stage serves on, so

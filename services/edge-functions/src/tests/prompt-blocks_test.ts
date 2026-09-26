@@ -647,7 +647,9 @@ Deno.test("US-2438 AC3: the verdict is written back to the block row, not the pr
   // And the run row must NOT claim a prompt-version id it does not have: v.id is
   // a block id, and that column is an FK to a different table.
   assert(
-    /prompt_version_id:\s*blockRow \? null : v\.id/.test(src),
+    // US-3526 added `|| liveContext` (a live-context measurement also stores
+    // no prompt-version id); the block case must still be null.
+    /prompt_version_id:\s*blockRow(?: \|\| liveContext)? \? null : v\.id/.test(src),
     "a block eval is writing its own id into prompt_version_id, which points at " +
       "ai_prompt_versions",
   );
