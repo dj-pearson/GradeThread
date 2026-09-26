@@ -27,9 +27,7 @@ private data class PlanRow(
  * show a member their host's plan.
  */
 @Singleton
-class AccountPlanReader @Inject constructor(
-    private val client: SupabaseClient,
-) {
+class AccountPlanReader @Inject constructor(private val client: SupabaseClient) {
 
     /** Null when free, unknown, or unreadable — never a guess. */
     suspend fun current(): PlanTier? {

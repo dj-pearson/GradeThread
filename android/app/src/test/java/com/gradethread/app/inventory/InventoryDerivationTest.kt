@@ -96,7 +96,10 @@ class InventoryDerivationTest {
         val highComps = item("b", target = 10.0).copy(compSetJson = """[{"price":90}]""")
         val noComps = item("c", target = 900.0)
         val sorted = InventoryFilter.apply(
-            listOf(noComps, lowComps, highComps), InventoryStage.ALL, "", SortOption.HIGHEST_COMP,
+            listOf(noComps, lowComps, highComps),
+            InventoryStage.ALL,
+            "",
+            SortOption.HIGHEST_COMP,
             InventoryFilterCriteria(),
         )
         assertEquals(listOf("b", "a", "c"), sorted.map { it.id })
@@ -127,13 +130,21 @@ class InventoryDerivationTest {
         val d = InventoryDerivation()
         val items = listOf(item("a", status = "sold", createdAt = 100), item("b", status = "sold", createdAt = 200))
         val first = d.filtered(
-            items, InventoryStage.SOLD, "", SortOption.RECENT_SALE, InventoryFilterCriteria(),
+            items,
+            InventoryStage.SOLD,
+            "",
+            SortOption.RECENT_SALE,
+            InventoryFilterCriteria(),
             soldDates = mapOf("a" to 2L, "b" to 1L),
         )
         assertEquals(listOf("a", "b"), first.map { it.id })
         // A new sale date must re-sort, not return the cached order.
         val second = d.filtered(
-            items, InventoryStage.SOLD, "", SortOption.RECENT_SALE, InventoryFilterCriteria(),
+            items,
+            InventoryStage.SOLD,
+            "",
+            SortOption.RECENT_SALE,
+            InventoryFilterCriteria(),
             soldDates = mapOf("a" to 1L, "b" to 2L),
         )
         assertEquals(listOf("b", "a"), second.map { it.id })

@@ -51,7 +51,13 @@ class InventoryDerivation {
         soldDates: Map<String, Long> = emptyMap(),
     ): List<InventoryItemEntity> {
         val key = 31 * filterKey(
-            itemsSignature(items), stage, query, sort, criteria, photoItemIds, serverSearchIds,
+            itemsSignature(items),
+            stage,
+            query,
+            sort,
+            criteria,
+            photoItemIds,
+            serverSearchIds,
         ) + (if (sort.isSaleSort) soldDates.hashCode() else 0)
         if (key != filteredKey) {
             filteredKey = key
@@ -89,10 +95,7 @@ class InventoryDerivation {
         return stageCountsValue
     }
 
-    fun facets(
-        items: List<InventoryItemEntity>,
-        sourceNames: Map<String, String> = emptyMap(),
-    ): InventoryFacets {
+    fun facets(items: List<InventoryItemEntity>, sourceNames: Map<String, String> = emptyMap()): InventoryFacets {
         // sourceNames is in the key because a source RENAME changes labels
         // without changing any item, and the facet list must still refresh.
         val key = 31 * itemsSignature(items) + sourceNames.hashCode()

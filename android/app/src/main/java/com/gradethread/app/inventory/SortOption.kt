@@ -137,8 +137,7 @@ enum class SortOption(val wire: String, @StringRes val label: Int) {
 
     companion object {
         /** Highest positive saved comp, or null with none (web `maxCompPrice`). */
-        fun maxCompPrice(item: InventoryItemEntity): Double? =
-            CompSet.decode(item.compSetJson).maxOfOrNull { it.price }
+        fun maxCompPrice(item: InventoryItemEntity): Double? = CompSet.decode(item.compSetJson).maxOfOrNull { it.price }
 
         /** Statuses an item only reaches by selling. */
         val soldStatuses: Set<String> = setOf("sold", "shipped", "completed", "returned")
