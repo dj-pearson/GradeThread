@@ -5219,7 +5219,8 @@
         "activatePromptVersion requires eval no worse than the current champion and a minimum shadow sample count.",
         "runEval uses the live garment-baseline, fabric-criteria flags and the active exemplar set."
       ],
-      "priority": 3
+      "priority": 3,
+      "notes": "2026-09-26 PARTIAL. AC1 done: activatePromptVersion, for per_image and composite only (listing prompts keep their own loop), now also requires activationEvidenceVerdict: the candidate's latest passing eval must be no worse than the champion's (the active row in the same slot, else the code default by name) within MAE +0.05 and agreement -0.02, and it needs GRADING_ACTIVATION_MIN_LIVE_SAMPLES (default 20, 0 waives) scored shadow results plus canary grades stamped with its name. Checked before anything is deactivated. Proof: 5 cases in golden-set-growth_test.ts. AC2 NOT done: runEval deliberately passes an empty baseline and suppresses exemplars (US-1643: the eval measures the prompt). Making it use the live flags changes what every eval measures and needs its own decision about how runs before and after compare."
     },
     {
       "id": "US-3527",

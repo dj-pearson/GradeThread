@@ -1,12 +1,14 @@
 import { supabaseAdmin } from "./supabase.ts";
 import {
   analyzeImage,
+  COMPOSITE_PROMPT_VERSION,
   compositeGrade,
   type CompositeGradeResult,
   type FactorScores,
   type GarmentInfo,
   invalidatePromptCache,
   type PerImageAnalysis,
+  PER_IMAGE_PROMPT_VERSION,
   type ResolvedPrompt,
   unversionedPromptSurfaceHash,
 } from "./ai-grading.ts";
@@ -875,6 +877,129 @@ export function checkPromptServingEligibility(
 }
 
 /**
+ * US-3526: what activation needs to see beyond a passing eval.
+ *
+ * `candidate` / `champion` are each version's most recent PASSING eval run on
+ * the golden set (champion = the version currently serving this slot, or the
+ * code default by name when nothing is active). `liveSamples` counts shadow
+ * results that produced a score plus canary grades stamped with the version.
+ */
+export interface ActivationEvidence {
+  candidate: { mae: number; agreement: number } | null;
+  champion: { name: string; mae: number; agreement: number } | null;
+  liveSamples: number;
+}
+
+export function activationMinLiveSamples(): number {
+  const raw = Number(Deno.env.get("GRADING_ACTIVATION_MIN_LIVE_SAMPLES"));
+  return Number.isFinite(raw) && raw >= 0 ? Math.trunc(raw) : 20;
+}
+
+/** Tolerances for "no worse": run-to-run noise, not a licence to regress. */
+export const CHAMPION_MAE_TOLERANCE = 0.05;
+export const CHAMPION_AGREEMENT_TOLERANCE = 0.02;
+
+export function activationEvidenceVerdict(
+  e: ActivationEvidence,
+  minLive = activationMinLiveSamples(),
+): { ok: true } | { ok: false; reason: string } {
+  if (!e.candidate) {
+    return { ok: false, reason: "No passing eval run is recorded for this version." };
+  }
+  if (e.champion) {
+    const worseMae = e.candidate.mae > e.champion.mae + CHAMPION_MAE_TOLERANCE;
+    const worseAgreement = e.candidate.agreement <
+      e.champion.agreement - CHAMPION_AGREEMENT_TOLERANCE;
+    if (worseMae || worseAgreement) {
+      return {
+        ok: false,
+        reason: `Worse than the version it would replace (${e.champion.name}): ` +
+          `MAE ${e.candidate.mae} vs ${e.champion.mae}, agreement ` +
+          `${e.candidate.agreement} vs ${e.champion.agreement}.`,
+      };
+    }
+  }
+  if (e.liveSamples < minLive) {
+    return {
+      ok: false,
+      reason: `Only ${e.liveSamples} live shadow or canary grades recorded for this version; ` +
+        `${minLive} are needed before it can serve every grade.`,
+    };
+  }
+  return { ok: true };
+}
+
+async function latestPassingRun(
+  promptVersionId: string,
+): Promise<{ mae: number; agreement: number } | null> {
+  const { data } = await supabaseAdmin
+    .from("grading_eval_runs")
+    .select("mean_absolute_error, agreement_rate")
+    .eq("prompt_version_id", promptVersionId)
+    .eq("passed", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const r = data as { mean_absolute_error: number; agreement_rate: number } | null;
+  return r ? { mae: Number(r.mean_absolute_error), agreement: Number(r.agreement_rate) } : null;
+}
+
+async function loadActivationEvidence(v: {
+  id: string;
+  stage: string;
+  garment_scope: string | null;
+}): Promise<ActivationEvidence> {
+  const candidate = await latestPassingRun(v.id);
+
+  let championQuery = supabaseAdmin
+    .from("ai_prompt_versions")
+    .select("id, version_name")
+    .eq("stage", v.stage)
+    .eq("is_active", true)
+    .neq("id", v.id);
+  championQuery = v.garment_scope
+    ? championQuery.eq("garment_scope", v.garment_scope)
+    : championQuery.is("garment_scope", null);
+  let { data: champRow } = await championQuery.maybeSingle();
+  if (!champRow && !v.garment_scope) {
+    const codeDefault = v.stage === "per_image" ? PER_IMAGE_PROMPT_VERSION : COMPOSITE_PROMPT_VERSION;
+    ({ data: champRow } = await supabaseAdmin
+      .from("ai_prompt_versions")
+      .select("id, version_name")
+      .eq("version_name", codeDefault)
+      .neq("id", v.id)
+      .maybeSingle());
+  }
+  const champ = champRow as { id: string; version_name: string } | null;
+  const champRun = champ ? await latestPassingRun(champ.id) : null;
+
+  const { data: nameRow } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .select("version_name")
+    .eq("id", v.id)
+    .maybeSingle();
+  const name = (nameRow as { version_name?: string } | null)?.version_name ?? "";
+  const { count: shadow } = await supabaseAdmin
+    .from("grading_shadow_results")
+    .select("id", { count: "exact", head: true })
+    .eq("shadow_prompt_version_id", v.id)
+    .not("shadow_overall_score", "is", null);
+  // Canary grades carry the version name, possibly with era suffixes.
+  const { count: canary } = name
+    ? await supabaseAdmin
+      .from("grade_reports")
+      .select("id", { count: "exact", head: true })
+      .like("prompt_version", `${name.replace(/[\\%_]/g, (m) => "\\" + m)}%`)
+    : { count: 0 };
+
+  return {
+    candidate,
+    champion: champ && champRun ? { name: champ.version_name, ...champRun } : null,
+    liveSamples: (shadow ?? 0) + (canary ?? 0),
+  };
+}
+
+/**
  * Activation gate. A prompt version may go active only if its most recent eval
  * run passed. Returns { ok } or { ok:false, reason } for the admin route to
  * surface. Mutates is_active + deactivates the previous active prompt for the
@@ -905,6 +1030,16 @@ export async function activatePromptVersion(
   // outright once the two diverge.
   const eligible = checkPromptServingEligibility(v, servingModelForStage(v.stage));
   if (!eligible.ok) return eligible;
+
+  // US-3526: for a GRADING prompt, passing the thresholds is not enough. It
+  // must be no worse than what it replaces on the golden set, and it must have
+  // been seen on live traffic (shadow or canary) first. Listing prompts have
+  // their own acceptance loop (listing-acceptance.ts) and skip this.
+  if (v.stage === "per_image" || v.stage === "composite") {
+    const evidence = await loadActivationEvidence(v);
+    const verdict = activationEvidenceVerdict(evidence);
+    if (!verdict.ok) return verdict;
+  }
 
   // Deactivate the current active prompt for the same stage + scope slot.
   let deactivateQuery = supabaseAdmin

@@ -34,7 +34,10 @@ Deno.test("US-3522: three tops rated Good is refused, naming both gaps", () => {
   );
   assertEquals(gaps.length, 2);
   assert(gaps[0]!.includes("3 active cases, need 20"));
-  assertEquals(gaps[1], "no case in tier NWT, NWOT, Excellent, Very Good, Fair, Poor");
+  assertEquals(
+    gaps[1],
+    "no case in tier NWT, NWOT, Excellent, Very Good, Fair, Poor",
+  );
 });
 
 Deno.test("US-3522: a big set missing one tier is still refused", () => {
@@ -164,7 +167,12 @@ const { evalRepeats, meanOfRuns } = await import("../lib/grading-eval.ts");
 Deno.test("US-3523: eval repeats default to 1, cap at 5, and ignore junk", () => {
   Deno.env.delete("GRADING_EVAL_REPEATS");
   assertEquals(evalRepeats(), 1);
-  for (const [v, want] of [["3", 3], ["9", 5], ["0", 1], ["x", 1], ["2.7", 2]] as const) {
+  for (
+    const [v, want] of [["3", 3], ["9", 5], ["0", 1], ["x", 1], [
+      "2.7",
+      2,
+    ]] as const
+  ) {
     Deno.env.set("GRADING_EVAL_REPEATS", v);
     assertEquals(evalRepeats(), want, v);
   }
@@ -178,8 +186,82 @@ Deno.test("US-3523: a case is scored on the mean of its runs, on the 0.1 grid", 
 });
 
 Deno.test("US-3523: runEval grades each case `repeats` times before scoring", async () => {
-  const ev = await Deno.readTextFile(new URL("../lib/grading-eval.ts", import.meta.url));
+  const ev = await Deno.readTextFile(
+    new URL("../lib/grading-eval.ts", import.meta.url),
+  );
   const loop = ev.slice(ev.indexOf("const repeats = evalRepeats();"));
   assert(loop.indexOf("for (let rep = 0; rep < repeats; rep++) {") > 0);
-  assert(loop.indexOf("runs.push(result.overall_score);") < loop.indexOf("const predicted = meanOfRuns(runs);"));
+  assert(
+    loop.indexOf("runs.push(result.overall_score);") <
+      loop.indexOf("const predicted = meanOfRuns(runs);"),
+  );
+});
+
+// US-3526: activation needs champion parity and live evidence.
+const { activationEvidenceVerdict } = await import("../lib/grading-eval.ts");
+
+Deno.test("US-3526: no worse than the champion, with enough live samples, activates", () => {
+  assertEquals(
+    activationEvidenceVerdict({
+      candidate: { mae: 0.34, agreement: 0.81 },
+      champion: { name: "composite_v4", mae: 0.31, agreement: 0.82 },
+      liveSamples: 25,
+    }, 20),
+    { ok: true },
+  );
+});
+
+Deno.test("US-3526: a candidate worse than the champion is refused, naming it", () => {
+  const v = activationEvidenceVerdict({
+    candidate: { mae: 0.45, agreement: 0.8 },
+    champion: { name: "composite_v4", mae: 0.31, agreement: 0.82 },
+    liveSamples: 100,
+  }, 20);
+  assertEquals(v.ok, false);
+  assert(!v.ok && v.reason.includes("composite_v4"));
+  const w = activationEvidenceVerdict({
+    candidate: { mae: 0.3, agreement: 0.75 },
+    champion: { name: "composite_v4", mae: 0.31, agreement: 0.82 },
+    liveSamples: 100,
+  }, 20);
+  assertEquals(w.ok, false);
+});
+
+Deno.test("US-3526: too few shadow or canary grades is refused; 0 in the env waives it", () => {
+  const e = {
+    candidate: { mae: 0.3, agreement: 0.85 },
+    champion: null,
+    liveSamples: 3,
+  };
+  const v = activationEvidenceVerdict(e, 20);
+  assert(!v.ok && v.reason.includes("Only 3 live"));
+  assertEquals(activationEvidenceVerdict(e, 0), { ok: true });
+});
+
+Deno.test("US-3526: no passing run is refused even with no champion", () => {
+  assertEquals(
+    activationEvidenceVerdict({
+      candidate: null,
+      champion: null,
+      liveSamples: 50,
+    }, 20).ok,
+    false,
+  );
+});
+
+Deno.test("US-3526: activation applies the evidence rule to grading stages only", async () => {
+  const ev = await Deno.readTextFile(
+    new URL("../lib/grading-eval.ts", import.meta.url),
+  );
+  const fn = ev.slice(
+    ev.indexOf("export async function activatePromptVersion"),
+  );
+  const gate = fn.indexOf(
+    'if (v.stage === "per_image" || v.stage === "composite") {',
+  );
+  const deactivate = fn.indexOf("// Deactivate the current active prompt");
+  assert(
+    gate > 0 && gate < deactivate,
+    "evidence is checked before anything is deactivated",
+  );
 });

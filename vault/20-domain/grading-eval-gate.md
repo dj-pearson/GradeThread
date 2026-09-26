@@ -120,6 +120,14 @@ a review adjustment or dispute that moves a grade by a point or more, or flags
 an intentional-design misread, is queued as an INACTIVE candidate by
 `autoQueueEvalCandidate`. An admin still approves each one before it counts.
 
+**Activation now needs more than a pass (US-3526, 2026-09-26).** For a grading
+prompt, `activatePromptVersion` also refuses a candidate whose latest passing
+eval is worse than the champion's (MAE +0.05, agreement -0.02 tolerance), and
+one with fewer than `GRADING_ACTIVATION_MIN_LIVE_SAMPLES` (default 20) scored
+shadow results and canary grades. A monitor alert, `serving_unevaluated_prompt`,
+also fires every run while a stage serves a version that could not pass this
+gate, including a code default with no row (US-3521).
+
 A corrected grade is only useful here if its AI score survived the correction.
 Until US-3323 the accuracy readers compared the reviewer's score with itself; see
 [[review-accuracy-baseline]] for which number is the AI's.
