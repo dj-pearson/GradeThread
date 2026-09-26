@@ -49748,6 +49748,20 @@
       ],
       "priority": 4,
       "notes": "Done 2026-09-26. New lib/refund-loop-guard.ts. (1) refundedGradeCapReached: GRADING_MAX_REFUNDED_PER_DAY (default 5, 0 off) submissions with refunded_at in 24h per owner returns 429 REFUND_CAP_REACHED before any charge on /api/grade/submit, both api-v1 grade routes and FlipDesk submitForGrading; a count failure lets the grade through. (2) GRADING_MIN_IMAGE_EDGE (default 800) as minDimension on grade.ts, api-v1.ts, api-grade-ingest.ts and the FlipDesk copy. iOS sends up to 1600px and Android 2048px, web requires 1200, so normal uploads clear it. (3) computePhashAndLuma gives the fingerprint and mean luma from ONE decode; exposureVerdict refuses front/back/label with mean luma < 12 or > 248 before the charge on the main path (FlipDesk charges first, so there it throws into the item's refund; it still saves the AI calls). Blur was NOT added: a Laplacian threshold depends on scale and content and needs real photos to calibrate, and a false refusal costs a sale. Proof: refund-loop-guard_test.ts (5, incl. real encoded black/white/grey PNGs); full edge suite 11,911 passed, the only non-imagescript failure was an _env.ts import in the new US-3527 test, fixed here."
+    },
+    {
+      "id": "US-3513",
+      "passes": true,
+      "title": "Grading audit S1: sellers can overwrite certified photos after grading",
+      "description": "As a buyer checking a certificate, I want the photos to be the ones that were graded, so that a seller cannot grade a clean garment and then swap in photos of a worse one. Today 00333 lets the owner and workspace members UPDATE any object in their submission-images folder with no status condition, and cert-integrity seals scores only.",
+      "acceptanceCriteria": [
+        "A new migration narrows the 00333 submission-images UPDATE policies so an overwrite is refused once the object's submission has left draft/pending_payment (status not in the pre-grade set).",
+        "Photo rotation on a draft submission still succeeds from the web client (existing rotate path).",
+        "A db check script or migration test proves: owner UPDATE on a graded submission's object fails, on a draft one succeeds.",
+        "US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer, PENDING_MIGRATIONS.md entry."
+      ],
+      "priority": 1,
+      "notes": "2026-09-25: 00837_lock_submission_photos.sql written and HELD. Adds public.is_submission_photo_path(name) and re-creates the five client write policies on submission-images (owner INSERT/DELETE from 00001, member INSERT from 00042, owner/member UPDATE from 00333) with NOT is_submission_photo_path. Measured on a throwaway PG16 with stub auth/storage schemas: before, owner and member could update, insert into and delete from a graded submission folder; after, update touches 0 rows, insert is refused, delete touches 0 rows, and item-photo paths in the same bucket are still writable (rotation, US-979). Applied twice with no error. Stays open until the owner applies it to prod; the photo-hash seal is US-3516. | Done 2026-09-26. 00837_lock_submission_photos.sql applied to prod by the owner (reported in session). Graded submission folders are read-only to clients; item-photo folders in the same bucket stay writable. Photo hash sealing shipped separately as US-3516 (00839, also applied)."
     }
   ]
 }

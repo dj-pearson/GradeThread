@@ -90,7 +90,7 @@ rest of the month when it is crossed.
 the month row was added, the Sonnet 5 price changed and Haiku did not, and a
 second run changed nothing. Any time; `NOTIFY pgrst, 'reload schema';` after.
 
-## HELD: 00840_blind_spot_checks.sql (US-3524 - blind spot checks on auto-approved grades)
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00840_blind_spot_checks.sql (US-3524 - blind spot checks on auto-approved grades)
 
 **What it does.** Adds `grade_reports.spot_check_requested_at` and
 `spot_check_done_at` (nullable timestamptz) with a partial index on open spot
@@ -108,7 +108,7 @@ route would 500. The schema-version boot guard (00840) holds the edge back.
 The DROP/ADD of the CHECK validates existing rows, which all satisfy the old,
 narrower list.
 
-## HELD: 00839_submission_image_content_sha256.sql (US-3516 - record each graded photo's hash so certificates seal their photos)
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00839_submission_image_content_sha256.sql (US-3516 - record each graded photo's hash so certificates seal their photos)
 
 **What it does.** `ALTER TABLE submission_images ADD COLUMN IF NOT EXISTS
 content_sha256 text` plus a column comment. Additive, no backfill.
@@ -121,7 +121,7 @@ is what stops that, so apply this, then redeploy the edge.
 
 **Risk: low.** Nullable column, no default, no rewrite.
 
-## HELD: 00838_drop_submission_image_gps.sql (US-3520 - seller GPS was stored in submission_images.exif)
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00838_drop_submission_image_gps.sql (US-3520 - seller GPS was stored in submission_images.exif)
 
 **What it does.** `UPDATE public.submission_images SET exif = NULLIF(exif - 'gps', '{}')
 WHERE exif ? 'gps'`. Removes the stored GPS key from every row; a row whose
@@ -135,7 +135,7 @@ NULL, and a second run changes nothing.
 **Apply order.** Any time. The edge in the same commit already stops storing
 GPS, so it does not depend on this. `NOTIFY pgrst, 'reload schema';` after.
 
-## HELD: 00837_lock_submission_photos.sql (US-3513 - sellers could overwrite certified photos after grading)
+## ✅ APPLIED 2026-09-26 (owner, reported applied in session): 00837_lock_submission_photos.sql (US-3513 - sellers could overwrite certified photos after grading)
 
 **What it does.** Adds `public.is_submission_photo_path(name)` (SECURITY
 DEFINER, true when the second folder segment of a storage path is a
