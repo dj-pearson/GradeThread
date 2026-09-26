@@ -49588,6 +49588,18 @@
         "A vitest render test covers aal1-with-factor -> code screen, aal2 -> dashboard, and no-factor -> dashboard."
       ],
       "notes": "2026-09-25: ProtectedRoute wraps signed-in routes in MfaSignInGate (src/components/auth/mfa-sign-in-gate.tsx). AAL1 + nextLevel aal2 holds on a code screen in place (URL and ?next= kept) until challengeAndVerifyTotp lifts the session to aal2; no factor passes with no screen and no request; unreadable level fails closed; sign-out on every state. Recovery code on the same screen reuses the existing POST /api/account/mfa/recovery-codes/consume (US-374: conditional update on user_id + code_hash + used_at is null, 400 on no row, then removes factors), then refreshSession. No edge change, no migration. MfaCard copy now says the website asks for a code at every password sign-in. Test: src/components/auth/__tests__/mfa-sign-in-gate.test.tsx, 12 cases through the real ProtectedRoute + router; sabotage (decideSignInGate always pass, and gate removed from the route) turned 7 red each. Checks: tsc -b 0, lint 0 errors/38 warnings (pre-existing), vitest 13123 passed/120 skipped/0 failed across 1116 files, ui:check OK, vault:lint OK, held-migration-gate OK. OPEN, not in scope: the edge does not refuse AAL1 tokens from users with a factor outside admin and the workspace policy, so a stolen password can still call edge routes directly; recorded in vault/10-ops/mfa.md. Follow-up for the edge half filed as US-3512."
+    },
+    {
+      "id": "US-3510",
+      "passes": true,
+      "title": "iOS CI is red on main: push-contract category with null kind and extension-queue rules",
+      "description": "As a developer, I want iOS CI green on main, so that a real iOS regression is visible instead of hidden behind four known failures.",
+      "acceptanceCriteria": [
+        "contracts/push-contract.json category index 8 (marketing) has a non-null kind, or the Swift decoder accepts a nullable kind; test_category_allCases_listsAll and test_deepLink_everyKnownCategory_resolvesToARoute pass.",
+        "ExtensionQueueService offers no lifecycle actions for depop and never pushes an unselectable channel; test_ebayAndShopifyOfferNothingHere and test_anUnselectableChannelIsNeverPushed pass.",
+        "iOS CI 'Build + test' is green on main after the fix."
+      ],
+      "notes": "2026-09-25: test fixes committed (PushContract kind optional; allCases 20; marketing excluded from the deep-link sweep as in noDestination; Depop expectations moved to US-3462's extension channel). No app code changed. Left open until iOS CI Build + test is green on main, which is AC3. | iOS CI Build + test green on main for merge commit 0129e48f4 (run 36198344006, 2026-09-25). First green iOS run on main since at least 2026-09-22."
     }
   ]
 }
