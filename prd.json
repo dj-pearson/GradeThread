@@ -5186,19 +5186,6 @@
       "notes": "2026-09-26 PARTIAL. Every monitor run now raises serving_unevaluated_prompt (critical, one per stage) when the version a stage is SERVING, the active unscoped row or else the code default by name, fails checkPromptServingEligibility on the model that stage serves (servingModelForStage). A code default with no ai_prompt_versions row is named as never evaluated. Proof: 2 cases in grading-quality-watch_test.ts. NOT DONE on purpose: refusing to serve. Prod today has no passing eval for either code default and a golden set believed empty, so a boot or grade-time refusal would stop all grading on the next deploy. The alert makes the state loud until AC3 of US-2301 (seed the rows) and a real golden set exist; the refusal can then be switched on."
     },
     {
-      "id": "US-3523",
-      "passes": false,
-      "title": "Grading audit S3: grade randomness is never measured",
-      "description": "As the owner, I want to know how much the same photos move between runs, so that 7.0 vs 7.8 on identical input raises an alarm. Self-consistency sample defaults to 0 and eval runs each case once.",
-      "acceptanceCriteria": [
-        "GRADING_SELF_CONSISTENCY_SAMPLE defaults to a small weekly sample (e.g. 3 submissions x 2 runs).",
-        "Its spread feeds evaluateAlerts with a threshold.",
-        "runEval supports k repeats per case and scores on the mean."
-      ],
-      "priority": 3,
-      "notes": "2026-09-26 PARTIAL. AC3 done: runEval grades each case GRADING_EVAL_REPEATS times (default 1, cap 5) and scores the mean on the 0.1 grid (meanOfRuns); per-case run_scores are kept when > 1. Proof: 3 cases in golden-set-growth_test.ts. AC1 NOT done on purpose: turning GRADING_SELF_CONSISTENCY_SAMPLE on by default reverses US-2035's recorded rule ('a default-on measurement job is a bill nobody approved'), pinned by grading-self-consistency-job_test.ts. At 3 x 2 runs x 4 images it is at most 24 vision calls a week; that is the owner's call and was put to them. AC2 is already true: the job emits the ops event grading_self_consistency_divergence when the report fails, which is the alert path, so no evaluateAlerts rule was added."
-    },
-    {
       "id": "US-3526",
       "passes": false,
       "title": "Grading audit S3: prompt activation skips shadow evidence and eval ignores live flags",

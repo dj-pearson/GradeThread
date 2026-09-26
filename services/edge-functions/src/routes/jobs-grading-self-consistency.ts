@@ -13,10 +13,12 @@
 // is a different product decision if the spread is 0.1 than if it is 0.8, and
 // nobody had the number. This job produces it.
 //
-// ⚠️ COSTS REAL VISION CALLS, which is why it is OFF unless
-// `GRADING_SELF_CONSISTENCY_SAMPLE` is set to a positive number. Each sampled
-// submission is graded `runs` times from its stored images, so the bill is
-// sample x runs x images. Defaults are deliberately small.
+// ⚠️ COSTS REAL VISION CALLS. It was OFF unless
+// `GRADING_SELF_CONSISTENCY_SAMPLE` was set, and it was never set, so the
+// number the owner asked for in 2026-08 was never produced. The owner approved
+// the spend on 2026-09-26 (US-3523): it is now ON at DEFAULT_SAMPLE submissions
+// per weekly run, 3 x 2 runs x up to 4 images = at most 24 vision calls. Set
+// the env to 0 to switch it off, or higher to measure more.
 //
 // It re-grades through `quickGrade`, and the reason that is the right instrument
 // rather than a shortcut: it runs the same analyzeImage + compositeGrade the
@@ -54,6 +56,18 @@ const DEFAULT_RUNS = 2;
 
 /** Hard ceiling on the sample, whatever the env says. */
 const MAX_SAMPLE = 25;
+/** US-3523: sampled per run when the env is unset (owner-approved). */
+export const DEFAULT_SAMPLE = 3;
+
+/** The sample size: the env if set (0 = off), else DEFAULT_SAMPLE, capped. */
+export function selfConsistencySample(
+  raw = Deno.env.get("GRADING_SELF_CONSISTENCY_SAMPLE"),
+): number {
+  if (raw === undefined || raw.trim() === "") return DEFAULT_SAMPLE;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_SAMPLE;
+  return Math.min(Math.floor(n), MAX_SAMPLE);
+}
 
 function envInt(name: string, fallback: number): number {
   const raw = Number(Deno.env.get(name));
@@ -149,14 +163,14 @@ export async function handleGradingSelfConsistencyCron(c: Context): Promise<Resp
     return c.json({ error: "Unauthorized" }, 401);
   }
 
-  const sample = Math.min(envInt("GRADING_SELF_CONSISTENCY_SAMPLE", 0), MAX_SAMPLE);
+  const sample = selfConsistencySample();
   if (sample <= 0) {
     // Not an error: the default is off because the measurement costs money.
     return c.json({
       ok: true,
       skipped: "disabled",
       detail:
-        "Set GRADING_SELF_CONSISTENCY_SAMPLE to a positive number to sample. " +
+        "GRADING_SELF_CONSISTENCY_SAMPLE is 0. Unset it (default 3) or set a positive number to sample. " +
         "Each sampled submission is graded GRADING_SELF_CONSISTENCY_RUNS times " +
         "and costs that many vision calls per image.",
     });
