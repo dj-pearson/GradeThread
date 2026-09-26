@@ -22,8 +22,9 @@
 // the caller owns the reservation, this bundles into it and logs the spend.
 // Calibration is deterministic CV and is never billed.
 
-import { Image } from "imagescript";
+import type { Image } from "imagescript";
 import { supabaseAdmin } from "./supabase.ts";
+import { decodeToImage } from "./image-decode.ts";
 import { bucketForItemPhoto, downloadItemPhoto } from "./item-photo-storage.ts";
 import { MEASURE_CARD_VERSIONS } from "./measure-card.ts";
 import {
@@ -222,9 +223,7 @@ async function findCardPhoto(
     }
     let decoded: Image;
     try {
-      decoded = (await Image.decode(
-        new Uint8Array(await dl.blob.arrayBuffer()),
-      )) as Image;
+      decoded = await decodeToImage(new Uint8Array(await dl.blob.arrayBuffer()));
     } catch {
       lastMessage = "Could not decode the image.";
       continue;

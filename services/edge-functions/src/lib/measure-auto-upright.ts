@@ -28,7 +28,7 @@
 // original" in the photo editor undo this with no new UI and no second code
 // path. That is the whole reason not to invent a bespoke undo.
 
-import { Image } from "imagescript";
+import { decodeToImage } from "./image-decode.ts";
 import {
   type Quarter,
   quarterLabel,
@@ -125,7 +125,7 @@ export async function rotateImageBytes(
   bytes: Uint8Array,
   turns: Quarter,
 ): Promise<{ bytes: Uint8Array; width: number; height: number }> {
-  const img = await Image.decode(bytes);
+  const img = await decodeToImage(bytes);
   // CAPTURE THE SOURCE DIMENSIONS FIRST. imagescript's rotate() mutates the
   // instance and returns it, so reading img.width after the call gives the
   // ROTATED width and the check below compares a number against itself. The
