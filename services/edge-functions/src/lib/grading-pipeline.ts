@@ -142,6 +142,7 @@ import { mediaTypeForVision, uint8ToBase64 } from "./grading-image-encoding.ts";
 // function is the same function; moving the home should not move the test.
 export { mediaTypeForVision };
 import { captureServer } from "./posthog.ts";
+import { emitGradingOutcome } from "./grading-outcome-event.ts";
 import { emitEvent, firstOccurrenceKey } from "./user-events.ts";
 import { autoRefundPaidStripe } from "./grade-refund.ts";
 import {
@@ -4254,6 +4255,20 @@ export async function processSubmission(submissionId: string) {
     );
     const totalMs = Date.now() - startTime;
 
+    // US-3525: one event per grade with the numbers the monitor and dashboards
+    // need. Fire-and-forget.
+    void emitGradingOutcome({
+      outcome: "completed",
+      submissionId,
+      durationMs: totalMs,
+      promptVersion: compositeResult.prompt_version,
+      overallScore: compositeResult.overall_score,
+      confidenceScore: compositeResult.confidence_score,
+      needsHumanReview: compositeResult.needs_human_review,
+      autoApproved: autoApprove,
+      garmentCategory: submission.garment_category ?? null,
+    });
+
     if (autoApprove) {
       // Finalize now (reviewerId null = auto-approved, no human). All the go-live
       // wiring AND the seller's "now official" email + in-app notice run inside
@@ -4342,6 +4357,14 @@ export async function processSubmission(submissionId: string) {
       );
       throw error;
     }
+
+    // US-3525: a real failure (no grade stands), after the restore check.
+    void emitGradingOutcome({
+      outcome: "failed",
+      submissionId,
+      durationMs: totalMs,
+      error: errorMessage,
+    });
 
     // Update submission status to 'failed'
     try {

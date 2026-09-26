@@ -49670,6 +49670,20 @@
       ],
       "priority": 2,
       "notes": "Done 2026-09-26. HELD 00839 adds submission_images.content_sha256; grade.ts (photos and video frames), api-v1.ts, api-grade-ingest.ts and grading-submit.ts record the SHA-256 of the stored, EXIF-stripped bytes. New lib/cert-photo-seal.ts. Integrity v5 (CERT_INTEGRITY_VERSION_WITH_PHOTOS) seals the sorted image_type:sha256 list; buildCertIntegrity seals v5 only when photo_hashes is passed, so any reseal path not taught to load them stays at v4 instead of sealing a list the verifier would contradict. The pipeline, grade-adjustment (review queue + disputes) and authenticity-appeal reseals pass them. /certificates/:id/verify uses verifyCertificateWithPhotos: v5 rows load the list (edited list fails the hash) and re-hash the stored files (swapped or deleted file answers mismatch with photos_altered); v1-v4 rows verify exactly as before. buyer-trust batch passes the list for v5 rows with no downloads. The certificate page names the altered photos and says the seal covers N photos when it did. Proof: cert-photo-seal_test.ts, 8 cases; cert-integrity and backfill suites unchanged and green. Three source-shape guards (cleanliness-wording, fabric-zoom, submission-image-dimensions) updated for US-3517/US-3516 code movement."
+    },
+    {
+      "id": "US-3525",
+      "passes": true,
+      "title": "Grading audit S3: no alerts for grade drift, category bias, review backlog or failure rate",
+      "description": "As the owner, I want to be told when grading slides, so that inflation or a stuck queue does not go unnoticed. evaluateAlerts covers model change, golden size, eval, agreement, misread and dispute rate only.",
+      "acceptanceCriteria": [
+        "Weekly alert on grade distribution shift and mean-grade change beyond a threshold.",
+        "Alert on per-category bias from accuracy-tracking.",
+        "Alert on review queue depth and oldest-item age vs release_at.",
+        "One grading.completed / grading.failed PostHog event per grade with duration, cost, review flag and prompt version."
+      ],
+      "priority": 3,
+      "notes": "Done 2026-09-26. evaluateAlerts gains grade_mean_shift (last 7 days vs the 28 before, both windows >= min_sample, |shift| >= MONITOR_MAX_MEAN_SHIFT 0.3), category_bias (per garment category from accuracy-tracking's category_accuracies, |human-AI| >= MONITOR_MAX_CATEGORY_BIAS 0.5 with >= min_sample), review_queue_stale (critical: any review past review_due_at or the oldest >= MONITOR_MAX_QUEUE_AGE_HOURS 48), review_queue_deep (warn: >= MONITOR_MAX_QUEUE_DEPTH 50) and high_failure_rate (critical: failed/(failed+completed+pending_review) over 7 days > MONITOR_MAX_FAILURE_RATE 0.05). runGradingRegressionScan reads them in gatherQualityWatchInputs, each best-effort. New lib/grading-outcome-event.ts sends grading.completed / grading.failed per grade with duration_ms, cost_usd (sum of ai_usage_events), prompt_version, scores, needs_human_review and auto_approved; the failure event fires only after the US-3515 restore check. Proof: grading-quality-watch_test.ts (9 cases); grading-monitor_test.ts still 22/22 with thresholds extended. Needs POSTHOG_KEY set on the edge for the events to leave the container."
     }
   ]
 }

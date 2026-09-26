@@ -5221,19 +5221,6 @@
       "priority": 3
     },
     {
-      "id": "US-3525",
-      "passes": false,
-      "title": "Grading audit S3: no alerts for grade drift, category bias, review backlog or failure rate",
-      "description": "As the owner, I want to be told when grading slides, so that inflation or a stuck queue does not go unnoticed. evaluateAlerts covers model change, golden size, eval, agreement, misread and dispute rate only.",
-      "acceptanceCriteria": [
-        "Weekly alert on grade distribution shift and mean-grade change beyond a threshold.",
-        "Alert on per-category bias from accuracy-tracking.",
-        "Alert on review queue depth and oldest-item age vs release_at.",
-        "One grading.completed / grading.failed PostHog event per grade with duration, cost, review flag and prompt version."
-      ],
-      "priority": 3
-    },
-    {
       "id": "US-3526",
       "passes": false,
       "title": "Grading audit S3: prompt activation skips shadow evidence and eval ignores live flags",
