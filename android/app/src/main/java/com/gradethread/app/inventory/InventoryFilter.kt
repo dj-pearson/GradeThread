@@ -1,11 +1,15 @@
 package com.gradethread.app.inventory
 
 import com.gradethread.app.sync.db.InventoryItemEntity
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 /** Photo-presence facet. */
+@Serializable
 enum class PhotoState { ANY, WITH_PHOTO, MISSING_PHOTO }
 
 /** Relative date-added band. */
+@Serializable
 enum class DateAddedBand(val days: Int?) {
     ANY(null),
     LAST_7(7),
@@ -18,7 +22,11 @@ enum class DateAddedBand(val days: Int?) {
  *
  * Multi-select facets are OR WITHIN a facet (any selected brand) and AND
  * ACROSS facets (brand AND size).
+ *
+ * US-3544: serializable so the filters survive process death alongside the
+ * stage and sort, instead of being the one thing a seller has to redo.
  */
+@Serializable
 data class InventoryFilterCriteria(
     val brands: Set<String> = emptySet(),
     val sizes: Set<String> = emptySet(),
@@ -58,6 +66,17 @@ data class InventoryFilterCriteria(
         ).count { it }
 
     val isEmpty: Boolean get() = activeCount == 0
+
+    companion object {
+        private val json = Json { ignoreUnknownKeys = true }
+
+        fun encode(criteria: InventoryFilterCriteria): String = json.encodeToString(serializer(), criteria)
+
+        /** Garbled or from a build with different fields: start clean, never crash. */
+        fun decode(raw: String?): InventoryFilterCriteria =
+            raw?.let { runCatching { json.decodeFromString(serializer(), it) }.getOrNull() }
+                ?: InventoryFilterCriteria()
+    }
 }
 
 /**
@@ -175,7 +194,16 @@ object InventoryFilter {
                 // Substring, not token equality: "nik" finds Nike.
                 tokens.all { hay.contains(it) }
             }
-            .sortedWith(sort.comparator(soldDates))
             .toList()
+            .let { matched ->
+                // US-3544: decode each item's comps once, not per comparison.
+                // No comps is recorded as MISSING so it is not re-decoded.
+                val compPrices = if (sort == SortOption.HIGHEST_COMP) {
+                    matched.associate { it.id to (SortOption.maxCompPrice(it) ?: -Double.MAX_VALUE) }
+                } else {
+                    emptyMap()
+                }
+                matched.sortedWith(sort.comparator(soldDates, compPrices))
+            }
     }
 }

@@ -62,7 +62,9 @@ class InventoryListViewModel @Inject constructor(
     )
     val sort: StateFlow<SortOption> = _sort.asStateFlow()
 
-    private val _criteria = MutableStateFlow(InventoryFilterCriteria())
+    private val _criteria = MutableStateFlow(
+        InventoryFilterCriteria.decode(saved.get<String>(Restorable.Keys.INVENTORY_CRITERIA)),
+    )
     val criteria: StateFlow<InventoryFilterCriteria> = _criteria.asStateFlow()
 
     private val _viewMode = MutableStateFlow(
@@ -182,10 +184,11 @@ class InventoryListViewModel @Inject constructor(
 
     fun setCriteria(value: InventoryFilterCriteria) {
         _criteria.value = value
+        saved[Restorable.Keys.INVENTORY_CRITERIA] = InventoryFilterCriteria.encode(value)
     }
 
     fun clearFilters() {
-        _criteria.value = InventoryFilterCriteria()
+        setCriteria(InventoryFilterCriteria())
     }
 
     /**
@@ -199,7 +202,7 @@ class InventoryListViewModel @Inject constructor(
     fun applyPendingBrandFilter() {
         val brand = InventoryFilterRequests.consumeBrand() ?: return
         _stage.value = InventoryStage.ALL
-        _criteria.value = _criteria.value.copy(brands = setOf(brand))
+        setCriteria(_criteria.value.copy(brands = setOf(brand)))
     }
 
     fun toggleViewMode() {

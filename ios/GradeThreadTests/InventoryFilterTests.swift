@@ -128,6 +128,41 @@ final class InventoryFilterTests: XCTestCase {
         XCTAssertFalse(SortOption.untouchedLongest.isOrdered(fresh, stale))
     }
 
+    // US-3544: Highest comp sorts on the highest saved comp, like the web.
+    func test_sort_highestComp_usesSavedCompsNotTargetPrice() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let lowComps = LocalInventoryItem(
+            id: "a", userId: "u", title: "A", status: "comped",
+            createdAt: Date(timeIntervalSince1970: 100),
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+        lowComps.targetPrice = 500
+        lowComps.compSetJSON = ItemComp.encodeList([ItemComp(price: 20), ItemComp(price: 35)])
+        let highComps = LocalInventoryItem(
+            id: "b", userId: "u", title: "B", status: "comped",
+            createdAt: Date(timeIntervalSince1970: 100),
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+        highComps.targetPrice = 10
+        highComps.compSetJSON = ItemComp.encodeList([ItemComp(price: 90)])
+        let noComps = LocalInventoryItem(
+            id: "c", userId: "u", title: "C", status: "comped",
+            createdAt: Date(timeIntervalSince1970: 100),
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+        noComps.targetPrice = 900
+        for item in [lowComps, highComps, noComps] { context.insert(item) }
+
+        XCTAssertEqual(SortOption.maxCompPrice(lowComps), 35)
+        XCTAssertNil(SortOption.maxCompPrice(noComps))
+        let sorted = InventoryFilter.apply(
+            [noComps, lowComps, highComps], stage: .all, search: "", sort: .highestComp,
+            criteria: .empty
+        )
+        XCTAssertEqual(sorted.map(\.id), ["b", "a", "c"])
+    }
+
     func test_stageDefaultSorts_andSaleSortsOnlyWhereSalesLive() {
         XCTAssertEqual(InventoryStage.sold.defaultSort, .recentSale)
         XCTAssertEqual(InventoryStage.shipped.defaultSort, .recentSale)

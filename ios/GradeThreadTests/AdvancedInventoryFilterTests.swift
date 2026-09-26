@@ -268,6 +268,32 @@ final class AdvancedInventoryFilterTests: XCTestCase {
         XCTAssertTrue(store.filters.isEmpty)
     }
 
+    // US-3544: a saved view carries its tab and sort.
+    func test_savedFilters_keepStageAndSort_acrossReload() throws {
+        let defaults = try ephemeralDefaults()
+        SavedFilterStore(defaults: defaults)
+            .save(name: "Recent sales", criteria: .empty, stage: .sold, sort: .recentSale)
+        let reloaded = SavedFilterStore(defaults: defaults)
+        XCTAssertEqual(reloaded.filters.first?.stage, .sold)
+        XCTAssertEqual(reloaded.filters.first?.sort, .recentSale)
+    }
+
+    func test_savedFilter_legacyAndUnknownValues_stillDecode() throws {
+        // Saved before US-3544 (no stage/sort), and saved by a later build
+        // with a tab this one does not know: both keep their facets.
+        let criteria = String(data: try JSONEncoder().encode(InventoryFilterCriteria.empty), encoding: .utf8) ?? "{}"
+        let json = """
+        [{"id":"\(UUID().uuidString)","name":"Old","criteria":\(criteria)},
+         {"id":"\(UUID().uuidString)","name":"New","criteria":\(criteria),"stage":"future_tab","sort":"recent_sale"}]
+        """
+        let decoded = try JSONDecoder().decode([SavedFilter].self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.count, 2)
+        XCTAssertNil(decoded[0].stage)
+        XCTAssertNil(decoded[0].sort)
+        XCTAssertNil(decoded[1].stage)
+        XCTAssertEqual(decoded[1].sort, .recentSale)
+    }
+
     func test_savedFilters_blankNameRejected() throws {
         let store = SavedFilterStore(defaults: try ephemeralDefaults())
         XCTAssertNil(store.save(name: "   ", criteria: .empty))

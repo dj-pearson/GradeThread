@@ -8,11 +8,36 @@ public struct SavedFilter: Codable, Equatable, Identifiable, Hashable {
     public let id: UUID
     public var name: String
     public var criteria: InventoryFilterCriteria
+    /// US-3544: the tab and order the view was saved on, so "Sold, newest sale
+    /// first" is one tap. Optional: views saved before this carried neither,
+    /// and they still decode and apply their facets alone.
+    ///
+    /// Stored as raw strings: a tab or sort a later build renamed must drop
+    /// just that field, not fail the decode of every saved view.
+    private var stageRaw: String?
+    private var sortRaw: String?
 
-    public init(id: UUID = UUID(), name: String, criteria: InventoryFilterCriteria) {
+    public var stage: InventoryStage? { stageRaw.flatMap(InventoryStage.init(rawValue:)) }
+    public var sort: SortOption? { sortRaw.flatMap(SortOption.init(rawValue:)) }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, criteria
+        case stageRaw = "stage"
+        case sortRaw = "sort"
+    }
+
+    public init(
+        id: UUID = UUID(),
+        name: String,
+        criteria: InventoryFilterCriteria,
+        stage: InventoryStage? = nil,
+        sort: SortOption? = nil
+    ) {
         self.id = id
         self.name = name
         self.criteria = criteria
+        self.stageRaw = stage?.rawValue
+        self.sortRaw = sort?.rawValue
     }
 }
 
@@ -38,15 +63,22 @@ public final class SavedFilterStore {
     /// nil). Reusing an existing name overwrites that view rather than
     /// creating a duplicate, so "save" is idempotent on the name.
     @discardableResult
-    public func save(name: String, criteria: InventoryFilterCriteria) -> SavedFilter? {
+    public func save(
+        name: String,
+        criteria: InventoryFilterCriteria,
+        stage: InventoryStage? = nil,
+        sort: SortOption? = nil
+    ) -> SavedFilter? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        let filter = SavedFilter(name: trimmed, criteria: criteria)
+        let filter = SavedFilter(name: trimmed, criteria: criteria, stage: stage, sort: sort)
         if let idx = filters.firstIndex(where: {
             $0.name.caseInsensitiveCompare(trimmed) == .orderedSame
         }) {
-            filters[idx] = SavedFilter(id: filters[idx].id, name: trimmed, criteria: criteria)
+            filters[idx] = SavedFilter(
+                id: filters[idx].id, name: trimmed, criteria: criteria, stage: stage, sort: sort
+            )
         } else {
             filters.append(filter)
         }

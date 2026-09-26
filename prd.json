@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3544",
+  "nextId": "US-3545",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5200,6 +5200,18 @@
         "To list includes status grading on both platforms (it previously appeared only under All)",
         "iOS keeps the selected stage and sort across relaunch via @SceneStorage (inventory.stage, inventory.sort)",
         "Android InventoryDerivation re-sorts when sale dates change under a sale sort (InventoryDerivationTest.saleSortUsesTheSaleDatesThroughTheMemo)"
+      ]
+    },
+    {
+      "id": "US-3544",
+      "passes": false,
+      "title": "Mobile inventory follow-ups: real comp sort, saved views keep tab and sort, filters survive restarts, honest days label",
+      "description": "As a reseller, I want the inventory sort, saved views and filters to do what their names say, so that I can trust the order I see and return to the view I was working in.",
+      "acceptanceCriteria": [
+        "Highest comp on iOS and Android sorts by the highest saved comp price in comp_set (SortOption.maxCompPrice, mirroring maxCompPrice in src/lib/listability.ts); items with no comps sink",
+        "iOS SavedFilter stores optional stage and sort; applying a saved view sets both; views saved before this, or with a stage/sort raw value this build does not know, still decode (AdvancedInventoryFilterTests)",
+        "Android InventoryFilterCriteria is @Serializable and saved under Restorable.Keys.INVENTORY_CRITERIA in the SavedStateHandle; a garbled value restores empty criteria",
+        "The days_in_status field is labelled 'Days since last change' on web (src/lib/item-filter.ts), iOS (InventoryRuleQuery, AutomationTypes) and Android (automation_field_days_in_status en/es), since every evaluator measures updated_at"
       ]
     }
   ]

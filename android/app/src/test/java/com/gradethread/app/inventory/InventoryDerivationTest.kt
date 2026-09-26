@@ -90,6 +90,34 @@ class InventoryDerivationTest {
     }
 
     @Test
+    fun highestCompSortsOnTheHighestSavedCompNotTargetPrice() {
+        // US-3544: high target, low comps must rank below low target, high comps.
+        val lowComps = item("a", target = 500.0).copy(compSetJson = """[{"price":20},{"price":"35"}]""")
+        val highComps = item("b", target = 10.0).copy(compSetJson = """[{"price":90}]""")
+        val noComps = item("c", target = 900.0)
+        val sorted = InventoryFilter.apply(
+            listOf(noComps, lowComps, highComps), InventoryStage.ALL, "", SortOption.HIGHEST_COMP,
+            InventoryFilterCriteria(),
+        )
+        assertEquals(listOf("b", "a", "c"), sorted.map { it.id })
+        assertEquals(35.0, SortOption.maxCompPrice(lowComps))
+        assertNull(SortOption.maxCompPrice(noComps))
+    }
+
+    @Test
+    fun filterCriteriaSurviveARoundTrip() {
+        val criteria = InventoryFilterCriteria(
+            brands = setOf("Patagonia"),
+            minPrice = 20.0,
+            photoState = PhotoState.MISSING_PHOTO,
+            dateAdded = DateAddedBand.LAST_30,
+        )
+        assertEquals(criteria, InventoryFilterCriteria.decode(InventoryFilterCriteria.encode(criteria)))
+        assertEquals(InventoryFilterCriteria(), InventoryFilterCriteria.decode("not json"))
+        assertEquals(InventoryFilterCriteria(), InventoryFilterCriteria.decode(null))
+    }
+
+    @Test
     fun gradingItemsAreWorkToList() {
         assertTrue(InventoryStage.TO_LIST.matches("grading"))
     }

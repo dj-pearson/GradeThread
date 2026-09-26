@@ -22,7 +22,8 @@ public enum InventoryFilter {
             staged = staged.filter { $0.gradeValue != nil }
         }
         let searched = filter(staged, search: search)
-        return searched.sorted { sort.isOrdered($0, $1) }
+        let compPrices = sort == .highestComp ? compPriceMap(searched) : [:]
+        return searched.sorted { sort.isOrdered($0, $1, compPrices: compPrices) }
     }
 
     /// Full pipeline with the advanced ``InventoryFilterCriteria`` facets
@@ -65,7 +66,20 @@ public enum InventoryFilter {
             )
         }
         let searched = filter(faceted, search: search, serverSearchIds: serverSearchIds)
-        return searched.sorted { sort.isOrdered($0, $1, soldDates: soldDates) }
+        let compPrices = sort == .highestComp ? compPriceMap(searched) : [:]
+        return searched.sorted {
+            sort.isOrdered($0, $1, soldDates: soldDates, compPrices: compPrices)
+        }
+    }
+
+    /// US-3544: each item's highest comp, decoded once per sort pass.
+    private static func compPriceMap(_ items: [LocalInventoryItem]) -> [String: Double] {
+        var out: [String: Double] = [:]
+        for item in items {
+            // No comps is recorded too, so the comparator never re-decodes it.
+            out[item.id] = SortOption.maxCompPrice(item) ?? -.greatestFiniteMagnitude
+        }
+        return out
     }
 
     /// Effective price used by both the price-band facet and the price

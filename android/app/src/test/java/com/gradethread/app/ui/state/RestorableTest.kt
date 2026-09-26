@@ -153,6 +153,7 @@ class RestorableTest {
             Restorable.Keys.INVENTORY_SORT,
             Restorable.Keys.INVENTORY_VIEW_MODE,
             Restorable.Keys.INVENTORY_QUERY,
+            Restorable.Keys.INVENTORY_CRITERIA,
             Restorable.Keys.SEARCH_QUERY,
         )
 

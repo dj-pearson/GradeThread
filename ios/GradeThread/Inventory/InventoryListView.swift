@@ -42,9 +42,18 @@ struct InventoryListView: View {
     private func applyPendingFilter(_ filter: AppRouter.InventoryDeepFilter?) {
         guard let filter else { return }
         switch filter {
-        case .drafts: selectedStage = .drafts
+        case .drafts: selectStage(.drafts)
         }
         router?.pendingInventoryFilter = nil
+    }
+    /// US-3543: each stage opens in its own order (Sold: newest sale first,
+    /// To list: untouched longest first). A sort picked after that holds until
+    /// the stage changes again. Explicit rather than an `onChange`, so a saved
+    /// view that sets a stage AND a sort keeps its sort.
+    private func selectStage(_ stage: InventoryStage) {
+        guard stage != selectedStage else { return }
+        selectedStage = stage
+        sortOption = stage.defaultSort
     }
     /// US-813: list vs. kanban-board layout. The board ignores the stage tabs
     /// (it shows every pipeline column) but still honors search + filters.
@@ -254,12 +263,6 @@ struct InventoryListView: View {
         .onChange(of: router?.pendingInventoryFilter, initial: true) { _, filter in
             applyPendingFilter(filter)
         }
-        // US-3543: each stage opens in its own order (Sold: newest sale first,
-        // To list: untouched longest first). A sort picked after that holds
-        // until the stage changes again.
-        .onChange(of: selectedStage) { _, stage in
-            sortOption = stage.defaultSort
-        }
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             viewModeToolbarItem
@@ -277,6 +280,8 @@ struct InventoryListView: View {
             case .filter:
                 InventoryFilterSheet(
                     criteria: $criteria,
+                    stage: $selectedStage,
+                    sort: $sortOption,
                     facets: facets,
                     savedFilters: savedFilters,
                     resultCount: { resultCount(for: $0) }
@@ -451,7 +456,7 @@ struct InventoryListView: View {
                 ForEach(InventoryStage.userFacing) { stage in
                     Button {
                         AppRouter.haptic()
-                        selectedStage = stage
+                        selectStage(stage)
                     } label: {
                         tabChip(for: stage, count: counts[stage] ?? 0)
                     }

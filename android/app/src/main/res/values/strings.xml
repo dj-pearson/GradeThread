@@ -2552,7 +2552,7 @@
     <string name="automation_field_target_price">Target price</string>
     <string name="automation_field_status">Status</string>
     <string name="automation_field_grade">Grade</string>
-    <string name="automation_field_days_in_status">Days in status</string>
+    <string name="automation_field_days_in_status">Days since last change</string>
     <string name="automation_op_eq">is</string>
     <string name="automation_op_neq">is not</string>
     <string name="automation_op_contains">contains</string>

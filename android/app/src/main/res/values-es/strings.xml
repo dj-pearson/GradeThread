@@ -2511,7 +2511,7 @@
     <string name="automation_field_target_price">Precio objetivo</string>
     <string name="automation_field_status">Estado</string>
     <string name="automation_field_grade">Nota</string>
-    <string name="automation_field_days_in_status">Días en el estado</string>
+    <string name="automation_field_days_in_status">Días desde el último cambio</string>
     <string name="automation_op_eq">es</string>
     <string name="automation_op_neq">no es</string>
     <string name="automation_op_contains">contiene</string>

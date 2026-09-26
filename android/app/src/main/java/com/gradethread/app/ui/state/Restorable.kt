@@ -27,6 +27,7 @@ object Restorable {
         const val INVENTORY_SORT = "inventory.sort"
         const val INVENTORY_VIEW_MODE = "inventory.viewMode"
         const val INVENTORY_QUERY = "inventory.query"
+        const val INVENTORY_CRITERIA = "inventory.criteria"
         const val SEARCH_QUERY = "search.query"
     }
 

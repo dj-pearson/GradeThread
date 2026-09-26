@@ -64,10 +64,14 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
     ///
     /// - Parameter soldDates: item id -> linked sale date, for the two sale
     ///   sorts. The item row has no sold date of its own.
+    ///   - compPrices: item id -> highest saved comp price, precomputed once per
+    ///     sort so the comp JSON is not decoded on every comparison. A missing
+    ///     entry is decoded on the spot.
     func isOrdered(
         _ a: LocalInventoryItem,
         _ b: LocalInventoryItem,
-        soldDates: [String: Date] = [:]
+        soldDates: [String: Date] = [:],
+        compPrices: [String: Double] = [:]
     ) -> Bool {
         switch self {
         case .recentSale, .oldestSale:
@@ -100,10 +104,11 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
             if aROI != bROI { return (aROI ?? -.greatestFiniteMagnitude) > (bROI ?? -.greatestFiniteMagnitude) }
             return a.createdAt > b.createdAt
         case .highestComp:
-            // Closest standin we have on the local cache is target_price
-            // — items_full's `comps` jsonb isn't cached locally yet.
-            let aPrice = a.targetPrice ?? a.listingPrice ?? -.greatestFiniteMagnitude
-            let bPrice = b.targetPrice ?? b.listingPrice ?? -.greatestFiniteMagnitude
+            // US-3544: the highest saved comp, the same number the web's
+            // `maxCompPrice` sorts on. It used to be target price, which the
+            // label did not say. No comps sinks to the bottom.
+            let aPrice = compPrices[a.id] ?? Self.maxCompPrice(a) ?? -.greatestFiniteMagnitude
+            let bPrice = compPrices[b.id] ?? Self.maxCompPrice(b) ?? -.greatestFiniteMagnitude
             if aPrice != bPrice { return aPrice > bPrice }
             return a.createdAt > b.createdAt
         case .highestGrade:
@@ -137,6 +142,12 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
             if a.createdAt != b.createdAt { return a.createdAt > b.createdAt }
             return a.id < b.id
         }
+    }
+
+    /// Highest positive comp price in the item's saved comp set, or nil when
+    /// it has none. Mirrors `maxCompPrice` in src/lib/listability.ts.
+    static func maxCompPrice(_ item: LocalInventoryItem) -> Double? {
+        ItemComp.decodeList(item.compSetJSON).map(\.price).filter { $0 > 0 }.max()
     }
 
     /// Statuses an item only reaches by selling.

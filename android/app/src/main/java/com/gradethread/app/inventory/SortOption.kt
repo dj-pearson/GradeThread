@@ -41,8 +41,14 @@ enum class SortOption(val wire: String, @StringRes val label: Int) {
     /**
      * @param soldDates item id to linked sale date (epoch millis), for the two
      * sale sorts. The item row has no sold date of its own.
+     * @param compPrices item id to highest saved comp, precomputed once per sort
+     * so `comp_set` is not decoded on every comparison. A missing entry is
+     * decoded on the spot.
      */
-    fun comparator(soldDates: Map<String, Long> = emptyMap()): Comparator<InventoryItemEntity> = when (this) {
+    fun comparator(
+        soldDates: Map<String, Long> = emptyMap(),
+        compPrices: Map<String, Double> = emptyMap(),
+    ): Comparator<InventoryItemEntity> = when (this) {
         RECENT_SALE, OLDEST_SALE -> Comparator { a, b ->
             // Unsold sinks in BOTH directions: it is neither the newest nor
             // the oldest sale.
@@ -76,12 +82,11 @@ enum class SortOption(val wire: String, @StringRes val label: Int) {
         }
 
         HIGHEST_COMP -> Comparator { a, b ->
-            // targetPrice THEN listingPrice — the opposite precedence from
-            // effectivePrice. That inconsistency exists on iOS; replicated
-            // deliberately so the same list doesn't sort differently per
-            // platform. Worth fixing on both at once, not here.
-            val aPrice = a.targetPrice ?: a.listingPrice ?: MISSING
-            val bPrice = b.targetPrice ?: b.listingPrice ?: MISSING
+            // US-3544: the highest saved comp, the number the web's
+            // `maxCompPrice` sorts on, fixed on both platforms at once. It used
+            // to be target price, which the label did not say. No comps sinks.
+            val aPrice = compPrices[a.id] ?: maxCompPrice(a) ?: MISSING
+            val bPrice = compPrices[b.id] ?: maxCompPrice(b) ?: MISSING
             if (aPrice != bPrice) {
                 bPrice.compareTo(aPrice)
             } else {
@@ -131,6 +136,10 @@ enum class SortOption(val wire: String, @StringRes val label: Int) {
     }
 
     companion object {
+        /** Highest positive saved comp, or null with none (web `maxCompPrice`). */
+        fun maxCompPrice(item: InventoryItemEntity): Double? =
+            CompSet.decode(item.compSetJson).maxOfOrNull { it.price }
+
         /** Statuses an item only reaches by selling. */
         val soldStatuses: Set<String> = setOf("sold", "shipped", "completed", "returned")
 

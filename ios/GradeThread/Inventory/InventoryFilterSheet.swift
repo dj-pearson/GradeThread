@@ -8,6 +8,10 @@ import SwiftUI
 struct InventoryFilterSheet: View {
     /// Committed back to the caller on Done.
     @Binding var criteria: InventoryFilterCriteria
+    /// US-3544: a saved view carries the tab and sort too; both commit on Done
+    /// with the facets.
+    @Binding var stage: InventoryStage
+    @Binding var sort: SortOption
     let facets: InventoryFacets
     let savedFilters: SavedFilterStore
     /// How many items the given criteria would yield under the caller's
@@ -18,6 +22,8 @@ struct InventoryFilterSheet: View {
 
     /// Working copy; the bound `criteria` only updates on Done.
     @State private var draft: InventoryFilterCriteria
+    @State private var draftStage: InventoryStage
+    @State private var draftSort: SortOption
     @State private var minPriceText = ""
     @State private var maxPriceText = ""
     @State private var showingSaveAlert = false
@@ -27,11 +33,17 @@ struct InventoryFilterSheet: View {
 
     init(
         criteria: Binding<InventoryFilterCriteria>,
+        stage: Binding<InventoryStage>,
+        sort: Binding<SortOption>,
         facets: InventoryFacets,
         savedFilters: SavedFilterStore,
         resultCount: @escaping (InventoryFilterCriteria) -> Int
     ) {
         self._criteria = criteria
+        self._stage = stage
+        self._sort = sort
+        self._draftStage = State(initialValue: stage.wrappedValue)
+        self._draftSort = State(initialValue: sort.wrappedValue)
         self.facets = facets
         self.savedFilters = savedFilters
         self.resultCount = resultCount
@@ -71,12 +83,12 @@ struct InventoryFilterSheet: View {
         .alert("Save view", isPresented: $showingSaveAlert) {
             TextField("Name (e.g. Nike size L)", text: $saveName)
             Button("Save") {
-                savedFilters.save(name: saveName, criteria: draft)
+                savedFilters.save(name: saveName, criteria: draft, stage: draftStage, sort: draftSort)
                 saveName = ""
             }
             Button("Cancel", role: .cancel) { saveName = "" }
         } message: {
-            Text("Pin the current filters as a one-tap view.")
+            Text("Pin the current filters, tab and sort as a one-tap view.")
         }
     }
 
@@ -89,16 +101,27 @@ struct InventoryFilterSheet: View {
                 ForEach(savedFilters.filters) { saved in
                     Button {
                         AppRouter.haptic()
-                        withAnimation(ReducedMotion.animation(.default)) { draft = saved.criteria }
+                        withAnimation(ReducedMotion.animation(.default)) {
+                            draft = saved.criteria
+                            if let stage = saved.stage { draftStage = stage }
+                            if let sort = saved.sort { draftSort = sort }
+                        }
                         syncPriceText()
                     } label: {
                         HStack {
                             Image(systemName: "bookmark.fill")
                                 .foregroundStyle(Color.brandNavy)
-                            Text(saved.name)
-                                .foregroundStyle(.primary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(saved.name)
+                                    .foregroundStyle(.primary)
+                                if let summary = Self.summary(stage: saved.stage, sort: saved.sort) {
+                                    Text(summary)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                             Spacer()
-                            if draft == saved.criteria {
+                            if isApplied(saved) {
                                 Image(systemName: "checkmark")
                                     .foregroundStyle(Color.brandNavy)
                             }
@@ -108,7 +131,7 @@ struct InventoryFilterSheet: View {
                 }
                 .onDelete { savedFilters.delete(at: $0) }
 
-                if draft.isActive {
+                if draft.isActive || draftStage != .all {
                     Button {
                         AppRouter.haptic()
                         // US-1185: prefill with the matched view's name so
@@ -325,7 +348,23 @@ struct InventoryFilterSheet: View {
     private func commit() {
         AppRouter.haptic()
         criteria = draft
+        stage = draftStage
+        sort = draftSort
         dismiss()
+    }
+
+    /// A saved view is the applied one when its facets match and any tab or
+    /// sort it carries matches too.
+    private func isApplied(_ saved: SavedFilter) -> Bool {
+        draft == saved.criteria
+            && (saved.stage == nil || saved.stage == draftStage)
+            && (saved.sort == nil || saved.sort == draftSort)
+    }
+
+    /// "Sold, Most recent sale" under a saved view's name.
+    static func summary(stage: InventoryStage?, sort: SortOption?) -> String? {
+        let parts = [stage?.label, sort?.label].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 }
 
