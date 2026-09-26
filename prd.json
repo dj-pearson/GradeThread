@@ -5185,18 +5185,6 @@
       ]
     },
     {
-      "id": "US-3522",
-      "passes": false,
-      "title": "Grading audit S3: golden set has no minimum size or coverage rule",
-      "description": "As the owner, I want the eval to refuse a golden set too small to mean anything, so that a prompt cannot pass on 1 case. runEval only refuses an empty set.",
-      "acceptanceCriteria": [
-        "runEval refuses when active cases are below a configured minimum overall and per scoped category.",
-        "Each grade tier and garment category in scope must have at least one case or the run fails with a named gap.",
-        "Human-corrected grades (review delta >= 1.0) are auto-queued as inactive eval candidates."
-      ],
-      "priority": 3
-    },
-    {
       "id": "US-3523",
       "passes": false,
       "title": "Grading audit S3: grade randomness is never measured",

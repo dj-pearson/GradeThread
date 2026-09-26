@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { autoQueueEvalCandidate } from "../lib/grading-eval.ts";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
@@ -260,6 +261,17 @@ adminDisputesRoutes.post("/:id/resolve", async (c) => {
       const result = await applyGradeAdjustment(db, report, factors);
       newOverall = result.overall_score;
       resealed = result.resealed;
+      // US-3522: a dispute that moved the grade is a golden-set candidate.
+      void autoQueueEvalCandidate(
+        {
+          grade_report_id: report.id,
+          original_score: Number(report.overall_score),
+          adjusted_score: projectedOverall,
+          intentional_misread: null,
+        },
+        "dispute",
+        adminId,
+      );
     } catch (err) {
       if (err instanceof ZeroRowsAffectedError) {
         return c.json({ error: "Grade report could not be updated (no row changed)" }, 409);

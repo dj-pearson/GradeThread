@@ -26,6 +26,7 @@ import {
 } from "../lib/accuracy-tracking.ts";
 import {
   activatePromptVersion,
+  autoQueueEvalCandidate,
   promoteGradeReportToEvalCase,
   promoteHighSignalEvalCandidates,
   runEval,
@@ -3568,6 +3569,19 @@ adminGradingRoutes.post("/review/:id/adjust", async (c) => {
       console.warn("[admin-grading] cert cache invalidation failed:", e),
     );
   }
+
+  // US-3522: a big correction is exactly the case the golden set is missing.
+  // Queue it as an inactive candidate now; an admin still approves it.
+  void autoQueueEvalCandidate(
+    {
+      grade_report_id: report.id,
+      original_score: Number(report.overall_score),
+      adjusted_score: overall,
+      intentional_misread: body.intentional_misread === true,
+    },
+    "human_review",
+    adminId,
+  );
 
   await auditLog(c, "grading.review_adjusted", "grade_report", report.id, {
     submission_id: report.submission_id,

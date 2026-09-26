@@ -326,6 +326,19 @@ export async function runEval(
         ". Add golden cases before running the eval gate.",
     );
   }
+  // US-3522: an empty set was the only refusal, so three tops rated Good could
+  // pass a prompt that grades every garment. Refuse a set too small or too
+  // narrow to mean anything, and name the gap.
+  const gaps = goldenSetGaps(
+    (cases as Array<{ expected_tier: string | null }>),
+    { scoped: Boolean(v.garment_scope) },
+  );
+  if (gaps.length > 0) {
+    throw new Error(
+      `Golden set too thin to gate on${v.garment_scope ? ` for "${v.garment_scope}"` : ""}: ` +
+        `${gaps.join("; ")}. Promote more real corrected grades before running the eval gate.`,
+    );
+  }
 
   // US-2307: the eval runs on, and stamps, the model THIS STAGE will serve on.
   //
@@ -1053,6 +1066,47 @@ export async function promoteGradeReportToEvalCase(
   return { ok: true, case_id: (inserted as { id: string }).id, already: false };
 }
 
+/**
+ * US-3522: the minimum golden set the eval gate will run on.
+ *
+ * Unscoped: GRADING_EVAL_MIN_CASES cases (default 20) and at least one case in
+ * every grade tier, so a prompt cannot pass on a set that never asks it to
+ * grade a Poor or an NWT. Scoped to one category: GRADING_EVAL_MIN_SCOPED_CASES
+ * (default 5); the tier rule is not applied, since one category rarely spans
+ * every tier. Pure, so the thresholds are testable.
+ */
+export const GRADE_TIERS = [
+  "NWT",
+  "NWOT",
+  "Excellent",
+  "Very Good",
+  "Good",
+  "Fair",
+  "Poor",
+] as const;
+
+function envInt(name: string, fallback: number): number {
+  const raw = Number(Deno.env.get(name));
+  return Number.isFinite(raw) && raw >= 1 ? Math.trunc(raw) : fallback;
+}
+
+export function goldenSetGaps(
+  cases: ReadonlyArray<{ expected_tier: string | null }>,
+  opts: { scoped: boolean },
+): string[] {
+  const gaps: string[] = [];
+  const min = opts.scoped
+    ? envInt("GRADING_EVAL_MIN_SCOPED_CASES", 5)
+    : envInt("GRADING_EVAL_MIN_CASES", 20);
+  if (cases.length < min) gaps.push(`${cases.length} active cases, need ${min}`);
+  if (!opts.scoped) {
+    const present = new Set(cases.map((c) => c.expected_tier ?? ""));
+    const missing = GRADE_TIERS.filter((t) => !present.has(t));
+    if (missing.length > 0) gaps.push(`no case in tier ${missing.join(", ")}`);
+  }
+  return gaps;
+}
+
 /** A correction worth turning into a golden case: a flagged intentional-design
  *  misread, or a score the reviewer moved by at least `minDelta` points. An
  *  approved-as-is review (no adjusted score, no misread flag) is NOT high-signal
@@ -1068,6 +1122,45 @@ export function isHighSignalCorrection(
   if (review.intentional_misread === true) return true;
   if (review.adjusted_score === null || review.adjusted_score === undefined) return false;
   return Math.abs(review.adjusted_score - review.original_score) >= minDelta;
+}
+
+/**
+ * US-3522: queue a high-signal correction as an INACTIVE eval candidate the
+ * moment a human makes it, instead of waiting for someone to press the
+ * sweep button. The candidate still needs an admin to approve it before it
+ * counts toward the gate, exactly like a manual promotion. Never throws: a
+ * review must not fail because the golden-set bookkeeping did.
+ */
+export const AUTO_QUEUE_MIN_DELTA = 1.0;
+
+export async function autoQueueEvalCandidate(
+  review: {
+    grade_report_id: string;
+    original_score: number;
+    adjusted_score: number | null;
+    intentional_misread: boolean | null;
+  },
+  source: "human_review" | "dispute",
+  createdBy: string | null,
+  promote: typeof promoteGradeReportToEvalCase = promoteGradeReportToEvalCase,
+): Promise<"queued" | "already" | "skipped" | "failed"> {
+  if (!isHighSignalCorrection(review, AUTO_QUEUE_MIN_DELTA)) return "skipped";
+  try {
+    const res = await promote(review.grade_report_id, source, createdBy);
+    if (!res.ok) {
+      console.warn(
+        `[grading-eval] auto-queue of ${review.grade_report_id} refused: ${res.error}`,
+      );
+      return "failed";
+    }
+    return res.already ? "already" : "queued";
+  } catch (err) {
+    console.error(
+      `[grading-eval] auto-queue of ${review.grade_report_id} failed:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return "failed";
+  }
 }
 
 export interface HighSignalPromoteOptions {
